@@ -7,12 +7,6 @@ LavinMQ can be configured through three methods, listed in order of precedence (
 3. **INI configuration file** — specified with `-c` / `--config`
 4. **Built-in defaults**
 
-## Value Formats
-
-- **Boolean**: `1`, `true`, `yes`, `on`, `y` (case-insensitive) are true; everything else is false.
-- **Array**: comma-separated values (whitespace is stripped).
-- **Duration** (`Time::Span`): integer number of seconds.
-
 ## INI File Format
 
 The configuration file uses INI format with sections. Specify it with:
@@ -138,12 +132,19 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 
 ## [sni:hostname] Sections
 
-Per-hostname TLS configuration. Create a section for each hostname. Each SNI section supports the following options:
+Per-hostname TLS configuration. Create a section for each hostname.
 
-- `tls_cert`, `tls_key`
-- `tls_min_version`, `tls_ciphers`
-- `tls_verify_peer`, `tls_ca_cert` (for mTLS)
-- `tls_keylog_file`
+| Key | Description |
+|-----|-------------|
+| `tls_cert` | Certificate file (host is dropped with a warning if this is missing) |
+| `tls_key` | Private key file. If empty, the cert file is expected to contain both. |
+| `tls_min_version` | Minimum TLS version |
+| `tls_ciphers` | Allowed cipher list |
+| `tls_verify_peer` | Require client certificate (mTLS) |
+| `tls_ca_cert` | CA bundle for verifying client certs (mTLS) |
+| `tls_keylog_file` | TLS key log file for debugging |
+
+Each key can be prefixed with `amqp_`, `mqtt_`, or `http_` to apply only to that protocol. For example, `amqp_tls_cert` overrides the certificate for AMQP connections to that hostname only.
 
 ```ini
 [sni:example.com]
@@ -153,8 +154,6 @@ tls_min_version = 1.3
 tls_verify_peer = true
 tls_ca_cert = /path/to/ca.pem
 ```
-
-Protocol-specific overrides use a prefix (`amqp_`, `mqtt_`, `http_`) followed by the TLS option name. For example, `amqp_tls_cert` overrides the certificate for AMQP connections to that hostname only.
 
 ## Global CLI-Only Flags
 

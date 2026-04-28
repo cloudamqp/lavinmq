@@ -61,8 +61,11 @@ Distributes messages across bound queues using consistent hashing. Each message 
 - The binding key must be a number representing the queue's weight
 - Higher weight means a larger share of messages
 - `x-hash-on` exchange argument selects what to hash on (default: routing key). Set it to a header name to hash on a header value instead.
-- `x-algorithm` exchange argument selects the hash algorithm: `ring` or `jump`
-- The default algorithm comes from the `default_consistent_hash_algorithm` config option (default: `ring`)
+- `x-algorithm` exchange argument selects the hash algorithm: `ring` or `jump`. The server-wide default is configurable:
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `default_consistent_hash_algorithm` | `[main]` | `ring` | Default hash algorithm when `x-algorithm` is not set on the exchange |
 
 ### Default Exchange
 
@@ -86,16 +89,12 @@ Declare the exchange with type `x-delayed-message` and the underlying type as th
 
 ## Log Exchange
 
-When the `log_exchange` config option is enabled, LavinMQ declares an internal topic exchange named `amq.lavinmq.log` and publishes server log records to it. The routing key is the log severity (e.g., `INFO`, `WARN`, `ERROR`) and the body contains the log source and message.
+When enabled, LavinMQ declares an internal topic exchange named `amq.lavinmq.log` and publishes server log records to it. The routing key is the log severity (e.g., `Info`, `Warn`, `Error`) and the body contains the log source and message.
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `log_exchange` | `[main]` | `false` | Publish server log records to `amq.lavinmq.log` |
 
 ## Exchange-to-Exchange Bindings
 
 Exchanges can be bound to other exchanges. When a message matches a binding, it is forwarded to the destination exchange, which then routes it using its own bindings. This allows building routing topologies.
-
-## Deduplication
-
-Exchanges support message deduplication via the `x-message-deduplication` argument. See [Deduplication](deduplication.md) for details.
-
-## Federation
-
-Exchanges can be federated to receive messages from upstream brokers. See [Federation](federation.md) for details.

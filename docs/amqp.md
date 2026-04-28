@@ -4,29 +4,29 @@ LavinMQ implements the AMQP 0-9-1 protocol. This page covers LavinMQ's specific 
 
 ## Ports
 
-| Protocol | Default Port | Config Key |
-|----------|-------------|------------|
-| AMQP | 5672 | `amqp_port` |
-| AMQPS | 5671 | `amqps_port` |
-| AMQP over WebSocket | via HTTP port (15672) | `http_port` |
+| Config Key | Default Port |
+|------------|-------------|
+| `amqp_port` | 5672 |
+| `amqps_port` | 5671 |
+| `http_port` | 15672 (AMQP over WebSocket shares the HTTP port) |
 
 Unix domain sockets are also supported via `unix_path` in the `[amqp]` config section.
 
 ## Server Defaults
 
-| Parameter | Default | Config Key |
-|-----------|---------|------------|
-| `frame_max` | 131,072 bytes | `frame_max` |
-| `channel_max` | 2,048 | `channel_max` |
-| `heartbeat` | 300 seconds | `heartbeat` |
-| `max_message_size` | 128 MB | `max_message_size` |
-| `default_consumer_prefetch` | 65,535 | `default_consumer_prefetch` |
+| Config Key | Default |
+|------------|---------|
+| `frame_max` | 131,072 bytes |
+| `channel_max` | 2,048 |
+| `heartbeat` | 300 seconds |
+| `max_message_size` | 128 MB |
+| `default_consumer_prefetch` | 65,535 |
 
 The server proposes these values during connection negotiation. The client may negotiate lower (but not higher) for `frame_max` and `channel_max`. For heartbeat, the lower non-zero value is used.
 
 ## Capabilities
 
-LavinMQ advertises the following extensions beyond the base AMQP 0-9-1 spec:
+On top of the AMQP 0-9-1 spec, LavinMQ also supports:
 
 - **Publisher confirms** — acknowledgment that the server received a message. See [Publisher Confirms](publisher-confirms.md).
 - **Consumer cancel notify** — server sends `basic.cancel` when a queue is deleted. See [Consumers](consumers.md).

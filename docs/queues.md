@@ -1,10 +1,10 @@
 # Queues
 
-Queues store messages and deliver them to consumers. They are the primary destination for routed messages.
+A queue is a named, ordered store of messages, owned by a vhost, that delivers those messages to one or more consumers. It is the destination that exchanges route messages to via bindings.
 
 ## Queue Types
 
-LavinMQ supports several queue types, selected via the `x-queue-type` argument:
+The queue type is selected at declaration time and cannot be changed afterwards.
 
 | Type | `x-queue-type` | Description |
 |------|----------------|-------------|

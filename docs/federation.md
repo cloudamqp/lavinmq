@@ -16,7 +16,9 @@ How it works:
 
 ### Hop Limiting
 
-The `max-hops` parameter (default 1) prevents messages from being forwarded in circles in multi-hop federation topologies.
+In multi-hop federation topologies (A → B → C → ...), the same message could otherwise loop indefinitely. To prevent this, every federated message carries an `x-received-from` header that records each broker it has been forwarded through. Before forwarding, the link compares the size of that list to the upstream's `max-hops` parameter — if the list is already at or above `max-hops`, the message is dropped instead of being re-federated.
+
+`max-hops` defaults to `1`, meaning a message is federated once and then stops. Increase it to allow chains across more brokers; the value is the maximum number of hops a single message may take.
 
 ## Queue Federation
 
@@ -49,17 +51,25 @@ Upstreams are configured as parameters (component: `federation-upstream`).
 
 ## Upstream Sets
 
-An upstream set groups multiple upstreams. Apply it via the `federation-upstream-set` policy key. The special value `all` includes all defined upstreams.
+An upstream set is a named group of upstreams. Configure a set as a parameter (component: `federation-upstream-set`) whose value is a list of entries, each referencing an existing upstream by name and optionally overriding any of the upstream's parameters (`uri`, `prefetch-count`, `reconnect-delay`, `ack-mode`, `exchange`, `queue`, `max-hops`, `expires`, `message-ttl`).
 
-## Policy Activation
+```json
+[
+  { "upstream": "site-b" },
+  { "upstream": "site-c", "max-hops": 2 }
+]
+```
 
-Federation is activated by applying policies to exchanges or queues:
+Apply a set to an exchange or queue via the `federation-upstream-set` policy key. All upstreams in the set are linked.
 
-| Policy Key | Description |
-|-----------|-------------|
-| `federation-upstream` | Name of a single upstream to federate with |
-| `federation-upstream-set` | Name of an upstream set |
+The special value `all` is reserved: it does not need to be created and dynamically refers to every currently defined upstream.
 
 ## Reconnection
 
-Federation links automatically reconnect on failure, with a configurable delay between attempts.
+Federation links automatically reconnect on failure. The delay between attempts is set per upstream:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `reconnect-delay` | `1` | Seconds to wait between reconnection attempts |
+
+Set it on the upstream parameter (or on a set entry) when configuring federation.

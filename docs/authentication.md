@@ -4,14 +4,16 @@ LavinMQ supports multiple authentication backends that can be chained together.
 
 ## Authentication Chain
 
-The `auth_backends` config option defines an ordered list of authentication backends. When a client connects, each backend is tried in order. The first backend to return a successful authentication wins.
+`auth_backends` defines an ordered list of authentication backends. When a client connects, each backend is tried in order; the first backend to return a successful authentication wins. If empty, only local authentication is used.
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `auth_backends` | `[main]` | `[]` (local) | Ordered, comma-separated list of authentication backends |
 
 ```ini
 [main]
 auth_backends = local,oauth
 ```
-
-If `auth_backends` is empty (the default), only local authentication is used.
 
 Available backends:
 
@@ -37,13 +39,13 @@ Supported hashing algorithms:
 
 ### Default User
 
-LavinMQ creates a default user on first start:
+LavinMQ creates a default user on first start with the `administrator` tag.
 
-- Username: `guest` (configurable via `default_user`)
-- Password: `guest` (the password hash is configurable via `default_password_hash`, which expects a hashed value, not plaintext)
-- Tags: `administrator`
-
-By default, the default user can only connect from loopback addresses (127.0.0.1, ::1). This is controlled by `default_user_only_loopback` (default: `true`).
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `default_user` | `[main]` | `guest` | Username of the default user |
+| `default_password_hash` | `[main]` | (hash of `guest`) | Hashed password for the default user. Expects a hash value, not plaintext. |
+| `default_user_only_loopback` | `[main]` | `true` | If true, the default user can only connect from loopback (127.0.0.1, ::1) |
 
 ## OAuth2 / OIDC Authentication
 
@@ -75,11 +77,70 @@ jwks_cache_ttl = 3600
 ### How It Works
 
 1. Client connects with a JWT token as the password
-2. The server validates the token signature against cached JWKS keys
-3. Username is extracted from the configured claims
-4. Scopes in the token are mapped to LavinMQ permissions
+2. The server validates the token signature against cached JWKS keys and verifies the audience (if `verify_aud` is enabled)
+3. Username is extracted from the claims listed in `preferred_username_claims` (tried in order; first non-empty value wins)
+4. Tags and permissions are derived from the token's scopes
+5. The token's expiration time is tracked. Long-lived connections must refresh the token via `connection.update-secret` before it expires.
 
-### Scope Mapping
+### Scope Sources
 
-JWT scopes are mapped to LavinMQ permissions. The scope format depends on the identity provider configuration and the `scope_prefix` setting.
+LavinMQ collects scopes from several places in the JWT, in this order:
+
+1. **`resource_access.<resource_server_id>.roles`** — if `resource_server_id` is configured (Keycloak-style claims).
+2. **`scope`** — the standard JWT scope claim, parsed as a space-separated list.
+3. **Additional claims** listed in `additional_scopes_keys`. Values can be strings (space-separated), arrays of strings, or nested objects keyed by `resource_server_id`.
+
+### Scope Filtering
+
+Scopes are filtered by a prefix to isolate LavinMQ-specific entries from a larger token:
+
+- If `scope_prefix` is set, only scopes starting with that prefix are kept (prefix stripped).
+- If `scope_prefix` is unset but `resource_server_id` is set, the prefix defaults to `<resource_server_id>.`.
+- If neither is set, all scopes are used as-is.
+
+### Scope Format
+
+After filtering, each scope is interpreted as either a tag assignment or a permission grant.
+
+**Tag scopes:**
+
+```
+tag:<tag-name>
+```
+
+Where `<tag-name>` is one of `administrator`, `monitoring`, `management`, `policymaker`, `impersonator`. Unknown tags are ignored. See [Users and Permissions](users-permissions.md) for what each tag grants.
+
+**Permission scopes:**
+
+```
+<configure|read|write>:<vhost>/<resource-pattern>
+```
+
+Or with an optional routing-key segment (accepted for compatibility but ignored):
+
+```
+<configure|read|write>:<vhost>/<resource-pattern>/<routing-key>
+```
+
+- `<vhost>` and `<resource-pattern>` are URL-decoded.
+- `<resource-pattern>` supports `*` as a wildcard (translated to a regex). A bare `*` matches everything.
+- Multiple permission scopes for the same vhost and permission type are combined into a single regex (alternation).
+- Permissions for vhosts not granted are denied by default (empty regex `^$`).
+
+### Examples
+
+A token with these filtered scopes:
+
+```
+tag:management
+read:%2F/.*
+write:%2F/orders
+configure:staging/temp.*
+```
+
+Grants the user the `management` tag, full read access on the `/` vhost, write access only to resources starting with `orders` on `/`, and configure access to resources matching `temp*` on the `staging` vhost.
+
+### Token Refresh
+
+When the token expires, LavinMQ closes the connection unless the client sends `connection.update-secret` with a fresh token first. The username in the new token must match the original; tags and permissions are taken from the new token.
 

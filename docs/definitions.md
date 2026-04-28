@@ -70,10 +70,3 @@ Import is additive: new resources are created and bindings/policies/parameters/u
   "parameters": [...]
 }
 ```
-
-## Use Cases
-
-- **Backup** — periodically export definitions for disaster recovery
-- **Migration** — export from one server, import to another
-- **Reproducible setup** — version-control a definitions file and import on deploy
-- **Staging/production parity** — share the same topology across environments

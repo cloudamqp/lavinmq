@@ -38,9 +38,11 @@ Prefetch limits the number of unacknowledged messages the server will deliver to
 | `global=false` | Per-consumer limit (default) |
 | `global=true` | Per-channel limit, shared across all consumers on the channel |
 
-Default prefetch: 65535 (configurable via `default_consumer_prefetch`).
+Prefetch of `0` means unlimited delivery. The server-wide default applies when a consumer does not call `basic.qos`:
 
-Prefetch of 0 means unlimited delivery.
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `default_consumer_prefetch` | `[main]` | `65535` | Default per-consumer prefetch |
 
 ## Single Active Consumer
 
@@ -56,12 +58,14 @@ When a high-priority consumer has reached its prefetch limit, messages are deliv
 
 ## Consumer Timeout
 
-If the oldest unacknowledged message on a consumer has been waiting longer than the configured timeout, LavinMQ closes the channel.
+If the oldest unacknowledged message on a consumer has been waiting longer than the configured timeout, LavinMQ closes the channel. The timeout is measured from when the message was delivered, not from last channel activity, so acknowledging other messages does not reset the timer.
 
-- Set per-queue via `x-consumer-timeout` (milliseconds)
-- Set globally via `consumer_timeout` in the config
-- The timeout check runs every `consumer_timeout_loop_interval` seconds (default 60)
-- The timeout is measured from when the message was delivered, not from last channel activity. Acknowledging other messages does not reset the timer for messages still unacked.
+A per-queue override can be set with the `x-consumer-timeout` queue argument (milliseconds).
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `consumer_timeout` | `[main]` | (none) | Server-wide consumer idle timeout (milliseconds) |
+| `consumer_timeout_loop_interval` | `[main]` | `60` | How often the timeout check runs (seconds) |
 
 ## basic.get (Polling)
 
@@ -75,10 +79,6 @@ If the oldest unacknowledged message on a consumer has been waiting longer than 
 
 - `requeue=true` — messages are requeued and may be delivered to a different consumer
 - `requeue=false` — the server attempts to redeliver messages to the original consumer. If the consumer is no longer active, messages are requeued instead.
-
-## Consumer Cancellation Notification
-
-LavinMQ supports consumer cancellation notification. When a queue is deleted while consumers are active, the server sends `basic.cancel` to each consumer rather than silently dropping the subscription.
 
 ## Exclusive Consumers
 

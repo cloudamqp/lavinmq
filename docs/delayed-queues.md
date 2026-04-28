@@ -30,6 +30,8 @@ headers:
 
 Messages without an `x-delay` header are routed immediately (no delay).
 
+Each message's delay is measured independently from when it was published. If you publish one message with `x-delay: 300000` (5 minutes) and another with `x-delay: 600000` (10 minutes) at the same time, the first delivers after 5 minutes and the second after 10 minutes — not 15. Messages do not queue behind each other; the internal store sorts by absolute delivery time, so a later publish with a shorter delay can be delivered before an earlier publish with a longer delay.
+
 ## Policy-Based Activation
 
 Any existing exchange can be made into a delayed exchange via the `delayed-message` policy. This adds delayed behavior without redeclaring the exchange.

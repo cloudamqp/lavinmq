@@ -10,11 +10,11 @@ Opening a TCP connection is expensive. Channels allow multiple independent strea
 
 ## Channel Limits
 
-The maximum number of channels per connection is negotiated during connection setup.
+The maximum number of channels per connection is negotiated during connection setup; the lower of the client and server values wins.
 
-- Default: 2048
-- Configurable via `channel_max` in the `[amqp]` config section
-- The lower value between client and server is used
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `channel_max` | `[amqp]` | `2048` | Maximum channels per connection |
 
 ## Prefetch (QoS)
 
@@ -22,18 +22,14 @@ Prefetch controls how many unacknowledged messages the server will deliver to a 
 
 | Parameter | Description |
 |-----------|-------------|
-| `prefetch_count` | Max unacknowledged messages |
+| `prefetch_count` | Max unacknowledged messages. `0` means unlimited. |
 | `global` | If `false` (default): per-consumer prefetch. If `true`: per-channel prefetch shared across all consumers on the channel. |
 
-- Default prefetch: 65535 (configurable via `default_consumer_prefetch`)
-- Setting prefetch to 0 means unlimited (the server will deliver as fast as possible)
-- Prefetch is essential for fair dispatch across multiple consumers
+The server-wide default applies when a consumer does not call `basic.qos`:
 
-## Channel Lifecycle
-
-1. `channel.open` — opens a new channel on the connection
-2. Normal operation — declare resources, publish, consume
-3. `channel.close` — closes the channel
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `default_consumer_prefetch` | `[main]` | `65535` | Default per-consumer prefetch |
 
 ## Channel Errors
 
@@ -53,4 +49,6 @@ When the server runs low on disk space, `basic.publish` returns a `precondition_
 
 ## Consumer Limit
 
-The maximum number of consumers per channel can be configured with `max_consumers_per_channel` in the `[amqp]` config section. Default is 0 (unlimited).
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `max_consumers_per_channel` | `[amqp]` | `0` | Max consumers per channel. `0` means unlimited. |

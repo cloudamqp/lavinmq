@@ -12,18 +12,6 @@ x-queue-type: stream
 
 Streams are always durable. They cannot be exclusive or auto-delete.
 
-## Restrictions
-
-The following arguments are not supported on streams:
-
-- `x-dead-letter-exchange`
-- `x-dead-letter-routing-key`
-- `x-expires`
-- `x-delivery-limit`
-- `x-overflow`
-- `x-single-active-consumer`
-- `x-max-priority`
-
 ## Consumer Offsets
 
 Each consumer can specify where to start reading from using the `x-stream-offset` argument on `basic.consume`:
@@ -101,3 +89,15 @@ Streams support message retention policies to limit storage:
 | Auto-delete | Supported | Not supported |
 | Dead-lettering | Supported | Not supported |
 | Priority | Supported | Not supported |
+
+## Restrictions
+
+The following arguments are not supported on streams:
+
+- `x-dead-letter-exchange`
+- `x-dead-letter-routing-key`
+- `x-expires`
+- `x-delivery-limit`
+- `x-overflow`
+- `x-single-active-consumer`
+- `x-max-priority`

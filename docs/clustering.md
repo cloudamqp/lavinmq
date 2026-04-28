@@ -52,7 +52,11 @@ Data is compressed with LZ4 during replication.
 
 ### ISR (In-Sync Replicas)
 
-The ISR set tracks which followers are fully synchronized. A follower joins the ISR after completing bulk sync and staying current. The `max_unsynced_actions` setting (default 8192) controls how many unacknowledged actions a follower can lag before being removed from ISR.
+The ISR set tracks which followers are fully synchronized. A follower joins the ISR after completing bulk sync and staying current.
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `max_unsynced_actions` | `[clustering]` | `8192` | Maximum unacknowledged actions a follower can lag before being removed from the ISR |
 
 ## Failover
 
@@ -70,7 +74,15 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 
 ## Clustering Proxy
 
-Followers can proxy client connections to the current leader, allowing clients to connect to any node. The proxy transparently forwards traffic to the leader.
+When a node is a follower, it automatically proxies client traffic to the current leader. Clients can connect to any node in the cluster on the normal protocol ports and reach the leader without needing to know which node is the leader.
+
+The proxy is transparent and runs on every follower for:
+
+- AMQP and AMQPS (TCP and Unix socket)
+- MQTT and MQTTS (TCP and Unix socket)
+- HTTP/management (TCP and Unix socket)
+
+For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. No configuration is needed; the proxy starts and stops automatically as leadership changes.
 
 ## Security
 

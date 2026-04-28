@@ -4,6 +4,8 @@ Policies apply configuration to queues and exchanges dynamically, matching by na
 
 ## How Policies Work
 
+Policies are stored per vhost and matched against existing and newly declared resources. When a queue or exchange is declared, or when a policy is added/updated/removed, the server scans all policies in the vhost, picks the single highest-priority policy whose `pattern` matches the resource name and whose `apply-to` includes its type, and applies that policy's `definition` to the resource. Resources that don't match any policy keep just their declared arguments.
+
 A policy consists of:
 
 | Field | Description |
@@ -14,7 +16,9 @@ A policy consists of:
 | `priority` | Integer priority. Higher priority wins when multiple policies match. |
 | `definition` | Key-value pairs of policy settings to apply |
 
-When multiple policies match a resource, only the highest-priority policy applies. Policies are re-evaluated when created, updated, or deleted.
+Only one regular policy applies to a given resource at a time — there is no merging across multiple matching policies. If two regular policies have the same priority and both match, the resolution is unspecified, so use distinct priorities when patterns can overlap.
+
+Operator policies (see below) are evaluated independently and can layer on top of the regular policy.
 
 ## Supported Policy Keys
 

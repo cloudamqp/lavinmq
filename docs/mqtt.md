@@ -1,6 +1,6 @@
 # MQTT
 
-LavinMQ implements MQTT 3.1.1 natively.
+LavinMQ implements MQTT 3.1.1 natively. MQTT clients connect directly to the dedicated MQTT port and use the protocol as-is; no plugin or external proxy is required. Internally, LavinMQ maps MQTT concepts onto its AMQP infrastructure (sessions become queues, subscriptions become bindings), but this is invisible to MQTT clients.
 
 ## Ports
 
@@ -10,7 +10,7 @@ LavinMQ implements MQTT 3.1.1 natively.
 | MQTTS | 8883 | `mqtts_port` |
 | MQTT over WebSocket | via HTTP port (15672) | `http_port` |
 
-Unix domain sockets are also supported via `mqtt_unix_path`.
+Unix domain sockets are also supported via `unix_path` in the `[mqtt]` section. See [Configuration](#configuration) below.
 
 ## QoS Levels
 
@@ -22,7 +22,7 @@ Unix domain sockets are also supported via `mqtt_unix_path`.
 
 ## Sessions
 
-MQTT sessions in LavinMQ are backed by internal AMQP queues named `mqtt.<client_id>`.
+Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
 
 ### Clean Sessions
 
@@ -50,7 +50,6 @@ If a client connects with a client ID that already has an active connection, the
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
 - Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
-- The maximum number of in-flight (unacknowledged) messages is controlled by `max_inflight_messages` (default 65,535)
 
 ## Retained Messages
 
@@ -84,22 +83,20 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 
 ## Configuration
 
-MQTT-specific configuration options:
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `mqtt_port` | 1883 | MQTT listen port |
-| `mqtts_port` | 8883 | MQTT over TLS port |
-| `mqtt_unix_path` | (empty) | Unix socket path |
-| `mqtt_bind` | (uses default bind) | Bind address for MQTT |
-| `max_inflight_messages` | 65535 | Max unacknowledged messages per session |
-| `max_packet_size` | 268435455 | Max MQTT packet size in bytes |
-| `default_vhost` | `/` | Default vhost for MQTT connections |
-| `permission_check_enabled` | false | Enable ACL checks on MQTT publish/subscribe |
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `bind` | `[mqtt]` | `127.0.0.1` | Bind address for MQTT |
+| `port` | `[mqtt]` | `1883` | MQTT listen port |
+| `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
+| `unix_path` | `[mqtt]` | (empty) | Unix socket path |
+| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session |
+| `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
+| `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
+| `permission_check_enabled` | `[mqtt]` | `false` | Enable ACL checks on MQTT publish/subscribe |
 
 ## Permissions
 
-By default, MQTT permission checks are disabled. When enabled via `permission_check_enabled: true` in the `[mqtt]` config section, LavinMQ enforces the standard AMQP ACL model on MQTT operations:
+By default, MQTT permission checks are disabled. When `permission_check_enabled` is set to `true`, LavinMQ enforces the standard AMQP ACL model on MQTT operations:
 
 - **PUBLISH** requires write permission on the MQTT exchange
 - **SUBSCRIBE** requires read permission on the MQTT exchange and write permission on the session queue (`mqtt.<client_id>`)
@@ -110,4 +107,12 @@ When disabled, any authenticated MQTT client can publish and subscribe to any to
 
 MQTT clients authenticate using the CONNECT packet's username and password fields. These are validated against the same authentication chain as AMQP (local users, OAuth2). For OAuth2, the password field carries the JWT token.
 
-The username field can include a vhost using the format `vhost:username`. If no colon is present, the `default_vhost` config option is used.
+The username field can include a vhost using the format `vhost:username`. If no colon is present, `default_vhost` is used.
+
+## Limitations
+
+- Only MQTT 3.1.1 is supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
+- QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
+- Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
+- AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
+- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).

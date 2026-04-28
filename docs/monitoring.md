@@ -2,34 +2,25 @@
 
 ## Prometheus Metrics
 
-LavinMQ exposes metrics in Prometheus format on a dedicated HTTP endpoint.
+LavinMQ exposes metrics in Prometheus format on a dedicated HTTP endpoint at `http://<bind>:<port>/metrics`.
 
-- Default URL: `http://localhost:15692/metrics`
-- Configurable via `metrics_http_bind` and `metrics_http_port`
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `metrics_http_bind` | `[main]` | `127.0.0.1` | Bind address for the metrics endpoint |
+| `metrics_http_port` | `[main]` | `15692` | Port for the metrics endpoint |
 
-### Key Metrics
+Metrics are prefixed with `lavinmq_`. Detailed per-resource metrics are exposed on `/metrics/detailed` and selected via the `family` query parameter (repeatable). The endpoint also accepts a `vhost` parameter to filter by vhost, and both `/metrics` and `/metrics/detailed` accept a `prefix` parameter (defaults to `lavinmq`).
 
-Metrics are prefixed with `lavinmq_` and include:
+The following metric families are available:
 
-**Server-level:**
-- Connection count, channel count, queue count
-- Memory usage, disk space
-- Global counters: messages delivered, redelivered, acknowledged, confirmed (totals)
-- GC and process metrics
-
-**Per-queue (on `/metrics/detailed`):**
-- Message counts (ready, unacked, total)
-- Consumer count
-- Deduplication cache size
-
-**Per-exchange (on `/metrics/detailed`):**
-- Deduplication cache size
-
-**Per-connection (on `/metrics/detailed`):**
-- Incoming/outgoing bytes (counters)
-- Channel count
-
-The `/metrics/detailed` endpoint accepts a `family` query parameter to select which metric families to emit, and a `vhost` parameter to filter by vhost. Both endpoints accept a `prefix` parameter (defaults to `lavinmq`).
+| Family | Description |
+|--------|-------------|
+| `connection_churn_metrics` | Connection open/close totals |
+| `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
+| `channel_metrics` | Per-channel metrics |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size |
+| `queue_consumer_count` | Per-queue consumer count |
+| `exchange_metrics` | Per-exchange deduplication cache size |
 
 ## Event Types
 
@@ -61,17 +52,17 @@ When `log_exchange` is enabled, server log entries are published to an internal 
 
 LavinMQ collects rate statistics at a configurable interval:
 
-| Config Key | Default | Description |
-|-----------|---------|-------------|
-| `stats_interval` | `5000` | Collection interval (ms) |
-| `stats_log_size` | `120` | Number of samples to retain (10 min at 5s interval) |
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
+| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
 
 ## Logging
 
-| Config Key | Description |
-|-----------|-------------|
-| `log_level` | Log level: debug, info, warn, error |
-| `log_file` | Log file path (stdout if not set) |
+| Config Key | Section | Description |
+|-----------|---------|-------------|
+| `log_level` | `[main]` | Log level: `trace`, `debug`, `info`, `notice`, `warn`, `error`, `fatal`, `none` |
+| `log_file` | `[main]` | Log file path (stdout if not set) |
 
 ## Log Streaming
 

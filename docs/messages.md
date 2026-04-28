@@ -10,7 +10,11 @@ Messages are published via `basic.publish`, specifying:
 - **Routing key** — used by the exchange for routing decisions
 - **Mandatory flag** — if set and the message cannot be routed to any queue, it is returned to the publisher via `basic.return`
 - **Properties** — message metadata
-- **Body** — the message payload (up to `max_message_size`, default 128MB)
+- **Body** — the message payload (up to `max_message_size`, see below)
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `max_message_size` | `[amqp]` | `134217728` | Maximum message body size in bytes (128 MB) |
 
 ## Message Properties
 
@@ -62,7 +66,11 @@ The requester must hold an active direct reply-to consumer on the same channel i
 
 ## Server-Set Timestamp
 
-If `set_timestamp` is enabled in the config, the server sets the `timestamp` property on received messages that do not already have one. Client-set timestamps are preserved.
+When enabled, the server sets the `timestamp` property on received messages that do not already have one. Client-set timestamps are preserved.
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `set_timestamp` | `[main]` | `false` | Stamp received messages that have no `timestamp` property |
 
 ## LavinMQ-Added Headers
 

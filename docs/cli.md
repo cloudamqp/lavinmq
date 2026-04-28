@@ -114,7 +114,8 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `--password=PASS` | API password |
 | `-s`, `--silent` | Suppress informational messages and table formatting |
 | `-q`, `--quiet` | Suppress output |
-| `--format=FORMAT` | Output format |
+| `-f`, `--format=FORMAT` | Output format (`text` or `json`) |
 | `--host=URL` | Deprecated, use `--uri` or `--hostname` |
+| `-h`, `--help` | Show help and exit |
 | `-v`, `--version` | Print version and exit |
 | `--build-info` | Print build information and exit |
