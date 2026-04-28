@@ -484,7 +484,7 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted)
+      notify_observers(QueueEvent::Deleted, self)
       true
     end
 
