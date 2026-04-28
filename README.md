@@ -165,45 +165,45 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 ### Core Protocols
 
-- [AMQP 0-9-1 protocol support](https://lavinmq.com/documentation/amqp-the-protocol)
-- [MQTT 3.1.0 protocol support](https://lavinmq.com/documentation/mqtt-in-lavinmq)
-- [MQTT 3.1.1 protocol support](https://lavinmq.com/documentation/mqtt-in-lavinmq)
-- [AMQPS TLS](https://lavinmq.com/documentation/amqp-the-protocol)
-- [AMQP over websockets](https://lavinmq.com/documentation/websockets)
-- [MQTT over websockets](https://lavinmq.com/documentation/websockets)
+- [AMQP 0-9-1 protocol support](docs/amqp.md)
+- [MQTT 3.1.0 protocol support](docs/mqtt.md)
+- [MQTT 3.1.1 protocol support](docs/mqtt.md)
+- [AMQPS TLS](docs/tls.md)
+- [AMQP over websockets](docs/websockets.md)
+- [MQTT over websockets](docs/websockets.md)
 
 ### Messaging Capabilities
 
-- [Publisher confirm](https://lavinmq.com/documentation/publisher-confirms)
-- [Transactions](https://lavinmq.com/documentation/transactions)
-- [Dead-lettering](https://lavinmq.com/documentation/dead-letter-exchange)
-- TTL support on queue, message, and policy level
-- CC/BCC
-- [Alternative exchange](https://lavinmq.com/documentation/alternate-exchange)
-- Exchange to exchange bindings
-- [Direct-reply-to RPC](https://lavinmq.com/documentation/remote-procedure-call)
-- [Queue max-length](https://lavinmq.com/documentation/queue-length-limit)
-- [Priority queues](https://lavinmq.com/documentation/message-priority)
-- [Delayed exchanges](https://lavinmq.com/documentation/delayed-message)
-- [Message deduplication](https://lavinmq.com/documentation/message-deduplication)
-- [Consistent Hashing Exchange](https://lavinmq.com/documentation/consistent-hash-exchange)
+- [Publisher confirm](docs/publisher-confirms.md)
+- [Transactions](docs/transactions.md)
+- [Dead-lettering](docs/dead-lettering.md)
+- [TTL support on queue, message, and policy level](docs/ttl.md)
+- [CC/BCC](docs/messages.md#cc-and-bcc-headers)
+- [Alternative exchange](docs/exchanges.md#alternate-exchanges)
+- [Exchange to exchange bindings](docs/bindings.md#exchange-to-exchange-bindings)
+- [Direct-reply-to RPC](docs/messages.md#direct-reply-to-rpc)
+- [Queue max-length](docs/queues.md#overflow-behavior)
+- [Priority queues](docs/priority-queues.md)
+- [Delayed exchanges](docs/delayed-queues.md)
+- [Message deduplication](docs/deduplication.md)
+- [Consistent Hashing Exchange](docs/exchanges.md#consistent-hash-exchange)
 
 ### Management
 
 - [HTTP API](https://docs.lavinmq.com/)
-- Users and ACL rules
-- [VHost separation](https://lavinmq.com/documentation/amqp-vhost)
-- [Policies](https://lavinmq.com/documentation/policies)
-- [Importing/export definitions](https://lavinmq.com/documentation/import-export-definitions)
-- [Consumer cancellation](https://lavinmq.com/documentation/consumer-cancellation)
+- [Users and ACL rules](docs/users-permissions.md)
+- [VHost separation](docs/vhosts.md)
+- [Policies](docs/policies.md)
+- [Importing/export definitions](docs/definitions.md)
+- [Consumer cancellation](docs/consumers.md#consumer-lifecycle)
 
 ### Other Functionality
 
-- [Shovels](https://lavinmq.com/documentation/shovel)
-- [Queue & Exchange federation](https://lavinmq.com/documentation/federation)
-- [Single active consumer](https://lavinmq.com/documentation/single-active-consumer)
-- [Stream queues](https://lavinmq.com/documentation/streams)
-- [Webhook Shovels](https://lavinmq.com/documentation/webhooks)
+- [Shovels](docs/shovels.md)
+- [Queue & Exchange federation](docs/federation.md)
+- [Single active consumer](docs/consumers.md#single-active-consumer)
+- [Stream queues](docs/streams.md)
+- [Webhook Shovels](docs/shovels.md#http-destination)
 
 ## Feature Highlights
 
@@ -244,7 +244,7 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
 
-See [Stream Queues](https://lavinmq.com/documentation/streams)
+See [Stream Queues](docs/streams.md)
 
 ### MQTT Support
 
