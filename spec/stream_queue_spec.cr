@@ -225,16 +225,17 @@ describe LavinMQ::AMQP::Stream do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("stream-ts-across-segments", args: stream_queue_args)
-        # Use half-segment messages so exactly 1 fits per segment
+        # Half-segment payload so each publish lands in its own segment.
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
-        # Fill segment 1 — two half-segment messages won't fit, so second triggers new segment
         q.publish_confirm data
-        # Sleep to create a timestamp gap
-        sleep 1.seconds
-        target_time = Time.utc
-        # This publish can't fit in current segment, creates a new one with first_ts > target
+        # Sleep > 1s so the two messages land in distinct whole seconds
+        sleep 1.2.seconds
         q.publish_confirm data
-        # Consume from timestamp in the gap — find_offset_in_segments must cross segment boundary
+        # Derive target from msg1's stored timestamp; Time.utc here would race RoughTime's
+        # 100ms coarsening and could land inside segment 2's bucket, hanging the consumer.
+        store = s.vhosts["/"].queues["stream-ts-across-segments"].as(LavinMQ::AMQP::Stream).stream_msg_store
+        msg1_ts = store.@segment_last_ts.values.first
+        target_time = Time.unix(msg1_ts // 1000 + 1)
         ch.prefetch 1
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": target_time})) do |msg|
