@@ -123,6 +123,12 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build lavinmq
         run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS="--error-on-warnings -Dbake_static"
