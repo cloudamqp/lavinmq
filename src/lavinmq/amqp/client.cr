@@ -483,7 +483,9 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
-        @exclusive_queues.each(&.close)
+        # Iterate a snapshot because Queue#close fires QueueEvent::Deleted,
+        # whose observer mutates @exclusive_queues.
+        @exclusive_queues.dup.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
         case user = @user
