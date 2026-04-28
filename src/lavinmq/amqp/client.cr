@@ -15,6 +15,11 @@ module LavinMQ
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
+      include Observer(QueueEvent)
+
+      def on(event : QueueEvent, data : Object?)
+        @exclusive_queues.delete(data) if event.deleted? && data.is_a?(Queue)
+      end
 
       getter vhost, channels, log, name
       getter user
@@ -754,7 +759,9 @@ module LavinMQ
         @vhost.apply(frame)
         @last_queue_name = frame.queue_name
         if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
+          q = @vhost.queues[frame.queue_name]
+          @exclusive_queues << q
+          q.register_observer(self)
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
