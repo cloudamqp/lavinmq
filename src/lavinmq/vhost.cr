@@ -47,6 +47,8 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
+    @pending_acks = Hash(AMQP::Channel, UInt64).new
+    @pending_acks_lock = Mutex.new(:unchecked)
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
@@ -67,6 +69,7 @@ module LavinMQ
       @upstreams = Federation::UpstreamStore.new(self)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      spawn publish_confirm_loop, name: "Publish confirm loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -80,6 +83,31 @@ module LavinMQ
           c.channels.each_value do |ch|
             ch.check_consumer_timeout
           end
+        end
+      end
+    end
+
+    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+      @pending_acks_lock.synchronize do
+        @pending_acks[channel] = msgid
+      end
+    end
+
+    private def publish_confirm_loop
+      loop do
+        sleep Config.instance.publish_confirm_interval.milliseconds
+        return if closed?
+        next if @pending_acks.empty?
+
+        acks = @pending_acks_lock.synchronize do
+          current = @pending_acks
+          @pending_acks = Hash(AMQP::Channel, UInt64).new
+          current
+        end
+
+        sync
+        acks.each do |channel, msgid|
+          channel.do_confirm_ack(msgid, multiple: true)
         end
       end
     end
