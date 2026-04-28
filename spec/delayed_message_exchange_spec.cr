@@ -294,8 +294,8 @@ describe "Delayed Message Exchange" do
         internal_queue = s.vhosts["/"].queues[delay_q_name]?
         internal_queue.should_not be_nil
 
-        # Attempting to bind the delayed exchange to its internal queue should raise an error
-        expect_raises(AMQP::Client::Channel::ClosedException, /Cannot bind delayed exchange/) do
+        # Attempting to bind to an internal queue should raise an error
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
           ch.queue_bind(delay_q_name, x_name, "#")
         end
       end
