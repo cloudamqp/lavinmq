@@ -306,6 +306,7 @@ module LavinMQ::AMQP
     end
 
     def drop_overflow
+      return if @closed
       if max_length = @max_length
         drop_segments_while do
           @size >= max_length
