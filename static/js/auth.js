@@ -67,7 +67,7 @@ async function whoAmI (forceReload = false) {
       } catch {
         window.localStorage.removeItem('lmq.whoami')
       }
-      if (cached && cached.name == getUsername()) {
+      if (cached && cached.name === getUsername()) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
           fetchAndCacheWhoAmI()
