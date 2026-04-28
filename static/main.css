@@ -89,10 +89,6 @@ html.theme-dark {
   }
 }
 
-
-
-
-
 /* === RESET / BASE === */
 @font-face {
   font-family: Inter;
@@ -950,44 +946,6 @@ footer .logo {
   --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
   --icon-users: url(img/icons/icon-users-light.svg);
   --icon-http-api: url(img/icons/icon-external-light.svg);
-}
-@media (prefers-color-scheme: light) {
-  html:not(.theme-dark) {
-    --icon-overview: url(img/icons/icon-overview-dark.svg);
-    --icon-nodes: url(img/icons/icon-nodes-dark.svg);
-    --icon-logs: url(img/icons/icon-logs-dark.svg);
-    --icon-connections: url(img/icons/icon-connections-dark.svg);
-    --icon-channels: url(img/icons/icon-channels-dark.svg);
-    --icon-consumers: url(img/icons/icon-consumers-dark.svg);
-    --icon-exchanges: url(img/icons/icon-exchanges-dark.svg);
-    --icon-queues: url(img/icons/icon-queues-dark.svg);
-    --icon-shovels: url(img/icons/icon-shovels-dark.svg);
-    --icon-federation: url(img/icons/icon-federation-dark.svg);
-    --icon-vhosts: url(img/icons/icon-vhosts-dark.svg);
-    --icon-policies: url(img/icons/icon-policies-dark.svg);
-    --icon-operator-policies: url(img/icons/icon-opolicies-dark.svg);
-    --icon-users: url(img/icons/icon-users-dark.svg);
-    --icon-http-api: url(img/icons/icon-external-dark.svg);
-  }
-}
-@media (prefers-color-scheme: dark) {
-  html:not(.theme-light) {
-    --icon-overview: url(img/icons/icon-overview-light.svg);
-    --icon-nodes: url(img/icons/icon-nodes-light.svg);
-    --icon-logs: url(img/icons/icon-logs-light.svg);
-    --icon-connections: url(img/icons/icon-connections-light.svg);
-    --icon-channels: url(img/icons/icon-channels-light.svg);
-    --icon-consumers: url(img/icons/icon-consumers-light.svg);
-    --icon-exchanges: url(img/icons/icon-exchanges-light.svg);
-    --icon-queues: url(img/icons/icon-queues-light.svg);
-    --icon-shovels: url(img/icons/icon-shovels-light.svg);
-    --icon-federation: url(img/icons/icon-federation-light.svg);
-    --icon-vhosts: url(img/icons/icon-vhosts-light.svg);
-    --icon-policies: url(img/icons/icon-policies-light.svg);
-    --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
-    --icon-users: url(img/icons/icon-users-light.svg);
-    --icon-http-api: url(img/icons/icon-external-light.svg);
-  }
 }
 
 #menu>ul {
