@@ -165,48 +165,45 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 ### Core Protocols
 
-- AMQP 0-9-1 protocol support
-- MQTT 3.1.0 protocol support
-- MQTT 3.1.1 protocol support
-- AMQPS (TLS)
-- AMQP over websockets
-- MQTT over websockets
+- [AMQP 0-9-1 protocol support](docs/amqp.md)
+- [MQTT 3.1.0 protocol support](docs/mqtt.md)
+- [MQTT 3.1.1 protocol support](docs/mqtt.md)
+- [AMQPS TLS](docs/tls.md)
+- [AMQP over websockets](docs/websockets.md)
+- [MQTT over websockets](docs/websockets.md)
 
 ### Messaging Capabilities
 
-- Publisher confirm
-- Transactions
-- Dead-lettering
-- TTL support on queue, message, and policy level
-- CC/BCC
-- Alternative exchange
-- Exchange to exchange bindings
-- Direct-reply-to RPC
-- Queue max-length
-- Priority queues
-- Delayed exchanges
-- Message deduplication
+- [Publisher confirm](docs/publisher-confirms.md)
+- [Transactions](docs/transactions.md)
+- [Dead-lettering](docs/dead-lettering.md)
+- [TTL support on queue, message, and policy level](docs/ttl.md)
+- [CC/BCC](docs/messages.md#cc-and-bcc-headers)
+- [Alternative exchange](docs/exchanges.md#alternate-exchanges)
+- [Exchange to exchange bindings](docs/bindings.md#exchange-to-exchange-bindings)
+- [Direct-reply-to RPC](docs/messages.md#direct-reply-to-rpc)
+- [Queue max-length](docs/queues.md#overflow-behavior)
+- [Priority queues](docs/priority-queues.md)
+- [Delayed exchanges](docs/delayed-queues.md)
+- [Message deduplication](docs/deduplication.md)
+- [Consistent Hashing Exchange](docs/exchanges.md#consistent-hash-exchange)
 
 ### Management
 
-- HTTP API
-- Users and ACL rules
-- VHost separation
-- Policies
-- Importing/export definitions
-- Consumer cancellation
-
-### High Availability
-
-- Replication
-- Automatic leader election in clusters via etcd
+- [HTTP API](https://docs.lavinmq.com/)
+- [Users and ACL rules](docs/users-permissions.md)
+- [VHost separation](docs/vhosts.md)
+- [Policies](docs/policies.md)
+- [Importing/export definitions](docs/definitions.md)
+- [Consumer cancellation](docs/consumers.md#consumer-lifecycle)
 
 ### Other Functionality
 
-- Shovels
-- Queue & Exchange federation
-- Single active consumer
-- Stream queues
+- [Shovels](docs/shovels.md)
+- [Queue & Exchange federation](docs/federation.md)
+- [Single active consumer](docs/consumers.md#single-active-consumer)
+- [Stream queues](docs/streams.md)
+- [Webhook Shovels](docs/shovels.md#http-destination)
 
 ## Feature Highlights
 
@@ -246,6 +243,8 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 #### Stream Queue Filtering
 
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
+
+See [Stream Queues](docs/streams.md)
 
 ### MQTT Support
 
