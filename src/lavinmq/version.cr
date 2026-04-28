@@ -1,4 +1,5 @@
 module LavinMQ
+  # test change for docs-check workflow, revert before merge
   VERSION = {{ `[ -n "$version" ] && echo "$version" || git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
 
   macro build_flags
