@@ -465,29 +465,50 @@ class LavinMQCtl
   end
 
   private def output_array(data : Array, columns : Array(String)?)
-    if columns
-      @io.puts columns.join("\t")
-    else
-      case first = data.first?
-      when NamedTuple
-        @io.puts first.keys.join("\t")
-      when JSON::Any
-        @io.puts first.as_h.each_key.join("\t")
+    first = data.first? || return
+
+    headers = if columns
+                columns
+              else
+                case first
+                when NamedTuple then first.keys.to_a.map(&.to_s)
+                when JSON::Any  then first.as_h.keys
+                else                 [] of String
+                end
+              end
+
+    if @options["silent"]?
+      @io.puts headers.join("\t")
+      data.each do |item|
+        case item
+        when Hash       then item.each_value.join(@io, "\t")
+        when JSON::Any  then item.as_h.each_value.join(@io, "\t")
+        when NamedTuple then item.values.join(@io, "\t")
+        else                 item.to_s(@io)
+        end
+        @io.puts
       end
+      return
     end
-    data.each do |item|
+
+    rows = data.compact_map do |item|
       case item
-      when Hash
-        item.each_value.join(@io, "\t")
-      when JSON::Any
-        item.as_h.each_value.join(@io, "\t")
       when NamedTuple
-        item.values.join(@io, "\t")
+        values = [] of String
+        item.each_value { |v| values << v.to_s }
+        values
+      when JSON::Any
+        if h = item.as_h?
+          columns ? columns.map { |c| item[c]?.try(&.to_s) || "" } : h.values.map(&.to_s)
+        end
+      when Hash
+        item.values.map(&.to_s)
       else
-        item.to_s(@io)
+        [item.to_s]
       end
-      @io.puts
     end
+
+    render_table rows, headers
   end
 
   private def url_encoded_vhost
@@ -627,21 +648,7 @@ class LavinMQCtl
       end
       output cc
     else
-      @io.puts columns.join("\t")
-      conns.each do |u|
-        if conn = u.as_h?
-          columns.each_with_index do |c, i|
-            case c
-            when "client_properties"
-              print_erlang_terms(conn[c].as_h)
-            else
-              @io.print conn[c]?
-            end
-            @io.print "\t" unless i == columns.size - 1
-          end
-          @io.puts
-        end
-      end
+      output_array(conns, columns)
     end
   end
 
@@ -965,7 +972,53 @@ class LavinMQCtl
     etcd = LavinMQ::Etcd.new(endpoints)
     members = etcd.member_list
     abort "No members found. Is etcd running?" if members.empty?
-    output members, ["name", "peer_urls", "client_urls", "learner"]
+    headers = ["name", "peer_urls", "client_urls", "learner"]
+    if @options["format"]? == "json"
+      members.to_json(@io)
+      @io.puts
+    elsif @options["silent"]?
+      @io.puts headers.join("\t")
+      members.each { |m| @io.puts "#{m[:name]}\t#{m[:peer_urls]}\t#{m[:client_urls]}\t#{m[:learner]}" }
+    else
+      rows = members.map { |m| [m[:name], m[:peer_urls], m[:client_urls], m[:learner].to_s] }
+      render_table rows, headers
+    end
+  end
+
+  private def render_table(rows : Array(Array(String)), headers : Array(String))
+    widths = headers.map(&.size)
+    rows.each do |row|
+      row.each_with_index do |cell, i|
+        widths[i] = {widths[i], cell.size}.max if i < widths.size
+      end
+    end
+    table_line("┌", "─", "┬", "┐", widths)
+    table_row(headers, widths)
+    table_line("├", "─", "┼", "┤", widths)
+    rows.each_with_index do |row, i|
+      table_row(row, widths)
+      if i < rows.size - 1
+        table_line("├", "─", "┼", "┤", widths)
+      end
+    end
+    table_line("└", "─", "┴", "┘", widths)
+  end
+
+  private def table_line(left : String, fill : String, sep : String, right : String, widths : Array(Int32))
+    @io << left
+    widths.each_with_index do |w, i|
+      @io << fill * (w + 2)
+      @io << (i < widths.size - 1 ? sep : right)
+    end
+    @io.puts
+  end
+
+  private def table_row(cells : Array(String), widths : Array(Int32))
+    @io << "│"
+    cells.each_with_index do |cell, i|
+      @io << " " << cell.ljust(widths[i]) << " │"
+    end
+    @io.puts
   end
 
   private def move_etcd_leader
@@ -999,7 +1052,7 @@ class LavinMQCtl
 
     leader_uri = etcd.election_leader("#{prefix}/leader")
 
-    output node_ids.map { |id|
+    result = node_ids.map do |id|
       address = id_to_uri[id]? || ""
       role = if leader_uri.nil?
                "unknown"
@@ -1009,6 +1062,17 @@ class LavinMQCtl
                "follower"
              end
       {node_id: id, address: address, role: role}
-    }, ["node_id", "address", "role"]
+    end
+
+    headers = ["node_id", "address", "role"]
+    if @options["format"]? == "json"
+      result.to_json(@io)
+      @io.puts
+    elsif @options["silent"]?
+      @io.puts headers.join("\t")
+      result.each { |r| @io.puts "#{r[:node_id]}\t#{r[:address]}\t#{r[:role]}" }
+    else
+      render_table result.map { |r| [r[:node_id], r[:address], r[:role]] }, headers
+    end
   end
 end
