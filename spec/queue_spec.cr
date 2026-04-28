@@ -896,4 +896,53 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "Exclusive queue cleanup" do
+    it "drops the queue from Client#exclusive_queues when auto-deleted server-side" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("", exclusive: true, auto_delete: true)
+          tag = q.subscribe(no_ack: true) { }
+
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 1
+
+          ch.basic_cancel(tag) # last consumer leaves -> auto-delete fires
+
+          should_eventually(eq 0) { conn.@exclusive_queues.size }
+        end
+      end
+    end
+
+    it "still cleans up exclusive queues on connection close when many are open" do
+      # Regression for the iteration-mutation hazard: cleanup iterates
+      # @exclusive_queues while Queue#close fires the observer that mutates it.
+      with_amqp_server do |s|
+        ch = nil
+        with_channel(s) do |c|
+          ch = c
+          5.times { c.queue("", exclusive: true, auto_delete: true) }
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 5
+        end
+        # Connection closed by `with_channel`. All 5 queues should be gone,
+        # not just every other one.
+        should_eventually(eq 0) { s.vhosts["/"].queues.size }
+      end
+    end
+
+    it "drops the queue from Client#exclusive_queues when expired via x-expires" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("", exclusive: true,
+            args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 1
+
+          should_eventually(eq 0) { conn.@exclusive_queues.size }
+        end
+      end
+    end
+  end
 end
