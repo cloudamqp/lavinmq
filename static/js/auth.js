@@ -37,7 +37,7 @@ function logout () {
   window.location.assign('login')
 }
 
-async function fetchAndCacheWhoAmI () {
+async function fetchWhoAmI () {
   return window.fetch('api/whoami')
     .then(async resp => {
       if (resp.ok) {
@@ -74,13 +74,13 @@ async function whoAmI (forceReload = false) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
           // fetch in background, we still return the cached
-          fetchAndCacheWhoAmI().catch(e => console.warn(`Failed to load whoAmI: ${e.message}`))
+          fetchWhoAmI().catch(e => console.warn(`Failed to load whoAmI: ${e.message}`))
         }
         return cached
       }
     }
   }
-  return fetchAndCacheWhoAmI()
+  return fetchWhoAmI()
 }
 
 export {
