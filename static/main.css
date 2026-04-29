@@ -2318,7 +2318,7 @@ pre.arguments .inactive-argument:before {
 .require-impersonator {
   display: none;
   .user-is-administrator & {
-    display: revert;* 
+    display: revert;
   }
 }
 
