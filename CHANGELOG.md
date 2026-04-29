@@ -2315,3 +2315,4 @@ ShortStrings are now added to StringPool for reduced GC pressure, the pool size 
 ### Added
 
 - CHANGELOG file
+
