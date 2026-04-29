@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.0-beta.1] - 2026-04-24
+## [2.8.0-rc.1] - 2026-04-29
+
+This release adds Prometheus metrics for mfiles, vhost-level data rate aggregation across all protocols, a RateLimiter with reduced clustering sync log verbosity, sorting on bindings tables, and several management UI improvements. It also brings a number of clustering and replication fixes alongside smaller bug fixes.
 
 ### Added
 
@@ -13,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prometheus metrics for mfiles [#1627](https://github.com/cloudamqp/lavinmq/pull/1627)
 - Aggregate data rates at vhost level for all protocols [#1699](https://github.com/cloudamqp/lavinmq/pull/1699)
 - Sorting on bindings tables [#1823](https://github.com/cloudamqp/lavinmq/pull/1823)
+- Log "Deleting vhost" message when vhost deletion starts [#1886](https://github.com/cloudamqp/lavinmq/pull/1886)
 
 ### Changed
 
@@ -23,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor menu to not need the active class (no JavaScript) [#1709](https://github.com/cloudamqp/lavinmq/pull/1709)
 - Show only `I` as feature for internal queue [#1857](https://github.com/cloudamqp/lavinmq/pull/1857)
 - Styling updates for tables [#1848](https://github.com/cloudamqp/lavinmq/pull/1848)
+- Use `segment_position.bytesize` in consumer deliver loop [#1786](https://github.com/cloudamqp/lavinmq/pull/1786)
+- Remove no longer needed media queries [#1873](https://github.com/cloudamqp/lavinmq/pull/1873)
 
 ### Fixed
 
@@ -33,6 +38,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replicate `.queue` file [#1858](https://github.com/cloudamqp/lavinmq/pull/1858)
 - 404 on `/metrics/detailed` for follower nodes [#1859](https://github.com/cloudamqp/lavinmq/pull/1859)
 - Clean up empty directories on follower after full sync [#1865](https://github.com/cloudamqp/lavinmq/pull/1865)
+- Sorting by columns with nil values [#1840](https://github.com/cloudamqp/lavinmq/pull/1840)
+
+## [2.7.2] - 2026-04-28
+
+### Fixed
+
+- Exclusive queue references leak on auto-delete [#1887](https://github.com/cloudamqp/lavinmq/pull/1887)
+
+## [2.8.0-beta.1] - 2026-04-24
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.8.0-beta.1> for changes in this pre-release
+
+## [2.7.1] - 2026-04-24
+
+### Fixed
+
+- User permission check to source and destinations vhosts when creating shovels [#1867](https://github.com/cloudamqp/lavinmq/pull/1867)
+- Replicate the .queue file [#1869](https://github.com/cloudamqp/lavinmq/pull/1869)
+- Clean up empty dirs on follower after full sync [#1870](https://github.com/cloudamqp/lavinmq/pull/1870)
+- Recognize IPv4-mapped IPv6 loopback addresses. Fixes default user loopback check. [#1871](https://github.com/cloudamqp/lavinmq/pull/1871)
 
 ## [2.7.0] - 2026-04-16
 
