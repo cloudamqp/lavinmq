@@ -237,7 +237,25 @@ module LavinMQ
       conn_info.ssl = true
       conn_info.ssl_version = ssl_client.tls_version
       conn_info.ssl_cipher = ssl_client.cipher
+      conn_info.ssl_san = extract_subject_alternative_name(ssl_client.peer_certificate) 
+      conn_info.ssl_cn = extract_common_name(ssl_client.peer_certificate) 
       handle_connection(ssl_client, conn_info, protocol)
+    end
+
+    def extract_subject_alternative_name(peer_certificate) : String?
+      return nil unless peer_certificate
+      san_ext = peer_certificate.extensions.find do |ext|
+        ext.oid == "subjectAltName"
+      end
+      san_ext.try(&.value)
+    end
+
+    def extract_common_name(peer_certificate) : String?
+      return nil unless peer_certificate
+      maybe_cn = peer_certificate.subject.to_a.find { |name, _value| name == "CN" }
+      maybe_cn.try do |entry|
+        entry[1]
+      end
     end
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)
