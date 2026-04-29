@@ -11,6 +11,7 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
+    property ssl_san : String?
 
     # Remote and local addresses from the server's perspective
     def initialize(remote_address, local_address)
