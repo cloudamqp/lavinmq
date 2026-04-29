@@ -29,8 +29,10 @@ async function login (username, password) {
   })
 }
 
+const whoAmICacheKey = 'lmq.whoami'
+
 function logout () {
-  window.localStorage.removeItem('lmq.whoami')
+  window.localStorage.removeItem(whoAmICacheKey)
   document.cookie = 'm=; max-age=0'
   window.location.assign('login')
 }
@@ -43,16 +45,16 @@ async function fetchAndCacheWhoAmI () {
         try {
           data = await resp.json()
         } catch {
-          window.localStorage.removeItem('lmq.whoami')
+          window.localStorage.removeItem(whoAmICacheKey)
           throw new Error('Invalid JSON response from whoami')
         }
         data._ts = Date.now()
         delete data.password_hash
         delete data.hashing_algorithm
-        window.localStorage.setItem('lmq.whoami', JSON.stringify(data))
+        window.localStorage.setItem(whoAmICacheKey, JSON.stringify(data))
         return data
       } else {
-        window.localStorage.removeItem('lmq.whoami')
+        window.localStorage.removeItem(whoAmICacheKey)
         throw new Error(`whoami failed with status ${resp.status}`)
       }
     })
@@ -60,17 +62,18 @@ async function fetchAndCacheWhoAmI () {
 
 async function whoAmI (forceReload = false) {
   if (!forceReload) {
-    const data = window.localStorage.getItem('lmq.whoami')
+    const data = window.localStorage.getItem(whoAmICacheKey)
     if (data) {
       let cached
       try {
         cached = JSON.parse(data)
       } catch {
-        window.localStorage.removeItem('lmq.whoami')
+        window.localStorage.removeItem(whoAmICacheKey)
       }
       if (cached && cached.name === getUsername()) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
+          // fetch in background, we still return the cached
           fetchAndCacheWhoAmI().catch(e => console.warn(`Failed to load whoAmI: ${e.message}`))
         }
         return cached
