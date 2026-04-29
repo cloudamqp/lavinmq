@@ -2317,9 +2317,11 @@ pre.arguments .inactive-argument:before {
 .require-policymaker,
 .require-impersonator {
   display: none;
+  .user-is-administrator & {
+    display: revert;* 
+  }
 }
 
-.user-is-administrator .require-administrator,
 .user-is-monitoring .require-monitoring,
 .user-is-management .require-management,
 .user-is-policymaker .require-policymaker,
