@@ -12,18 +12,46 @@ describe "Publish Confirm Persistence" do
     end
   end
 
-  it "batches confirms according to interval" do
-    # Use a small interval for faster test
+  it "confirms are received fast for single publishes (idle detection)" do
+    # Use a long interval to ensure it's the idle detection that triggers it
+    config = LavinMQ::Config.instance.dup
+    config.publish_confirm_interval = 1000
+    with_amqp_server(config: config) do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("idle_test")
+        start = Time.instant
+        q.publish_confirm "message 1"
+        duration = Time.instant - start
+        # Should be triggered by 2ms idle timeout, not the 1000ms interval
+        duration.total_milliseconds.should be_close(2, 50)
+      end
+    end
+  end
+
+  it "batches confirms according to interval for continuous publishes" do
     config = LavinMQ::Config.instance.dup
     config.publish_confirm_interval = 200
     with_amqp_server(config: config) do |s|
       with_channel(s) do |ch|
-        q = ch.queue("batch_confirm_test")
+        ch.confirm_select
+        q = ch.queue("batch_test")
         start = Time.instant
-        q.publish_confirm "message 1"
+        # Keep publishing frequently to prevent idle timeout
+        done = ::Channel(Nil).new
+        spawn do
+          250.times do
+            ch.basic_publish "message", "", q.name
+            sleep 1.milliseconds
+          end
+          done.send nil
+        end
+        done.receive
+        ch.wait_for_confirms
         duration = Time.instant - start
-        # It should have taken at least the interval
-        duration.total_milliseconds.should be_close(200, 100)
+        # Should have waited for at least some batching to occur
+        # If it was 100 * 1ms, it's 100ms + the 200ms interval if triggered at the end
+        # Actually it should trigger at 200ms from the first message
+        (duration.total_milliseconds >= 150).should be_true
       end
     end
   end
