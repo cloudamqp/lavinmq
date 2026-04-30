@@ -16,14 +16,15 @@ describe "Publish Confirm Persistence" do
     # Use a long interval to ensure it's the idle detection that triggers it
     config = LavinMQ::Config.instance.dup
     config.publish_confirm_interval = 1000
+    config.publish_confirm_idle_timeout = 5
     with_amqp_server(config: config) do |s|
       with_channel(s) do |ch|
         q = ch.queue("idle_test")
         start = Time.instant
         q.publish_confirm "message 1"
         duration = Time.instant - start
-        # Should be triggered by 2ms idle timeout, not the 1000ms interval
-        duration.total_milliseconds.should be_close(2, 50)
+        # Should be triggered by 5ms idle timeout, not the 1000ms interval
+        duration.total_milliseconds.should be_close(5, 50)
       end
     end
   end
