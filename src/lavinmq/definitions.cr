@@ -2,10 +2,12 @@ require "./vhost"
 
 module LavinMQ
   abstract class DefinitionsImporter
+    Log = LavinMQ::Log.for "definitions"
+
     def initialize(@amqp_server : LavinMQ::Server)
     end
 
-    abstract def import(body)
+    abstract def import(body, skip_existing)
     abstract def export(response)
     abstract def fetch_vhost?(json)
     abstract def vhosts
@@ -115,28 +117,43 @@ module LavinMQ
       end
     end
 
-    private def import_permissions(body)
+    private def import_permissions(body, skip_existing = false)
       if permissions = body["permissions"]?
         permissions.as_a.each do |p|
           vhost = p["vhost"].as_s
           user = p["user"].as_s
+          next if skip_existing && @amqp_server.users[user]?.try(&.permissions[vhost]?)
           configure = p["configure"].as_s
           read = p["read"].as_s
           write = p["write"].as_s
-          @amqp_server.users[user].permissions[vhost] = {
-            config: Regex.new(configure),
-            read:   Regex.new(read),
-            write:  Regex.new(write),
+          unless u = @amqp_server.users[user]?
+            Log.warn { "No user named #{user}, can't import permissions" }
+            next
+          end
+          u.permissions[vhost] = {
+            config: parse_regex(configure, "configure", user, vhost),
+            read:   parse_regex(read, "read", user, vhost),
+            write:  parse_regex(write, "write", user, vhost),
           }
         end
         @amqp_server.users.save!
       end
     end
 
-    private def import_users(body)
+    private def parse_regex(pattern, field, user, vhost)
+      Regex.new(pattern)
+    rescue ex : ArgumentError
+      raise ArgumentError.new(
+        "Invalid regex in #{field} permission for user '#{user}' " \
+        "in vhost '#{vhost}': #{ex.message}"
+      )
+    end
+
+    private def import_users(body, skip_existing = false)
       if users = body["users"]?
         users.as_a.each do |u|
           name = u["name"].as_s
+          next if skip_existing && @amqp_server.users[name]?
           pass_hash = u["password_hash"].as_s
           hash_algo = u["hashing_algorithm"]?.try(&.as_s)
 
@@ -155,7 +172,7 @@ module LavinMQ
       end
     end
 
-    private def import_parameters(body)
+    private def import_parameters(body, skip_existing = false)
       if parameters = body["parameters"]?
         parameters.as_a.each do |p|
           if v = fetch_vhost?(p)
@@ -164,19 +181,11 @@ module LavinMQ
             component = p["component"].as_s
             case component
             when "vhost-limits"
-              if mc = value["max-connections"]?.try &.as_i?
-                v.max_connections = mc
-              end
-              if mq = value["max-queues"]?.try &.as_i?
-                v.max_queues = mq
-              end
+              import_vhost_limits(v, value, skip_existing)
             when "operator_policy"
-              v.add_operator_policy(name,
-                value["pattern"].as_s,
-                value["apply-to"].as_s,
-                value["definition"].as_h,
-                value["priority"].as_i.to_i8)
+              import_operator_policy(v, name, value, skip_existing)
             else
+              next if skip_existing && v.parameters[{component, name}]?
               v.add_parameter(Parameter.new(component, name, p["value"]))
             end
           end
@@ -184,21 +193,44 @@ module LavinMQ
       end
     end
 
-    private def import_global_parameters(body)
+    private def import_vhost_limits(v, value, skip_existing)
+      return if skip_existing && (v.max_connections || v.max_queues)
+      if mc = value["max-connections"]?.try &.as_i?
+        v.max_connections = mc
+      end
+      if mq = value["max-queues"]?.try &.as_i?
+        v.max_queues = mq
+      end
+    end
+
+    private def import_operator_policy(v, name, value, skip_existing)
+      return if skip_existing && v.operator_policies[name]?
+      v.add_operator_policy(name,
+        value["pattern"].as_s,
+        value["apply-to"].as_s,
+        value["definition"].as_h,
+        value["priority"].as_i.to_i8)
+    end
+
+    private def import_global_parameters(body, skip_existing = false)
       if parameters = body["global_parameters"]?
         parameters.as_a.each do |p|
-          param = Parameter.new(nil, p["name"].as_s, p["value"])
+          name = p["name"].as_s
+          next if skip_existing && @amqp_server.parameters[{nil, name}]?
+          param = Parameter.new(nil, name, p["value"])
           @amqp_server.add_parameter(param)
         end
       end
     end
 
-    private def import_policies(body)
+    private def import_policies(body, skip_existing = false)
       if policies = body["policies"]?
         policies.as_a.each do |p|
           if v = fetch_vhost?(p)
+            name = p["name"].as_s
+            next if skip_existing && v.policies[name]?
             v.add_policy(
-              p["name"].as_s,
+              name,
               p["pattern"].as_s,
               p["apply-to"].as_s,
               p["definition"].as_h,
@@ -301,12 +333,12 @@ module LavinMQ
 
     getter vhosts : Hash(String, VHost)
 
-    def import(body)
+    def import(body, skip_existing = false)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
-      import_policies(body)
-      import_parameters(body)
+      import_policies(body, skip_existing)
+      import_parameters(body, skip_existing)
     end
 
     def export(response)
@@ -328,16 +360,23 @@ module LavinMQ
   end
 
   class GlobalDefinitions < DefinitionsImporter
-    def import(body)
-      import_users(body)
+    def self.import_from_file(path : String, amqp_server : Server)
+      Log.info { "Importing definitions from #{path}" }
+      body = JSON.parse(File.read(path))
+      new(amqp_server).import(body, skip_existing: true)
+      Log.info { "Definitions imported from #{path}" }
+    end
+
+    def import(body, skip_existing = false)
+      import_users(body, skip_existing)
+      import_permissions(body, skip_existing)
       import_vhosts(body)
-      import_permissions(body)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
-      import_policies(body)
-      import_parameters(body)
-      import_global_parameters(body)
+      import_policies(body, skip_existing)
+      import_parameters(body, skip_existing)
+      import_global_parameters(body, skip_existing)
     end
 
     def export(response)
@@ -368,8 +407,10 @@ module LavinMQ
         else
           Log.warn { "No vhost named #{name}, can't import #{name}" }
         end
-      else # if vhost property is missing, use first/default vhost
-        vhosts.first_value
+      elsif vhost = vhosts.first_value?
+        vhost # if vhost property is missing, use first/default vhost
+      else
+        Log.warn { "No vhost defined, can't import entry without vhost" }
       end
     end
   end

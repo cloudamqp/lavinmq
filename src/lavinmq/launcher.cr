@@ -10,6 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
+require "./definitions"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -61,6 +62,7 @@ module LavinMQ
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+      load_definitions(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
@@ -135,10 +137,31 @@ module LavinMQ
       {% end %}
     end
 
+    private def load_definitions(amqp_server)
+      path = @config.load_definitions
+      return if path.empty?
+      GlobalDefinitions.import_from_file(path, amqp_server)
+    rescue ex : File::NotFoundError
+      Log.error { "Failed to load definitions: file '#{path}' does not exist" }
+      exit 1
+    rescue ex : File::AccessDeniedError
+      Log.error { "Failed to load definitions: cannot read '#{path}': permission denied" }
+      exit 1
+    rescue ex : JSON::ParseException
+      Log.error { "Failed to load definitions: invalid JSON in '#{path}': #{ex.message}" }
+      exit 1
+    rescue ex
+      Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
+      exit 1
+    end
+
     private def setup_log_exchange(amqp_server)
       return unless @config.log_exchange?
       exchange_name = "amq.lavinmq.log"
-      vhost = amqp_server.vhosts["/"]
+      unless vhost = amqp_server.vhosts["/"]?
+        Log.warn { "log_exchange enabled but default vhost \"/\" is missing, skipping" }
+        return
+      end
       vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
         log_channel = ::Log::InMemoryBackend.instance.add_channel
