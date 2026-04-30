@@ -91,11 +91,12 @@ module LavinMQ
       end
 
       def credentials(start_ok, connection_info)
+        Log.debug { "credentials start_ok.mechanism=#{start_ok.mechanism}"}
         case start_ok.mechanism
         when "PLAIN"
           resp = start_ok.response
           if i = resp.index('\u0000', 1)
-            {resp[1...i], resp[(i + 1)..-1]}
+            {resp[1...i], resp[(i + 1)..-1], false}
           else
             raise "Invalid authentication response"
           end
@@ -104,20 +105,23 @@ module LavinMQ
           tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
           user = tbl["LOGIN"]?.as(String?) || ""
           password = tbl["PASSWORD"]?.as(String?) || ""
-          {user, password}
+          {user, password, false}
         # TODO handle "EXTERNAL"
         when "EXTERNAL"
-          {connection_info.ssl_cn.not_nil!, ""}
+          Log.debug { "EXTERNAL method #{connection_info.ssl_cn}"}
+          {connection_info.ssl_cn.not_nil!, "", true}
         else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
         end
       end
 
       def authenticate(socket, connection_info, start_ok, log)
+        Log.debug { "authenticate#connection_info=#{connection_info}"}
         remote_address = connection_info.remote_address
-        username, password = credentials(start_ok, connection_info)
+        username, password, is_external_mechanism = credentials(start_ok, connection_info)
         context = Auth::Context.new(
           username,
           password.to_slice,
+          is_ssl_login: is_external_mechanism,
           loopback: remote_address.loopback?
         )
         user = @authenticator.authenticate(context)

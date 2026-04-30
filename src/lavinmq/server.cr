@@ -251,9 +251,12 @@ module LavinMQ
     end
 
     def extract_common_name(peer_certificate) : String?
+      Log.debug { "extract_common_name=#{peer_certificate}"}
       return nil unless peer_certificate
       maybe_cn = peer_certificate.subject.to_a.find { |name, _value| name == "CN" }
+      Log.debug { "extract_common_name#maybe_cn=#{maybe_cn}"}
       maybe_cn.try do |entry|
+        Log.debug { "extract_commmon_name#entry=#{entry[0]}"}
         entry[1]
       end
     end
