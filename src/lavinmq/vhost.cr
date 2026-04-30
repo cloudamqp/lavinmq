@@ -49,6 +49,7 @@ module LavinMQ
     @definitions_deletes = 0
     @pending_acks = Hash(AMQP::Channel, UInt64).new
     @pending_acks_lock = Mutex.new(:unchecked)
+    @confirm_requested = ::Channel(Nil).new(1)
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
@@ -91,23 +92,45 @@ module LavinMQ
       @pending_acks_lock.synchronize do
         @pending_acks[channel] = msgid
       end
+      @confirm_requested.try_send nil
     end
 
     private def publish_confirm_loop
       loop do
-        sleep Config.instance.publish_confirm_interval.milliseconds
-        return if closed?
-        next if @pending_acks.empty?
-
-        acks = @pending_acks_lock.synchronize do
-          current = @pending_acks
-          @pending_acks = Hash(AMQP::Channel, UInt64).new
-          current
+        select
+        when @confirm_requested.receive
+          # Activity detected, start batching
+          deadline = Time.instant + Config.instance.publish_confirm_interval.milliseconds
+          loop do
+            remaining = deadline - Time.instant
+            break if remaining <= Time::Span::ZERO
+            idle_timeout = remaining < 2.milliseconds ? remaining : 2.milliseconds
+            select
+            when @confirm_requested.receive
+              # Keep batching as long as new publishes arrive
+            when timeout idle_timeout
+              break
+            end
+          end
+        when closed.when_true.receive?
+          return
         end
 
-        sync
-        acks.each do |channel, msgid|
-          channel.do_confirm_ack(msgid, multiple: true)
+        acks = @pending_acks_lock.synchronize do
+          if @pending_acks.empty?
+            nil
+          else
+            current = @pending_acks
+            @pending_acks = Hash(AMQP::Channel, UInt64).new
+            current
+          end
+        end
+
+        if acks
+          sync
+          acks.each do |channel, msgid|
+            channel.do_confirm_ack(msgid, multiple: true)
+          end
         end
       end
     end
@@ -438,6 +461,7 @@ module LavinMQ
 
     def close(reason = "Broker shutdown")
       return if @closed.swap(true)
+      @confirm_requested.close
       stop_shovels
       stop_upstream_links
 
