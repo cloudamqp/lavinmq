@@ -60,10 +60,10 @@ module LavinMQ
       private def parse_password(hash, hash_algorithm, loc = nil)
         return nil unless hash_algorithm
         case hash_algorithm
-        when /bcrypt$/i   then Password::BcryptPassword.new(hash)
-        when /sha256$/i   then Password::SHA256Password.new(hash)
-        when /sha512$/i   then Password::SHA512Password.new(hash)
-        when /md5$/i then Password::MD5Password.new(hash)
+        when /bcrypt$/i then Password::BcryptPassword.new(hash)
+        when /sha256$/i then Password::SHA256Password.new(hash)
+        when /sha512$/i then Password::SHA512Password.new(hash)
+        when /md5$/i    then Password::MD5Password.new(hash)
         else
           if loc
             raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
