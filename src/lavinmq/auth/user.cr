@@ -28,7 +28,7 @@ module LavinMQ
           when "password_hash"
             hash = pull.read_string
           when "hashing_algorithm"
-            hash_algo = pull.read_string
+            hash_algo = pull.read_string_or_null
           when "permissions"
             parse_permissions(pull)
           when "tags"
@@ -58,11 +58,12 @@ module LavinMQ
       end
 
       private def parse_password(hash, hash_algorithm, loc = nil)
+        return nil unless hash_algorithm
         case hash_algorithm
         when /bcrypt$/i   then Password::BcryptPassword.new(hash)
         when /sha256$/i   then Password::SHA256Password.new(hash)
         when /sha512$/i   then Password::SHA512Password.new(hash)
-        when /md5$/i, nil then Password::MD5Password.new(hash)
+        when /md5$/i then Password::MD5Password.new(hash)
         else
           if loc
             raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
@@ -107,7 +108,7 @@ module LavinMQ
       def user_details
         {
           name:              @name,
-          password_hash:     @password,
+          password_hash:     @password || "",
           hashing_algorithm: @password.try &.hash_algorithm,
           tags:              @tags.map(&.to_s.downcase).join(","),
         }
