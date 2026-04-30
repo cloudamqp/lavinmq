@@ -200,7 +200,6 @@ module OpenSSL::SSL
       String.new(protocol, len) unless protocol.null?
     end
 
-
     # Returns the `OpenSSL::X509::Certificate` the peer presented, if any.
     def peer_certificate : OpenSSL::X509::Certificate?
       raw_cert = LibSSL.ssl_get_peer_certificate(@ssl)
