@@ -118,6 +118,26 @@ describe LavinMQ::Auth::User do
   end
 end
 
+describe LavinMQ::Server do
+  describe "passwordless user" do
+    # Regression test for https://github.com/cloudamqp/lavinmq/issues/1896
+    it "should reload successfully after a passwordless user was created via the HTTP API" do
+      with_http_server do |http, s|
+        response = http.put("/api/users/alan", body: %({"password_hash": ""}))
+        response.status_code.should eq 201
+
+        s.restart
+
+        response = http.get("/api/users/alan")
+        response.status_code.should eq 200
+        parsed = JSON.parse(response.body)
+        parsed["password_hash"].as_s.should eq ""
+        parsed["hashing_algorithm"].raw.should be_nil
+      end
+    end
+  end
+end
+
 describe LavinMQ::Auth::UserStore do
   describe "#delete" do
     it "should clear permissions cache when deleting a user" do

@@ -119,6 +119,18 @@ describe LavinMQ::HTTP::UsersController do
       end
     end
 
+    it "should expose null hashing_algorithm for passwordless user" do
+      with_http_server do |http, _|
+        body = %({"password_hash": ""})
+        http.put("/api/users/alan", body: body)
+        response = http.get("/api/users/alan")
+        response.status_code.should eq 200
+        parsed = JSON.parse(response.body)
+        parsed["password_hash"].as_s.should eq ""
+        parsed["hashing_algorithm"].raw.should be_nil
+      end
+    end
+
     it "should create user with uniq tags" do
       with_http_server do |http, s|
         body = %({
