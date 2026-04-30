@@ -5,7 +5,7 @@
 Each user has:
 
 - **Name** — unique identifier
-- **Password hash** — hashed with a supported algorithm (SHA256, SHA512, Bcrypt, MD5)
+- **Password hash** — hashed with a supported algorithm (SHA256, SHA512, Bcrypt, MD5), or empty for passwordless users
 - **Tags** — roles that control access to management features
 
 ### User Tags
@@ -64,6 +64,19 @@ If a published message carries the `user_id` property, the server checks it matc
 ### Default Permissions
 
 The default user (`guest`) is created with full permissions (`".*"` for configure, read, and write) on the default vhost (`/`).
+
+## Passwordless Users
+
+A user can be created without a password by submitting an empty string as `password_hash` via the HTTP API:
+
+```json
+PUT /api/users/<name>
+{"password_hash": "", "tags": ""}
+```
+
+Passwordless users cannot authenticate with any password — every login attempt is rejected. This is useful for token-based or external authentication flows where the broker's built-in password check should never succeed.
+
+The `hashing_algorithm` field for a passwordless user is `null` in the API response and in the stored `users.json`.
 
 ## Managing Users
 
