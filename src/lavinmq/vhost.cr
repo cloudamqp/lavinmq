@@ -93,28 +93,26 @@ module LavinMQ
         @pending_acks[channel] = msgid
       end
       @confirm_requested.try_send nil
+    rescue ::Channel::ClosedError
     end
 
     private def publish_confirm_loop
       loop do
-        select
-        when @confirm_requested.receive
-          # Activity detected, start batching
-          deadline = Time.instant + Config.instance.publish_confirm_interval.milliseconds
-          idle_timeout_interval = Config.instance.publish_confirm_idle_timeout.milliseconds
-          loop do
-            remaining = deadline - Time.instant
-            break if remaining <= Time::Span::ZERO
-            idle_timeout = remaining < idle_timeout_interval ? remaining : idle_timeout_interval
-            select
-            when @confirm_requested.receive
-              # Keep batching as long as new publishes arrive
-            when timeout idle_timeout
-              break
-            end
+        @confirm_requested.receive
+
+        # Activity detected, start batching
+        deadline = Time.instant + Config.instance.publish_confirm_interval.milliseconds
+        idle_timeout_interval = Config.instance.publish_confirm_idle_timeout.milliseconds
+        loop do
+          remaining = deadline - Time.instant
+          break if remaining <= Time::Span::ZERO
+          idle_timeout = remaining < idle_timeout_interval ? remaining : idle_timeout_interval
+          select
+          when @confirm_requested.receive
+            # Keep batching as long as new publishes arrive
+          when timeout idle_timeout
+            break
           end
-        when closed.when_true.receive?
-          return
         end
 
         acks = @pending_acks_lock.synchronize do
@@ -131,8 +129,14 @@ module LavinMQ
           sync
           acks.each do |channel, msgid|
             channel.do_confirm_ack(msgid, multiple: true)
+          rescue ex
+            # If the channel is closed before we can ack, just ignore it
+            @log.debug { "Failed to ack message on channel #{channel}: #{ex.message}" }
           end
         end
+      rescue ::Channel::ClosedError
+        # @confirm_requested is closed
+        return
       end
     end
 
