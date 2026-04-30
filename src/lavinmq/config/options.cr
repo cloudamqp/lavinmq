@@ -216,6 +216,9 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property publish_confirm_interval = 100 # milliseconds
 
+      @[IniOpt(section: "main")]
+      property publish_confirm_idle_timeout = 5 # milliseconds
+
       @[IniOpt(section: "experimental")]
       property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
 

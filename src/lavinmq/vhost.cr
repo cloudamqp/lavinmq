@@ -101,10 +101,11 @@ module LavinMQ
         when @confirm_requested.receive
           # Activity detected, start batching
           deadline = Time.instant + Config.instance.publish_confirm_interval.milliseconds
+          idle_timeout_interval = Config.instance.publish_confirm_idle_timeout.milliseconds
           loop do
             remaining = deadline - Time.instant
             break if remaining <= Time::Span::ZERO
-            idle_timeout = remaining < 2.milliseconds ? remaining : 2.milliseconds
+            idle_timeout = remaining < idle_timeout_interval ? remaining : idle_timeout_interval
             select
             when @confirm_requested.receive
               # Keep batching as long as new publishes arrive
