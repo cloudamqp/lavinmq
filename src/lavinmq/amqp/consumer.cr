@@ -34,7 +34,6 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
-        ensure_deliver_loop unless @queue.empty?
       end
 
       def close

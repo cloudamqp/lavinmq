@@ -861,6 +861,7 @@ module LavinMQ::AMQP
           notify_consumers_empty(false)
         end
       end
+      consumer.ensure_deliver_loop unless @msg_store.empty?
       @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
