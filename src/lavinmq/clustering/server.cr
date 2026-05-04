@@ -85,19 +85,19 @@ module LavinMQ
         each_follower &.replace(path)
       end
 
-      def append(path : String, obj)
+      def append(path : String, obj : Bytes | UInt32 | Int32)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
         each_follower &.append(path, obj)
       end
 
-      def delete_file(path : String, wg)
+      def delete_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|
           files.delete(path)
           checksums.delete(path)
         end
-        each_follower &.delete(path, wg)
+        each_follower &.delete(path)
       end
 
       def nr_of_files
@@ -194,7 +194,6 @@ module LavinMQ
       end
 
       @listeners = Array(TCPServer).new(1)
-      @mt = Fiber::ExecutionContext::Parallel.new("clustering-followers", 4)
 
       def listen(server : TCPServer)
         server.listen
@@ -205,7 +204,7 @@ module LavinMQ
 
         loop do
           socket = server.accept? || break
-          @mt.spawn(name: "Clustering follower") { handle_socket(socket) }
+          spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
 
@@ -238,7 +237,8 @@ module LavinMQ
           end
         end
         begin
-          follower.action_loop
+          # Wait for follower to disconnect or be closed
+          follower.ack_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
