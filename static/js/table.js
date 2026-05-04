@@ -237,7 +237,7 @@ function toggleCol (table, colIndex) {
 
 function renderColumnSelector (table) {
   const subheader = document.querySelector('.table-subheader')
-  const container = subheader ?? table.parentElement  
+  const container = subheader ?? table.parentElement
   container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/- <span>Columns</span></a>')
   const target = subheader ? container : container.parentElement
 
