@@ -1,7 +1,7 @@
 name: Claude Code Review
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
     paths: # Only run on specific file changes
       - "src/**/*.cr"
       - "static/**/*.js"
@@ -13,7 +13,7 @@ on:
         type: string
 jobs:
   claude-review:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'workflow_dispatch') || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
