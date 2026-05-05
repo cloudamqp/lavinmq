@@ -7,6 +7,7 @@ module LavinMQ
   module Auth
     class User < BaseUser
       include SortableJSON
+      Log = LavinMQ::Log.for "user"
       getter name : String
       getter permissions : Hash(String, Permissions) = Hash(String, Permissions).new
       property tags : Array(Tag)
@@ -26,7 +27,11 @@ module LavinMQ
           when "name"
             name = pull.read_string
           when "password_hash"
-            hash = pull.read_string
+            hash = pull.read_string_or_null
+            if hash.nil?
+              Log.warn { "Possibly malformed JSON 'password_hash' was null. Defaulting to Passwordless" }
+              hash = ""
+            end
           when "hashing_algorithm"
             hash_algo = pull.read_string_or_null
           when "permissions"

@@ -121,6 +121,28 @@ end
 describe LavinMQ::Server do
   describe "passwordless user" do
     # Regression test for https://github.com/cloudamqp/lavinmq/issues/1896
+    it "should treat null password_hash in users.json as passwordless" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "alan",
+              "password_hash": null,
+              "hashing_algorithm": null,
+              "tags": "",
+              "permissions": {}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["alan"]?
+        u.should_not be_nil
+        u.not_nil!.password.should be_nil
+      end
+    end
+
     it "should reload successfully after a passwordless user was created via the HTTP API" do
       with_http_server do |http, s|
         response = http.put("/api/users/alan", body: %({"password_hash": ""}))
