@@ -282,7 +282,7 @@ module LavinMQ
         private def export_queues(json)
           json.array do
             vhosts.each_value do |v|
-              v.queues.each_value do |q|
+              v.each_queue do |q|
                 next if q.exclusive?
                 {
                   "name":        q.name,

@@ -4,18 +4,18 @@ require "../vhost"
 module LavinMQ
   module MQTT
     class Sessions
-      @queues : Hash(String, Queue)
+      @sessions : Hash(String, Session)
 
       def initialize(@vhost : VHost)
-        @queues = @vhost.queues
+        @sessions = @vhost.sessions
       end
 
       def []?(client_id : String) : Session?
-        @queues["mqtt.#{client_id}"]?.try &.as(Session)
+        @sessions["mqtt.#{client_id}"]?
       end
 
       def [](client_id : String) : Session
-        @queues["mqtt.#{client_id}"].as(Session)
+        @sessions["mqtt.#{client_id}"]
       end
 
       def declare(client : Client)
