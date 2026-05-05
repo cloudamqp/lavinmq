@@ -23,8 +23,8 @@ module LavinMQ
       getter state
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        @socket.sync = true # Use buffering in lz4
-        @socket.read_buffering = false
+        @socket.sync = true # No buffering, lz4 buffers internally
+        @socket.read_buffering = true
         @socket.write_timeout = 3.seconds # don't wait for blocked followers
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
@@ -52,7 +52,7 @@ module LavinMQ
 
       def ack_loop
         @running.add
-        @socket.read_timeout = 100.milliseconds # set read timeout for ack loop
+        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         loop do
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
@@ -201,7 +201,6 @@ module LavinMQ
           in UInt32, Int32
             @lz4.write_bytes obj, IO::ByteFormat::LittleEndian
           end
-          @lz4.flush
           lag_size
         end
       end
@@ -223,8 +222,10 @@ module LavinMQ
 
       def close
         begin
-          @lz4.close
-          @socket.close
+          @write_lock.synchronize do
+            @lz4.close
+            @socket.close
+          end
         rescue IO::Error
           # ignore connection errors while closing
         end

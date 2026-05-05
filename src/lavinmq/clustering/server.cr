@@ -288,7 +288,7 @@ module LavinMQ
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
-          rescue Channel::ClosedError
+          rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
