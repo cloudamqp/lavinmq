@@ -19,5 +19,11 @@ module LavinMQ
         super("Authentication error")
       end
     end
+
+    class FollowerTooSlowError < Error
+      def initialize(follower)
+        super("Follower too slow, action channel full address=#{follower.remote_address} id=#{follower.id.to_s(36)}")
+      end
+    end
   end
 end
