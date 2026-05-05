@@ -18,6 +18,7 @@ class LavinMQCtl
   @io : IO
 
   annotation Cmd; end
+  annotation Opt; end
 
   SECTIONS = {"User Management", "Virtual Hosts", "Queues", "Exchanges",
               "Policies", "Connections", "Definitions", "Shovels",
@@ -37,156 +38,35 @@ class LavinMQCtl
       {% for section in SECTIONS %}
         @parser.separator({{"\n" + section}})
         {% for method in @type.methods.select(&.annotation(Cmd)).sort_by(&.name) %}
-          {% ann = method.annotation(Cmd) %}
-          {% if ann[:section] == section %}
-            @parser.on({{method.name.stringify}}, {{ann[0]}}) do
+          {% cmd = method.annotation(Cmd) %}
+          {% if cmd[:section] == section %}
+            {% name = method.name.stringify %}
+            {% description = cmd[0] %}
+            {% usage = cmd[1] %}
+            @parser.on({{name}}, {{description}}) do
               @cmd = ->{ {{method.name.id}}; nil }
-              self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{ann[1].id}}"
-              {{ ann[:options] }}
+              self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
+              {% for opt in method.annotations(Opt) %}
+                {% flag = opt[0] %}
+                {% desc = opt[1] %}
+                {% options_key = opt[:options] %}
+                {% args_key = opt[:args] %}
+                {% literal = opt[:value] %}
+                {% value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id) %}
+                @parser.on({{flag}}, {{desc}}) do {% unless literal %}|v|{% end %}
+                  {% if options_key %}
+                    @options[{{options_key}}] = {{value}}
+                  {% else %}
+                    @args[{{args_key}}] = JSON::Any.new({{value}})
+                  {% end %}
+                end
+              {% end %}
             end
           {% end %}
         {% end %}
       {% end %}
     {% end %}
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-  end
-
-  private def parse_create_queue_options
-    @parser.on("--auto-delete", "Auto delete queue when last consumer is removed") do
-      @options["auto_delete"] = "true"
-    end
-    @parser.on("--durable", "Make the queue durable") do
-      @options["durable"] = "true"
-    end
-    @parser.on("--expires", "") do |v|
-      @args["x-expires"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--max-length", "Set a max length for the queue") do |v|
-      @args["x-max-length"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--message-ttl", "Message time to live") do |v|
-      @args["x-message-ttl"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--delivery-limit", "How many time a message will be delivered before dead lettered") do |v|
-      @args["x-delivery-limit"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do
-      @args["x-overflow"] = JSON::Any.new("reject-publish")
-    end
-    @parser.on("--dead-letter-exchange", "To which exchange to dead letter messages") do |v|
-      @args["x-dead-letter-exchange"] = JSON::Any.new(v)
-    end
-    @parser.on("--dead-letter-routing-key", "Which routing key to use when dead lettering") do |v|
-      @args["x-dead-letter-routing-key"] = JSON::Any.new(v)
-    end
-    @parser.on("--stream-queue", "Create a Stream Queue") do
-      @args["x-queue-type"] = JSON::Any.new("stream")
-    end
-  end
-
-  private def parse_create_exchange_options
-    @parser.on("--auto-delete", "Auto delete exchange") do
-      @options["auto_delete"] = "true"
-    end
-    @parser.on("--durable", "Make the exchange durable") do
-      @options["durable"] = "true"
-    end
-    @parser.on("--internal", "Make the exchange internal") do
-      @options["internal"] = "true"
-    end
-    @parser.on("--delayed", "Make the exchange delayed") do
-      @options["delayed"] = "true"
-    end
-    @parser.on("--alternate-exchange", "Exchange to route all unroutable messages to") do |v|
-      @args["x-alternate-exchange"] = JSON::Any.new(v)
-    end
-    @parser.on("--persist-messages", "Number of messages to persist in the exchange") do |v|
-      @args["x-persist-messages"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--persist-ms", "Persist messages in the exchange for this amount of time") do |v|
-      @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
-    end
-  end
-
-  private def parse_set_policy_options
-    @parser.on("--priority=priority", "Specify priority") do |v|
-      @options["priority"] = v
-    end
-    @parser.on("--apply-to=apply-to", "Apply-to") do |v|
-      @options["apply-to"] = v
-    end
-  end
-
-  private def parse_add_shovel_options
-    @parser.on("--src-uri=URI", "Source URI (required)") do |v|
-      @args["src-uri"] = JSON::Any.new(v)
-    end
-    @parser.on("--dest-uri=URI", "Destination URI (required)") do |v|
-      @args["dest-uri"] = JSON::Any.new(v)
-    end
-    @parser.on("--src-queue=QUEUE", "Source queue name") do |v|
-      @args["src-queue"] = JSON::Any.new(v)
-    end
-    @parser.on("--dest-queue=QUEUE", "Destination queue name") do |v|
-      @args["dest-queue"] = JSON::Any.new(v)
-    end
-    @parser.on("--src-exchange=EXCHANGE", "Source exchange name") do |v|
-      @args["src-exchange"] = JSON::Any.new(v)
-    end
-    @parser.on("--dest-exchange=EXCHANGE", "Destination exchange name") do |v|
-      @args["dest-exchange"] = JSON::Any.new(v)
-    end
-    @parser.on("--src-exchange-key=KEY", "Source routing key") do |v|
-      @args["src-exchange-key"] = JSON::Any.new(v)
-    end
-    @parser.on("--dest-exchange-key=KEY", "Destination routing key") do |v|
-      @args["dest-exchange-key"] = JSON::Any.new(v)
-    end
-    @parser.on("--src-prefetch-count=COUNT", "Source prefetch count") do |v|
-      @args["src-prefetch-count"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)") do |v|
-      @args["src-delete-after"] = JSON::Any.new(v)
-    end
-    @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
-      @args["ack-mode"] = JSON::Any.new(v)
-    end
-    @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
-      @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
-    end
-  end
-
-  private def parse_add_federation_options
-    @parser.on("--uri=URI", "Upstream URI (required)") do |v|
-      @args["uri"] = JSON::Any.new(v)
-    end
-    @parser.on("--expires=SECONDS", "Expiry time for federation link") do |v|
-      @args["expires"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--message-ttl=MILLISECONDS", "Message TTL for federation") do |v|
-      @args["message-ttl"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--max-hops=COUNT", "Maximum hops for federation") do |v|
-      @args["max-hops"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--prefetch-count=COUNT", "Prefetch count for federation") do |v|
-      @args["prefetch-count"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
-      @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
-    end
-    @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
-      @args["ack-mode"] = JSON::Any.new(v)
-    end
-    @parser.on("--consumer-tag=TAG", "Consumer tag for federation link") do |v|
-      @args["consumer-tag"] = JSON::Any.new(v)
-    end
-    @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
-      @args["exchange"] = JSON::Any.new(v)
-    end
-    @parser.on("--queue=QUEUE", "Queue name to federate") do |v|
-      @args["queue"] = JSON::Any.new(v)
-    end
   end
 
   def banner=(@banner : String)
@@ -629,7 +509,9 @@ class LavinMQCtl
     output get("/api/policies/#{URI.encode_www_form(vhost)}")
   end
 
-  @[Cmd("Sets or updates a policy", "<name> <pattern> <definition>", section: "Policies", options: parse_set_policy_options)]
+  @[Opt("--priority=priority", "Specify priority", options: "priority")]
+  @[Opt("--apply-to=apply-to", "Apply-to", options: "apply-to")]
+  @[Cmd("Sets or updates a policy", "<name> <pattern> <definition>", section: "Policies")]
   private def set_policy
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
@@ -646,7 +528,17 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
-  @[Cmd("Create queue", "<name>", section: "Queues", options: parse_create_queue_options)]
+  @[Opt("--auto-delete", "Auto delete queue when last consumer is removed", options: "auto_delete", value: "true")]
+  @[Opt("--durable", "Make the queue durable", options: "durable", value: "true")]
+  @[Opt("--expires", "", args: "x-expires", coerce: :i64)]
+  @[Opt("--max-length", "Set a max length for the queue", args: "x-max-length", coerce: :i64)]
+  @[Opt("--message-ttl", "Message time to live", args: "x-message-ttl", coerce: :i64)]
+  @[Opt("--delivery-limit", "How many time a message will be delivered before dead lettered", args: "x-delivery-limit", coerce: :i64)]
+  @[Opt("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped", args: "x-overflow", value: "reject-publish")]
+  @[Opt("--dead-letter-exchange", "To which exchange to dead letter messages", args: "x-dead-letter-exchange")]
+  @[Opt("--dead-letter-routing-key", "Which routing key to use when dead lettering", args: "x-dead-letter-routing-key")]
+  @[Opt("--stream-queue", "Create a Stream Queue", args: "x-queue-type", value: "stream")]
+  @[Cmd("Create queue", "<name>", section: "Queues")]
   private def create_queue
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -686,7 +578,14 @@ class LavinMQCtl
     output ee
   end
 
-  @[Cmd("Create exchange", "<type> <name>", section: "Exchanges", options: parse_create_exchange_options)]
+  @[Opt("--auto-delete", "Auto delete exchange", options: "auto_delete", value: "true")]
+  @[Opt("--durable", "Make the exchange durable", options: "durable", value: "true")]
+  @[Opt("--internal", "Make the exchange internal", options: "internal", value: "true")]
+  @[Opt("--delayed", "Make the exchange delayed", options: "delayed", value: "true")]
+  @[Opt("--alternate-exchange", "Exchange to route all unroutable messages to", args: "x-alternate-exchange")]
+  @[Opt("--persist-messages", "Number of messages to persist in the exchange", args: "x-persist-messages", coerce: :i64)]
+  @[Opt("--persist-ms", "Persist messages in the exchange for this amount of time", args: "x-persist-ms", coerce: :i64)]
+  @[Cmd("Create exchange", "<type> <name>", section: "Exchanges")]
   private def create_exchange
     etype = ARGV.shift?
     name = ARGV.shift?
@@ -823,7 +722,19 @@ class LavinMQCtl
     output ss
   end
 
-  @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels", options: parse_add_shovel_options)]
+  @[Opt("--src-uri=URI", "Source URI (required)", args: "src-uri")]
+  @[Opt("--dest-uri=URI", "Destination URI (required)", args: "dest-uri")]
+  @[Opt("--src-queue=QUEUE", "Source queue name", args: "src-queue")]
+  @[Opt("--dest-queue=QUEUE", "Destination queue name", args: "dest-queue")]
+  @[Opt("--src-exchange=EXCHANGE", "Source exchange name", args: "src-exchange")]
+  @[Opt("--dest-exchange=EXCHANGE", "Destination exchange name", args: "dest-exchange")]
+  @[Opt("--src-exchange-key=KEY", "Source routing key", args: "src-exchange-key")]
+  @[Opt("--dest-exchange-key=KEY", "Destination routing key", args: "dest-exchange-key")]
+  @[Opt("--src-prefetch-count=COUNT", "Source prefetch count", args: "src-prefetch-count", coerce: :i64)]
+  @[Opt("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)", args: "src-delete-after")]
+  @[Opt("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)", args: "ack-mode")]
+  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", coerce: :i64)]
+  @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels")]
   private def add_shovel
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -863,7 +774,17 @@ class LavinMQCtl
     output ff
   end
 
-  @[Cmd("Create a federation upstream", "<name> --uri=<uri>", section: "Federation", options: parse_add_federation_options)]
+  @[Opt("--uri=URI", "Upstream URI (required)", args: "uri")]
+  @[Opt("--expires=SECONDS", "Expiry time for federation link", args: "expires", coerce: :i64)]
+  @[Opt("--message-ttl=MILLISECONDS", "Message TTL for federation", args: "message-ttl", coerce: :i64)]
+  @[Opt("--max-hops=COUNT", "Maximum hops for federation", args: "max-hops", coerce: :i64)]
+  @[Opt("--prefetch-count=COUNT", "Prefetch count for federation", args: "prefetch-count", coerce: :i64)]
+  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", coerce: :i64)]
+  @[Opt("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)", args: "ack-mode")]
+  @[Opt("--consumer-tag=TAG", "Consumer tag for federation link", args: "consumer-tag")]
+  @[Opt("--exchange=EXCHANGE", "Exchange name to federate", args: "exchange")]
+  @[Opt("--queue=QUEUE", "Queue name to federate", args: "queue")]
+  @[Cmd("Create a federation upstream", "<name> --uri=<uri>", section: "Federation")]
   private def add_federation
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
