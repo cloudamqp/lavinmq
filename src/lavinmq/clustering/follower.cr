@@ -1,4 +1,3 @@
-require "io"
 require "./file_index"
 require "../config"
 require "../rate_limiter"
@@ -24,8 +23,8 @@ module LavinMQ
       getter state
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        @socket.sync = true
-        @socket.read_buffering = true
+        @socket.sync = true # Use buffering in lz4
+        @socket.read_buffering = false
         @socket.write_timeout = 3.seconds # don't wait for blocked followers
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
@@ -53,11 +52,11 @@ module LavinMQ
 
       def ack_loop
         @running.add
-        @socket.sync = false                    # Use buffering in lz4
         @socket.read_timeout = 100.milliseconds # set read timeout for ack loop
         loop do
           begin
-            read_ack
+            len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            @acked_bytes += len
           rescue IO::TimeoutError
             @write_lock.synchronize do
               @lz4.flush
@@ -68,12 +67,6 @@ module LavinMQ
         # socket closed
       ensure
         @running.done
-      end
-
-      private def read_ack(socket = @socket) : Int64
-        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-        @acked_bytes += len
-        len
       end
 
       private def validate_header! : Nil

@@ -40,7 +40,7 @@ module FollowerSpec
       super(Family::INET, Type::STREAM, Protocol::TCP)
     end
 
-    delegate read, write, flush, to: @io
+    delegate read, write, to: @io
     delegate close, closed?, to: @io
 
     def remote_address : Socket::IPAddress
@@ -58,7 +58,6 @@ module FollowerSpec
 
           invalid_start = Bytes[0, 1, 2, 3, 4, 5, 6, 7]
           client_socket.write invalid_start
-          client_socket.flush
 
           expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
             follower.negotiate!("foo")
@@ -79,7 +78,6 @@ module FollowerSpec
           client_socket.write LavinMQ::Clustering::Start
           client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
           client_socket.write password.to_slice
-          client_socket.flush
 
           expect_raises(LavinMQ::Clustering::AuthenticationError) do
             follower.negotiate!("bar")
@@ -104,7 +102,6 @@ module FollowerSpec
           client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
           client_socket.write password.to_slice
           client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
-          client_socket.flush
 
           follower.negotiate!("foo")
 
@@ -139,6 +136,8 @@ module FollowerSpec
             client_lz4.read_fully hash
             file_list[path] = hash
           end
+          client_socket.write_bytes 0, IO::ByteFormat::LittleEndian # don't request any files
+          Fiber.yield
           done.send nil
         end
 
@@ -165,7 +164,7 @@ module FollowerSpec
 
         # Fiber to drain client socket so follower doesn't block on write/flush
         spawn do
-          buf = uninitialized UInt8[1024]
+          buf = uninitialized UInt8[4096]
           loop do
             client_socket.read(buf.to_slice)
           end
@@ -193,7 +192,6 @@ module FollowerSpec
         # though close doesn't strictly depend on it now.
         # But let's verify lag reaches 0.
         client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
-        client_socket.flush
 
         # Wait for closing fiber to finish
         wg.wait
