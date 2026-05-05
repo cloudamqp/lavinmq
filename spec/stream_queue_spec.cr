@@ -233,7 +233,7 @@ describe LavinMQ::AMQP::Stream do
         q.publish_confirm data
         # Derive target from msg1's stored timestamp; Time.utc here would race RoughTime's
         # 100ms coarsening and could land inside segment 2's bucket, hanging the consumer.
-        store = s.vhosts["/"].queues["stream-ts-across-segments"].as(LavinMQ::AMQP::Stream).stream_msg_store
+        store = s.vhosts["/"].queue("stream-ts-across-segments").as(LavinMQ::AMQP::Stream).stream_msg_store
         msg1_ts = store.@segment_last_ts.values.first
         target_time = Time.unix(msg1_ts // 1000 + 1)
         ch.prefetch 1
