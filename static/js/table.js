@@ -8,12 +8,13 @@ function renderTable (id, options = {}, renderRow) {
   const table = document.getElementById(id)
   const grandparent = table.parentElement && table.parentElement.parentElement
   const tableHeader = grandparent ? grandparent.querySelector(':scope > .table-header') : null
+  const subheader = grandparent ? grandparent.querySelector(':scope > .table-subheader') : null
   const container = tableHeader || table.parentElement
   const keyColumns = options.keyColumns
   const events = new EventTarget()
 
   if (options.columnSelector) {
-    renderColumnSelector(table)
+    renderColumnSelector(table, subheader)
   }
 
   if (options.search) {
@@ -33,7 +34,7 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   dataSource.on('update', updateTable)
-  dataSource.on('update', updatePageInfo)
+  dataSource.on('update', () => updatePageInfo(subheader))
   dataSource.on('error', error => {
     console.log(error)
     toggleDisplayError(id, 'Error fetching data: ' + error.detail)
@@ -154,11 +155,11 @@ function renderTable (id, options = {}, renderRow) {
     })
   }
 
-  function updatePageInfo () { // <-- new
-    const pageInfoEl = document.querySelector('.table-page-info')
+  function updatePageInfo (subheader) {
+    const pageInfoEl = subheader?.querySelector('.table-page-info')
     if (!pageInfoEl) return
 
-    const total = dataSource.totalCount
+    const total = dataSource.filteredCount
     const pageSize = dataSource.items.length
     const page = dataSource.page ?? 1
 
@@ -235,10 +236,9 @@ function toggleCol (table, colIndex) {
   }
 }
 
-function renderColumnSelector (table) {
-  const subheader = document.querySelector('.table-subheader')
+function renderColumnSelector (table, subheader) {
   const container = subheader ?? table.parentElement
-  container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/- <span>Columns</span></a>')
+  container.insertAdjacentHTML('afterbegin', '<a class="col-toggle">+/- <span>Columns</span></a>')
   const target = subheader ? container : container.parentElement
 
   const hiddenColumns = getHiddenColumns(table)
@@ -271,24 +271,27 @@ function renderColumnSelector (table) {
     }
     str += '</form>'
     target.insertAdjacentHTML('beforeend', str)
-    target.addEventListener('click', e => {
-      if (e.target.classList.contains('close')) close()
-    })
-    target.addEventListener('change', e => {
-      if (!e.target.classList.contains('col-toggle-checkbox')) return true
-      const i = parseInt(e.target.dataset.index)
-      toggleCol(table, i)
-      const hiddenColumns = getHiddenColumns(table)
-      if (hiddenColumns.has(i)) {
-        hiddenColumns.delete(i)
-      } else {
-        hiddenColumns.add(i)
-      }
-      setHiddenColumns(table, hiddenColumns)
-    })
-    document.addEventListener('keyup', e => {
-      if (e.key === 'Escape') close()
-    })
+  })
+
+  target.addEventListener('click', e => {
+    if (e.target.classList.contains('close')) close()
+  })
+
+  target.addEventListener('change', e => {
+    if (!e.target.classList.contains('col-toggle-checkbox')) return true
+    const i = parseInt(e.target.dataset.index)
+    toggleCol(table, i)
+    const hiddenColumns = getHiddenColumns(table)
+    if (hiddenColumns.has(i)) {
+      hiddenColumns.delete(i)
+    } else {
+      hiddenColumns.add(i)
+    }
+    setHiddenColumns(table, hiddenColumns)
+  })
+
+  document.addEventListener('keyup', e => {
+    if (e.key === 'Escape') close()
   })
 }
 
