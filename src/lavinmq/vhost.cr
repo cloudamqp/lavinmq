@@ -15,6 +15,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./connection_store"
 
 module LavinMQ
   class VHost
@@ -36,7 +37,7 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
-    @connections = Array(Client).new(512)
+    @connections = ConnectionStore.new
 
     # Bool accessors (later become Atomic)
     def flow? : Bool
@@ -135,6 +136,16 @@ module LavinMQ
 
     def connections_size : Int32
       @connections.size
+    end
+
+    def add_connection(client : Client)
+      event_tick(EventType::ConnectionCreated)
+      @connections.add client
+    end
+
+    def rm_connection(client : Client)
+      event_tick(EventType::ConnectionClosed)
+      @connections.delete client
     end
 
     # Direct reply consumer accessors
@@ -455,16 +466,6 @@ module LavinMQ
       @log.info { "Policy=#{name} Deleted" }
     end
 
-    def add_connection(client : Client)
-      event_tick(EventType::ConnectionCreated)
-      @connections << client
-    end
-
-    def rm_connection(client : Client)
-      event_tick(EventType::ConnectionClosed)
-      @connections.delete client
-    end
-
     SHOVEL                  = "shovel"
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
@@ -499,31 +500,6 @@ module LavinMQ
       upstreams.stop_all
     end
 
-    private def close_connections(reason)
-      WaitGroup.wait do |wg|
-        to_close = Channel(Client).new
-        fiber_count = 0
-        @connections.each do |client|
-          select
-          when to_close.send client
-          else # spawn another fiber closing channels
-            fiber_id = fiber_count &+= 1
-            @log.trace { "spawning close conn fiber #{fiber_id} " }
-            client_inner = client
-            wg.spawn do
-              client_inner.close(reason)
-              while client_to_close = to_close.receive?
-                client_to_close.close(reason)
-              end
-              @log.trace { "exiting close conn fiber #{fiber_id} " }
-            end
-            Fiber.yield
-          end
-        end
-        to_close.close
-      end
-    end
-
     def close(reason = "Broker shutdown")
       return if @closed.swap(true)
       stop_shovels
@@ -533,7 +509,7 @@ module LavinMQ
       close_done = Channel(Nil).new
 
       spawn do
-        close_connections reason
+        @connections.close_all(reason, @log)
         @log.debug { "Close sent to all connections" }
         close_done.close
       end
