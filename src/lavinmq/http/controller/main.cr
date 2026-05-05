@@ -46,8 +46,8 @@ module LavinMQ
               consumers += c.channels.each_value.sum &.consumers.size
             end
             exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            queues += vhost.queues.size + vhost.sessions.size
+            vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)

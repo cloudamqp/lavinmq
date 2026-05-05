@@ -364,7 +364,7 @@ module LavinMQ
               consumers += ch.consumers.size
             end
           end
-          queues += vhost.queues.size
+          queues += vhost.queues.size + vhost.sessions.size
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -500,7 +500,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_ready", "gauge",
           "Messages ready to be delivered to consumers")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
           end
@@ -509,7 +509,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_unacked", "gauge",
           "Messages delivered to consumers but not yet acknowledged")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
           end
@@ -518,7 +518,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages", "gauge",
           "Sum of ready and unacknowledged messages - total queue depth")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
           end
@@ -527,7 +527,7 @@ module LavinMQ
         writer.write_header("detailed_queue_deduplication", "counter",
           "Number of deduplicated messages for this queue")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
@@ -540,7 +540,7 @@ module LavinMQ
 
         # Write values
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_consumers", q.consumers.size, labels)
           end

@@ -25,7 +25,7 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
+    getter name, exchanges, queues, sessions, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
     property? flow = true
     getter closed = BoolChannel.new(true)
@@ -38,7 +38,8 @@ module LavinMQ
     property max_queues : Int32?
 
     @exchanges = Hash(String, Exchange).new
-    @queues = Hash(String, Queue).new
+    @queues = Hash(String, AMQP::Queue).new
+    @sessions = Hash(String, MQTT::Session).new
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
@@ -94,6 +95,20 @@ module LavinMQ
       value = nil if value < 0
       @max_queues = value
       store_limits
+    end
+
+    def queue_limit_reached? : Bool
+      @max_queues.try { |max| @queues.size + @sessions.size >= max } || false
+    end
+
+    def each_queue(& : AMQP::Queue ->)
+      @queues.each_value { |q| yield q }
+      @sessions.each_value { |q| yield q }
+    end
+
+    private def each_policy_target(& : Queue | Exchange ->)
+      each_queue { |q| yield q }
+      @exchanges.each_value { |e| yield e }
     end
 
     private def load_limits
@@ -154,7 +169,7 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
-      @queues.each_value do |q|
+      each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
@@ -264,13 +279,18 @@ module LavinMQ
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
-          return false if @queues.has_key? f.queue_name
-          q = @queues[f.queue_name] = QueueFactory.make(self, f)
+          return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          q = QueueFactory.make(self, f)
+          if q.is_a?(MQTT::Session)
+            @sessions[f.queue_name] = q
+          else
+            @queues[f.queue_name] = q.as(AMQP::Queue)
+          end
           apply_policies([q] of Queue) unless loading
           store_definition(f) if !loading && f.durable && !f.exclusive
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name)
+          if q = @queues.delete(f.queue_name) || @sessions.delete(f.queue_name)
             @exchanges.each_value do |ex|
               ex.bindings_details.each do |binding|
                 next unless binding.destination == q
@@ -285,12 +305,12 @@ module LavinMQ
           end
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
@@ -433,6 +453,7 @@ module LavinMQ
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
+      @sessions.each_value &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -445,17 +466,20 @@ module LavinMQ
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources = if resources
-                    resources.each
-                  else
-                    Iterator.chain({@queues.each_value, @exchanges.each_value})
-                  end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
-      resources.each do |resource|
-        policy = policies.find &.match?(resource)
-        operator_policy = operator_policies.find &.match?(resource)
-        resource.apply_policy(policy, operator_policy)
+      if r = resources
+        r.each do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
+      else
+        each_policy_target do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }
@@ -594,7 +618,8 @@ module LavinMQ
             false, e.arguments)
           io.write_bytes f
         end
-        @queues.each_value.select(&.durable?).each do |q|
+        each_queue do |q|
+          next unless q.durable?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
