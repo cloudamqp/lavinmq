@@ -11,7 +11,7 @@ require "../lavinmq/auth/user"
 class LavinMQCtl
   @options = {} of String => String
   @args = {} of String => JSON::Any
-  @cmd : String?
+  @cmd : Proc(Nil)?
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
@@ -40,11 +40,9 @@ class LavinMQCtl
           {% ann = method.annotation(Cmd) %}
           {% if ann[:section] == section %}
             @parser.on({{method.name.stringify}}, {{ann[0]}}) do
-              @cmd = {{method.name.stringify}}
+              @cmd = ->{ {{method.name.id}}; nil }
               self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{ann[1].id}}"
-              {% if ann[:has_options] %}
-                parse_{{method.name.id}}_options
-              {% end %}
+              {{ ann[:options] }}
             end
           {% end %}
         {% end %}
@@ -197,16 +195,12 @@ class LavinMQCtl
 
   def run_cmd
     @parser.parse
-    {% begin %}
-    case @cmd
-    {% for method in @type.methods.select(&.annotation(Cmd)) %}
-    when {{method.name.stringify}} then {{method.name.id}}
-    {% end %}
+    if cmd = @cmd
+      cmd.call
     else
       @io.puts @parser
       abort
     end
-    {% end %}
   rescue ex : OptionParser::MissingOption
     abort ex
   rescue ex : IO::Error
@@ -635,7 +629,7 @@ class LavinMQCtl
     output get("/api/policies/#{URI.encode_www_form(vhost)}")
   end
 
-  @[Cmd("Sets or updates a policy", "<name> <pattern> <definition>", section: "Policies", has_options: true)]
+  @[Cmd("Sets or updates a policy", "<name> <pattern> <definition>", section: "Policies", options: parse_set_policy_options)]
   private def set_policy
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
@@ -652,7 +646,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
-  @[Cmd("Create queue", "<name>", section: "Queues", has_options: true)]
+  @[Cmd("Create queue", "<name>", section: "Queues", options: parse_create_queue_options)]
   private def create_queue
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -692,7 +686,7 @@ class LavinMQCtl
     output ee
   end
 
-  @[Cmd("Create exchange", "<type> <name>", section: "Exchanges", has_options: true)]
+  @[Cmd("Create exchange", "<type> <name>", section: "Exchanges", options: parse_create_exchange_options)]
   private def create_exchange
     etype = ARGV.shift?
     name = ARGV.shift?
@@ -829,7 +823,7 @@ class LavinMQCtl
     output ss
   end
 
-  @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels", has_options: true)]
+  @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels", options: parse_add_shovel_options)]
   private def add_shovel
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -869,7 +863,7 @@ class LavinMQCtl
     output ff
   end
 
-  @[Cmd("Create a federation upstream", "<name> --uri=<uri>", section: "Federation", has_options: true)]
+  @[Cmd("Create a federation upstream", "<name> --uri=<uri>", section: "Federation", options: parse_add_federation_options)]
   private def add_federation
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
