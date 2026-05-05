@@ -16,6 +16,7 @@ require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 require "./connection_store"
+require "./direct_reply_consumer_store"
 
 module LavinMQ
   class VHost
@@ -34,7 +35,7 @@ module LavinMQ
     @flow = true
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
-    @direct_reply_consumers = Hash(String, Client::Channel).new
+    @direct_reply_consumers = DirectReplyConsumerStore.new
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
