@@ -11,7 +11,8 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Hash(String, Exchange).new
-      @queues = Hash(String, Queue).new
+      @queues = Hash(String, AMQP::Queue).new
+      @sessions = Hash(String, MQTT::Session).new
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       @definitions_file = File.open(@definitions_file_path, "a+")
@@ -61,11 +62,11 @@ module LavinMQ
 
     # Queue accessors
 
-    def queue?(name : String) : Queue?
+    def queue?(name : String) : AMQP::Queue?
       @queues[name]?
     end
 
-    def queue(name : String) : Queue
+    def queue(name : String) : AMQP::Queue
       @queues[name]
     end
 
@@ -73,11 +74,11 @@ module LavinMQ
       @queues.has_key?(name)
     end
 
-    def each_queue(& : Queue ->) : Nil
+    def each_queue(& : AMQP::Queue ->) : Nil
       @queues.each_value { |v| yield v }
     end
 
-    def queues : Array(Queue)
+    def queues : Array(AMQP::Queue)
       @queues.values
     end
 
@@ -90,7 +91,7 @@ module LavinMQ
     # called when an exchange is re-imported and a delayed queue with the same
     # name already exists. Skips persistence and event ticks since these aren't
     # replayed from frames.
-    def register_queue(queue : Queue) : Nil
+    def register_queue(queue : AMQP::Queue) : Nil
       @definitions_lock.synchronize do
         @queues[queue.name] = queue
       end
@@ -98,6 +99,36 @@ module LavinMQ
 
     def queues_clear : Nil
       @queues.clear
+    end
+
+    # Session accessors
+
+    def session?(name : String) : MQTT::Session?
+      @sessions[name]?
+    end
+
+    def session(name : String) : MQTT::Session
+      @sessions[name]
+    end
+
+    def session_exists?(name : String) : Bool
+      @sessions.has_key?(name)
+    end
+
+    def each_session(& : MQTT::Session ->) : Nil
+      @sessions.each_value { |v| yield v }
+    end
+
+    def sessions : Array(MQTT::Session)
+      @sessions.values
+    end
+
+    def sessions_size : Int32
+      @sessions.size
+    end
+
+    def sessions_clear : Nil
+      @sessions.clear
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -136,8 +167,13 @@ module LavinMQ
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
-          return false if @queues.has_key? f.queue_name
-          q = @queues[f.queue_name] = QueueFactory.make(@vhost, f)
+          return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          q = QueueFactory.make(@vhost, f)
+          if q.is_a?(MQTT::Session)
+            @sessions[f.queue_name] = q
+          else
+            @queues[f.queue_name] = q.as(AMQP::Queue)
+          end
           @vhost.apply_policies([q] of Queue) unless loading
           store_definition(f) if !loading && f.durable && !f.exclusive
           @vhost.event_tick(EventType::QueueDeclared) unless loading
@@ -159,12 +195,12 @@ module LavinMQ
           end
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"

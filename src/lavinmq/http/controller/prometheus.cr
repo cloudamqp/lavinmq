@@ -368,7 +368,7 @@ module LavinMQ
               consumers += ch.consumers_size
             end
           end
-          queues += vhost.queues_size
+          queues += vhost.queues_size + vhost.sessions_size
         end
         writer.write({name:  "connections",
                       value: connections,

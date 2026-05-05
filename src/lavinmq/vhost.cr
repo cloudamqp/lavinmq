@@ -91,11 +91,11 @@ module LavinMQ
 
     # Queue accessors
 
-    def queue?(name : String) : Queue?
+    def queue?(name : String) : AMQP::Queue?
       definitions.queue?(name)
     end
 
-    def queue(name : String) : Queue
+    def queue(name : String) : AMQP::Queue
       definitions.queue(name)
     end
 
@@ -103,11 +103,20 @@ module LavinMQ
       definitions.queue_exists?(name)
     end
 
-    def each_queue(& : Queue ->) : Nil
-      definitions.each_queue { |v| yield v }
+    def each_queue(& : AMQP::Queue ->)
+      definitions.each_queue { |q| yield q }
+      definitions.each_session { |q| yield q }
     end
 
-    def queues : Array(Queue)
+    private def each_policy_target(& : AMQP::Queue | Exchange ->)
+      resources = Array(AMQP::Queue | Exchange).new(queues_size + exchanges_size + sessions_size)
+      resources.concat(queues).concat(sessions).concat(exchanges)
+      resources.each do |r|
+        yield r
+      end
+    end
+
+    def queues : Array(AMQP::Queue)
       definitions.queues
     end
 
@@ -115,12 +124,46 @@ module LavinMQ
       definitions.queues_size
     end
 
-    def register_queue(queue : Queue) : Nil
+    def register_queue(queue : AMQP::Queue) : Nil
       definitions.register_queue(queue)
     end
 
     def queues_clear : Nil
       definitions.queues_clear
+    end
+
+    # Session accessors
+
+    def session?(name : String) : MQTT::Session?
+      definitions.session?(name)
+    end
+
+    def session(name : String) : MQTT::Session
+      definitions.session(name)
+    end
+
+    def session_exists?(name : String) : Bool
+      definitions.session_exists?(name)
+    end
+
+    def each_session(& : MQTT::Session ->) : Nil
+      definitions.each_session { |v| yield v }
+    end
+
+    def sessions : Array(MQTT::Session)
+      definitions.sessions
+    end
+
+    def sessions_size : Int32
+      definitions.sessions_size
+    end
+
+    def register_session(session : MQTT::Session) : Nil
+      definitions.register_session(session)
+    end
+
+    def sessions_clear : Nil
+      definitions.sessions_clear
     end
 
     # Connection accessors
@@ -214,6 +257,10 @@ module LavinMQ
       value = nil if value < 0
       @max_queues = value
       store_limits
+    end
+
+    def queue_limit_reached? : Bool
+      @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -452,6 +499,7 @@ module LavinMQ
       each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
+      # each_session &.close (currently included in each_queue)
       each_exchange &.close
       Fiber.yield
       definitions.close
@@ -465,13 +513,20 @@ module LavinMQ
     end
 
     def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources ||= (queues.map(&.as(Queue | Exchange)) + exchanges.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
-      resources.each do |resource|
-        policy = policies.find &.match?(resource)
-        operator_policy = operator_policies.find &.match?(resource)
-        resource.apply_policy(policy, operator_policy)
+      if r = resources
+        r.each do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
+      else
+        each_policy_target do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }
