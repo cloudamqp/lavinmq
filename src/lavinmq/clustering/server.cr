@@ -236,6 +236,7 @@ module LavinMQ
             update_isr
           end
         end
+        @on_follower_change.try &.call(follower, true)
         begin
           # Wait for follower to disconnect or be closed
           follower.ack_loop
@@ -244,6 +245,7 @@ module LavinMQ
             @followers.delete(follower)
             @dirty_isr = true
           end
+          @on_follower_change.try &.call(follower, false)
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -255,6 +257,10 @@ module LavinMQ
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
+      end
+
+      def on_follower_change(&blk : Follower, Bool -> Nil) : Nil
+        @on_follower_change = blk
       end
 
       private def update_isr

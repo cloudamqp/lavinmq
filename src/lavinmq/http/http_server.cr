@@ -88,20 +88,42 @@ module LavinMQ
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
       # The server returns 503 to signal that the node is a follower and can not handle the request.
+      # If leader is on the same host (and thus already listening to the internal unix path) then do nothing
       def self.follower_internal_socket_http_server
-        http_server = ::HTTP::Server.new do |context|
-          context.response.status_code = 503
-          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
-                                 "Please connect to the leader node by using the --host option."
-        end
+        spawn(name: "Internal HTTP listener") do
+          next if internal_unix_socket_in_use?
 
-        File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
-        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
-        Log.info { "Bound to #{addr}" }
+          http_server = ::HTTP::Server.new do |context|
+            context.response.status_code = 503
+            context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
+                                   "Please connect to the leader node by using the --host option."
+          end
 
-        spawn(name: "HTTP listener") do
+          File.delete?(INTERNAL_UNIX_SOCKET)
+          addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
+          File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+          Log.info { "Bound to #{addr}" }
+
           http_server.listen
+        end
+      end
+
+      private def self.internal_unix_socket_in_use? : Bool
+        return false unless File.exists?(INTERNAL_UNIX_SOCKET)
+        begin
+          needle = "\t#{INTERNAL_UNIX_SOCKET}" # one allocation
+          File.open("/proc/net/unix") do |file|
+            return file.each_line.any? &.ends_with?(needle)
+          end
+        rescue ex : File::NotFoundError
+          # Not Linux or /proc/net/unix is not available, fallback to trying to connect to the socket
+        end
+        begin
+          socket = UNIXSocket.new(INTERNAL_UNIX_SOCKET)
+          socket.close
+          true
+        rescue ex : Socket::ConnectError
+          false
         end
       end
     end

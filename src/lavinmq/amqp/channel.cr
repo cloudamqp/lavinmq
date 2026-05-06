@@ -252,10 +252,12 @@ module LavinMQ
         confirm do
           ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+          @found_queues.any?(&.durable?)
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           code = ChannelReplyCode::PRECONDITION_FAILED
           send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
+          false
         end
       rescue Queue::RejectOverFlow
         # nack but then do nothing
@@ -270,12 +272,12 @@ module LavinMQ
         end
       end
 
-      private def confirm(&)
+      private def confirm(& : -> Bool)
         if @confirm
           msgid = @confirm_total &+= 1
           begin
-            yield
-            confirm_ack(msgid)
+            replicated = yield
+            confirm_ack(msgid, replicated)
           rescue ex
             confirm_nack(msgid)
             raise ex
@@ -285,8 +287,12 @@ module LavinMQ
         end
       end
 
-      private def confirm_ack(msgid, multiple = false)
-        @client.vhost.enqueue_ack(self, msgid)
+      private def confirm_ack(msgid, replicated = true)
+        if replicated
+          @client.vhost.enqueue_ack(self, msgid)
+        else
+          do_confirm_ack(msgid, multiple: false)
+        end
       end
 
       def do_confirm_ack(msgid, multiple = false)
@@ -311,6 +317,7 @@ module LavinMQ
               msg.exchange_name,
               msg.routing_key)
             ch.deliver(deliver, msg)
+            false
           end
           true
         else

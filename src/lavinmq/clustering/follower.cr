@@ -13,8 +13,8 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
-      @acked_bytes = 0_i64
-      @sent_bytes = 0_i64
+      getter acked_bytes = 0_i64
+      getter sent_bytes = 0_i64
       @write_lock = Mutex.new
       @running = WaitGroup.new
       @state = State::Syncing
@@ -50,6 +50,8 @@ module LavinMQ
         send_requested_files
       end
 
+      getter ack_notifier = ::Channel(Nil).new(1)
+
       def ack_loop
         @running.add
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
@@ -57,6 +59,7 @@ module LavinMQ
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes += len
+            @ack_notifier.try_send(nil) if len > 0
           rescue IO::TimeoutError
             @write_lock.synchronize do
               @lz4.flush
@@ -66,6 +69,7 @@ module LavinMQ
       rescue IO::EOFError | Socket::Error | IO::Error
         # socket closed
       ensure
+        @ack_notifier.close
         @running.done
       end
 

@@ -56,6 +56,23 @@ module LavinMQ
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+      spawn follower_ack_loop, name: "Server#follower_ack_loop"
+    end
+
+    private def follower_ack_loop
+      if replicator = @replicator
+        replicator.on_follower_change do |follower, added|
+          if added
+            spawn(name: "Follower Ack Notifier") do
+              while follower.ack_notifier.receive?
+                @vhosts.each_value do |vhost|
+                  vhost.follower_acked(follower)
+                end
+              end
+            end
+          end
+        end
+      end
     end
 
     def closed?

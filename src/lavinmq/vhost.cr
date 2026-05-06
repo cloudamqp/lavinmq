@@ -88,12 +88,59 @@ module LavinMQ
       end
     end
 
+    @pending_follower_acks : Hash(AMQP::Channel, Hash(Clustering::Follower, Deque(Tuple(UInt64, Int64)))) = Hash(AMQP::Channel, Hash(Clustering::Follower, Deque(Tuple(UInt64, Int64)))).new { |h, k| h[k] = Hash(Clustering::Follower, Deque(Tuple(UInt64, Int64))).new { |h2, k2| h2[k2] = Deque(Tuple(UInt64, Int64)).new } }
+
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
       @pending_acks_lock.synchronize do
-        @pending_acks[channel] = msgid
+        if followers = @replicator.try &.followers
+          # if followers then wait for them to ack before confirming to the publisher
+          followers.each do |follower|
+            @pending_follower_acks[channel][follower] << {msgid, follower.sent_bytes}
+          end
+        else
+          # No followers, then syncfs then ack
+          @pending_acks[channel] = msgid
+          @confirm_requested.try_send nil
+        end
       end
-      @confirm_requested.try_send nil
     rescue ::Channel::ClosedError
+    end
+
+    # Called when a follower has acked messages
+    # We check if we can confirm any messages to the publisher
+    # We can confirm a message if all followers have acked it (acked_bytes >= sent_bytes)
+    def follower_acked(follower)
+      @pending_acks_lock.synchronize do
+        @pending_follower_acks.each do |channel, followers|
+          max_msgid = 0u64
+          if pending_acks = followers[follower]?
+            # shift all acked messages for this follower
+            loop do
+              msgid, sent_bytes = pending_acks.first? || break
+              if follower.acked_bytes >= sent_bytes
+                pending_acks.shift
+              else
+                break
+              end
+
+              # check if all other followers have acked this message
+              followers.any? do |f, acks|
+                next if f == follower
+                acks.any? { |f_msgid, _| f_msgid == msgid }
+              end
+
+              # if no other follower has this msgid pending, we can confirm it
+              max_msgid = msgid
+            end
+          end
+          begin
+            channel.do_confirm_ack(max_msgid, multiple: true) if max_msgid > 0
+          rescue ex
+            # If the channel is closed before we can ack, just ignore it
+            @log.debug { "Failed to ack message on channel #{channel}: #{ex.message}" }
+          end
+        end
+      end
     end
 
     private def publish_confirm_loop
