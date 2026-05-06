@@ -926,7 +926,7 @@ describe LavinMQ::AMQP::Queue do
           q = ch.queue("", exclusive: true, auto_delete: true)
           tag = q.subscribe(no_ack: true) { }
 
-          conn = s.vhosts["/"].connections_dup.first.as(LavinMQ::AMQP::Client)
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
           conn.@exclusive_queues.size.should eq 1
 
           ch.basic_cancel(tag) # last consumer leaves -> auto-delete fires
@@ -944,7 +944,7 @@ describe LavinMQ::AMQP::Queue do
         with_channel(s) do |c|
           ch = c
           5.times { c.queue("", exclusive: true, auto_delete: true) }
-          conn = s.vhosts["/"].connections_dup.first.as(LavinMQ::AMQP::Client)
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
           conn.@exclusive_queues.size.should eq 5
         end
         # Connection closed by `with_channel`. All 5 queues should be gone,
@@ -959,7 +959,7 @@ describe LavinMQ::AMQP::Queue do
           ch.queue("", exclusive: true,
             args: AMQP::Client::Arguments.new({"x-expires" => 100}))
 
-          conn = s.vhosts["/"].connections_dup.first.as(LavinMQ::AMQP::Client)
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
           conn.@exclusive_queues.size.should eq 1
 
           should_eventually(eq 0) { conn.@exclusive_queues.size }

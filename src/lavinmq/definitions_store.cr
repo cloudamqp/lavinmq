@@ -37,7 +37,7 @@ module LavinMQ
       @exchanges.each_value { |v| yield v }
     end
 
-    def exchanges_dup : Array(Exchange)
+    def exchanges : Array(Exchange)
       @exchanges.values
     end
 
@@ -49,8 +49,14 @@ module LavinMQ
       @exchanges.any? { |kv| yield kv }
     end
 
-    def exchanges_unsafe_put(name : String, exchange : Exchange) : Nil
-      @exchanges[name] = exchange
+    # Insert a pre-built exchange (e.g. MQTT or other internal types that the
+    # frame-driven `apply` path can't construct). Locked; idempotent so callers
+    # like `init_delayed_queue` can re-register on exchange re-creation. Skips
+    # persistence and event ticks since these aren't replayed from frames.
+    def register_exchange(exchange : Exchange) : Nil
+      @definitions_lock.synchronize do
+        @exchanges[exchange.name] = exchange
+      end
     end
 
     # Queue accessors
@@ -71,7 +77,7 @@ module LavinMQ
       @queues.each_value { |v| yield v }
     end
 
-    def queues_dup : Array(Queue)
+    def queues : Array(Queue)
       @queues.values
     end
 
@@ -79,12 +85,15 @@ module LavinMQ
       @queues.size
     end
 
-    def queues_values : Array(Queue)
-      @queues.values
-    end
-
-    def queues_unsafe_put(name : String, queue : Queue) : Nil
-      @queues[name] = queue
+    # Insert a pre-built queue (e.g. DelayedExchangeQueue) that the
+    # frame-driven `apply` path can't construct. Locked; idempotent so it can be
+    # called when an exchange is re-imported and a delayed queue with the same
+    # name already exists. Skips persistence and event ticks since these aren't
+    # replayed from frames.
+    def register_queue(queue : Queue) : Nil
+      @definitions_lock.synchronize do
+        @queues[queue.name] = queue
+      end
     end
 
     def queues_clear : Nil

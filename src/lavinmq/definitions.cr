@@ -268,7 +268,7 @@ module LavinMQ
     private def export_exchanges(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges_dup.reject(&.internal?).each do |e|
+          v.exchanges.reject(&.internal?).each do |e|
             delayed = e.arguments["x-delayed-exchange"]?
             if delayed
               arguments = e.arguments.clone

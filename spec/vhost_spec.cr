@@ -82,9 +82,9 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      pos = v.definitions.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].bind_queue("q", "e", "q")
-      v.definitions.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -96,9 +96,9 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      pos = v.definitions.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      v.definitions.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -110,10 +110,10 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      file_size = v.definitions.@definitions_file.size
+      file_size = v.@definitions.not_nil!.@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.definitions.@definitions_file.size.should be < file_size
+      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
     end
   end
   describe "auto add permissions" do

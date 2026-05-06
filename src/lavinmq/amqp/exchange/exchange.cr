@@ -144,7 +144,7 @@ module LavinMQ
 
         @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
 
-        @vhost.queues_unsafe_put(queue.name, queue)
+        @vhost.register_queue(queue)
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}

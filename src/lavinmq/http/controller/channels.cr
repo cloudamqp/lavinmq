@@ -15,7 +15,7 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            channels = vhost.connections_dup.flat_map(&.channels_dup)
+            channels = vhost.connections.flat_map(&.channels_dup)
             page(context, channels)
           end
         end

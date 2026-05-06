@@ -113,7 +113,7 @@ module LavinMQ
     end
 
     def connections : Array(Client)
-      @vhosts.values.flat_map(&.connections_dup)
+      @vhosts.values.flat_map(&.connections)
     end
 
     def listen(s : TCPServer, protocol : Protocol)

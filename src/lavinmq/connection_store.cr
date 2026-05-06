@@ -20,7 +20,7 @@ module LavinMQ
       @connections.each { |c| yield c }
     end
 
-    def dup : Array(Client)
+    def to_a : Array(Client)
       @connections.dup
     end
 

@@ -53,10 +53,6 @@ module LavinMQ
       @closed.value
     end
 
-    def definitions : DefinitionsStore
-      @definitions.not_nil!
-    end
-
     # Exchange accessors
 
     def exchange?(name : String) : Exchange?
@@ -75,8 +71,8 @@ module LavinMQ
       definitions.each_exchange { |v| yield v }
     end
 
-    def exchanges_dup : Array(Exchange)
-      definitions.exchanges_dup
+    def exchanges : Array(Exchange)
+      definitions.exchanges
     end
 
     def exchanges_size : Int32
@@ -87,8 +83,8 @@ module LavinMQ
       definitions.exchanges_any? { |kv| yield kv }
     end
 
-    def exchanges_unsafe_put(name : String, exchange : Exchange) : Nil
-      definitions.exchanges_unsafe_put(name, exchange)
+    def register_exchange(exchange : Exchange) : Nil
+      definitions.register_exchange(exchange)
     end
 
     # Queue accessors
@@ -109,20 +105,16 @@ module LavinMQ
       definitions.each_queue { |v| yield v }
     end
 
-    def queues_dup : Array(Queue)
-      definitions.queues_dup
+    def queues : Array(Queue)
+      definitions.queues
     end
 
     def queues_size : Int32
       definitions.queues_size
     end
 
-    def queues_values : Array(Queue)
-      definitions.queues_values
-    end
-
-    def queues_unsafe_put(name : String, queue : Queue) : Nil
-      definitions.queues_unsafe_put(name, queue)
+    def register_queue(queue : Queue) : Nil
+      definitions.register_queue(queue)
     end
 
     def queues_clear : Nil
@@ -135,8 +127,8 @@ module LavinMQ
       @connections.each { |c| yield c }
     end
 
-    def connections_dup : Array(Client)
-      @connections.dup
+    def connections : Array(Client)
+      @connections.to_a
     end
 
     def connections_size : Int32
@@ -464,7 +456,7 @@ module LavinMQ
     end
 
     def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources ||= (queues_dup.map(&.as(Queue | Exchange)) + exchanges_dup.map(&.as(Queue | Exchange)))
+      resources ||= (queues.map(&.as(Queue | Exchange)) + exchanges.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       resources.each do |resource|
@@ -555,6 +547,10 @@ module LavinMQ
 
     def sync : Nil
       definitions.sync
+    end
+
+    private def definitions : DefinitionsStore
+      @definitions.not_nil!
     end
   end
 end
