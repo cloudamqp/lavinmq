@@ -9,6 +9,7 @@ module LavinMQ
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       @client : MQTT::Client? = nil
+      @has_client = BoolChannel.new(false)
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -32,10 +33,9 @@ module LavinMQ
         loop do
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @consumers_empty.when_false.receive? if @consumers.empty?
-          consumer = @consumers.first.as(MQTT::Consumer)
+          next @has_client.when_true.receive? if @client.nil?
           get_packet do |pub_packet, bytesize|
-            consumer.deliver(pub_packet)
+            @client.not_nil!.send(pub_packet)
             delivered_bytes &+= bytesize
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
@@ -44,7 +44,7 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.each &.close
+          @client.try &.close("Server force closed client")
           self.client = nil
         end
       end
@@ -66,13 +66,9 @@ module LavinMQ
         end
         @unacked.clear
 
-        @consumers.each do |c|
-          rm_consumer c
-        end
+        @has_client.set(false)
         @client = client
-        if c = client
-          add_consumer MQTT::Consumer.new(c, self)
-        end
+        @has_client.set(true) if client
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
@@ -99,7 +95,7 @@ module LavinMQ
 
       def publish(msg : Message) : Bool
         # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
-        return true if msg.properties.delivery_mode == 0 && @consumers.empty?
+        return true if msg.properties.delivery_mode == 0 && @client.nil?
         super
       end
 
