@@ -73,7 +73,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       iterations.times do |i|
         mfile = mfiles[i % mfiles.size]
         case i % 5
-        when 0 then server.delete_file(mfile.path, WaitGroup.new(0))
+        when 0 then server.delete_file(mfile.path)
         when 1 then server.replace_file(mfile.path)
         when 2 then server.append(mfile.path, "data".to_slice)
         else        server.register_file(mfile)
@@ -124,7 +124,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       iterations.times do |i|
         mfile = mfiles[i % mfiles.size]
         if i % 3 == 0
-          server.delete_file(mfile.path, WaitGroup.new(0))
+          server.delete_file(mfile.path)
         else
           server.register_file(mfile)
         end

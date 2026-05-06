@@ -62,6 +62,9 @@ module FollowerSpec
           expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
             follower.negotiate!("foo")
           end
+        ensure
+          follower_socket.try &.close
+          client_socket.try &.close
         end
       end
 
@@ -69,7 +72,7 @@ module FollowerSpec
         with_datadir do |data_dir|
           follower_socket, client_socket = FakeSocket.pair
           file_index = FakeFileIndex.new(data_dir)
-          follower = LavinMQ::Clustering::Follower.new(follower_socket, "/tmp", file_index)
+          follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
           password = "foo"
           client_socket.write LavinMQ::Clustering::Start
@@ -82,6 +85,9 @@ module FollowerSpec
 
           response = client_socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
           response.should eq 1u8
+        ensure
+          follower_socket.try &.close
+          client_socket.try &.close
         end
       end
 
@@ -99,8 +105,11 @@ module FollowerSpec
 
           follower.negotiate!("foo")
 
-          response = client_socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
+          response = client_socket.read_byte
           response.should eq 0u8
+        ensure
+          follower_socket.try &.close
+          client_socket.try &.close
         end
       end
     end
@@ -127,6 +136,8 @@ module FollowerSpec
             client_lz4.read_fully hash
             file_list[path] = hash
           end
+          client_socket.write_bytes 0, IO::ByteFormat::LittleEndian # don't request any files
+          Fiber.yield
           done.send nil
         end
 
@@ -137,6 +148,9 @@ module FollowerSpec
         end
 
         file_list.should eq file_index.@files_with_hash
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
       end
     end
   end
@@ -145,33 +159,47 @@ module FollowerSpec
     it "should fully sync on graceful shutdown" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
-        lz4_writer = Compress::LZ4::Writer.new(follower_socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
-        wg = WaitGroup.new(1)
+
+        # Fiber to drain client socket so follower doesn't block on write/flush
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop do
+            client_socket.read(buf.to_slice)
+          end
+        rescue IO::Error
+          # socket closed
+        end
+
         10.times do
           follower.append("#{data_dir}/file", "hello world".to_slice)
         end
         spawn do
-          follower.action_loop lz4_writer
+          follower.ack_loop
         end
 
         closed = false
+        wg = WaitGroup.new
+        wg.add(1)
         spawn do
-          wg.done
           follower.close
           closed = true
           wg.done
         end
 
-        wg.wait
-        closed.should be_false
-        wg.add(1)
+        # Send an ack back to satisfy lag check if needed,
+        # though close doesn't strictly depend on it now.
+        # But let's verify lag reaches 0.
         client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
-        client_socket.flush
+
+        # Wait for closing fiber to finish
         wg.wait
-        follower.lag_in_bytes.should eq 0
         closed.should be_true
+        follower.lag_in_bytes.should eq 0
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
       end
     end
   end

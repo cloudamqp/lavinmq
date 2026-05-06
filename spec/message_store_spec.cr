@@ -29,8 +29,7 @@ class SpyReplicator
 
   def append(path : String, obj)
   end
-
-  def delete_file(path : String, wg : WaitGroup)
+  def delete_file(path : String)
     @deleted_files << path
   end
 

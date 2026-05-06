@@ -1,4 +1,3 @@
-require "./actions"
 require "./file_index"
 require "../config"
 require "../rate_limiter"
@@ -16,7 +15,7 @@ module LavinMQ
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
-      @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
+      @write_lock = Mutex.new
       @running = WaitGroup.new
       @state = State::Syncing
       getter id = -1
@@ -24,7 +23,7 @@ module LavinMQ
       getter state
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        @socket.sync = true # Use buffering in lz4
+        @socket.sync = true # No buffering, lz4 buffers internally
         @socket.read_buffering = true
         @socket.write_timeout = 3.seconds # don't wait for blocked followers
         @remote_address = @socket.remote_address
@@ -51,35 +50,23 @@ module LavinMQ
         send_requested_files
       end
 
-      def action_loop(lz4 = @lz4)
-        @socket.tcp_nodelay = true
-        @socket.read_buffering = false
+      def ack_loop
         @running.add
-        while action = @actions.receive?
-          action.send(lz4, Log)
-          sent_bytes = action.lag_size.to_i64
-          while action2 = @actions.try_receive?
-            action2.send(lz4, Log)
-            sent_bytes += action2.lag_size
+        @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
+        loop do
+          begin
+            len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            @acked_bytes += len
+          rescue IO::TimeoutError
+            @write_lock.synchronize do
+              @lz4.flush
+            end
           end
-          lz4.flush
-          sync(sent_bytes)
         end
+      rescue IO::EOFError | Socket::Error | IO::Error
+        # socket closed
       ensure
-        @actions.close
         @running.done
-      end
-
-      private def sync(bytes, socket = @socket) : Nil
-        until bytes.zero?
-          bytes -= read_ack(socket)
-        end
-      end
-
-      private def read_ack(socket = @socket) : Int64
-        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-        @acked_bytes += len
-        len
       end
 
       private def validate_header! : Nil
@@ -183,42 +170,66 @@ module LavinMQ
       end
 
       def replace(path) : Int64
-        send_action ReplaceAction.new(@data_dir, path)
+        @write_lock.synchronize do
+          File.open(File.join(@data_dir, path)) do |file|
+            file_size = file.size
+            lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
+            @sent_bytes += lag_size
+            send_filename(path)
+            @lz4.write_bytes file_size.to_i64, IO::ByteFormat::LittleEndian
+            IO.copy(file, @lz4, file_size) == file_size || raise IO::EOFError.new
+            lag_size
+          end
+        end
       end
 
-      def append(path, obj) : Int64
-        send_action AppendAction.new(@data_dir, path, obj)
+      def append(path : String, obj : Bytes | UInt32 | Int32) : Int64
+        @write_lock.synchronize do
+          datasize = case obj
+                     in Bytes
+                       obj.bytesize.to_i64
+                     in UInt32, Int32
+                       4i64
+                     end
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + datasize).to_i64
+          @sent_bytes += lag_size
+          send_filename(path)
+          @lz4.write_bytes -datasize, IO::ByteFormat::LittleEndian
+          case obj
+          in Bytes
+            @lz4.write obj
+          in UInt32, Int32
+            @lz4.write_bytes obj, IO::ByteFormat::LittleEndian
+          end
+          lag_size
+        end
       end
 
-      def delete(path, wg) : Int64
-        send_action DeleteAction.new(@data_dir, path, wg)
+      def delete(path) : Int64
+        @write_lock.synchronize do
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
+          @sent_bytes += lag_size
+          send_filename(path)
+          @lz4.write_bytes 0i64
+          lag_size
+        end
       end
 
-      private def send_action(action : Action) : Int64
-        lag_size = action.lag_size
-        @sent_bytes += lag_size
-        @actions.send action
-        lag_size
-      rescue ex : Channel::ClosedError
-        action.done
-        raise ex
+      private def send_filename(path)
+        @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
+        @lz4.write path.to_slice
       end
 
       def close
-        @actions.close
-        @running.wait # let action_loop finish
-
-        # abort remaining actions (unmap pending files)
-        while action = @actions.receive?
-          action.done
-        end
-
         begin
-          @lz4.close
-          @socket.close
+          @write_lock.synchronize do
+            @lz4.close
+            @socket.close
+          end
         rescue IO::Error
           # ignore connection errors while closing
         end
+        @running.wait
       end
 
       def to_json(json : JSON::Builder)
