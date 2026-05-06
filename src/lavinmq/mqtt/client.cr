@@ -35,7 +35,7 @@ module LavinMQ
       def each_channel(& : LavinMQ::Client::Channel ->) : Nil
       end
 
-      def channels_dup : Array(LavinMQ::Client::Channel)
+      def channels : Array(LavinMQ::Client::Channel)
         [] of LavinMQ::Client::Channel
       end
 

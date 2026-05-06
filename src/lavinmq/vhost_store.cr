@@ -31,10 +31,6 @@ module LavinMQ
       @vhosts.each_value { |v| yield v }
     end
 
-    def values_dup : Array(VHost)
-      @vhosts.values
-    end
-
     def has_key?(name : String) : Bool
       @vhosts.has_key?(name)
     end

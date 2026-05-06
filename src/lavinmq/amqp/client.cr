@@ -55,7 +55,7 @@ module LavinMQ
         @channels.each_value { |ch| yield ch }
       end
 
-      def channels_dup : Array(Client::Channel)
+      def channels : Array(Client::Channel)
         @channels.values
       end
 

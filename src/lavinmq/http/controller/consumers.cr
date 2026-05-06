@@ -18,7 +18,7 @@ module LavinMQ
             refuse_unless_management(context, user, vhost)
             arr = connections(user).select(&.vhost.==(vhost))
               .flat_map do |conn|
-                conn.channels_dup.flat_map &.consumers
+                conn.channels.flat_map &.consumers
               end
             page(context, arr)
           end
@@ -54,7 +54,7 @@ module LavinMQ
       end
 
       private def all_consumers(user) : Array(Client::Channel::Consumer)
-        connections(user).flat_map { |c| c.channels_dup.flat_map &.consumers }
+        connections(user).flat_map { |c| c.channels.flat_map &.consumers }
       end
     end
   end

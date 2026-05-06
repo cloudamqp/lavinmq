@@ -29,7 +29,7 @@ module LavinMQ
       private def register_routes
         get "/api/permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          arr = @amqp_server.users.values_dup.reject(&.hidden?)
+          arr = @amqp_server.users.values.reject(&.hidden?)
             .flat_map { |u| u.permissions.map { |vhost, p| PermissionsView.new(u, vhost, p) } }
           page(context, arr)
         end

@@ -104,10 +104,6 @@ module LavinMQ::AMQP
       @basic_get_unacked.reject! { |u| yield u }
     end
 
-    def basic_get_unacked_dup : Array(UnackedMessage)
-      @basic_get_unacked.to_a
-    end
-
     def basic_get_unacked_size : Int32
       @basic_get_unacked.size
     end

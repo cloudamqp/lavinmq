@@ -34,7 +34,7 @@ module LavinMQ
           user = user(context)
           refuse_unless_policymaker(context, user)
           arr = vhosts(user).flat_map do |v|
-            v.parameters.values_dup.map { |p| map_parameter(v.name, p) }
+            v.parameters.values.map { |p| map_parameter(v.name, p) }
           end
           page(context, arr)
         end
@@ -44,7 +44,7 @@ module LavinMQ
           refuse_unless_policymaker(context, user)
           component = params["component"]
           arr = vhosts(user).flat_map do |v|
-            v.parameters.values_dup
+            v.parameters.values
               .select { |p| p.component_name == component }
               .map { |p| map_parameter(v.name, p) }
           end
@@ -55,7 +55,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
             component = params["component"]
-            arr = vhost.parameters.values_dup
+            arr = vhost.parameters.values
               .select { |p| p.component_name == component }
               .map { |p| map_parameter(vhost.name, p) }
             page(context, arr)
@@ -109,7 +109,7 @@ module LavinMQ
 
         get "/api/global-parameters" do |context, _params|
           refuse_unless_policymaker(context, user(context))
-          page(context, @amqp_server.parameters.values_dup.map { |p| map_parameter(nil, p) })
+          page(context, @amqp_server.parameters.values.map { |p| map_parameter(nil, p) })
         end
 
         get "/api/global-parameters/:name" do |context, params|
@@ -147,14 +147,14 @@ module LavinMQ
         get "/api/policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          arr = vhosts(user).flat_map(&.policies.values_dup)
+          arr = vhosts(user).flat_map(&.policies.values)
           page(context, arr)
         end
 
         get "/api/policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, vhost.policies.values_dup)
+            page(context, vhost.policies.values)
           end
         end
 
@@ -205,14 +205,14 @@ module LavinMQ
         get "/api/operator-policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          arr = vhosts(user).flat_map(&.operator_policies.values_dup)
+          arr = vhosts(user).flat_map(&.operator_policies.values)
           page(context, arr)
         end
 
         get "/api/operator-policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, vhost.operator_policies.values_dup)
+            page(context, vhost.operator_policies.values)
           end
         end
 

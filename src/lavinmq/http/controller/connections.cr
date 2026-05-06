@@ -45,7 +45,7 @@ module LavinMQ
 
         get "/api/connections/:name/channels" do |context, params|
           with_connection(context, params) do |connection|
-            page(context, connection.channels_dup)
+            page(context, connection.channels)
           end
         end
 

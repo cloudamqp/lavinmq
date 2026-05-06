@@ -303,7 +303,7 @@ module LavinMQ
 
     private def export_permissions(json)
       json.array do
-        @amqp_server.users.values_dup.reject(&.hidden?).each do |u|
+        @amqp_server.users.values.reject(&.hidden?).each do |u|
           u.permissions_details.each do |p|
             p.to_json(json)
           end
@@ -313,7 +313,7 @@ module LavinMQ
 
     private def export_users(json)
       json.array do
-        @amqp_server.users.values_dup.reject(&.hidden?).each do |u|
+        @amqp_server.users.values.reject(&.hidden?).each do |u|
           {
             "hashing_algorithm": u.user_details["hashing_algorithm"],
             "name":              u.name,

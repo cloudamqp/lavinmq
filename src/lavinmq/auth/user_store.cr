@@ -29,10 +29,6 @@ module LavinMQ
         @users.each_value { |u| yield u }
       end
 
-      def values_dup : Array(User)
-        @users.values
-      end
-
       def has_key?(name : String) : Bool
         @users.has_key?(name)
       end

@@ -43,7 +43,7 @@ module LavinMQ
             vhost.each_connection do |c|
               connections += 1
               channels += c.channel_count
-              consumers += c.channels_dup.sum &.consumers_size
+              consumers += c.channels.sum &.consumers_size
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size

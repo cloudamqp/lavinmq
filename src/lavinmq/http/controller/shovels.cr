@@ -9,14 +9,14 @@ module LavinMQ
       private def register_routes
         get "/api/shovels" do |context, _params|
           arr = vhosts(user(context)).flat_map do |v|
-            v.shovels.values_dup
+            v.shovels.values
           end
           page(context, arr)
         end
 
         get "/api/shovels/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            page(context, vhost.shovels.values_dup)
+            page(context, vhost.shovels.values)
           end
         end
 

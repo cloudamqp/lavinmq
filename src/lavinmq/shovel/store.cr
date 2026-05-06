@@ -28,7 +28,7 @@ module LavinMQ
         @shovels.each_value { |r| yield r }
       end
 
-      def values_dup : Array(Runner)
+      def values : Array(Runner)
         @shovels.values
       end
 
