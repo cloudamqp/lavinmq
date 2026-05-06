@@ -116,7 +116,7 @@ module LavinMQ
             if q.restart!
               context.response.status_code = 204
             else
-              bad_request(context, "Queue was not restarted")
+              bad_request(context, "Queue is #{q.state}; only closed queues can be restarted")
             end
           end
         end

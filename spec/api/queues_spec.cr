@@ -628,6 +628,8 @@ describe LavinMQ::HTTP::QueuesController do
           s.vhosts["/"].queues[queue_name]
           response = http.put("/api/queues/%2f/#{queue_name}/restart")
           response.status_code.should eq 400
+          body = JSON.parse(response.body)
+          body["reason"].as_s.should eq "Queue is running; only closed queues can be restarted"
 
           response = http.get("/api/queues/%2f/#{queue_name}")
           response.status_code.should eq 200
