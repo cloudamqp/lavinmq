@@ -2,12 +2,16 @@ require "../amqp/queue/queue"
 require "../error"
 require "../sortable_json"
 require "./client"
+require "../policy"
+require "../queue_stats"
 require "./consts"
 
 module LavinMQ
   module MQTT
     class Session < LavinMQ::AMQP::Queue
       include SortableJSON
+      include PolicyTarget
+      include AMQP::QueueStats
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       @client : MQTT::Client? = nil
