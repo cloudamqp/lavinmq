@@ -35,16 +35,15 @@ module LavinMQ
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
+      @wfile_id = @segments.last_key
+      @wfile = @segments.last_value
+      @rfile_id = @segments.first_key
+      @rfile = @segments.first_value
       unless @closed
         load_stats_from_segments
         prune_orphaned_acks
         delete_unused_segments
       end
-
-      @wfile_id = @segments.last_key
-      @wfile = @segments.last_value
-      @rfile_id = @segments.first_key
-      @rfile = @segments.first_value
       @empty.set empty? unless @closed
     end
 
@@ -637,6 +636,7 @@ module LavinMQ
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}" }
+          select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
           if ack = @acks.delete(seg)
