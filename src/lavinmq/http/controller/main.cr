@@ -53,6 +53,12 @@ module LavinMQ
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
             end
+            vhost.each_session do |s|
+              ready += s.message_count
+              unacked += s.unacked_count
+              add_logs!(ready_log, s.message_count_log)
+              add_logs!(unacked_log, s.unacked_count_log)
+            end
             vhost_stats_details = vhost.stats_details
             recv_rate += vhost_stats_details[:recv_oct_details][:rate]
             send_rate += vhost_stats_details[:send_oct_details][:rate]
