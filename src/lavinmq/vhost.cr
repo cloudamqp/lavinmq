@@ -105,7 +105,6 @@ module LavinMQ
 
     def each_queue(& : LavinMQ::Queue ->)
       definitions.each_queue { |q| yield q }
-      definitions.each_session { |q| yield q }
     end
 
     private def each_policy_target(& : Queue | Exchange ->)
@@ -338,6 +337,21 @@ module LavinMQ
         redeliver += q.redeliver_count
         return_unroutable += q.return_unroutable_count
       end
+      each_session do |s|
+        ready += s.message_count
+        unacked += s.unacked_count
+        ack += s.ack_count
+        confirm += s.confirm_count
+        deliver += s.deliver_count
+        deliver_no_ack += s.deliver_no_ack_count
+        deliver_get += s.deliver_get_count
+        get += s.get_count
+        get_no_ack += s.get_no_ack_count
+        publish += s.publish_count
+        redeliver += s.redeliver_count
+        return_unroutable += s.return_unroutable_count
+      end
+
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
