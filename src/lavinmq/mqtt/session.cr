@@ -15,48 +15,7 @@ module LavinMQ
 
       getter name : String
       getter vhost : VHost
-
-      def consumer_count : UInt32
-        @client.nil? ? 0u32 : 1u32
-      end
-
-      def message_count : UInt32
-        @msg_store.size.to_u32
-      end
-
-      def immediate_delivery? : Bool
-        false
-      end
-
       getter? auto_delete
-
-      def exclusive? : Bool
-        false
-      end
-
-      def arguments : AMQP::Table
-        AMQP::Table.new
-      end
-
-      def close : Bool
-        return false if @closed
-        @closed = true
-        @msg_store_lock.synchronize do
-          @msg_store.close
-        end
-        true
-      end
-
-      def delete : Bool
-        return false if @deleted
-        @deleted = true
-        close
-        @msg_store_lock.synchronize do
-          @msg_store.delete
-        end
-        @vhost.delete_queue(@name)
-        true
-      end
 
       @effective_args = Array(String).new
       @max_length : Int64? = nil
@@ -88,6 +47,46 @@ module LavinMQ
 
         @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
+      end
+
+      def consumer_count : UInt32
+        @client.nil? ? 0u32 : 1u32
+      end
+
+      def message_count : UInt32
+        @msg_store.size.to_u32
+      end
+
+      def immediate_delivery? : Bool
+        !@client.nil?
+      end
+
+      def exclusive? : Bool
+        false
+      end
+
+      def arguments : AMQP::Table
+        AMQP::Table.new
+      end
+
+      def close : Bool
+        return false if @closed
+        @closed = true
+        @msg_store_lock.synchronize do
+          @msg_store.close
+        end
+        true
+      end
+
+      def delete : Bool
+        return false if @deleted
+        @deleted = true
+        close
+        @msg_store_lock.synchronize do
+          @msg_store.delete
+        end
+        @vhost.delete_queue(@name)
+        true
       end
 
       def clean_session?
