@@ -1,8 +1,6 @@
-require "./sortable_json"
+require "./amqp/queue/queue"
+require "./mqtt/session"
 
 module LavinMQ
-  abstract class Queue
-    include SortableJSON
-    @name = ""
-  end
+  alias Queue = AMQP::Queue | MQTT::Session
 end

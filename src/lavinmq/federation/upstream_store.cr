@@ -61,11 +61,11 @@ module LavinMQ
         end
       end
 
-      def link(name, resource : Queue | Exchange)
+      def link(name, resource : AMQP::Queue | Exchange)
         @upstreams[name]?.try &.link(resource)
       end
 
-      def stop_link(resource : Queue | Exchange)
+      def stop_link(resource : AMQP::Queue | Exchange)
         each do |upstream|
           upstream.stop_link(resource)
         end
