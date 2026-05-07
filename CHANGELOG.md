@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.0-rc.1] - 2026-04-29
+## [2.8.0] - 2026-05-06
 
-This release adds Prometheus metrics for mfiles, vhost-level data rate aggregation across all protocols, a RateLimiter with reduced clustering sync log verbosity, sorting on bindings tables, and several management UI improvements. It also brings a number of clustering and replication fixes alongside smaller bug fixes.
+This release adds Prometheus metrics for mfiles, vhost-level data rate aggregation across all protocols, a RateLimiter with reduced clustering sync log verbosity, sorting on bindings tables, and several management UI improvements. It also fixes a 404 on `/metrics/detailed` for follower nodes and prevents queue closure caused by orphaned ack positions after unclean shutdown.
 
 ### Added
 
@@ -31,14 +31,15 @@ This release adds Prometheus metrics for mfiles, vhost-level data rate aggregati
 
 ### Fixed
 
+- Prune orphaned ack positions on startup to prevent queue closure after unclean shutdown [#1866](https://github.com/cloudamqp/lavinmq/pull/1866)
 - Deprecated `--guest-only-loopback` flag silently ignored [#1824](https://github.com/cloudamqp/lavinmq/pull/1824)
 - CSP hash for login page inline theme script [#1876](https://github.com/cloudamqp/lavinmq/pull/1876)
-- Recognize IPv4-mapped IPv6 loopback addresses [#1838](https://github.com/cloudamqp/lavinmq/pull/1838)
-- Shovel vhost permission check for named vhosts [#1856](https://github.com/cloudamqp/lavinmq/pull/1856)
-- Replicate `.queue` file [#1858](https://github.com/cloudamqp/lavinmq/pull/1858)
 - 404 on `/metrics/detailed` for follower nodes [#1859](https://github.com/cloudamqp/lavinmq/pull/1859)
-- Clean up empty directories on follower after full sync [#1865](https://github.com/cloudamqp/lavinmq/pull/1865)
 - Sorting by columns with nil values [#1840](https://github.com/cloudamqp/lavinmq/pull/1840)
+
+## [2.8.0-rc.1] - 2026-04-29
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.8.0-rc.1> for changes in this pre-release
 
 ## [2.7.2] - 2026-04-28
 
