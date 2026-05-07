@@ -101,7 +101,7 @@ module LavinMQ
       @max_queues.try { |max| @queues.size + @sessions.size >= max } || false
     end
 
-    def each_queue(& : AMQP::Queue ->)
+    def each_queue(& : Queue ->)
       @queues.each_value { |q| yield q }
       @sessions.each_value { |q| yield q }
     end
@@ -147,7 +147,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish(msg, immediate, found_queues, visited)
     ensure

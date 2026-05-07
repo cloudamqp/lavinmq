@@ -20,7 +20,7 @@ require "../argument/dead_lettering"
 require "../../queue_stats"
 
 module LavinMQ::AMQP
-  class Queue < LavinMQ::Queue
+  class Queue
     include PolicyTarget
     include Observable(QueueEvent)
     include SortableJSON

@@ -31,7 +31,7 @@ module LavinMQ
         @ex_links.delete(federated_exchange.name).try(&.terminate)
       end
 
-      def stop_link(federated_q : Queue)
+      def stop_link(federated_q : AMQP::Queue)
         @q_links.delete(federated_q.name).try(&.terminate)
       end
 
@@ -65,7 +65,7 @@ module LavinMQ
       # When federated_q has a consumer the connections are estabished.
       # If all consumers disconnect, the connections are closed.
       # When the policy or the upstream is removed the link is also removed.
-      def link(federated_q : Queue) : QueueLink
+      def link(federated_q : AMQP::Queue) : QueueLink
         if link = @q_links[federated_q.name]?
           return link
         end
