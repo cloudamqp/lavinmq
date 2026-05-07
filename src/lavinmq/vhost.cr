@@ -103,13 +103,13 @@ module LavinMQ
       definitions.queue_exists?(name)
     end
 
-    def each_queue(& : AMQP::Queue ->)
+    def each_queue(& : LavinMQ::Queue ->)
       definitions.each_queue { |q| yield q }
       definitions.each_session { |q| yield q }
     end
 
-    private def each_policy_target(& : AMQP::Queue | Exchange ->)
-      resources = Array(AMQP::Queue | Exchange).new(queues_size + exchanges_size + sessions_size)
+    private def each_policy_target(& : Queue | Exchange ->)
+      resources = Array(Queue | Exchange).new(queues_size + exchanges_size + sessions_size)
       resources.concat(queues).concat(sessions).concat(exchanges)
       resources.each do |r|
         yield r
@@ -299,7 +299,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else

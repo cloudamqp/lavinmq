@@ -7,6 +7,7 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "../stats"
 
 module LavinMQ
   module MQTT

@@ -20,7 +20,7 @@ require "../argument/dead_lettering"
 require "../../queue_stats"
 
 module LavinMQ::AMQP
-  class Queue < LavinMQ::Queue
+  class Queue
     include PolicyTarget
     include Observable(QueueEvent)
     include SortableJSON
@@ -432,7 +432,7 @@ module LavinMQ::AMQP
     end
 
     def consumer_count
-      @consumers.size.to_u32
+      consumers_size.to_u32
     end
 
     def pause!

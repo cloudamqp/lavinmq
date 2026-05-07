@@ -23,7 +23,7 @@ module LavinMQ
         source:           @source,
         vhost:            @vhost,
         destination:      @destination.name,
-        destination_type: @destination.is_a?(Queue) ? "queue" : "exchange",
+        destination_type: @destination.is_a?(Exchange) ? "exchange" : "queue",
         routing_key:      @binding_key.routing_key,
         arguments:        @binding_key.arguments,
         properties_key:   @binding_key.properties_key,
