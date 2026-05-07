@@ -292,6 +292,16 @@ module LavinMQ
                   "arguments":   q.arguments,
                 }.to_json(json)
               end
+              v.each_session do |s|
+                next if s.exclusive?
+                {
+                  "name":        s.name,
+                  "vhost":       s.vhost.name,
+                  "durable":     s.durable?,
+                  "auto_delete": s.auto_delete?,
+                  "arguments":   s.arguments,
+                }.to_json(json)
+              end
             end
           end
         end

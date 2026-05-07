@@ -504,6 +504,10 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
           end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_ready", s.message_count, labels)
+          end
         end
 
         writer.write_header("detailed_queue_messages_unacked", "gauge",
@@ -512,6 +516,10 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
+          end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_unacked", s.unacked_count, labels)
           end
         end
 
@@ -522,6 +530,10 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
           end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages", s.message_count + s.unacked_count, labels)
+          end
         end
 
         writer.write_header("detailed_queue_deduplication", "counter",
@@ -530,6 +542,10 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
+          end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_deduplication", s.dedup_count, labels)
           end
         end
       end
@@ -543,6 +559,10 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_consumers", q.consumer_count, labels)
+          end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_consumers", s.consumer_count, labels)
           end
         end
       end

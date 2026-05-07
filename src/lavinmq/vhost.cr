@@ -101,13 +101,17 @@ module LavinMQ
       @max_queues.try { |max| @queues.size + @sessions.size >= max } || false
     end
 
-    def each_queue(& : Queue ->)
+    def each_queue(& : AMQP::Queue ->)
       @queues.each_value { |q| yield q }
+    end
+
+    def each_session(& : MQTT::Session ->)
       @sessions.each_value { |q| yield q }
     end
 
     private def each_policy_target(& : Queue | Exchange ->)
       each_queue { |q| yield q }
+      each_session { |s| yield s }
       @exchanges.each_value { |e| yield e }
     end
 
@@ -183,6 +187,21 @@ module LavinMQ
         redeliver += q.redeliver_count
         return_unroutable += q.return_unroutable_count
       end
+      each_session do |s|
+        ready += s.message_count
+        unacked += s.unacked_count
+        ack += s.ack_count
+        confirm += s.confirm_count
+        deliver += s.deliver_count
+        deliver_no_ack += s.deliver_no_ack_count
+        deliver_get += s.deliver_get_count
+        get += s.get_count
+        get_no_ack += s.get_no_ack_count
+        publish += s.publish_count
+        redeliver += s.redeliver_count
+        return_unroutable += s.return_unroutable_count
+      end
+
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
@@ -622,6 +641,12 @@ module LavinMQ
           next unless q.durable?
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
+          io.write_bytes f
+        end
+        each_session do |s|
+          next unless s.durable?
+          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
+            s.auto_delete?, false, s.arguments)
           io.write_bytes f
         end
         @exchanges.each_value.select(&.durable?).each do |e|
