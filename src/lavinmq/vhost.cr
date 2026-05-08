@@ -434,12 +434,10 @@ module LavinMQ
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.dup.each &.force_close
+      @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      queues_to_close = @definitions_lock.synchronize { @queues.values }
-      queues_to_close.each &.close
-      exchanges_to_close = @definitions_lock.synchronize { @exchanges.values }
-      exchanges_to_close.each &.close
+      @queues.each_value &.close
+      @exchanges.each_value &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
