@@ -164,6 +164,7 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
+      ensure_expire_fiber # restart if msg arrived during teardown
     end
 
     getter name, arguments, vhost, consumers
