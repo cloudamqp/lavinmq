@@ -119,6 +119,44 @@ describe LavinMQ::Auth::User do
 end
 
 describe LavinMQ::Auth::UserStore do
+  describe "#update_password" do
+    it "changes the password and persists it" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store.create("testuser", "old")
+      user_store.update_password("testuser", "new")
+      user_store2 = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store2["testuser"].password.try(&.verify("new")).should be_true
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+
+    it "does nothing when password is unchanged" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store.create("testuser", "password")
+      hash_before = user_store["testuser"].password
+      user_store.update_password("testuser", "password")
+      user_store["testuser"].password.should eq hash_before
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+  end
+
+  describe "#update_password_hash" do
+    it "changes the password hash and persists it" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store.create("testuser", "old")
+      new_hash = LavinMQ::Auth::User.hash_password("new", "SHA256").to_s
+      user_store.update_password_hash("testuser", new_hash, "SHA256")
+      user_store2 = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store2["testuser"].password.try(&.verify("new")).should be_true
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+  end
+
   describe "#delete" do
     it "should clear permissions cache when deleting a user" do
       Dir.mkdir_p "/tmp/lavinmq-spec"
