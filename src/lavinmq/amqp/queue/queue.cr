@@ -240,8 +240,9 @@ module LavinMQ::AMQP
 
     # Check if we need the expire fiber running
     private def should_start_expire_fiber? : Bool
-      return false if @msg_store.size == 0 # No messages to expire
-      return true if @message_ttl          # Queue-level TTL means all messages need expiring
+      return false if @msg_store.size == 0  # No messages to expire
+      return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
+      return true if @message_ttl           # Queue-level TTL means all messages need expiring
 
       # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
