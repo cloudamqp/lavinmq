@@ -198,6 +198,12 @@ module LavinMQ
             begin
               packet = build_packet(env, nil)
               yield packet, sp.bytesize
+              if env.redelivered
+                @redeliver_count.add(1, :relaxed)
+              else
+                @deliver_no_ack_count.add(1, :relaxed)
+                @deliver_get_count.add(1, :relaxed)
+              end
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
@@ -214,6 +220,12 @@ module LavinMQ
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet, sp.bytesize
+              if env.redelivered
+                @redeliver_count.add(1, :relaxed)
+              else
+                @deliver_count.add(1, :relaxed)
+                @deliver_get_count.add(1, :relaxed)
+              end
               @unacked[id] = sp
               @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
