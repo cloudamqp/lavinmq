@@ -127,6 +127,34 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "advances @rfile when delete_unused_segments removes the rfile's segment" do
+    mktmpdir do |dir|
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+        AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+
+      # Leave one segment on disk with all messages acked.
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store.push(msg)
+      env = store.shift?.should_not be_nil
+      store.delete(env.segment_position)
+      store.close
+
+      # Reopen. The leftover segment is kept at startup because it is
+      # current_seg, so @rfile = @wfile points at it.
+      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+
+      # Pushing a message that needs to roll the segment runs
+      # delete_unused_segments. The fix must advance @rfile before
+      # delete_file closes the orphaned mfile, otherwise the next shift?
+      # would raise IO::Error("Closed mfile").
+      store.push(msg)
+      env = store.shift?.should_not be_nil
+      store.delete(env.segment_position)
+      store.close
+    end
+  end
+
   #
   # Run all specs for both durable and non-durable stores
   #
