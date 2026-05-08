@@ -305,6 +305,10 @@ module LavinMQ
         q.name != x_death["queue"]?
       end
 
+      def close
+        @delayed_queue.try &.close
+      end
+
       def to_json(json : JSON::Builder)
         json.object do
           details_tuple.merge(message_stats: stats_details).each do |k, v|
