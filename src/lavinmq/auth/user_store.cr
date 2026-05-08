@@ -62,7 +62,7 @@ module LavinMQ
 
       def update_password(name, password, hash_algorithm = "sha256")
         if @users[name].update_password(password, hash_algorithm)
-          Log.info { "Updated password for user=#{name} length=#{password.bytesize}" }
+          Log.info { "Updated password for user=#{name}" }
           save!
         end
       end
