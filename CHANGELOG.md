@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] - 2026-05-08
+
+### Fixed
+
+- Advance `@rfile` in `delete_unused_segments` to prevent `Closed mfile` crash [#1910](https://github.com/cloudamqp/lavinmq/pull/1910)
+- Clear consumer flags on queue close to unblock restart [#1904](https://github.com/cloudamqp/lavinmq/pull/1904)
+
 ## [2.8.0] - 2026-05-06
 
 This release adds Prometheus metrics for mfiles, vhost-level data rate aggregation across all protocols, a RateLimiter with reduced clustering sync log verbosity, sorting on bindings tables, and several management UI improvements. It also fixes a 404 on `/metrics/detailed` for follower nodes and prevents queue closure caused by orphaned ack positions after unclean shutdown.
