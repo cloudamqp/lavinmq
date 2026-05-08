@@ -1035,5 +1035,19 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    it "should not start expire fiber while consumers are active" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_with_consumer", args: AMQP::Client::Arguments.new({"x-message-ttl" => 60_000}))
+          queue = s.vhosts["/"].queues["ttl_with_consumer"]
+          q.subscribe(no_ack: true) { }
+          should_eventually(eq 1) { queue.consumers.size }
+          q.publish_confirm("msg")
+          # rm_consumer will start the fiber once consumers disconnect; until then it stays idle
+          queue.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
   end
 end
