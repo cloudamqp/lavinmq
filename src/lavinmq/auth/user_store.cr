@@ -55,8 +55,19 @@ module LavinMQ
         end
         @users[user].permissions[vhost] = perm
         @users[user].clear_permissions_cache
+        Log.info { "Set permissions for user=#{user} on vhost=#{vhost}" }
         save!
         perm
+      end
+
+      def update_password(name, password, hash_algorithm = "sha256")
+        @users[name].update_password(password, hash_algorithm)
+        Log.info { "Updated password for user=#{name} length=#{password.bytesize}" }
+      end
+
+      def update_password_hash(name, password_hash, hash_algorithm)
+        @users[name].update_password_hash(password_hash, hash_algorithm)
+        Log.info { "Updated password for user=#{name}" }
       end
 
       def rm_permission(user, vhost)
