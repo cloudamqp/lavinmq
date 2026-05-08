@@ -434,6 +434,28 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    it "should clear exclusive consumer flag after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          q.subscribe(no_ack: true, exclusive: true) { }
+          should_eventually(be_true) { queue.has_exclusive_consumer? }
+
+          queue.close
+          queue.restart!.should be_true
+
+          queue.has_exclusive_consumer?.should be_false
+        end
+
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          q.subscribe(no_ack: true) { }
+        end
+      end
+    end
   end
 
   describe "Purge" do

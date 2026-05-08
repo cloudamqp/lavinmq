@@ -433,6 +433,8 @@ module LavinMQ::AMQP
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
+        @exclusive_consumer = false
+        @has_priority_consumers = false
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
