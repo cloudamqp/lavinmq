@@ -1,0 +1,17 @@
+---
+vhost-limits:
+  type: object
+  properties:
+    vhost:
+      type: string
+      description: Name of the vhost.
+    value:
+      type: object
+      description: Limits set on the vhost. Only limits with a value are present.
+      properties:
+        max-connections:
+          type: integer
+          description: Maximum number of concurrent connections allowed to the vhost.
+        max-queues:
+          type: integer
+          description: Maximum number of queues allowed in the vhost.
