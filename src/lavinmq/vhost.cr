@@ -437,15 +437,9 @@ module LavinMQ
       @connections.dup.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       queues_to_close = @definitions_lock.synchronize { @queues.values }
+      queues_to_close.each &.close
       exchanges_to_close = @definitions_lock.synchronize { @exchanges.values }
-      WaitGroup.wait do |wg|
-        queues_to_close.each do |q|
-          wg.spawn(name: "Queue#close") { q.close }
-        end
-        exchanges_to_close.each do |e|
-          wg.spawn(name: "Exchange#close") { e.close }
-        end
-      end
+      exchanges_to_close.each &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
