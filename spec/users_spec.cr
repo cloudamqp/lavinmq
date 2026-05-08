@@ -157,6 +157,19 @@ describe LavinMQ::Auth::UserStore do
     end
   end
 
+  describe "#update_tags" do
+    it "changes the tags and persists them" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store.create("testuser", "password")
+      user_store.update_tags("testuser", [LavinMQ::Tag::Monitoring])
+      user_store2 = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+      user_store2["testuser"].tags.should eq [LavinMQ::Tag::Monitoring]
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+  end
+
   describe "#delete" do
     it "should clear permissions cache when deleting a user" do
       Dir.mkdir_p "/tmp/lavinmq-spec"

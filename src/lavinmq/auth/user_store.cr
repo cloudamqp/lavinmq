@@ -73,6 +73,12 @@ module LavinMQ
         save!
       end
 
+      def update_tags(name, tags : Array(Tag))
+        @users[name].tags = tags
+        Log.info { "Updated tags for user=#{name} tags=#{tags.join(",")}" }
+        save!
+      end
+
       def rm_permission(user, vhost)
         if perm = @users[user].permissions.delete vhost
           @users[user].clear_permissions_cache

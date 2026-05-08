@@ -89,10 +89,7 @@ module LavinMQ
             elsif password
               @amqp_server.users.update_password(name, password)
             end
-            if body["tags"]?
-              u.tags = tags
-              @amqp_server.users.save!
-            end
+            @amqp_server.users.update_tags(name, tags) if body["tags"]?
             context.response.status_code = 204
           else
             if password_hash
