@@ -890,6 +890,7 @@ module LavinMQ::AMQP
             @msg_store.requeue(sp)
           end
           drop_overflow
+          ensure_expire_fiber
         end
       else
         expire_msg(sp, :rejected)
