@@ -940,6 +940,7 @@ module LavinMQ::AMQP
           end
           drop_overflow
           ensure_consumers_deliver_loops if was_empty
+          ensure_expire_fiber
         end
       else
         expire_msg(sp, :rejected)
