@@ -565,25 +565,25 @@ module LavinMQ
       end
 
       private def detailed_vhost_message_stats(vhosts, writer)
-        writer.write_header("detailed_per_vhost_publishes_total", "counter",
+        writer.write_header("detailed_vhost_messages_published_total", "counter",
           "Total messages published to a vhost (all protocols)")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_per_vhost_publishes_total", vhost.publish_count, labels)
+          writer.write_value("detailed_vhost_messages_published_total", vhost.publish_count, labels)
         end
 
-        writer.write_header("detailed_per_vhost_client_deliveries_total", "counter",
+        writer.write_header("detailed_vhost_messages_delivered_total", "counter",
           "Total messages delivered to clients on a vhost (all protocols)")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_per_vhost_client_deliveries_total", vhost.deliver_get_count, labels)
+          writer.write_value("detailed_vhost_messages_delivered_total", vhost.deliver_get_count, labels)
         end
 
-        writer.write_header("detailed_per_vhost_queues", "gauge",
+        writer.write_header("detailed_vhost_queues", "gauge",
           "Number of queues on a vhost")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_per_vhost_queues", vhost.queues.size, labels)
+          writer.write_value("detailed_vhost_queues", vhost.queues.size, labels)
         end
       end
 

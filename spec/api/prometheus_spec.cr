@@ -205,19 +205,19 @@ describe LavinMQ::HTTP::PrometheusController do
         parsed = PrometheusSpecHelper.parse_prometheus(raw)
 
         publishes = parsed.find! do |m|
-          m[:key] == "lavinmq_detailed_per_vhost_publishes_total" &&
+          m[:key] == "lavinmq_detailed_vhost_messages_published_total" &&
             m[:attrs]["vhost"] == "vms_test"
         end
         publishes[:value].should eq 3
 
         deliveries = parsed.find! do |m|
-          m[:key] == "lavinmq_detailed_per_vhost_client_deliveries_total" &&
+          m[:key] == "lavinmq_detailed_vhost_messages_delivered_total" &&
             m[:attrs]["vhost"] == "vms_test"
         end
         deliveries[:value].should eq 1
 
         queues = parsed.find! do |m|
-          m[:key] == "lavinmq_detailed_per_vhost_queues" &&
+          m[:key] == "lavinmq_detailed_vhost_queues" &&
             m[:attrs]["vhost"] == "vms_test"
         end
         queues[:value].should eq 2
