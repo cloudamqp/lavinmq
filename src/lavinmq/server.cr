@@ -336,7 +336,8 @@ module LavinMQ
 
     def update_stats_rates
       @vhosts.each_value do |vhost|
-        vhost.queues.each_value(&.update_rates)
+        vhost.each_queue(&.update_rates)
+        vhost.each_session(&.update_rates)
         vhost.exchanges.each_value(&.update_rates)
         vhost.connections.each do |connection|
           connection.update_rates

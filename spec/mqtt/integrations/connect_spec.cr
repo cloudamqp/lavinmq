@@ -314,7 +314,7 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queues["mqtt.client_id"].consumers.should be_empty
+            server.vhosts["/"].sessions["mqtt.client_id"].consumer_count.should eq 0
           end
         end
       end
