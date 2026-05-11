@@ -1,5 +1,3 @@
-require "wait_group"
-
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1

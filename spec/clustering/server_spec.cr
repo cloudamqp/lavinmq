@@ -6,12 +6,14 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
 
   describe "#files_with_hash" do
     describe "for MFile" do
-      it "should use mfile buffer when calculating hash" do
+      it "should hash only the real (data) size, not the sparse capacity" do
+        data_dir = LavinMQ::Config.instance.data_dir
+        Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(
           LavinMQ::Config.instance,
           LavinMQ::Etcd.new("localhost:12379"),
           0)
-        file = MFile.new(File.tempname, 1024)
+        file = MFile.new(File.join(data_dir, "mfile_hash_test"), 1024)
         file.print "foo"
         server.register_file(file)
         server.files_with_hash do |_path, hash|
@@ -19,16 +21,20 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         end
       ensure
         file.try &.delete
+        FileUtils.rm_rf LavinMQ::Config.instance.data_dir
       end
     end
 
     describe "for File" do
       it "should open and read file calculating hash" do
+        data_dir = LavinMQ::Config.instance.data_dir
+        Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(
           LavinMQ::Config.instance,
           LavinMQ::Etcd.new("localhost:12379"),
           0)
-        file = File.open(File.tempname, "w")
+        path = File.join(data_dir, "file_hash_test")
+        file = File.open(path, "w")
         file.print "foo"
         file.close
         server.register_file(file)
@@ -37,7 +43,28 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         end
       ensure
         file.try &.delete
+        FileUtils.rm_rf LavinMQ::Config.instance.data_dir
       end
+    end
+  end
+
+  describe "#append" do
+    it "raises ArgumentError when no MFile is registered for the path" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+      path = File.join(data_dir, "path_only_file")
+      File.write(path, "data")
+      server.register_file(path) # path-only, not MFile
+
+      expect_raises(ArgumentError, /requires an MFile/) do
+        server.append(path, 0, 4)
+      end
+    ensure
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end
 
@@ -73,7 +100,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       iterations.times do |i|
         mfile = mfiles[i % mfiles.size]
         case i % 5
-        when 0 then server.delete_file(mfile.path, WaitGroup.new(0))
+        when 0 then server.delete_file(mfile.path)
         when 1 then server.replace_file(mfile.path)
         when 2 then server.append(mfile.path, "data".to_slice)
         else        server.register_file(mfile)
@@ -115,7 +142,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       Fiber::ExecutionContext::Isolated.new("test-concurrent-wf") do
         iterations.times do |i|
           key = "concurrent_wf_#{i % mfiles.size}"
-          server.with_file(key) { |_f| }
+          server.with_file(key) { |_f, _size| }
         end
         done.send nil
       end
@@ -124,7 +151,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       iterations.times do |i|
         mfile = mfiles[i % mfiles.size]
         if i % 3 == 0
-          server.delete_file(mfile.path, WaitGroup.new(0))
+          server.delete_file(mfile.path)
         else
           server.register_file(mfile)
         end

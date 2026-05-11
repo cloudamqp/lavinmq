@@ -27,10 +27,16 @@ class SpyReplicator
     @replaced_files << path
   end
 
-  def append(path : String, obj)
+  def append(path : String, pos : Int, length : Int)
   end
 
-  def delete_file(path : String, wg : WaitGroup)
+  def append(path : String, value : UInt32 | Int32)
+  end
+
+  def append(path : String, bytes : Bytes)
+  end
+
+  def delete_file(path : String)
     @deleted_files << path
   end
 
@@ -57,10 +63,6 @@ class SpyReplicator
 
   def password : String
     ""
-  end
-
-  def wait_for_sync(& : -> Nil) : Nil
-    yield
   end
 end
 

@@ -58,9 +58,10 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         with_channel(s) do |ch|
-          q = ch.queue("repli")
-          q.publish_confirm "hello world"
+          q = ch.queue("repli", durable: true)
+          q.publish_confirm "hello world", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
         end
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
         cluster.stop
       end
 
@@ -199,9 +200,11 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     sleep 0.5.seconds
     spawn(name: "failover1") do
       controller1.run { }
+    rescue SpecExit
     end
     spawn(name: "failover2") do
       controller2.run { }
+    rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
@@ -232,9 +235,13 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
     spawn do
       etcd.elect_listen("lavinmq/leader") { election_done.close }
+    rescue SpecExit
     end
 
-    spawn { launcher.run }
+    spawn do
+      launcher.run
+    rescue SpecExit
+    end
 
     # Wait until our "launcher" is leader
     election_done.receive?
@@ -291,37 +298,44 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       client_io.flush
     end
 
+    test_path = "#{LavinMQ::Config.instance.data_dir}/path"
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator.register_file(test_path)
+    payload = "ABCD".to_slice
+
     appended = Channel(Bool).new
     spawn do
-      # Fill the action queue
+      # Fill the socket buffer
       loop do
-        replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
+        replicator.append(test_path, payload)
         appended.send true
-      rescue Channel::ClosedError
+      rescue IO::Error | Socket::Error | Channel::ClosedError
         break
       end
     end
 
-    # Wait for the action queue to fill up
+    # Wait for lag to increase
     loop do
       select
       when appended.receive?
       when timeout 0.1.seconds
-        # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
-        break if action_queue.size == action_queue.@capacity # full?
       end
+      break if replicator.@followers.first?.try &.lag_in_bytes.>(0)
     end
 
-    # Now disconnect the follower. Our "fill action queue" fiber should continue
+    # Now disconnect the follower. Our "fill" fiber should continue or exit
     client_io.close
 
     select
     when appended.receive?
-    when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
+    when timeout 5.seconds
       deadlock = true
     end
+
+    # If the fiber is blocked on a write to a closed socket, it might never send to 'appended'
+    # but we want to make sure the replicator can still be closed
+    replicator.try &.close
+    deadlock = false if !deadlock # if it didn't deadlock yet, we're good
 
     appended.close
     if deadlock
@@ -518,7 +532,9 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
         dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
         wait_for { File.exists?(dotqfile) }
         Fiber.yield
-        cluster.replicator.with_file(dotqfile_relative, &.should(be_nil))
+        cluster.replicator.with_file(dotqfile_relative) do |f, _size|
+          f.should be_nil
+        end
       end
     end
   end
