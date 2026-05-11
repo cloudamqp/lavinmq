@@ -77,6 +77,53 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  it "nacks rejected publishes and acks the rest via multiple" do
+    # Long intervals so the batch will not auto-flush; we want to observe
+    # @pending_acks before the flush and trigger it explicitly.
+    config = LavinMQ::Config.instance.dup
+    config.publish_confirm_interval = 10_000
+    config.publish_confirm_idle_timeout = 10_000
+    with_amqp_server(config: config) do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        args = AMQP::Client::Arguments.new
+        args["x-max-length"] = 1_i64
+        args["x-overflow"] = "reject-publish"
+        q = ch.queue("mix_confirm", args: args)
+
+        results = {} of UInt64 => Bool
+        lock = Mutex.new
+
+        # m1 fills the queue to its max length of 1
+        id1 = ch.basic_publish("m1", "", q.name) { |ok| lock.synchronize { results[1_u64] = ok } }
+        should_eventually(be_true) { s.vhosts["/"].queues[q.name].message_count == 1 }
+
+        # m2 and m3 are rejected; nacks are sent immediately, not batched.
+        id2 = ch.basic_publish("m2", "", q.name) { |ok| lock.synchronize { results[2_u64] = ok } }
+        id3 = ch.basic_publish("m3", "", q.name) { |ok| lock.synchronize { results[3_u64] = ok } }
+
+        should_eventually(be_true) { lock.synchronize { results.has_key?(id2) && results.has_key?(id3) } }
+        lock.synchronize do
+          results[id2].should be_false
+          results[id3].should be_false
+          # m1's ack must still be pending — it is batched, not sent yet.
+          results.has_key?(id1).should be_false
+        end
+
+        # Exactly one ack is buffered (the latest accepted msgid), which will
+        # be flushed with multiple: true to cover all earlier accepted msgids.
+        pending = s.vhosts["/"].@pending_acks
+        pending.size.should eq 1
+        pending.values.first.should eq id1
+
+        # Force the flush via the shutdown drain path and observe m1's ack.
+        s.vhosts["/"].@confirm_requested.close
+        should_eventually(be_true) { lock.synchronize { results.has_key?(id1) } }
+        lock.synchronize { results[id1].should be_true }
+      end
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.
