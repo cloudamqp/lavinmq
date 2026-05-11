@@ -229,33 +229,39 @@ module LavinMQ
           end
         end
 
-        acks = @pending_acks_lock.synchronize do
-          if @pending_acks.empty?
-            nil
-          else
-            current = @pending_acks
-            @pending_acks = Hash(AMQP::Channel, UInt64).new
-            current
-          end
-        end
-
-        if acks
-          begin
-            sync
-          rescue ex
-            @log.error(exception: ex) { "Failed to sync: #{ex.message}" }
-            exit 1
-          end
-          acks.each do |channel, msgid|
-            channel.do_confirm_ack(msgid, multiple: true)
-          rescue ex
-            # If the channel is closed before we can ack, just ignore it
-            @log.debug { "Failed to ack message on channel #{channel}: #{ex.message}" }
-          end
-        end
+        drain_pending_acks
       rescue ::Channel::ClosedError
-        # @confirm_requested is closed
+        # @confirm_requested is closed; flush anything that was persisted
+        # but not yet confirmed before exiting.
+        drain_pending_acks
         return
+      end
+    end
+
+    private def drain_pending_acks
+      acks = @pending_acks_lock.synchronize do
+        if @pending_acks.empty?
+          nil
+        else
+          current = @pending_acks
+          @pending_acks = Hash(AMQP::Channel, UInt64).new
+          current
+        end
+      end
+      return unless acks
+
+      begin
+        sync
+      rescue ex
+        @log.error(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
+      end
+
+      acks.each do |channel, msgid|
+        channel.do_confirm_ack(msgid, multiple: true)
+      rescue ex
+        # If the channel is closed before we can ack, just ignore it
+        @log.debug { "Failed to ack message on channel #{channel}: #{ex.message}" }
       end
     end
 

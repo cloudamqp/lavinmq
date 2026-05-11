@@ -57,6 +57,26 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  it "drains pending confirms when the loop is shut down" do
+    # Configure long batching intervals so the batch will not auto-flush;
+    # the only way the client should see the confirm is via the shutdown drain.
+    config = LavinMQ::Config.instance.dup
+    config.publish_confirm_interval = 10_000
+    config.publish_confirm_idle_timeout = 10_000
+    with_amqp_server(config: config) do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        q = ch.queue("drain_test")
+        ch.basic_publish "msg", "", q.name
+        # Wait until the message has landed in @pending_acks
+        should_eventually(be_true) { !s.vhosts["/"].@pending_acks.empty? }
+        # Simulate the shutdown path that closes the publish-confirm loop.
+        s.vhosts["/"].@confirm_requested.close
+        ch.wait_for_confirms.should be_true
+      end
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.
