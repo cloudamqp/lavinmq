@@ -257,7 +257,7 @@ module LavinMQ
       end
 
       private def end_of_file_list(socket)
-        socket.write_bytes 0, IO::ByteFormat::LittleEndian
+        socket.write_bytes 0 # endian-agnostic
       end
 
       private def file_from_socket(filename, lz4)
