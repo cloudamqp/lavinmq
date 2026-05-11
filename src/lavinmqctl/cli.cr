@@ -47,12 +47,14 @@ class LavinMQCtl
               @cmd = ->{ {{method.name.id}}; nil }
               self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
               {% for opt in method.annotations(Opt) %}
-                {% flag = opt[0] %}
-                {% desc = opt[1] %}
-                {% options_key = opt[:options] %}
-                {% args_key = opt[:args] %}
-                {% literal = opt[:value] %}
-                {% value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id) %}
+                {%
+                  flag = opt[0]
+                  desc = opt[1]
+                  options_key = opt[:options]
+                  args_key = opt[:args]
+                  literal = opt[:value]
+                  value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id)
+                %}
                 @parser.on({{flag}}, {{desc}}) do {% unless literal %}|v|{% end %}
                   {% if options_key %}
                     @options[{{options_key}}] = {{value}}
