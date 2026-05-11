@@ -50,7 +50,7 @@ class LavinMQCtl
           @parser.on({{name}}, {{description}}) do
             @cmd = ->{ {{method.name.id}}; nil }
             self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
-            {% for opt in method.annotations(Opt) %}
+            {% for opt in method.annotations(Opt).sort_by(&.[0]) %}
               {%
                 flag = opt[0]
                 desc = opt[1]
