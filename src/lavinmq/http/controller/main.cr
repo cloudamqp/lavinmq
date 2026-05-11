@@ -163,6 +163,20 @@ module LavinMQ
           Tuple.new.to_json(context.response)
           context
         end
+
+        put "/api/broker/stop" do |context, _params|
+          refuse_unless_administrator(context, user(context))
+          @amqp_server.stop
+          context.response.status_code = 204
+          context
+        end
+
+        put "/api/broker/start" do |context, _params|
+          refuse_unless_administrator(context, user(context))
+          @amqp_server.restart
+          context.response.status_code = 204
+          context
+        end
       end
     end
   end
