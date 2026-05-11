@@ -56,10 +56,9 @@ class LavinMQCtl
                 desc = opt[1]
                 options_key = opt[:options]
                 args_key = opt[:args]
-                literal = opt[:value]
-                value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id)
+                value = opt[:value] || "v".id
               %}
-              @parser.on({{flag}}, {{desc}}) do {% unless literal %}|v|{% end %}
+              @parser.on({{flag}}, {{desc}}) do |v|
                 {% if options_key %}
                   @options[{{options_key}}] = {{value}}
                 {% else %}
@@ -535,10 +534,10 @@ class LavinMQCtl
 
   @[Opt("--auto-delete", "Auto delete queue when last consumer is removed", options: "auto_delete", value: "true")]
   @[Opt("--durable", "Make the queue durable", options: "durable", value: "true")]
-  @[Opt("--expires", "", args: "x-expires", coerce: :i64)]
-  @[Opt("--max-length", "Set a max length for the queue", args: "x-max-length", coerce: :i64)]
-  @[Opt("--message-ttl", "Message time to live", args: "x-message-ttl", coerce: :i64)]
-  @[Opt("--delivery-limit", "How many time a message will be delivered before dead lettered", args: "x-delivery-limit", coerce: :i64)]
+  @[Opt("--expires", "", args: "x-expires", value: v.to_i64)]
+  @[Opt("--max-length", "Set a max length for the queue", args: "x-max-length", value: v.to_i64)]
+  @[Opt("--message-ttl", "Message time to live", args: "x-message-ttl", value: v.to_i64)]
+  @[Opt("--delivery-limit", "How many time a message will be delivered before dead lettered", args: "x-delivery-limit", value: v.to_i64)]
   @[Opt("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped", args: "x-overflow", value: "reject-publish")]
   @[Opt("--dead-letter-exchange", "To which exchange to dead letter messages", args: "x-dead-letter-exchange")]
   @[Opt("--dead-letter-routing-key", "Which routing key to use when dead lettering", args: "x-dead-letter-routing-key")]
@@ -588,8 +587,8 @@ class LavinMQCtl
   @[Opt("--internal", "Make the exchange internal", options: "internal", value: "true")]
   @[Opt("--delayed", "Make the exchange delayed", options: "delayed", value: "true")]
   @[Opt("--alternate-exchange", "Exchange to route all unroutable messages to", args: "x-alternate-exchange")]
-  @[Opt("--persist-messages", "Number of messages to persist in the exchange", args: "x-persist-messages", coerce: :i64)]
-  @[Opt("--persist-ms", "Persist messages in the exchange for this amount of time", args: "x-persist-ms", coerce: :i64)]
+  @[Opt("--persist-messages", "Number of messages to persist in the exchange", args: "x-persist-messages", value: v.to_i64)]
+  @[Opt("--persist-ms", "Persist messages in the exchange for this amount of time", args: "x-persist-ms", value: v.to_i64)]
   @[Cmd("Create exchange", "<type> <name>", section: "Exchanges")]
   private def create_exchange
     etype = ARGV.shift?
@@ -735,10 +734,10 @@ class LavinMQCtl
   @[Opt("--dest-exchange=EXCHANGE", "Destination exchange name", args: "dest-exchange")]
   @[Opt("--src-exchange-key=KEY", "Source routing key", args: "src-exchange-key")]
   @[Opt("--dest-exchange-key=KEY", "Destination routing key", args: "dest-exchange-key")]
-  @[Opt("--src-prefetch-count=COUNT", "Source prefetch count", args: "src-prefetch-count", coerce: :i64)]
+  @[Opt("--src-prefetch-count=COUNT", "Source prefetch count", args: "src-prefetch-count", value: v.to_i64)]
   @[Opt("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)", args: "src-delete-after")]
   @[Opt("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)", args: "ack-mode")]
-  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", coerce: :i64)]
+  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", value: v.to_i64)]
   @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels")]
   private def add_shovel
     name = ARGV.shift?
@@ -780,11 +779,11 @@ class LavinMQCtl
   end
 
   @[Opt("--uri=URI", "Upstream URI (required)", args: "uri")]
-  @[Opt("--expires=SECONDS", "Expiry time for federation link", args: "expires", coerce: :i64)]
-  @[Opt("--message-ttl=MILLISECONDS", "Message TTL for federation", args: "message-ttl", coerce: :i64)]
-  @[Opt("--max-hops=COUNT", "Maximum hops for federation", args: "max-hops", coerce: :i64)]
-  @[Opt("--prefetch-count=COUNT", "Prefetch count for federation", args: "prefetch-count", coerce: :i64)]
-  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", coerce: :i64)]
+  @[Opt("--expires=SECONDS", "Expiry time for federation link", args: "expires", value: v.to_i64)]
+  @[Opt("--message-ttl=MILLISECONDS", "Message TTL for federation", args: "message-ttl", value: v.to_i64)]
+  @[Opt("--max-hops=COUNT", "Maximum hops for federation", args: "max-hops", value: v.to_i64)]
+  @[Opt("--prefetch-count=COUNT", "Prefetch count for federation", args: "prefetch-count", value: v.to_i64)]
+  @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", value: v.to_i64)]
   @[Opt("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)", args: "ack-mode")]
   @[Opt("--consumer-tag=TAG", "Consumer tag for federation link", args: "consumer-tag")]
   @[Opt("--exchange=EXCHANGE", "Exchange name to federate", args: "exchange")]
