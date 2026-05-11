@@ -36,35 +36,38 @@ class LavinMQCtl
   def parse_cmd
     {% begin %}
       {% for section in SECTIONS %}
+        {%
+          methods = @type.methods.select(&.annotation(Cmd))
+            .select { |m| m.annotation(Cmd)[:section] == section }
+            .sort_by(&.name)
+        %}
         @parser.separator({{"\n" + section}})
-        {% for method in @type.methods.select(&.annotation(Cmd)).sort_by(&.name) %}
+        {% for method in methods %}
           {% cmd = method.annotation(Cmd) %}
-          {% if cmd[:section] == section %}
-            {% name = method.name.stringify %}
-            {% description = cmd[0] %}
-            {% usage = cmd[1] %}
-            @parser.on({{name}}, {{description}}) do
-              @cmd = ->{ {{method.name.id}}; nil }
-              self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
-              {% for opt in method.annotations(Opt) %}
-                {%
-                  flag = opt[0]
-                  desc = opt[1]
-                  options_key = opt[:options]
-                  args_key = opt[:args]
-                  literal = opt[:value]
-                  value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id)
-                %}
-                @parser.on({{flag}}, {{desc}}) do {% unless literal %}|v|{% end %}
-                  {% if options_key %}
-                    @options[{{options_key}}] = {{value}}
-                  {% else %}
-                    @args[{{args_key}}] = JSON::Any.new({{value}})
-                  {% end %}
-                end
-              {% end %}
-            end
-          {% end %}
+          {% name = method.name.stringify %}
+          {% description = cmd[0] %}
+          {% usage = cmd[1] %}
+          @parser.on({{name}}, {{description}}) do
+            @cmd = ->{ {{method.name.id}}; nil }
+            self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
+            {% for opt in method.annotations(Opt) %}
+              {%
+                flag = opt[0]
+                desc = opt[1]
+                options_key = opt[:options]
+                args_key = opt[:args]
+                literal = opt[:value]
+                value = literal || (opt[:coerce] == :i64 ? "v.to_i64".id : "v".id)
+              %}
+              @parser.on({{flag}}, {{desc}}) do {% unless literal %}|v|{% end %}
+                {% if options_key %}
+                  @options[{{options_key}}] = {{value}}
+                {% else %}
+                  @args[{{args_key}}] = JSON::Any.new({{value}})
+                {% end %}
+              end
+            {% end %}
+          end
         {% end %}
       {% end %}
     {% end %}
