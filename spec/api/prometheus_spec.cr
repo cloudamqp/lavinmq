@@ -231,7 +231,7 @@ describe LavinMQ::HTTP::PrometheusController do
         vhost.declare_queue("durable_q", true, false)
         vhost.declare_queue("autodelete_q", false, true)
 
-        raw = http.get("/metrics/detailed?family=queue_info").body
+        raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
         parsed = PrometheusSpecHelper.parse_prometheus(raw)
 
         durable = parsed.find! do |m|

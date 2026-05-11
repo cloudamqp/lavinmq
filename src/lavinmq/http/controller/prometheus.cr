@@ -264,8 +264,6 @@ module LavinMQ
                 detailed_exchange_metrics(vhosts, writer)
               when "vhost_message_stats"
                 detailed_vhost_message_stats(vhosts, writer)
-              when "queue_info"
-                detailed_queue_info(vhosts, writer)
               end
             end
           end
@@ -539,6 +537,21 @@ module LavinMQ
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
         end
+
+        writer.write_header("detailed_queue_info", "gauge",
+          "Queue metadata as labels; value is always 1")
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = {
+              queue:       q.name,
+              vhost:       vhost.name,
+              auto_delete: q.auto_delete?.to_s,
+              durable:     q.durable?.to_s,
+              exclusive:   q.exclusive?.to_s,
+            }
+            writer.write_value("detailed_queue_info", 1_u32, labels)
+          end
+        end
       end
 
       private def detailed_queue_consumer_count(vhosts, writer)
@@ -588,23 +601,6 @@ module LavinMQ
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
           writer.write_value("detailed_vhost_queues", vhost.queues.size, labels)
-        end
-      end
-
-      private def detailed_queue_info(vhosts, writer)
-        writer.write_header("detailed_queue_info", "gauge",
-          "Queue metadata as labels; value is always 1")
-        vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
-            labels = {
-              queue:       q.name,
-              vhost:       vhost.name,
-              auto_delete: q.auto_delete?.to_s,
-              durable:     q.durable?.to_s,
-              exclusive:   q.exclusive?.to_s,
-            }
-            writer.write_value("detailed_queue_info", 1_u32, labels)
-          end
         end
       end
 
