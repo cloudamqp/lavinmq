@@ -305,8 +305,8 @@ class LavinMQCtl
     when "list_in_sync_replicas" then list_in_sync_replicas
     when "list_etcd_members"     then list_etcd_members
     when "move_etcd_leader"      then move_etcd_leader
-    when "stop_app"              then stop_app
-    when "start_app"             then start_app
+    when "stop_app"
+    when "start_app"
     else
       @io.puts @parser
       abort
@@ -840,18 +840,6 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
-  end
-
-  private def stop_app
-    @io.puts "Stopping app ..." unless quiet?
-    resp = http.put "/api/broker/stop", @headers
-    handle_response(resp, 204)
-  end
-
-  private def start_app
-    @io.puts "Starting app ..." unless quiet?
-    resp = http.put "/api/broker/start", @headers
-    handle_response(resp, 204)
   end
 
   private def set_vhost_limits
