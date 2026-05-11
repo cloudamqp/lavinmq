@@ -187,6 +187,43 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose per-vhost message stats" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vms_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("q2", true, false)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("q1", durable: true)
+          q.publish_confirm "msg-a"
+          q.publish_confirm "msg-b"
+          q.publish_confirm "msg-c"
+          q.get(no_ack: true).should_not be_nil
+        end
+
+        raw = http.get("/metrics/detailed?family=vhost_message_stats").body
+        parsed = PrometheusSpecHelper.parse_prometheus(raw)
+
+        publishes = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_per_vhost_publishes_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        publishes[:value].should eq 3
+
+        deliveries = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_per_vhost_client_deliveries_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        deliveries[:value].should eq 1
+
+        queues = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_per_vhost_queues" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        queues[:value].should eq 2
+      end
+    end
+
     it "should group TYPE and HELP by metric name" do
       with_metrics_server do |http, s|
         vhost = s.vhosts.create("grouping_test")

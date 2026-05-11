@@ -11,6 +11,7 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
@@ -259,6 +260,8 @@ module LavinMQ
                 detailed_channel_metrics(vhosts, writer)
               when "exchange_metrics"
                 detailed_exchange_metrics(vhosts, writer)
+              when "vhost_message_stats"
+                detailed_vhost_message_stats(vhosts, writer)
               end
             end
           end
@@ -558,6 +561,29 @@ module LavinMQ
             labels = {exchange: e.name, vhost: vhost.name}
             writer.write_value("detailed_exchange_deduplication", e.dedup_count, labels)
           end
+        end
+      end
+
+      private def detailed_vhost_message_stats(vhosts, writer)
+        writer.write_header("detailed_per_vhost_publishes_total", "counter",
+          "Total messages published to a vhost (all protocols)")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_per_vhost_publishes_total", vhost.publish_count, labels)
+        end
+
+        writer.write_header("detailed_per_vhost_client_deliveries_total", "counter",
+          "Total messages delivered to clients on a vhost (all protocols)")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_per_vhost_client_deliveries_total", vhost.deliver_get_count, labels)
+        end
+
+        writer.write_header("detailed_per_vhost_queues", "gauge",
+          "Number of queues on a vhost")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_per_vhost_queues", vhost.queues.size, labels)
         end
       end
 
