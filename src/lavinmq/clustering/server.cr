@@ -35,6 +35,12 @@ module LavinMQ
       @dirty_isr = true
       @id : Int32
       @config : Config
+      # Maps relative paths to their MFile (for sparse, mmap-backed files) or
+      # nil (for regular files where File.size is authoritative). MFile-backed
+      # segments are sparse: ftruncate'd to capacity then appended from the
+      # beginning, so we need mfile.size to know the real data length and
+      # mfile.to_slice to read from the mmap. Full-sync paths always read from
+      # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
@@ -61,11 +67,7 @@ module LavinMQ
       end
 
       def register_file(file : File)
-        path = strip_datadir file.path
-        @file_index.lock do |files, checksums|
-          files[path] = nil
-          checksums.delete(path)
-        end
+        register_file file.path
       end
 
       def register_file(mfile : MFile)
@@ -85,19 +87,44 @@ module LavinMQ
         each_follower &.replace(path)
       end
 
-      def append(path : String, obj)
+      # Replicate `length` bytes from `path` starting at `pos`. The bytes are
+      # read from the registered MFile's mmap — zero syscalls. Callers must
+      # have registered the path as an MFile first; for regular Files use the
+      # `append(path, bytes)` overload instead.
+      def append(path : String, pos : Int, length : Int)
         path = strip_datadir path
-        @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower &.append(path, obj)
+        mfile = @file_index.lock do |files, checksums|
+          checksums.delete(path)
+          files[path]?
+        end
+        raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
+        bytes = mfile.to_slice(pos.to_i64, length.to_i64)
+        each_follower &.append(path, bytes)
       end
 
-      def delete_file(path : String, wg)
+      # Replicate a small in-memory integer (e.g. Schema::VERSION, ack
+      # position). The follower writes it directly to its LZ4 stream — no
+      # heap allocation.
+      def append(path : String, value : UInt32 | Int32)
+        path = strip_datadir path
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        each_follower &.append(path, value)
+      end
+
+      # Replicate an in-memory byte buffer. Caller owns the buffer.
+      def append(path : String, bytes : Bytes)
+        path = strip_datadir path
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        each_follower &.append(path, bytes)
+      end
+
+      def delete_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|
           files.delete(path)
           checksums.delete(path)
         end
-        each_follower &.delete(path, wg)
+        each_follower &.delete(path)
       end
 
       def nr_of_files
@@ -105,63 +132,55 @@ module LavinMQ
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-        # Snapshot @files to allow safe iteration without holding the lock,
-        # as other threads may mutate @files concurrently
+        # Snapshot the index to allow safe iteration without holding the lock.
+        # Files are read from disk via File handles (no MFile mmap reads), so
+        # concurrent close of the MFile is harmless. For sparse MFile-backed
+        # files, we cap the hash at mfile.size to match the follower's
+        # contiguous (non-sparse) copy.
         snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
-        snapshot.each do |path, _|
+        snapshot.each do |path, mfile|
           cached_hash = @file_index.shared { |_files, checksums| checksums[path]? }
           if cached_hash
             yield({path, cached_hash})
           else
-            # Hold shared lock during SHA1 computation to prevent the file
-            # from being deleted or unmapped while we're reading it
-            hash = @file_index.shared do |files, _checksums|
-              # has_key? needed because `files[path]? == nil` means both "not found" and "non-MFile"
-              next unless files.has_key?(path)
-              if file = files[path]?
-                sha1.update file.to_slice
-                file.dontneed
-              else
-                filename = File.join(@data_dir, path)
-                next unless File.exists? filename
-                sha1.file filename
+            filename = File.join(@data_dir, path)
+            begin
+              File.open(filename) do |f|
+                size = mfile ? mfile.size : f.size.to_i64
+                sha1.update IO::Sized.new(f, size)
               end
-              sha1.final.tap { sha1.reset }
+              hash = sha1.final
+              sha1.reset
+              @file_index.lock { |_files, checksums| checksums[path] = hash }
+              yield({path, hash})
+            rescue File::NotFoundError
+              next # File disappeared since we took the snapshot, just skip it.
             end
-            next unless hash
-            @file_index.lock { |_files, checksums| checksums[path] = hash }
-            sleep 1.milliseconds # allow publishing threads to acquire exclusive lock between files
-            yield({path, hash})
           end
         end
       end
 
-      def with_file(filename, & : MFile | File | Nil -> _)
-        # has_key? needed because `files[filename]? == nil` means both "not found" and "non-MFile"
+      # Yields the file (or nil if missing) along with its real data size in
+      # bytes. For MFile-backed sparse files the size comes from mfile.size,
+      # not from File.size which would be the capacity.
+      def with_file(filename, & : File?, Int64 -> _)
+        # has_key? needed because a registered path with a nil MFile is
+        # different from a path that's not in the index at all.
         has_key, mfile = @file_index.shared { |files, _checksums| {files.has_key?(filename), files[filename]?} }
         if has_key
-          if mfile
-            yield mfile
-          else
-            path = File.join(@data_dir, filename)
-            if File.exists? path
-              File.open(path) do |f|
-                f.read_buffering = false
-                yield f
-              end
-            else
-              yield nil
+          path = File.join(@data_dir, filename)
+          begin
+            File.open(path) do |f|
+              f.read_buffering = false
+              size = mfile ? mfile.size : f.size.to_i64
+              yield f, size
             end
+          rescue File::NotFoundError
+            yield nil, 0i64
           end
         else
-          yield nil
-        end
-      end
-
-      def wait_for_sync(& : -> Nil) : Nil
-        @sync_lock.synchronize do
-          yield
+          yield nil, 0i64
         end
       end
 
@@ -194,7 +213,6 @@ module LavinMQ
       end
 
       @listeners = Array(TCPServer).new(1)
-      @mt = Fiber::ExecutionContext::Parallel.new("clustering-followers", 4)
 
       def listen(server : TCPServer)
         server.listen
@@ -205,7 +223,7 @@ module LavinMQ
 
         loop do
           socket = server.accept? || break
-          @mt.spawn(name: "Clustering follower") { handle_socket(socket) }
+          spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
 
@@ -238,7 +256,8 @@ module LavinMQ
           end
         end
         begin
-          follower.action_loop
+          # Wait for follower to disconnect or be closed
+          follower.ack_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
@@ -288,7 +307,7 @@ module LavinMQ
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
-          rescue Channel::ClosedError
+          rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end

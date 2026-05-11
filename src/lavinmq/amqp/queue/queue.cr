@@ -461,7 +461,7 @@ module LavinMQ::AMQP
       if durable?
         @vhost.@replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
-          r.delete_file(dotqueue_file, WaitGroup.new)
+          r.delete_file(dotqueue_file)
         end
       end
       @vhost.delete_queue(@name)

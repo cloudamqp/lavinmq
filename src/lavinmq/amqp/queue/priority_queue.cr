@@ -84,17 +84,15 @@ module LavinMQ::AMQP
         @log.info { "Migration complete" }
         old_store.close
         i = 0u32
-        delete_wg = WaitGroup.new
         pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
           if f.matches? pattern
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
-            @replicator.try &.delete_file(filepath, delete_wg)
+            @replicator.try &.delete_file(filepath)
             Fiber.yield if ((i &+= 1) % 8096).zero?
           end
         end
-        delete_wg.wait
       end
 
       private def needs_migrate?
