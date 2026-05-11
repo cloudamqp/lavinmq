@@ -262,13 +262,13 @@ describe LavinMQ::HTTP::PrometheusController do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("ch_q", durable: false, auto_delete: true)
           q.subscribe(no_ack: false) { |_| }
-          wait_for { ch.@consumers.any? }
+          wait_for { !ch.@consumers.empty? }
 
           raw = http.get("/metrics/detailed?family=channel_metrics").body
           lines = raw.lines.select(&.starts_with?("lavinmq_detailed_channel_consumers{"))
 
           lines.size.should be > 0
-          relevant = lines.find { |l| l.includes?(%(vhost="ch_label_test")) }
+          relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
           relevant.should_not be_nil
           line = relevant.not_nil!
           # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
