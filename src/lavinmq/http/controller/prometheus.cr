@@ -13,7 +13,9 @@ module LavinMQ
                            NamedTuple(id: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
-                           NamedTuple(exchange: String, vhost: String)
+                           NamedTuple(exchange: String, vhost: String) |
+                           NamedTuple(channel: String, vhost: String, connection: String) |
+                           NamedTuple(queue: String, vhost: String, auto_delete: String, durable: String, exclusive: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
@@ -262,6 +264,8 @@ module LavinMQ
                 detailed_exchange_metrics(vhosts, writer)
               when "vhost_message_stats"
                 detailed_vhost_message_stats(vhosts, writer)
+              when "queue_info"
+                detailed_queue_info(vhosts, writer)
               end
             end
           end
@@ -587,6 +591,23 @@ module LavinMQ
         end
       end
 
+      private def detailed_queue_info(vhosts, writer)
+        writer.write_header("detailed_queue_info", "gauge",
+          "Queue metadata as labels; value is always 1")
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = {
+              queue:       q.name,
+              vhost:       vhost.name,
+              auto_delete: q.auto_delete?.to_s,
+              durable:     q.durable?.to_s,
+              exclusive:   q.exclusive?.to_s,
+            }
+            writer.write_value("detailed_queue_info", 1_u32, labels)
+          end
+        end
+      end
+
       private def detailed_connection_coarse_metrics(vhosts, writer)
         # Group TYPE, HELP and values together for each metric
         writer.write_header("detailed_connection_incoming_bytes_total", "counter",
@@ -623,7 +644,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_channel_consumers", ch.details_tuple[:consumer_count], labels)
             end
           end
@@ -634,7 +655,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_messages_unacked", ch.details_tuple[:messages_unacknowledged], labels)
             end
           end
@@ -645,7 +666,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_channel_prefetch", ch.details_tuple[:prefetch_count], labels)
             end
           end
