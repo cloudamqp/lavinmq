@@ -87,7 +87,7 @@ module LavinMQ::AMQP
       @message_expire_fiber_active.get(:relaxed)
     end
 
-    EXPIRE_FIBER_IDLE_THRESHOLD_MS = 30_000
+    private EXPIRE_FIBER_IDLE_THRESHOLD_MS = 30_000
 
     getter? internal = false
 
@@ -232,7 +232,7 @@ module LavinMQ::AMQP
     end
 
     # Ensure the expire fiber is running if there are messages that need expiring
-    def ensure_expire_fiber
+    private def ensure_expire_fiber
       if !@closed && !@message_expire_fiber_active.get(:acquire)
         start_message_expire_loop if should_start_expire_fiber?
       end
@@ -562,7 +562,6 @@ module LavinMQ::AMQP
         effective_arguments:          @effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
-        message_expire_fiber_active:  @message_expire_fiber_active.get(:relaxed),
       }
     end
 
