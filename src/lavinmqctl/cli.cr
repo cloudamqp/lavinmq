@@ -48,7 +48,7 @@ class LavinMQCtl
           {% description = cmd[0] %}
           {% usage = cmd[1] %}
           @parser.on({{name}}, {{description}}) do
-            @cmd = ->{ {{method.name.id}}; nil }
+            @cmd = ->{{method.name.id}}
             self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{usage.id}}"
             {% for opt in method.annotations(Opt).sort_by(&.[0]) %}
               {%
