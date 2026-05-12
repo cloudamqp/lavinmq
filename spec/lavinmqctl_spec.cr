@@ -370,4 +370,80 @@ describe "LavinMQCtl" do
       end
     end
   end
+
+  describe "reset" do
+    it "should delete all messages and metadata" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "users.json"), "[{\"name\":\"guest\"}]")
+        File.write(File.join(data_dir, "vhosts.json"), "[{\"name\":\"/\"}]")
+        File.write(File.join(data_dir, ".clustering_id"), "abc123")
+        vhost_dir = File.join(data_dir, "a" * 40)
+        queue_dir = File.join(vhost_dir, "b" * 40)
+        Dir.mkdir_p(queue_dir)
+
+        original_argv = ARGV.dup
+        stdout = IO::Memory.new
+        begin
+          ARGV.clear
+          ARGV.concat(["reset", "--force"])
+          ENV["LAVINMQ_DATADIR"] = data_dir
+          LavinMQCtl.new(stdout).run_cmd
+        ensure
+          ENV.delete("LAVINMQ_DATADIR")
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        File.exists?(File.join(data_dir, "users.json")).should be_false
+        File.exists?(File.join(data_dir, "vhosts.json")).should be_false
+        File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+        Dir.exists?(vhost_dir).should be_false
+      end
+    end
+
+    it "should read data-dir from config file" do
+      with_datadir do |data_dir|
+        config_dir = File.join(data_dir, "config")
+        Dir.mkdir_p(config_dir)
+        File.write(File.join(config_dir, "lavinmq.ini"), "[main]\ndata_dir = #{data_dir}\n")
+        File.write(File.join(data_dir, "users.json"), "[{\"name\":\"guest\"}]")
+
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          ARGV.concat(["reset", "--force"])
+          ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = config_dir
+          LavinMQCtl.new(IO::Memory.new).run_cmd
+        ensure
+          ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        File.exists?(File.join(data_dir, "users.json")).should be_false
+      end
+    end
+
+    it "should fail if LavinMQ is running" do
+      with_datadir do |data_dir|
+        lock_path = File.join(data_dir, ".lock")
+        File.open(lock_path, "w") do |lock|
+          lock.flock_exclusive
+          original_argv = ARGV.dup
+          begin
+            ARGV.clear
+            ARGV.concat(["reset", "--force"])
+            ENV["LAVINMQ_DATADIR"] = data_dir
+            expect_raises(Exception, /running/) do
+              LavinMQCtl.new(IO::Memory.new).run_cmd
+            end
+          ensure
+            ENV.delete("LAVINMQ_DATADIR")
+            ARGV.clear
+            ARGV.concat(original_argv)
+          end
+        end
+      end
+    end
+  end
 end
