@@ -216,15 +216,9 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
-        if @config.tls_ktls?
-          ssl_client = OpenSSL::SSL::NativeSocket::Server.new(client, context, sync_close: true)
-          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
-          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
-        else
-          ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
-          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
-        end
+        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+        handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
