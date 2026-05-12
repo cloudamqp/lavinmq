@@ -793,6 +793,136 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    describe "pause and resume" do
+      it "should pause an exchange link" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "ef pause test", s.amqp_url, "upstream_ex")
+
+          with_channel(s) do |ch|
+            downstream_ex = ch.exchange("downstream_ex", "topic")
+            downstream_q = ch.queue("downstream_q")
+            downstream_q.bind(downstream_ex.name, "#")
+            link = upstream.link(vhost.exchanges[downstream_ex.name])
+            wait_for { link.state.running? }
+
+            link.pause
+            wait_for { link.state.paused? }
+            link.state.paused?.should be_true
+          end
+        ensure
+          upstream.try &.close
+        end
+      end
+
+      it "should resume a paused exchange link" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "ef resume test", s.amqp_url, "upstream_ex")
+
+          with_channel(s) do |ch|
+            downstream_ex = ch.exchange("downstream_ex", "topic")
+            downstream_q = ch.queue("downstream_q")
+            downstream_q.bind(downstream_ex.name, "#")
+            link = upstream.link(vhost.exchanges[downstream_ex.name])
+            wait_for { link.state.running? }
+
+            link.pause
+            wait_for { link.state.paused? }
+
+            link.resume
+            wait_for { link.state.running? }
+            link.state.running?.should be_true
+          end
+        ensure
+          upstream.try &.close
+        end
+      end
+
+      it "should not federate messages while paused" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "ef pause msg test", s.amqp_url, "upstream_ex")
+
+          with_channel(s) do |ch|
+            downstream_ex = ch.exchange("downstream_ex", "topic")
+            downstream_q = ch.queue("downstream_q")
+            downstream_q.bind(downstream_ex.name, "#")
+            link = upstream.link(vhost.exchanges[downstream_ex.name])
+            wait_for { link.state.running? }
+
+            link.pause
+            wait_for { link.state.paused? }
+
+            upstream_ex = ch.exchange("upstream_ex", "topic", passive: true)
+            upstream_ex.publish "should not arrive", "rk"
+
+            # Give some time for the message to potentially arrive
+            10.times { Fiber.yield }
+            sleep 50.milliseconds
+
+            msgs = [] of AMQP::Client::DeliverMessage
+            downstream_q.subscribe { |msg| msgs << msg }
+            sleep 50.milliseconds
+            msgs.size.should eq 0
+          end
+        ensure
+          upstream.try &.close
+        end
+      end
+
+      it "should resume federating messages after resume" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "ef resume msg test", s.amqp_url, "upstream_ex")
+
+          with_channel(s) do |ch|
+            downstream_ex = ch.exchange("downstream_ex", "topic")
+            downstream_q = ch.queue("downstream_q")
+            downstream_q.bind(downstream_ex.name, "#")
+            link = upstream.link(vhost.exchanges[downstream_ex.name])
+            wait_for { link.state.running? }
+
+            link.pause
+            wait_for { link.state.paused? }
+
+            link.resume
+            wait_for { link.state.running? }
+
+            upstream_ex = ch.exchange("upstream_ex", "topic", passive: true)
+            upstream_ex.publish "federate after resume", "rk"
+            msgs = [] of AMQP::Client::DeliverMessage
+            downstream_q.subscribe { |msg| msgs << msg }
+            wait_for { msgs.size == 1 }
+            msgs.first.body_io.to_s.should eq "federate after resume"
+          end
+        ensure
+          upstream.try &.close
+        end
+      end
+
+      it "should show paused status in details_tuple" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "ef status test", s.amqp_url, "upstream_ex")
+
+          with_channel(s) do |ch|
+            downstream_ex = ch.exchange("downstream_ex", "topic")
+            downstream_q = ch.queue("downstream_q")
+            downstream_q.bind(downstream_ex.name, "#")
+            link = upstream.link(vhost.exchanges[downstream_ex.name])
+            wait_for { link.state.running? }
+
+            link.pause
+            wait_for { link.state.paused? }
+            link.details_tuple[:status].should eq "paused"
+          end
+        ensure
+          upstream.try &.close
+        end
+      end
+    end
+
     describe "exchange federation chain" do
       it "append to x-bound-from" do
         with_http_server do |_http, s|

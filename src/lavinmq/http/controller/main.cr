@@ -158,6 +158,36 @@ module LavinMQ
           end
         end
 
+        put "/api/federation-links/:vhost/:upstream/:name/pause" do |context, params|
+          with_vhost(context, params) do |vhost|
+            if link = vhost.upstreams.find_link(params["upstream"], params["name"])
+              if !link.running?
+                context.response.status_code = 422
+                next
+              end
+              link.pause
+              context.response.status_code = 204
+            else
+              context.response.status_code = 404
+            end
+          end
+        end
+
+        put "/api/federation-links/:vhost/:upstream/:name/resume" do |context, params|
+          with_vhost(context, params) do |vhost|
+            if link = vhost.upstreams.find_link(params["upstream"], params["name"])
+              if !link.paused?
+                context.response.status_code = 422
+                next
+              end
+              link.resume
+              context.response.status_code = 204
+            else
+              context.response.status_code = 404
+            end
+          end
+        end
+
         get "/api/extensions" do |context, _params|
           Tuple.new.to_json(context.response)
           context

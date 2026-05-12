@@ -39,6 +39,10 @@ module LavinMQ
         @q_links.values + @ex_links.values
       end
 
+      def find_link(resource_name : String) : Link?
+        @q_links[resource_name]? || @ex_links[resource_name]?
+      end
+
       # declare queue on upstream
       # consume queue and publish to downstream exchange
       # declare upstream exchange (passive)
