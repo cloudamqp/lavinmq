@@ -51,6 +51,9 @@ module LavinMQ
             auth_context = Auth::Context.new("", value.to_slice, context.request.remote_address)
             user = @authenticator.authenticate(auth_context)
             return user if user && !user.tags.empty?
+            context.response.cookies << ::HTTP::Cookie.new(
+              name: "m", value: "", path: "/", max_age: 0.seconds)
+            return nil
           end
         end
       end

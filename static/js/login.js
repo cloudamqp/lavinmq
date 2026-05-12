@@ -1,4 +1,11 @@
 import * as Auth from './auth.js'
+
+function showLoginError (message) {
+  const el = document.getElementById('login-error')
+  el.textContent = message
+  el.style.display = 'block'
+}
+
 window.fetch('/oauth/enabled')
   .then(resp => resp.json())
   .then(data => {
@@ -12,10 +19,10 @@ window.fetch('/oauth/enabled')
             if (resp.ok) {
               window.location.assign(data.authorize_url)
             } else {
-              window.alert(data.reason || 'SSO authorization failed')
+              showLoginError(data.reason || 'SSO authorization failed')
             }
           }))
-          .catch(() => { window.alert('SSO authorization failed') })
+          .catch(() => { showLoginError('SSO authorization failed') })
       })
     }
   })
@@ -23,7 +30,7 @@ window.fetch('/oauth/enabled')
 
 const searchParams = new URLSearchParams(window.location.search)
 if (searchParams.has('error')) {
-  window.alert(searchParams.get('error'))
+  showLoginError(searchParams.get('error'))
   window.history.replaceState(null, '', window.location.pathname)
 }
 
@@ -45,5 +52,5 @@ document.getElementById('login').addEventListener('submit', (e) => {
 function tryLogin (user, pass) {
   Auth.login(user, pass)
     .then(() => window.location.assign('.'))
-    .catch(() => window.alert('Authentication failure'))
+    .catch(() => showLoginError('Authentication failure'))
 }

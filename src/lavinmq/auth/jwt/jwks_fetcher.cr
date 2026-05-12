@@ -52,6 +52,7 @@ module LavinMQ
         end
 
         getter public_keys : PublicKeys
+        getter oidc_config : OIDCConfiguration?
         @stopped = BoolChannel.new(false)
 
         def initialize(issuer_url : URI, @default_cache_ttl : Time::Span)
@@ -106,6 +107,7 @@ module LavinMQ
             raise "OIDC issuer mismatch: expected #{@issuer_url}, got #{oidc_issuer}"
           end
 
+          @oidc_config = oidc_config
           oidc_config
         end
 

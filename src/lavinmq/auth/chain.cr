@@ -9,22 +9,23 @@ module LavinMQ
   module Auth
     class Chain < Authenticator
       Log = LavinMQ::Log.for "auth.chain"
-      @backends : Array(Authenticator)
+      property backends : Array(Authenticator)
+      property oauth_fetcher : Auth::JWT::JWKSFetcher?
 
-      def initialize(backends : Array(Authenticator))
-        @backends = backends
+      def initialize(@backends : Array(Authenticator), @oauth_fetcher : Auth::JWT::JWKSFetcher? = nil)
       end
 
       def self.create(config : Config, users : UserStore) : Chain
         authenticators = [] of Authenticator
+        oauth_fetcher : Auth::JWT::JWKSFetcher? = nil
         config.auth_backends.each do |backend|
           case backend
           when "local"
             authenticators << LocalAuthenticator.new(users)
           when "oauth"
             if uri = config.oauth_issuer_url
-              jwks_fetcher = Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
-              verifier = Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
+              oauth_fetcher = Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
+              verifier = Auth::JWT::TokenVerifier.new(config, oauth_fetcher)
               verifier.fetcher.start_refresh_loop
               authenticators << OAuthAuthenticator.new(verifier)
             else
@@ -38,7 +39,7 @@ module LavinMQ
           # Default to local auth if no backends configured
           authenticators << LocalAuthenticator.new(users)
         end
-        self.new(authenticators)
+        self.new(authenticators, oauth_fetcher)
       end
 
       def cleanup

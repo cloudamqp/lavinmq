@@ -33,6 +33,7 @@
   --color-btn-outlined: light-dark(#111827, #F7F5F2);
   --color-btn-hover-bg: light-dark(#f3f4f6, #2D2C2C);
   --color-input-icon-bg: light-dark(#8d8d8d, #292929);
+  --color-secondary-btn-hover-bg: light-dark(#111111, #EDEDED);
 
   /* Brand colors that don't change with theme */
   --color-success: #54BE7E;
@@ -271,9 +272,27 @@ body.login main {
   width: 100%;
   margin-left: 0 !important;
   font-size: 1rem;
-  padding: 1rem 1rem;
+  padding: .8rem 1rem !important;
   line-height: 1.5rem;
   margin-top: 24px;
+  border-radius: .8rem !important;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  padding: 1.5rem 0;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-border-primary);
 }
 /* Login page end */
 
@@ -489,6 +508,18 @@ button {
   color: var(--color-text-primary);
 }
 
+.btn-secondary {
+  background-color: var(--color-text-primary);
+  color: var(--color-bg-primary);
+  border: 1px solid transparent;
+  text-decoration: none;
+
+  &:hover, &:visited {
+    background-color: var(--color-secondary-btn-hover-bg);
+    color: var(--color-bg-primary);
+  }
+}
+
 .btn-yellow {
   background: var(--color-warning);
   border: 1px solid transparent;
@@ -623,6 +654,10 @@ button {
 .login-form {
   width: 100%;
   max-width: 400px;
+
+  .btn-secondary {
+    margin: 0;
+  }
 }
 
 .login-form label {

@@ -24,6 +24,7 @@
       <section class="card col-2 login-card">
         <img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" class="login-logo dark">
         <img alt="LavinMQ logo" id="logo-light" src="img/logo-lavinmq-all-dark.svg" class="login-logo light">
+        <div id="login-error" role="alert"></div>
         <form id="login" class="form login-form">
           <label>
             <span class="field-label login-label">Username</span>
@@ -34,8 +35,10 @@
             <input class="login-input" type="password" id="password" placeholder="Password">
           </label>
           <button type="submit" class="btn btn-green login-btn">Sign in</button>
-          <div id="sso-separator" style="text-align:center;margin-top:1rem;color:#888;display:none;">or</div>
-          <button type="button" id="sso-btn" class="btn btn-green login-btn" style="display:none !important;margin-top:0.5rem;">Sign in with SSO</button>
+          <div id="sso-separator" class="login-divider" style="display:none;">
+            <span>or</span>
+          </div>
+          <button type="button" id="sso-btn" class="btn btn-secondary login-btn" style="display:none !important;">Sign in with SSO</button>
         </form>
       </section>
     </main>

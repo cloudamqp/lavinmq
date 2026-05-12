@@ -11,11 +11,12 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.oauth"
 
-      @oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration?
-      @oidc_mutex = Mutex.new
-
       def initialize(@authenticator : Auth::Authenticator)
         register_routes
+      end
+
+      private def oauth_fetcher : Auth::JWT::JWKSFetcher?
+        @authenticator.as?(Auth::Chain).try(&.oauth_fetcher)
       end
 
       private def register_routes
@@ -60,7 +61,7 @@ module LavinMQ
       rescue OAuthError
         context
       rescue ex
-        Log.error(exception: ex) { "OAuth authorize failed: #{ex.message}" }
+        Log.error(exception: ex) { "OAuth authorize failed (#{ex.class})" }
         context.response.status_code = 502
         context.response.content_type = "application/json"
         {reason: "OAuth authorization failed"}.to_json(context.response)
@@ -82,7 +83,7 @@ module LavinMQ
 
         set_cookie(context, "m", token_response.access_token,
           path: "/", http_only: true, samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
-        set_cookie(context, "oauth_user", extract_username(token_response.access_token),
+        set_cookie(context, "oauth_user", URI.encode_path_segment(user.name),
           path: "/", samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
         expire_cookie(context, "oauth_state", "/oauth")
 
@@ -92,7 +93,7 @@ module LavinMQ
       rescue OAuthError
         context
       rescue ex
-        Log.error(exception: ex) { "OAuth callback failed: #{ex.message}" }
+        Log.error(exception: ex) { "OAuth callback failed (#{ex.class})" }
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = "/login?error=#{URI.encode_path_segment("OAuth authentication failed")}"
         context
@@ -151,31 +152,8 @@ module LavinMQ
         raise OAuthError.new
       end
 
-      private def extract_username(access_token : String) : String
-        parts = access_token.split('.')
-        return "SSO User" unless parts.size == 3
-        payload = JSON.parse(Auth::JWT::RS256Parser.base64url_decode(parts[1]))
-        Config.instance.oauth_preferred_username_claims.each do |claim|
-          if value = payload[claim]?.try(&.as_s?)
-            return URI.encode_path_segment(value)
-          end
-        end
-        "SSO User"
-      rescue ex
-        Log.debug(exception: ex) { "Could not extract username from JWT" }
-        "SSO User"
-      end
-
-      # Cached for the lifetime of the process. OIDC endpoints are essentially
-      # static; a server restart is needed if the IdP changes them.
       private def oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration
-        @oidc_mutex.synchronize do
-          @oidc_config ||= begin
-            config = Config.instance
-            issuer_url = config.oauth_issuer_url || raise "OAuth issuer not configured"
-            Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
-          end
-        end
+        oauth_fetcher.try(&.oidc_config) || raise "OIDC config not available"
       end
 
       private def build_redirect_uri : String
