@@ -60,7 +60,13 @@ module LavinMQ::AMQP
         consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
         find_offset_in_segments(consumer_last_offset)
       when Int
-        if offset > @last_offset
+        if offset.negative?
+          if -offset.to_i64 >= @last_offset
+            offset_at(@segments.first_key, 4u32)
+          else
+            find_offset_in_segments(@last_offset + offset.to_i64 + 1)
+          end
+        elsif offset > @last_offset
           last_offset_seg_pos
         else
           find_offset_in_segments(offset)

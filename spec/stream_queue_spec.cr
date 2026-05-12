@@ -248,6 +248,99 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "x-stream-offset negative integer" do
+    it "delivers the last N messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-last-n", args: stream_queue_args)
+          200.times { |i| q.publish "m#{i}" }
+          ch.prefetch 100
+          msgs = Channel(AMQP::Client::DeliverMessage).new(100)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          received = Array(AMQP::Client::DeliverMessage).new
+          100.times { received << msgs.receive }
+          StreamSpecHelpers.offset_from_headers(received.first.properties.headers).should eq 101
+          StreamSpecHelpers.offset_from_headers(received.last.properties.headers).should eq 200
+        end
+      end
+    end
+
+    it "clamps to oldest available when stream has fewer messages than requested" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-underflow", args: stream_queue_args)
+          30.times { |i| q.publish "m#{i}" }
+          ch.prefetch 30
+          msgs = Channel(AMQP::Client::DeliverMessage).new(30)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          received = Array(AMQP::Client::DeliverMessage).new
+          30.times { received << msgs.receive }
+          StreamSpecHelpers.offset_from_headers(received.first.properties.headers).should eq 1
+          StreamSpecHelpers.offset_from_headers(received.last.properties.headers).should eq 30
+        end
+      end
+    end
+
+    it "x-stream-offset=-1 delivers only the latest message" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-one", args: stream_queue_args)
+          5.times { |i| q.publish "m#{i}" }
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -1})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 5
+          msg.body_io.to_s.should eq "m4"
+        end
+      end
+    end
+
+    it "delivers remaining messages when older segments have been dropped" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-length": 1}
+          q = ch.queue("neg-offset-after-drop", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          q.message_count.should eq 1
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+        end
+      end
+    end
+
+    it "rejects Int64::MIN" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-min", args: stream_queue_args)
+          q.publish_confirm "m"
+          ch.prefetch 1
+          expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": Int64::MIN})) do |msg|
+              msg.ack
+            end
+          end
+        end
+      end
+    end
+  end
+
   describe "Expiration" do
     it "segments should be removed if max-length set" do
       with_amqp_server do |s|
@@ -611,6 +704,38 @@ describe LavinMQ::AMQP::Stream do
         # should consume the same message again, no tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+      end
+    end
+
+    it "negative x-stream-offset does not override tracked offset on reconnect" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": -5, "x-stream-automatic-offset-tracking": "true"})
+
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 10)
+        msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 6
+        sleep 0.1.seconds
+
+        StreamSpecHelpers.publish(s, queue_name, 5)
+
+        # tracked offset (7) wins over the -5 that would otherwise re-anchor to 11
+        msg2 = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamSpecHelpers.offset_from_headers(msg2.properties.headers).should eq 7
+      end
+    end
+
+    it "drop_overflow does not raise after the store has been deleted" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag", 1_i64)
+        msg_store.delete
+        msg_store.drop_overflow
       end
     end
 
