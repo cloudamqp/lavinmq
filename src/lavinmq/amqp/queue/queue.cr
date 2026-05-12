@@ -87,7 +87,7 @@ module LavinMQ::AMQP
       @message_expire_fiber_active.get(:relaxed)
     end
 
-    private EXPIRE_FIBER_IDLE_THRESHOLD_MS = 30_000
+    private EXPIRE_FIBER_IDLE_THRESHOLD = 30.seconds
 
     getter? internal = false
 
