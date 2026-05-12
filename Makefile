@@ -85,8 +85,7 @@ man: $(MANPAGES)
 js: $(JS)
 
 .PHONY: deps
-deps: js lib
-
+deps: js lib views
 
 .PHONY: lint
 lint: lib
@@ -101,7 +100,7 @@ lint-openapi:
 	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
-test: lib
+test: lib views
 	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
