@@ -155,7 +155,7 @@ jobs:
           for f in ${{ steps.changed.outputs.files }}; do
             if [ -f "$f" ]; then
               echo "::group::crystal build --no-codegen $f"
-              crystal build --no-codegen --error-on-warnings "$f" || status=1
+              crystal build --no-codegen --error-on-warnings -Dpreview_mt -Dexecution_context "$f" || status=1
               echo "::endgroup::"
             fi
           done
