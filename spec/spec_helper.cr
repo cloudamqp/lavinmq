@@ -1,6 +1,10 @@
 require "log"
 Log.setup_from_env(default_level: :error)
 
+# Enable MT
+count = Fiber::ExecutionContext.default_workers_count
+Fiber::ExecutionContext.default.resize(count)
+
 Signal::SEGV.reset # Let the OS generate a coredump
 
 class Log
@@ -59,13 +63,6 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  s.@listeners
-    .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
-    .keys
-    .select(TCPServer)
-    .first
-    .local_address
-    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -75,7 +72,7 @@ ensure
 end
 
 def amqp_port(s)
-  s.@listeners.keys.select(TCPServer).first.local_address.port
+  wait_for { s.@listeners.shared(&.keys.select(TCPServer).first?) }.local_address.port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep
@@ -137,7 +134,7 @@ def with_amqp_server(tls = false, replicator = nil,
     else
       spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
     end
-    Fiber.yield
+    wait_for { !s.listeners_empty? }
     yield s
   ensure
     # A closed queue indicates that something failed that shouldn't. However, the error may be

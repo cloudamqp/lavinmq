@@ -1,3 +1,4 @@
+require "sync/shared"
 require "../stats"
 require "./client"
 require "./consumer"
@@ -18,24 +19,28 @@ module LavinMQ
       include SortableJSON
 
       getter id, name
-      property? running = true
+      @running = Atomic(Bool).new(true)
       getter? flow = true
-      @consumers = Array(Consumer).new
+      @consumers : Sync::Shared(Array(Consumer)) = Sync::Shared.new(Array(Consumer).new, :unchecked)
+
+      def running? : Bool
+        @running.get(:relaxed)
+      end
 
       def consumers : Array(Consumer)
-        @consumers.dup
+        @consumers.shared(&.dup)
       end
 
       def consumers_size : Int32
-        @consumers.size
+        @consumers.shared(&.size)
       end
 
       def find_consumer(& : Consumer -> Bool) : Consumer?
-        @consumers.find { |c| yield c }
+        @consumers.shared { |cs| cs.find { |c| yield c } }
       end
 
       def delete_consumer(consumer : Consumer) : Consumer?
-        @consumers.delete(consumer)
+        @consumers.lock(&.delete(consumer))
       end
 
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
@@ -82,7 +87,7 @@ module LavinMQ
           name:                    @name,
           vhost:                   @client.vhost.name,
           user:                    @client.user.name,
-          consumer_count:          @consumers.size,
+          consumer_count:          consumers_size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
@@ -96,16 +101,16 @@ module LavinMQ
 
       def flow(active : Bool)
         @flow = active
-        @consumers.each &.flow(active)
+        @consumers.shared(&.each &.flow(active))
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
       def state
-        !@running ? "closed" : @flow ? "running" : "flow"
+        !running? ? "closed" : @flow ? "running" : "flow"
       end
 
       def send(frame)
-        unless @running
+        unless running?
           @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
           return false
         end
@@ -382,7 +387,7 @@ module LavinMQ
       end
 
       def deliver(frame, msg, redelivered = false, flush = true) : Nil
-        raise ClosedError.new("Channel is closed") unless @running
+        raise ClosedError.new("Channel is closed") unless running?
         @client.deliver(frame, msg, flush)
       end
 
@@ -403,7 +408,7 @@ module LavinMQ
       end
 
       def consume(frame)
-        if @consumers.size >= Config.instance.max_consumers_per_channel > 0
+        if consumers_size >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
         end
@@ -435,7 +440,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
+          @consumers.lock(&.push(c))
           q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
@@ -660,7 +665,7 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @consumers.each(&.prefetch_count = value)
+        @consumers.shared(&.each(&.prefetch_count = value))
         @prefetch_count = value
       end
 
@@ -703,14 +708,13 @@ module LavinMQ
       end
 
       def close
-        return unless @running
-        @running = false
+        return unless @running.swap(false, :release)
         @confirm_ack_mailbox.try &.close
-        @consumers.each_with_index(1) do |consumer, i|
+        @consumers.shared(&.dup).each_with_index(1) do |consumer, i|
           consumer.close
           Fiber.yield if (i % 128) == 0
         end
-        @consumers.clear
+        @consumers.lock(&.clear)
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumer_delete(drc)
         end
@@ -780,8 +784,12 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
-          c = @consumers.delete_at idx
+        c = @consumers.lock do |cs|
+          if idx = cs.index { |cons| cons.tag == frame.consumer_tag }
+            cs.delete_at idx
+          end
+        end
+        if c
           c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil

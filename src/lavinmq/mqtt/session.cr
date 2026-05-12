@@ -35,9 +35,9 @@ module LavinMQ
         loop do
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @consumers_empty.when_false.receive? if @consumers.empty?
           next @has_capacity.when_true.receive? unless @has_capacity.value
-          consumer = @consumers.first.as(MQTT::Consumer)
+          consumer = @consumers.shared(&.first?).as(MQTT::Consumer?)
+          next @consumers_empty.when_false.receive? if consumer.nil?
           get_packet do |pub_packet, bytesize|
             consumer.deliver(pub_packet)
             delivered_bytes &+= bytesize
@@ -48,7 +48,7 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.each &.close
+          @consumers.shared(&.dup).each &.close
           self.client = nil
         end
       end
@@ -69,7 +69,7 @@ module LavinMQ
           end
         end
 
-        @consumers.each do |c|
+        @consumers.shared(&.dup).each do |c|
           rm_consumer c
         end
 
@@ -108,7 +108,7 @@ module LavinMQ
 
       def publish(msg : Message) : PublishResult
         # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
-        return PublishResult::Ok if msg.properties.delivery_mode == 0 && @consumers.empty?
+        return PublishResult::Ok if msg.properties.delivery_mode == 0 && @consumers.unsafe_get.empty?
         super
       end
 

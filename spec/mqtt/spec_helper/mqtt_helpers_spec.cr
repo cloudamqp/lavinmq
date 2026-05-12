@@ -43,7 +43,7 @@ module MqttHelpers
     begin
       spawn(name: "amqp tcp listen") { s.listen(amqp_server, LavinMQ::Server::Protocol::AMQP) }
       spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, LavinMQ::Server::Protocol::MQTT) }
-      Fiber.yield
+      wait_for { s.listeners_size >= 2 }
       yield s
     ensure
       s.close

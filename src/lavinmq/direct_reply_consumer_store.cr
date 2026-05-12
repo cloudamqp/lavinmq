@@ -1,25 +1,28 @@
+require "sync/shared"
 require "./client/client"
 
 module LavinMQ
   class DirectReplyConsumerStore
+    @consumers : Sync::Shared(Hash(String, Client::Channel))
+
     def initialize
-      @consumers = Hash(String, Client::Channel).new
+      @consumers = Sync::Shared.new(Hash(String, Client::Channel).new, :unchecked)
     end
 
     def []?(consumer_tag : String) : Client::Channel?
-      @consumers[consumer_tag]?
+      @consumers.shared { |c| c[consumer_tag]? }
     end
 
     def []=(consumer_tag : String, channel : Client::Channel) : Client::Channel
-      @consumers[consumer_tag] = channel
+      @consumers.lock { |c| c[consumer_tag] = channel }
     end
 
     def delete(consumer_tag : String) : Client::Channel?
-      @consumers.delete(consumer_tag)
+      @consumers.lock(&.delete(consumer_tag))
     end
 
     def has_key?(consumer_tag : String) : Bool
-      @consumers.has_key?(consumer_tag)
+      @consumers.shared(&.has_key?(consumer_tag))
     end
   end
 end

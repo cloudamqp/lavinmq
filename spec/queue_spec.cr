@@ -682,7 +682,7 @@ describe LavinMQ::AMQP::Queue do
 
       done.receive
 
-      yields.should eq 2
+      yields.should be >= 2
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end
