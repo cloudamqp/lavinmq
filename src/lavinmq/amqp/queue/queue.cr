@@ -836,8 +836,9 @@ module LavinMQ::AMQP
               return expire_msg(sp, :delivery_limit)
             end
           end
-          was_empty = @msg_store.empty?
+          was_empty = false
           @msg_store_lock.synchronize do
+            was_empty = @msg_store.empty?
             @msg_store.requeue(sp)
           end
           drop_overflow
