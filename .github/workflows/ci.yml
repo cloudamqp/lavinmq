@@ -204,7 +204,7 @@ jobs:
         with:
           filters: |
             views:
-              - '**/*.ecr'
+              - 'views/**'
             js:
               - '**/*.js'
 
