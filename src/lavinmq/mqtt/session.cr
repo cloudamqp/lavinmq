@@ -133,7 +133,10 @@ module LavinMQ
           else
             begin
               id = next_id
-              return false unless id
+              unless id
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                return false
+              end
               packet = build_packet(env, id)
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
