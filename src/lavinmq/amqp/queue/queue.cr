@@ -28,6 +28,7 @@ module LavinMQ::AMQP
 
     include ArgumentTarget
     include Argument::DeadLettering
+    include Argument::Retry
 
     VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
     VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
@@ -167,6 +168,7 @@ module LavinMQ::AMQP
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
+      @retrier = Argument::Retry::Retrier.new(@vhost, @name, @log)
       start
     end
 
@@ -381,6 +383,7 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
+      @retrier.handle_arguments(@arguments, @effective_args, durable?)
     end
 
     private macro parse_header(header, type)
@@ -456,6 +459,7 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
+      @retrier.delete_retry_queues
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -831,7 +835,18 @@ module LavinMQ::AMQP
           drop_overflow
         end
       else
-        expire_msg(sp, :rejected)
+        if @retrier.enabled?
+          msg = @msg_store_lock.synchronize { @msg_store[sp] }
+          if result = @retrier.retry(msg)
+            target, retry_msg = result
+            target.publish(retry_msg)
+            delete_message(sp)
+          else
+            expire_msg(sp, :rejected)
+          end
+        else
+          expire_msg(sp, :rejected)
+        end
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
