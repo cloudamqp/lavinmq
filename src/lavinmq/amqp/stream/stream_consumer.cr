@@ -55,10 +55,13 @@ module LavinMQ
       end
 
       private def validate_stream_offset(frame)
-        case frame.arguments["x-stream-offset"]?
+        case offset = frame.arguments["x-stream-offset"]?
         when Nil
           @track_offset = true unless @tag.starts_with?("amq.ctag-")
         when Int, Time, "first", "next", "last"
+          if offset.is_a?(Int) && offset == Int64::MIN
+            raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset cannot be Int64::MIN")
+          end
           case frame.arguments["x-stream-automatic-offset-tracking"]?
           when Bool
             @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]?.as(Bool)

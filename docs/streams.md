@@ -23,6 +23,7 @@ Each consumer can specify where to start reading from using the `x-stream-offset
 | `next` | Start from new messages only |
 | (timestamp) | Start from the first message after the given timestamp |
 | (integer) | Start from a specific offset number |
+| (negative integer) | Start `N` messages before the head (e.g. `-100` reads the last 100 messages). Clamped to the oldest available message when fewer than `N` are stored. `0` retains its meaning of "start from the beginning". |
 
 Delivered messages include an `x-stream-offset` header with the current offset position.
 
