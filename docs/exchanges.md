@@ -73,6 +73,8 @@ A nameless direct exchange that every queue is automatically bound to, with the 
 
 Cannot be deleted, and cannot be explicitly bound to.
 
+- Pre-declared: `amq.default` (display name only)
+
 ## Alternate Exchanges
 
 An alternate exchange receives messages that would otherwise be unroutable (no matching bindings on the primary exchange).

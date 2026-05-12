@@ -429,13 +429,13 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.22.3
+          go-version: 1.26.3
 
       - name: Clone http client
         uses: actions/checkout@v6
         with:
           repository: michaelklishin/rabbit-hole
-          ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
+          ref: 2ed025ce479a5dfeaa6493eaa05f50284eb97c88
           path: rabbit-hole
 
       - name: Get patch file
