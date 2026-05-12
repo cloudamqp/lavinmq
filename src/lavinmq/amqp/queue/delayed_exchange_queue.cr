@@ -42,7 +42,7 @@ module LavinMQ::AMQP
     end
 
     def delay(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if deleted? || closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end

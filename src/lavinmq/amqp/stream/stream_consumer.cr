@@ -90,7 +90,7 @@ module LavinMQ
         loop do
           wait_for_capacity
           loop do
-            raise ClosedError.new if @closed
+            raise ClosedError.new if closed?
             next if wait_for_queue_ready
             next if wait_for_paused_queue
             next if wait_for_flow

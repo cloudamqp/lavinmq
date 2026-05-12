@@ -34,14 +34,14 @@ module LavinMQ
 
     @start = Time.instant
     @closed = BoolChannel.new(false)
-    @flow = true
+    @flow = Atomic(Bool).new(true)
 
     def closed? : Bool
       @closed.value
     end
 
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     @listeners : Sync::Shared(Hash(Socket::Server, Protocol)) = Sync::Shared.new(Hash(Socket::Server, Protocol).new) # Socket => protocol
@@ -526,7 +526,7 @@ module LavinMQ
     end
 
     def flow(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
       @vhosts.each_value &.flow=(active)
     end
 

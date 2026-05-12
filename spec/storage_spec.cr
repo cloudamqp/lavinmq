@@ -45,7 +45,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
             q.subscribe(tag: "tag", no_ack: false, &.ack)
 
-            should_eventually(be_true) { queue.state.closed? }
+            should_eventually(be_true) { queue.closed? }
           end
 
           vhost.queue?("corrupt_q").try &.delete

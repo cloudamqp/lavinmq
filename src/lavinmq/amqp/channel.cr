@@ -20,7 +20,12 @@ module LavinMQ
 
       getter id, name
       @running = Atomic(Bool).new(true)
-      getter? flow = true
+      @flow = Atomic(Bool).new(true)
+
+      def flow?
+        @flow.get(:acquire)
+      end
+
       @consumers : Sync::Shared(Array(Consumer)) = Sync::Shared.new(Array(Consumer).new, :unchecked)
 
       def running? : Bool
@@ -99,13 +104,13 @@ module LavinMQ
       end
 
       def flow(active : Bool)
-        @flow = active
+        @flow.set(active, :release)
         @consumers.shared(&.each &.flow(active))
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
       def state
-        !running? ? "closed" : @flow ? "running" : "flow"
+        !running? ? "closed" : flow? ? "running" : "flow"
       end
 
       def send(frame)
