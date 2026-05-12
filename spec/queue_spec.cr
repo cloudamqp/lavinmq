@@ -439,7 +439,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           q.subscribe(no_ack: true, exclusive: true) { }
           should_eventually(be_true) { queue.has_exclusive_consumer? }

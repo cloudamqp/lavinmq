@@ -47,6 +47,10 @@ module LavinMQ
       @vhosts.first_value
     end
 
+    def first_value? : VHost?
+      @vhosts.first_value?
+    end
+
     def each(&)
       @vhosts.each do |kv|
         yield kv

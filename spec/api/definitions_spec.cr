@@ -84,7 +84,7 @@ describe LavinMQ::GlobalDefinitions do
       begin
         with_amqp_server do |s|
           LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
-          s.vhosts["/"].queues.has_key?("load_def_q1").should be_true
+          s.vhosts["/"].queue_exists?("load_def_q1").should be_true
         end
       ensure
         File.delete?(tmpfile)
