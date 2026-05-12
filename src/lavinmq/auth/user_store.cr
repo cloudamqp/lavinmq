@@ -1,4 +1,5 @@
 require "json"
+require "sync/shared"
 require "./user"
 
 module LavinMQ
@@ -12,97 +13,115 @@ module LavinMQ
         DIRECT_USER == name
       end
 
+      @users : Sync::Shared(Hash(String, User))
+      # Serializes save! so concurrent admin operations don't both
+      # truncate-and-rewrite users.json.tmp from offset zero.
+      @save_lock = Mutex.new
+
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
-        @users = Hash(String, User).new
+        @users = Sync::Shared.new(Hash(String, User).new, :unchecked)
         load!
       end
 
       def []?(name : String) : User?
-        @users[name]?
+        @users.shared { |u| u[name]? }
       end
 
       def [](name : String) : User
-        @users[name]
+        @users.shared { |u| u[name] }
       end
 
       def each_value(& : User ->) : Nil
-        @users.each_value { |u| yield u }
+        @users.shared do |users|
+          users.each_value { |u| yield u }
+        end
       end
 
       def has_key?(name : String) : Bool
-        @users.has_key?(name)
+        @users.shared(&.has_key?(name))
       end
 
       def size : Int32
-        @users.size
+        @users.unsafe_get.size
       end
 
       def values : Array(User)
-        @users.values
+        @users.shared(&.values)
       end
 
       def each(&)
-        @users.each do |kv|
-          yield kv
+        @users.shared do |users|
+          users.each do |kv|
+            yield kv
+          end
         end
       end
 
       # Adds a user to the use store
       def create(name, password, tags = Array(Tag).new, save = true)
-        if user = @users[name]?
-          return user
+        created = false
+        user = @users.lock do |users|
+          if existing = users[name]?
+            next existing
+          end
+          new_user = User.create(name, password, "SHA256", tags)
+          users[name] = new_user
+          Log.info { "Created user=#{name}" }
+          created = true
+          new_user
         end
-        user = User.create(name, password, "SHA256", tags)
-        @users[name] = user
-        Log.info { "Created user=#{name}" }
-        save! if save
+        save! if created && save
         user
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
         user = User.new(name, password_hash, password_algorithm, tags)
-        @users[name] = user
+        @users.lock { |u| u[name] = user }
         save! if save
         user
       end
 
-      def add_permission(user : User, vhost, config, read, write)
-        add_permission(user.name, vhost, config, read, write)
+      def add_permission(user : User, vhost, config, read, write, save = true)
+        add_permission(user.name, vhost, config, read, write, save: save)
       end
 
-      def add_permission(user, vhost, config, read, write)
+      def add_permission(user, vhost, config, read, write, save = true)
         perm = {config: config, read: read, write: write}
-        if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
-          return perm
+        changed = @users.lock do |users|
+          users[user].set_permission(vhost, perm)
         end
-        @users[user].permissions[vhost] = perm
-        @users[user].clear_permissions_cache
-        save!
+        save! if changed && save
         perm
       end
 
       def rm_permission(user, vhost)
-        if perm = @users[user].permissions.delete vhost
-          @users[user].clear_permissions_cache
+        perm = @users.lock do |users|
+          users[user].delete_permission(vhost)
+        end
+        if perm
           Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
           save!
-          perm
         end
+        perm
       end
 
       def rm_vhost_permissions_for_all(vhost)
-        @users.each_value do |user|
-          user.permissions.delete(vhost)
-          user.clear_permissions_cache
+        @users.lock do |users|
+          users.each_value do |user|
+            user.delete_permission(vhost)
+          end
         end
         save!
       end
 
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
-        if user = @users.delete name
-          user.permissions.clear
-          user.clear_permissions_cache
+        user = @users.lock do |users|
+          next nil unless u = users.delete(name)
+          u.clear_permissions
+          u
+        end
+        if user
           Log.info { "Deleted user=#{name}" }
           save! if save
           user
@@ -110,14 +129,16 @@ module LavinMQ
       end
 
       def default_user : User
-        @users.each_value do |u|
-          if u.tags.includes?(Tag::Administrator) && !u.hidden?
-            return u
+        @users.shared do |users|
+          users.each_value do |u|
+            if u.tags.includes?(Tag::Administrator) && !u.hidden?
+              return u
+            end
           end
-        end
-        @users.each_value do |u|
-          if u.tags.includes?(Tag::Administrator)
-            return u
+          users.each_value do |u|
+            if u.tags.includes?(Tag::Administrator)
+              return u
+            end
           end
         end
         raise "No user with administrator privileges found"
@@ -133,7 +154,7 @@ module LavinMQ
       end
 
       def direct_user
-        @users[DIRECT_USER]
+        @users.shared { |u| u[DIRECT_USER] }
       end
 
       private def load!
@@ -141,8 +162,10 @@ module LavinMQ
         if File.exists? path
           Log.debug { "Loading users from file" }
           File.open(path) do |f|
-            Array(User).from_json(f) do |user|
-              @users[user.name] = user
+            @users.lock do |users|
+              Array(User).from_json(f) do |user|
+                users[user.name] = user
+              end
             end
             @replicator.try &.register_file f
           end
@@ -159,23 +182,26 @@ module LavinMQ
 
       private def create_default_user
         add(Config.instance.default_user, Config.instance.default_password_hash.to_s, "SHA256", tags: [Tag::Administrator], save: false)
-        add_permission(Config.instance.default_user, "/", /.*/, /.*/, /.*/)
+        add_permission(Config.instance.default_user, "/", /.*/, /.*/, /.*/, save: false)
         save!
       end
 
       private def create_direct_user
-        @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
+        direct = User.create_hidden_user(DIRECT_USER)
+        @users.lock { |u| u[DIRECT_USER] = direct }
         perm = {config: /.*/, read: /.*/, write: /.*/}
-        @users[DIRECT_USER].permissions["/"] = perm
+        direct.set_permission("/", perm)
       end
 
       def save!
-        Log.debug { "Saving users to file" }
-        path = File.join(@data_dir, "users.json")
-        tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename tmpfile, path
-        @replicator.try &.replace_file path
+        @save_lock.synchronize do
+          Log.debug { "Saving users to file" }
+          path = File.join(@data_dir, "users.json")
+          tmpfile = "#{path}.tmp"
+          File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
+          File.rename tmpfile, path
+          @replicator.try &.replace_file path
+        end
       end
     end
   end

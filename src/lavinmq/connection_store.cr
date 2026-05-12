@@ -1,42 +1,47 @@
+require "sync/shared"
 require "wait_group"
 require "./client/client"
 require "./logger"
 
 module LavinMQ
   class ConnectionStore
+    @connections : Sync::Shared(Array(Client))
+
     def initialize
-      @connections = Array(Client).new(512)
+      @connections = Sync::Shared.new(Array(Client).new(512), :unchecked)
     end
 
     def add(client : Client)
-      @connections << client
+      @connections.lock { |c| c << client }
     end
 
     def delete(client : Client)
-      @connections.delete client
+      @connections.lock(&.delete(client))
     end
 
     def each(& : Client ->) : Nil
-      @connections.each { |c| yield c }
+      @connections.shared do |conns|
+        conns.each { |c| yield c }
+      end
     end
 
     def to_a : Array(Client)
-      @connections.dup
+      @connections.shared(&.dup)
     end
 
     def size : Int32
-      @connections.size
+      @connections.unsafe_get.size
     end
 
     def empty? : Bool
-      @connections.empty?
+      @connections.unsafe_get.empty?
     end
 
     def close_all(reason : String, log : Logger) : Nil
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        @connections.each do |client|
+        @connections.shared(&.dup).each do |client|
           select
           when to_close.send client
           else
