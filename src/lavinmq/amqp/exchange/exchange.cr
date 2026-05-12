@@ -25,9 +25,13 @@ module LavinMQ
 
       @alternate_exchange : String?
       @delayed_queue : DelayedExchangeQueue?
-      @deleted = false
+      @deleted = Atomic(Bool).new(false)
       @deduper : Deduplication::Deduper?
       @effective_args = Array(String).new
+
+      def deleted?
+        @deleted.get(:acquire)
+      end
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
 
@@ -150,8 +154,7 @@ module LavinMQ
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
       protected def delete
-        return if @deleted
-        @deleted = true
+        return if @deleted.swap(true, :acquire_release)
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
         notify_observers(ExchangeEvent::Deleted)

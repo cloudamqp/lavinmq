@@ -43,11 +43,11 @@ module LavinMQ
     @connections = ConnectionStore.new
 
     def flow? : Bool
-      @flow.get(:relaxed)
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow.set(active, :relaxed)
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
