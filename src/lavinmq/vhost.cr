@@ -242,10 +242,12 @@ module LavinMQ
           store_definition(f) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
-            @exchanges.each_value do |ex|
-              ex.bindings_details.each do |binding|
-                next unless binding.destination == x
-                ex.unbind(x, binding.routing_key, binding.arguments)
+            unless closed?
+              @exchanges.each_value do |ex|
+                ex.bindings_details.each do |binding|
+                  next unless binding.destination == x
+                  ex.unbind(x, binding.routing_key, binding.arguments)
+                end
               end
             end
             x.delete
@@ -271,10 +273,12 @@ module LavinMQ
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
           if q = @queues.delete(f.queue_name)
-            @exchanges.each_value do |ex|
-              ex.bindings_details.each do |binding|
-                next unless binding.destination == q
-                ex.unbind(q, binding.routing_key, binding.arguments)
+            unless closed?
+              @exchanges.each_value do |ex|
+                ex.bindings_details.each do |binding|
+                  next unless binding.destination == q
+                  ex.unbind(q, binding.routing_key, binding.arguments)
+                end
               end
             end
             store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
@@ -433,6 +437,7 @@ module LavinMQ
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
+      @exchanges.each_value &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
