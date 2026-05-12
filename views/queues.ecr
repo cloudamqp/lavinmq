@@ -117,6 +117,11 @@
             <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream">Stream Queue
               <span class="tooltiptext">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
             </a> |
+            <a class="arg-tooltip" data-tag="x-queue-type" data-value="blob-stream">Blob Stream Queue
+              <span class="tooltiptext">Make the queue a blob stream queue. A stream queue that
+                offloads segments to remote blob storage (S3-compatible).
+                Requires blob storage to be configured. Must be durable and can't be auto-delete.</span>
+            </a> |
             <a class="arg-tooltip" data-tag="x-max-age" data-value="1M">Max age
               <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
                 Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
