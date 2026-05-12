@@ -1,15 +1,11 @@
-require "../destination"
 require "./exchange"
+require "./consistent_hash_algorithm"
+require "../destination"
 require "../../hasher.cr"
 require "../../consistent_hasher.cr"
 require "../../jump_consistent_hasher.cr"
 
 module LavinMQ
-  enum ConsistentHashAlgorithm
-    Ring
-    Jump
-  end
-
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher : Hasher(AMQP::Destination)

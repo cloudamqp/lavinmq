@@ -9,6 +9,9 @@ require "./channel_reply_code"
 require "./connection_reply_code"
 require "../rough_time"
 require "../connection_info"
+require "../observable"
+require "./queue/event"
+require "../auth/permission_cache"
 
 module LavinMQ
   module AMQP

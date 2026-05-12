@@ -1,3 +1,7 @@
+require "log"
+require "../auth/password"
+require "../amqp/exchange/consistent_hash_algorithm"
+
 module LavinMQ
   class Config
     annotation CliOpt; end

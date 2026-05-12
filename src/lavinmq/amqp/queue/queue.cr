@@ -16,6 +16,7 @@ require "../../deduplication"
 require "../../bool_channel"
 require "../argument_target"
 require "../argument"
+require "../argument/dead_lettering"
 require "../../queue_stats"
 
 module LavinMQ::AMQP
