@@ -14,8 +14,7 @@ module LavinMQ
                            NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
-                           NamedTuple(channel: String, vhost: String, connection: String) |
-                           NamedTuple(queue: String, vhost: String, auto_delete: String, durable: String, exclusive: String)
+                           NamedTuple(channel: String, vhost: String, connection: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
@@ -535,21 +534,6 @@ module LavinMQ
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
-          end
-        end
-
-        writer.write_header("detailed_queue_info", "gauge",
-          "Queue metadata as labels; value is always 1")
-        vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
-            labels = {
-              queue:       q.name,
-              vhost:       vhost.name,
-              auto_delete: q.auto_delete?.to_s,
-              durable:     q.durable?.to_s,
-              exclusive:   q.exclusive?.to_s,
-            }
-            writer.write_value("detailed_queue_info", 1_u32, labels)
           end
         end
       end

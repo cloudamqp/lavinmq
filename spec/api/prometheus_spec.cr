@@ -224,37 +224,6 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
-    it "should expose queue_info with auto_delete, durable, exclusive labels" do
-      with_metrics_server do |http, s|
-        vhost = s.vhosts.create("qinfo_test")
-        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
-        vhost.declare_queue("durable_q", true, false)
-        vhost.declare_queue("autodelete_q", false, true)
-
-        raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
-        parsed = PrometheusSpecHelper.parse_prometheus(raw)
-
-        durable = parsed.find! do |m|
-          m[:key] == "lavinmq_detailed_queue_info" &&
-            m[:attrs]["queue"] == "durable_q" &&
-            m[:attrs]["vhost"] == "qinfo_test"
-        end
-        durable[:value].should eq 1
-        durable[:attrs]["durable"].should eq "true"
-        durable[:attrs]["auto_delete"].should eq "false"
-        durable[:attrs]["exclusive"].should eq "false"
-
-        autodelete = parsed.find! do |m|
-          m[:key] == "lavinmq_detailed_queue_info" &&
-            m[:attrs]["queue"] == "autodelete_q" &&
-            m[:attrs]["vhost"] == "qinfo_test"
-        end
-        autodelete[:value].should eq 1
-        autodelete[:attrs]["durable"].should eq "false"
-        autodelete[:attrs]["auto_delete"].should eq "true"
-      end
-    end
-
     it "should label channel metrics with vhost and connection" do
       with_metrics_server do |http, s|
         vhost = s.vhosts.create("ch_label_test")
