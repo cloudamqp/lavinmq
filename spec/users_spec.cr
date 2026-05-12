@@ -121,6 +121,73 @@ end
 describe LavinMQ::Server do
   describe "passwordless user" do
     # Regression test for https://github.com/cloudamqp/lavinmq/issues/1896
+    it "should load MD5 user with null hashing_algorithm" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "legacy",
+              "password_hash": "VBxXlgu5l5QmVdFOO5YH+Q==",
+              "hashing_algorithm": null,
+              "tags": "",
+              "permissions": {}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["legacy"]?
+        u.should_not be_nil
+        u.not_nil!.password.should_not be_nil
+        u.not_nil!.password.not_nil!.verify("hej").should be_true
+      end
+    end
+
+    it "should treat empty password_hash with non-null algorithm as passwordless" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "alan",
+              "password_hash": "",
+              "hashing_algorithm": "SHA256",
+              "tags": "",
+              "permissions": {}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["alan"]?
+        u.should_not be_nil
+        u.not_nil!.password.should be_nil
+      end
+    end
+
+    it "should treat null password_hash with non-null algorithm in users.json as passwordless" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "alan",
+              "password_hash": null,
+              "hashing_algorithm": "SHA256",
+              "tags": "",
+              "permissions": {}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["alan"]?
+        u.should_not be_nil
+        u.not_nil!.password.should be_nil
+      end
+    end
+
     it "should treat null password_hash in users.json as passwordless" do
       with_datadir do |data_dir|
         users_json = File.join(data_dir, "users.json")

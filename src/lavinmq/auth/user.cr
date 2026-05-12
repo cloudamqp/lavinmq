@@ -29,7 +29,7 @@ module LavinMQ
           when "password_hash"
             hash = pull.read_string_or_null
             if hash.nil?
-              Log.warn { "Possibly malformed JSON 'password_hash' was null. Defaulting to Passwordless" }
+              Log.warn { "Possibly malformed JSON: 'password_hash' was null" }
               hash = ""
             end
           when "hashing_algorithm"
@@ -44,7 +44,11 @@ module LavinMQ
         raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
         raise JSON::ParseException.new("Missing json attribute: password_hash", *loc) if hash.nil?
         @name = name
-        @password = parse_password(hash, hash_algo, loc)
+        if hash.empty?
+          @password = nil
+        else
+          @password = parse_password(hash, hash_algo || "MD5", loc)
+        end
       end
 
       def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))

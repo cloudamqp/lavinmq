@@ -106,6 +106,13 @@ describe LavinMQ::HTTP::UsersController do
       end
     end
 
+    it "should return 400 when password_hash is null" do
+      with_http_server do |http, _|
+        response = http.put("/api/users/alan", body: %({"password_hash": null}))
+        response.status_code.should eq 400
+      end
+    end
+
     it "should create user with empty password_hash" do
       with_http_server do |http, _|
         body = %({
