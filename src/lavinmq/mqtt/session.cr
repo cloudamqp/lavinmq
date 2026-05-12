@@ -166,8 +166,8 @@ module LavinMQ
       end
 
       def publish(msg : Message) : Bool
-        return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || @closed
+        return true if msg.properties.delivery_mode == 0 && @client.nil?
         @msg_store_lock.synchronize do
           @msg_store.push(msg)
           drop_overflow
