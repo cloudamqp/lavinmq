@@ -115,7 +115,7 @@ module LavinMQ::AMQP
       @message_expire_fiber_active.get(:relaxed)
     end
 
-    private EXPIRE_FIBER_IDLE_THRESHOLD_MS = 30_000
+    private EXPIRE_FIBER_IDLE_THRESHOLD = 30.seconds
 
     getter? internal = false
 
@@ -144,7 +144,7 @@ module LavinMQ::AMQP
         select
         when @consumers_empty.when_true.receive
           @log.debug { "Consumers empty" }
-        when timeout EXPIRE_FIBER_IDLE_THRESHOLD_MS.milliseconds
+        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
           @log.debug { "Idle timeout while waiting for consumers empty, stopping fiber" }
           break
         end
@@ -152,7 +152,7 @@ module LavinMQ::AMQP
         select
         when @msg_store.empty.when_false.receive
           @log.debug { "Message store not empty" }
-        when timeout EXPIRE_FIBER_IDLE_THRESHOLD_MS.milliseconds
+        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
           @log.debug { "Idle timeout while waiting for messages, stopping fiber" }
           break
         end
@@ -179,7 +179,7 @@ module LavinMQ::AMQP
             @log.debug { "Message TTL changed" }
           when @msg_store.empty.when_true.receive
             @log.debug { "Msg store is empty" }
-          when timeout EXPIRE_FIBER_IDLE_THRESHOLD_MS.milliseconds
+          when timeout EXPIRE_FIBER_IDLE_THRESHOLD
             @log.debug { "Idle timeout while no messages need expiring, stopping fiber" }
             break
           end
