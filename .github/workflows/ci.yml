@@ -112,6 +112,55 @@ jobs:
       - name: Spec
         run: make test
 
+  compile-changed-files:
+    name: Compile changed *.cr files independently
+    runs-on: ubuntu-latest
+    container: 84codes/crystal:latest-ubuntu-24.04
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev git
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install shards
+        run: shards install --without-development
+
+      - name: Determine changed *.cr files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse "$head^")"
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR "$base" "$head" -- 'src/**/*.cr' | tr '\n' ' ')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Changed files: $files"
+
+      - name: Compile each changed file independently
+        if: steps.changed.outputs.files != ''
+        run: |
+          status=0
+          for f in ${{ steps.changed.outputs.files }}; do
+            if [ -f "$f" ]; then
+              echo "::group::crystal build --no-codegen $f"
+              crystal build --no-codegen --error-on-warnings "$f" || status=1
+              echo "::endgroup::"
+            fi
+          done
+          exit $status
+
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
