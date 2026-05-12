@@ -1,5 +1,7 @@
 require "../amqp/queue/queue"
 require "../error"
+require "../sortable_json"
+require "./client"
 require "./consts"
 
 module LavinMQ

@@ -1,3 +1,5 @@
+require "amqp-client"
+require "wait_group"
 require "./source"
 
 module LavinMQ

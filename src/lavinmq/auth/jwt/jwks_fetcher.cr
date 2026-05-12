@@ -3,6 +3,7 @@ require "json"
 require "./lib_crypto_ext"
 require "./public_keys"
 require "../../rough_time"
+require "../../bool_channel"
 
 module LavinMQ
   module Auth
