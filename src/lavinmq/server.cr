@@ -217,7 +217,7 @@ module LavinMQ
         remote_addr = client.remote_address
         set_socket_options(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
