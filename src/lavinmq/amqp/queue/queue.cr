@@ -527,8 +527,9 @@ module LavinMQ::AMQP
         d.add(msg)
       end
       reject_on_overflow(msg)
-      was_empty = @msg_store.empty?
+      was_empty = false
       @msg_store_lock.synchronize do
+        was_empty = @msg_store.empty?
         @msg_store.push(msg)
         drop_overflow(dlx_tasks)
       end
