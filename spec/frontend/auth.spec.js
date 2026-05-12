@@ -98,3 +98,54 @@ test.describe('logout', _ => {
     expect(cookies.some(c => c.name === 'm')).toBe(false)
   })
 })
+
+test.describe('user tag state classes', _ => {
+  test('adds user-is-<tag> class for each tag after whoAmI', async ({ page }) => {
+    await page.addInitScript(() => localStorage.removeItem('lmq.whoami'))
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'guest', tags: 'administrator, monitoring' }
+    }))
+    await page.goto('/')
+    const classes = await page.evaluate(() => [...document.documentElement.classList])
+    expect(classes).toContain('user-is-administrator')
+    expect(classes).toContain('user-is-monitoring')
+  })
+
+  test('removes existing user-is-* classes before adding new ones', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem('lmq.whoami')
+      localStorage.setItem('lmq.stateclasses', 'user-is-old-tag')
+    })
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'guest', tags: 'administrator' }
+    }))
+    await page.goto('/')
+    const classes = await page.evaluate(() => [...document.documentElement.classList])
+    expect(classes).not.toContain('user-is-old-tag')
+    expect(classes).toContain('user-is-administrator')
+  })
+
+  test('adds no user-is-* classes when tags is empty', async ({ page }) => {
+    await page.addInitScript(() => localStorage.removeItem('lmq.whoami'))
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'guest', tags: '' }
+    }))
+    await page.goto('/')
+    const classes = await page.evaluate(() => [...document.documentElement.classList])
+    expect(classes.filter(c => c.startsWith('user-is-'))).toHaveLength(0)
+  })
+
+  test('removes user-is-* classes on logout', async ({ page }) => {
+    await page.addInitScript(() => localStorage.removeItem('lmq.whoami'))
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'guest', tags: 'administrator' }
+    }))
+    await page.goto('/')
+    await Promise.all([
+      page.waitForURL(/\/login$/),
+      page.locator('#signoutLink').click()
+    ])
+    const classes = await page.evaluate(() => [...document.documentElement.classList])
+    expect(classes.filter(c => c.startsWith('user-is-'))).toHaveLength(0)
+  })
+})
