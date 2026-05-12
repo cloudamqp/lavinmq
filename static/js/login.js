@@ -1,4 +1,39 @@
 import * as Auth from './auth.js'
+
+function showLoginError (message) {
+  const el = document.getElementById('login-error')
+  el.textContent = message
+  el.style.display = 'block'
+}
+
+window.fetch('/oauth/enabled')
+  .then(resp => resp.json())
+  .then(data => {
+    if (data.enabled) {
+      const ssoBtn = document.getElementById('sso-btn')
+      ssoBtn.style.setProperty('display', 'flex', 'important')
+      document.getElementById('sso-separator').style.display = ''
+      ssoBtn.addEventListener('click', () => {
+        window.fetch('/oauth/authorize')
+          .then(resp => resp.json().then(data => {
+            if (resp.ok) {
+              window.location.assign(data.authorize_url)
+            } else {
+              showLoginError(data.reason || 'SSO authorization failed')
+            }
+          }))
+          .catch(() => { showLoginError('SSO authorization failed') })
+      })
+    }
+  })
+  .catch(() => {})
+
+const searchParams = new URLSearchParams(window.location.search)
+if (searchParams.has('error')) {
+  showLoginError(searchParams.get('error'))
+  window.history.replaceState(null, '', window.location.pathname)
+}
+
 if (window.location.hash) {
   const params = new URLSearchParams(window.location.hash.substring(1))
   const user = params.get('username')
@@ -17,5 +52,5 @@ document.getElementById('login').addEventListener('submit', (e) => {
 function tryLogin (user, pass) {
   Auth.login(user, pass)
     .then(() => window.location.assign('.'))
-    .catch(() => window.alert('Authentication failure'))
+    .catch(() => showLoginError('Authentication failure'))
 }

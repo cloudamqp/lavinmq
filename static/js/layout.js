@@ -32,7 +32,11 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
 })
 
 document.getElementById('signoutLink').addEventListener('click', () => {
-  Auth.logout()
+  if (document.cookie.split('; ').some(c => c.startsWith('oauth_user='))) {
+    window.location.assign('/oauth/logout')
+  } else {
+    Auth.logout()
+  }
 })
 
 const usermenuButton = document.getElementById('usermenu-button')

@@ -20,8 +20,11 @@ module LavinMQ
 
           property issuer : String
           property jwks_uri : String
+          property authorization_endpoint : String?
+          property token_endpoint : String?
 
-          def initialize(*, @issuer : String, @jwks_uri : String)
+          def initialize(*, @issuer : String, @jwks_uri : String,
+                         @authorization_endpoint : String? = nil, @token_endpoint : String? = nil)
           end
         end
 
@@ -49,6 +52,7 @@ module LavinMQ
         end
 
         getter public_keys : PublicKeys
+        getter oidc_config : OIDCConfiguration?
         @stopped = BoolChannel.new(false)
 
         def initialize(issuer_url : URI, @default_cache_ttl : Time::Span)
@@ -93,8 +97,7 @@ module LavinMQ
           1.hour
         end
 
-        def fetch_jwks : JWKSResult
-          # Discover jwks_uri from OIDC configuration
+        def fetch_oidc_config : OIDCConfiguration
           body, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
           oidc_config = OIDCConfiguration.from_json(body)
 
@@ -104,9 +107,14 @@ module LavinMQ
             raise "OIDC issuer mismatch: expected #{@issuer_url}, got #{oidc_issuer}"
           end
 
-          jwks_uri = oidc_config.jwks_uri
+          @oidc_config = oidc_config
+          oidc_config
+        end
 
-          body, headers = fetch_url(jwks_uri)
+        def fetch_jwks : JWKSResult
+          oidc_config = fetch_oidc_config
+
+          body, headers = fetch_url(oidc_config.jwks_uri)
           jwks = JWKSResponse.from_json(body)
           public_keys = extract_public_keys_from_jwks(jwks)
           ttl = extract_jwks_ttl(headers)
