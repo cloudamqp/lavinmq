@@ -342,7 +342,7 @@ module LavinMQ
       ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
       if @config.tls_ktls?
-        {% if OpenSSL.has_constant?(:KTLS) %}
+        {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
           ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS)
         {% end %}
       end
