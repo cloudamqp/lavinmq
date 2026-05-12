@@ -124,7 +124,7 @@ module LavinMQ
             end
             @replicator.try &.register_file f
           end
-        else
+        elsif Config.instance.load_definitions.empty?
           Log.debug { "Loading default users" }
           create_default_user
         end
