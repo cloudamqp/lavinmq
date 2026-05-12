@@ -76,12 +76,11 @@ async function whoAmI (forceReload = false) {
         cached = JSON.parse(data)
       } catch {
         window.localStorage.removeItem(whoAmICacheKey)
-        cached = null
       }
       if (cached && cached.name === getUsername()) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
-          // fetch in background, we still return the cache
+          // fetch in background, we still return the cached
           fetchWhoAmI().catch(e => console.warn(`Failed to fetch whoAmI: ${e.message}`))
         }
         return cached
