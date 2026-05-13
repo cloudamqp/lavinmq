@@ -6,6 +6,7 @@ require "../rough_time"
 require "./session"
 require "./protocol"
 require "../bool_channel"
+require "../stats"
 require "./consts"
 
 module LavinMQ
@@ -41,6 +42,7 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
+
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
