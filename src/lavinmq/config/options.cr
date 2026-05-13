@@ -122,7 +122,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property tls_keylog_file = ""
 
-      @[CliOpt("", "--tls-ktls=BOOL", "Use native socket for kTLS support (default: false)", section: "tls")]
+      @[CliOpt("", "--tls-ktls=BOOL", "Enable kernel TLS (kTLS) offload (default: false)", section: "tls")]
       @[IniOpt(section: "main")]
       property? tls_ktls = false
 
