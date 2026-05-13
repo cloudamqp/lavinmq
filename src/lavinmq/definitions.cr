@@ -251,7 +251,7 @@ module LavinMQ
     private def export_queues(json)
       json.array do
         vhosts.each_value do |v|
-          v.queues.each_value do |q|
+          v.each_queue do |q|
             next if q.exclusive?
             {
               "name":        q.name,
@@ -268,7 +268,7 @@ module LavinMQ
     private def export_exchanges(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges.each_value.reject(&.internal?).each do |e|
+          v.exchanges.reject(&.internal?).each do |e|
             delayed = e.arguments["x-delayed-exchange"]?
             if delayed
               arguments = e.arguments.clone
@@ -292,7 +292,7 @@ module LavinMQ
     private def export_bindings(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges.each_value do |e|
+          v.each_exchange do |e|
             e.bindings_details.each do |b|
               b.to_json(json)
             end
@@ -303,7 +303,7 @@ module LavinMQ
 
     private def export_permissions(json)
       json.array do
-        @amqp_server.users.each_value.reject(&.hidden?).each do |u|
+        @amqp_server.users.values.reject(&.hidden?).each do |u|
           u.permissions_details.each do |p|
             p.to_json(json)
           end
@@ -313,7 +313,7 @@ module LavinMQ
 
     private def export_users(json)
       json.array do
-        @amqp_server.users.each_value.reject(&.hidden?).each do |u|
+        @amqp_server.users.values.reject(&.hidden?).each do |u|
           {
             "hashing_algorithm": u.user_details["hashing_algorithm"],
             "name":              u.name,

@@ -18,13 +18,12 @@ module LavinMQ
 
       private abstract def register_routes
 
-      private def page(context, iterator : Iterator(SortableJSON))
+      private def page(context, items : Array(SortableJSON))
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
-        total_count = 0
-        all_items = iterator.compact_map do |i|
-          total_count += 1
+        total_count = items.size
+        all_items = items.compact_map do |i|
           next unless i.search_match?(search_term) if search_term
           i.details_tuple
         rescue ex
@@ -59,19 +58,16 @@ module LavinMQ
 
       private def sort(all_items, context)
         if sort_by = context.request.query_params.fetch("sort", nil).try &.split(".")
-          sorted_items = all_items.to_a
           begin
-            sort_by_key!(sorted_items, sort_by, context)
+            sort_by_key!(all_items, sort_by, context)
           rescue KeyError | TypeCastError
             bad_request(context, "Sort key #{sort_by.join(".")} is not valid")
           end
           if context.request.query_params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
-            sorted_items.reverse!
+            all_items.reverse!
           end
-          sorted_items.each
-        else
-          all_items
         end
+        all_items
       end
 
       private def sort_by_key!(sorted_items, sort_by, context)
@@ -103,8 +99,8 @@ module LavinMQ
         end
       end
 
-      # Writes the items to the json, but also counts all items by iterating the whole iterator
-      # Reruns the number of number of written to the json and the total items in the iterator
+      # Writes the items to the json, but also counts all items
+      # Returns the number of items written to json and the total item count
       private def array_iterator_to_json(json, iterator, columns : Array(String)?, start : Int, page_size : Int) : Tuple(Int32, Int32)
         size = 0
         total = 0
@@ -223,8 +219,8 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : Auth::BaseUser)
-        @amqp_server.vhosts.each_value.select do |v|
+      def vhosts(user : Auth::BaseUser) : Array(VHost)
+        @amqp_server.vhosts.values.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
           full_view_vhosts_access || (amqp_access && !user.tags.empty?)

@@ -7,7 +7,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("meta_test")
-          queue = vhost.queues["meta_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("meta_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Create a large message to fill segments faster
           segment_size = LavinMQ::Config.instance.segment_size
@@ -43,7 +43,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("stream_meta_test", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
-          queue = vhost.queues["stream_meta_test"].as(LavinMQ::AMQP::Stream)
+          queue = vhost.queue("stream_meta_test").as(LavinMQ::AMQP::Stream)
 
           # Publish enough messages to trigger new segment creation
           segment_size = LavinMQ::Config.instance.segment_size
@@ -85,7 +85,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("metadata_load_test")
-          queue = vhost.queues["metadata_load_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("metadata_load_test").as(LavinMQ::AMQP::DurableQueue)
 
           large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size
           5.times { q.publish_confirm large_message }
@@ -118,7 +118,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("fallback_test")
-          queue = vhost.queues["fallback_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("fallback_test").as(LavinMQ::AMQP::DurableQueue)
 
           25.times { |i| q.publish_confirm "message #{i}" }
           msg_dir = queue.@msg_store.@msg_dir
@@ -141,7 +141,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("delete_test")
-          queue = vhost.queues["delete_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("delete_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Fill multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -179,7 +179,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("purge_test")
-          queue = vhost.queues["purge_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("purge_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Fill segments enough to create multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -212,7 +212,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("cleanup_test")
-          queue = vhost.queues["cleanup_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("cleanup_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Create enough messages to span multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -255,7 +255,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("count_test")
-          queue = vhost.queues["count_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("count_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Create enough messages to fill multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -286,7 +286,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("init_test")
-          queue = vhost.queues["init_test"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("init_test").as(LavinMQ::AMQP::DurableQueue)
 
           # Publish messages
           large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size

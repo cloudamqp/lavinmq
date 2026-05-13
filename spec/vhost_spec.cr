@@ -30,7 +30,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
       s.restart
-      s.vhosts["test"].exchanges["e"].should_not be_nil
+      s.vhosts["test"].exchange("e").should_not be_nil
     end
   end
 
@@ -59,7 +59,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
       s.restart
-      s.vhosts["test"].queues["q"].should_not be_nil
+      s.vhosts["test"].queue("q").should_not be_nil
     end
   end
 
@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
-      s.vhosts["test"].exchanges["e"].bindings_details.first.destination.name.should eq "q"
+      s.vhosts["test"].exchange("e").bindings_details.first.destination.name.should eq "q"
     end
   end
 
@@ -82,9 +82,9 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      pos = v.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].bind_queue("q", "e", "q")
-      v.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -96,9 +96,9 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      pos = v.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      v.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -110,10 +110,10 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      file_size = v.@definitions_file.size
+      file_size = v.@definitions.not_nil!.@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.@definitions_file.size.should be < file_size
+      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
     end
   end
   describe "auto add permissions" do

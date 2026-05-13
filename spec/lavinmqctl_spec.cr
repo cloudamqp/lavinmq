@@ -108,7 +108,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.queues.has_key?("new_queue").should be_true
+        vhost.queue_exists?("new_queue").should be_true
 
         result = run_lavinmqctl(http.addr.to_s, ["delete_queue", "new_queue"])
         result[:exit].should eq(0)
@@ -197,7 +197,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.exchanges.has_key?("test_exchange").should be_true
+        vhost.exchange_exists?("test_exchange").should be_true
 
         result = run_lavinmqctl(http.addr.to_s, ["delete_exchange", "test_exchange"])
         result[:exit].should eq(0)
@@ -210,7 +210,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.exchanges.has_key?("test_durable_exchange").should be_true
+        vhost.exchange_exists?("test_durable_exchange").should be_true
       end
     end
 
@@ -220,7 +220,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.queues.has_key?("test_durable_queue").should be_true
+        vhost.queue_exists?("test_durable_queue").should be_true
       end
     end
 
