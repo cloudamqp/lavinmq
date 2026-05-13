@@ -205,10 +205,11 @@ module LavinMQ
 
       def ack(packet : MQTT::PubAck) : Nil
         id = packet.packet_id
-        sp = @unacked[id]
-        @unacked.delete id
-        @has_capacity.set(true)
-        super sp
+        # TODO: disconncet client if sp is nil?
+        if sp = @unacked.delete(id)
+          super sp
+          @has_capacity.set(true)
+        end
       rescue
         raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
       end
