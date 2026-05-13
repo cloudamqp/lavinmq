@@ -18,6 +18,7 @@ require "./mqtt/session"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
+require "./amqp/channel"
 
 module LavinMQ
   class VHost
