@@ -216,6 +216,39 @@ module DeadLetteringSpec
         end
       end
 
+      it "should dead letter when ttl expires while unacked and reject(requeue=true)" do
+        with_dead_lettering_setup do |q, dlq, ch, _|
+          props = AMQP::Client::Properties.new(expiration: "200")
+          ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
+
+          msg = q.get(no_ack: false).not_nil!
+          sleep 300.milliseconds
+          msg.reject(requeue: true)
+
+          dlq_msg = wait_for { dlq.get }.should_not be_nil
+          dlq_msg.body_io.to_s.should eq "ttl-msg"
+          q.message_count.should eq 0
+        end
+      end
+
+      it "should dead letter when delivery-limit exceeded on reject(requeue=true)" do
+        qargs = {
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => DLQ_NAME,
+          "x-delivery-limit"          => 1,
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, _, _|
+          channel.default_exchange.publish_confirm("dl-msg", q.name)
+
+          get1(q, &.reject(requeue: true))
+          get1(q, &.reject(requeue: true))
+
+          dlq_msg = wait_for { dlq.get }.should_not be_nil
+          dlq_msg.body_io.to_s.should eq "dl-msg"
+          q.message_count.should eq 0
+        end
+      end
+
       it "should dead letter on ttl" do
         qargs = {
           "x-message-ttl"             => 1,
