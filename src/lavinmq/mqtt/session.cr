@@ -205,13 +205,16 @@ module LavinMQ
 
       def ack(packet : MQTT::PubAck) : Nil
         id = packet.packet_id
-        # TODO: disconncet client if sp is nil?
         if sp = @unacked.delete(id)
-          super sp
+          begin
+            super sp
+          rescue ex
+            raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+          end
           @has_capacity.set(true)
+        else
+          raise ::IO::Error.new("No message inflight for id '#{id}'")
         end
-      rescue
-        raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
       end
 
       private def message_expire_loop; end
