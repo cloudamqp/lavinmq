@@ -432,14 +432,24 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q4")
           q4 = s.vhosts["/"].queue("q4")
           message_count = 100
-          message_count.times { q.publish "m1" * 100000 } # Larger messages to slow down JSON serialization
+          message_count.times { q.publish "m1" * 100000 }
           wait_for { q4.message_count == message_count }
           body = %({ "count": #{message_count}, "ack_mode": "get", "encoding": "json" })
           client = HTTP::Client.new(URI.parse http.test_uri(""))
 
+          # Pipe the response into an IO.pipe we never drain. The pipe fills, the
+          # client stops reading, kernel TCP buffers fill, and the server blocks
+          # mid-response with messages still unacked. Closing the client then
+          # forces the write error that the controller is expected to rescue.
+          pipe_r, pipe_w = IO.pipe
+
           spawn do
-            client.post("/api/queues/%2f/q4/get", body: body, headers: http.test_headers)
+            client.post("/api/queues/%2f/q4/get", body: body, headers: http.test_headers) do |response|
+              IO.copy(response.body_io, pipe_w)
+            end
           rescue # Ignore errors from closing the client
+          ensure
+            pipe_w.close
           end
 
           loop do
@@ -456,6 +466,7 @@ describe LavinMQ::HTTP::QueuesController do
 
           # All unacked messages should be requeued
           wait_for { q4.unacked_count == 0 }
+          pipe_r.close
         end
       end
     end
