@@ -268,6 +268,58 @@ module MqttSpecs
       end
     end
 
+    describe "max inflight messages" do
+      it "delivery halts at the inflight limit" do
+        LavinMQ::Config.instance.max_inflight_messages = 3u16
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, client_id: "subscriber")
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8) }
+              disconnect(pub_io)
+            end
+
+            3.times { read_packet(io).should be_a(MQTT::Protocol::Publish) }
+            read_packet(io).should be_nil
+
+            disconnect(io)
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+      end
+
+      it "delivery resumes after acking" do
+        LavinMQ::Config.instance.max_inflight_messages = 3u16
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, client_id: "subscriber")
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8) }
+              disconnect(pub_io)
+            end
+
+            first = read_packet(io).as(MQTT::Protocol::Publish)
+            2.times { read_packet(io).should be_a(MQTT::Protocol::Publish) }
+            read_packet(io).should be_nil
+
+            puback(io, first.packet_id)
+            read_packet(io).should be_a(MQTT::Protocol::Publish)
+
+            disconnect(io)
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+      end
+    end
+
     it "should not enqueue messages with QoS 0 if no client is connected to the session" do
       with_server do |server|
         with_client_io(server) do |io|

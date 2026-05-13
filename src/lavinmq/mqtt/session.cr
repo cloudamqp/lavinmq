@@ -18,6 +18,7 @@ module LavinMQ
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
+        @has_capacity = BoolChannel.new(true)
 
         super(@vhost, @name, false, @auto_delete, arguments)
 
@@ -35,6 +36,7 @@ module LavinMQ
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @consumers_empty.when_false.receive? if @consumers.empty?
+          next @has_capacity.when_true.receive? unless @has_capacity.value
           consumer = @consumers.first.as(MQTT::Consumer)
           get_packet do |pub_packet, bytesize|
             consumer.deliver(pub_packet)
@@ -67,6 +69,9 @@ module LavinMQ
           end
         end
         @unacked.clear
+        @unacked_count.set(0, :release)
+        @unacked_bytesize.set(0, :release)
+        @has_capacity.set(true)
 
         @consumers.each do |c|
           rm_consumer c
@@ -131,12 +136,16 @@ module LavinMQ
           else
             begin
               id = next_id
-              return false unless id
+              unless id
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                return false
+              end
               packet = build_packet(env, id)
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet, sp.bytesize
               @unacked[id] = sp
+              @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               @unacked_count.sub(1, :relaxed)
@@ -197,11 +206,16 @@ module LavinMQ
 
       def ack(packet : MQTT::PubAck) : Nil
         id = packet.packet_id
-        sp = @unacked[id]
-        @unacked.delete id
-        super sp
-      rescue
-        raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
+        if sp = @unacked.delete(id)
+          begin
+            super sp
+          rescue ex
+            raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+          end
+          @has_capacity.set(true)
+        else
+          raise ::IO::Error.new("No message inflight for id '#{id}'")
+        end
       end
 
       private def message_expire_loop; end
