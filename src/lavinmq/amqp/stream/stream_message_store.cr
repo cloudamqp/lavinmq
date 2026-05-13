@@ -173,7 +173,7 @@ module LavinMQ::AMQP
       @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
       @consumer_offsets.write_bytes new_offset
       len = 1 + consumer_tag.bytesize + 8
-      @replicator.try &.append(@consumer_offsets.path, @consumer_offsets.to_slice(start_pos, len))
+      @replicator.try &.append(@consumer_offsets.path, start_pos, len)
     end
 
     def consumer_offset_file_full?(consumer_tag)
@@ -201,16 +201,12 @@ module LavinMQ::AMQP
     end
 
     def replace_offsets_file(capacity : Int, &)
-      deletion_replicated = WaitGroup.new
-      @replicator.try &.delete_file(@consumer_offsets.path, deletion_replicated) # FIXME: this is not entirely safe, but replace_file is worse
+      @replicator.try &.delete_file(@consumer_offsets.path) # FIXME: this is not entirely safe, but replace_file is worse
       old_consumer_offsets = @consumer_offsets
       @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
       yield # fill the new file with correct data in this block
       @consumer_offsets.rename(old_consumer_offsets.path)
-      spawn(name: "wait for consumeroffset deletion to be replicated") do
-        deletion_replicated.wait
-        old_consumer_offsets.close(truncate_to_size: false)
-      end
+      old_consumer_offsets.close(truncate_to_size: false)
     end
 
     def read(segment : UInt32, position : UInt32) : Envelope?

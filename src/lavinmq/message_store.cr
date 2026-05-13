@@ -29,9 +29,12 @@ module LavinMQ
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @durable = durable
+      # Non-durable queues unlink their files at creation, so they cannot be
+      # replicated by reading from disk. Skip replication entirely for them.
+      @replicator = durable ? replicator : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -238,21 +241,11 @@ module LavinMQ
     private def delete_file(file : MFile, including_meta = false)
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        wg = WaitGroup.new
-        replicator.delete_file(meta_file_name(file), wg) if including_meta
-        replicator.delete_file(file.path, wg)
-        spawn(name: "wait for file deletion is replicated") do
-          replicator.wait_for_sync do
-            wg.wait
-          ensure
-            File.delete?(meta_file_name(file)) if including_meta
-            file.close
-          end
-        end
-      else
-        File.delete?(meta_file_name(file)) if including_meta
-        file.close
+        replicator.delete_file(meta_file_name(file)) if including_meta
+        replicator.delete_file(file.path)
       end
+      File.delete?(meta_file_name(file)) if including_meta
+      file.close
     end
 
     def empty?
@@ -263,27 +256,14 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
-      # To make sure that all replication actions for the segments
-      # have finished wait for a delete action of a nonexistent file
       if replicator = @replicator
-        wg = WaitGroup.new
-        replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
-        spawn(name: "wait for file deletion is replicated") do
-          wg.wait
-          # Wait for any full sync to be done before we close mfiles, else we
-          # may get a SEGFAULT or an aborted sync because MFile closed is raised.
-          replicator.wait_for_sync do
-            # "Re-register" the files with path only so replicator won't
-            # use closed mfiles.
-            @segments.each_value do |segment|
-              replicator.register_file segment.path
-              segment.close
-            end
-            @acks.each_value do |ackfile|
-              replicator.register_file ackfile.path
-              ackfile.close
-            end
-          end
+        @segments.each_value do |segment|
+          replicator.register_file segment.path
+          segment.close
+        end
+        @acks.each_value do |ackfile|
+          replicator.register_file ackfile.path
+          ackfile.close
         end
       else
         @segments.each_value &.close
@@ -315,7 +295,7 @@ module LavinMQ
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
-      @replicator.try &.append(wfile.path, wfile.to_slice(sp.position, wfile.size - sp.position))
+      @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -383,7 +363,7 @@ module LavinMQ
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
           File.delete(path)
-          @replicator.try &.delete_file(path, WaitGroup.new)
+          @replicator.try &.delete_file(path)
           next
         end
 
