@@ -69,6 +69,8 @@ module LavinMQ
           end
         end
         @unacked.clear
+        @unacked_count.set(0, :release)
+        @has_capacity.set(true)
 
         @consumers.each do |c|
           rm_consumer c
