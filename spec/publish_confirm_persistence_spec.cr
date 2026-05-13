@@ -96,7 +96,7 @@ describe "Publish Confirm Persistence" do
 
         # m1 fills the queue to its max length of 1
         id1 = ch.basic_publish("m1", "", q.name) { |ok| lock.synchronize { results[1_u64] = ok } }
-        should_eventually(be_true) { s.vhosts["/"].queues[q.name].message_count == 1 }
+        should_eventually(be_true) { s.vhosts["/"].queue(q.name).message_count == 1 }
 
         # m2 and m3 are rejected; nacks are sent immediately, not batched.
         id2 = ch.basic_publish("m2", "", q.name) { |ok| lock.synchronize { results[2_u64] = ok } }
