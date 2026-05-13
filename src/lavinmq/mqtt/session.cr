@@ -49,6 +49,7 @@ module LavinMQ
         @msg_store = MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
 
         @log = Logger.new(Log, @metadata)
+        handle_arguments
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -354,6 +355,8 @@ module LavinMQ
       private def handle_arguments
         @effective_args = Array(String).new
         @effective_args << "x-queue-type"
+        @max_length = nil
+        @max_length_bytes = nil
       end
 
       def pause!; end
