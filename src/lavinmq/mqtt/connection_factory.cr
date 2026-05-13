@@ -23,7 +23,7 @@ module LavinMQ
           io = MQTT::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Connect)
             logger.trace { "recv #{packet.inspect}" }
-            if user_and_broker = authenticate(io, packet)
+            if user_and_broker = authenticate(io, packet, logger)
               user, broker = user_and_broker
               packet = assign_client_id(packet) if packet.client_id.empty?
               session_present = broker.session_present?(packet.client_id, packet.clean_session?)
@@ -53,7 +53,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io : MQTT::IO, packet)
+      def authenticate(io : MQTT::IO, packet, logger : Logger)
         return unless (username = packet.username) && (password = packet.password)
 
         vhost = @config.default_mqtt_vhost
@@ -70,6 +70,7 @@ module LavinMQ
         broker = @brokers[vhost]?
         return unless broker
 
+        logger.info { "Authenticated user=\"#{user.name}\" vhost=\"#{vhost}\"" }
         {user, broker}
       end
 
