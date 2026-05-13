@@ -669,11 +669,6 @@ module LavinMQ::AMQP
       end
     end
 
-    private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
-      has_expired?(msg, requeue)
-    end
-
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
       return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
       if expire_at = expire_at(msg)
@@ -857,12 +852,15 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
-          expire_msg(sp, :expired)
+        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
+          env = Envelope.new(sp, msg, false)
+          expire_msg(env, :expired)
         else
           if delivery_limit = @delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
-              return expire_msg(sp, :delivery_limit)
+              env = Envelope.new(sp, msg, false)
+              return expire_msg(env, :delivery_limit)
             end
           end
           @msg_store_lock.synchronize do
