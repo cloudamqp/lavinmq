@@ -1,3 +1,4 @@
+require "http/client"
 require "./destination"
 
 module LavinMQ

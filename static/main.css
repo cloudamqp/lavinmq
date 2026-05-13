@@ -929,6 +929,7 @@ footer .logo {
   --icon-operator-policies: url(img/icons/icon-opolicies-dark.svg);
   --icon-users: url(img/icons/icon-users-dark.svg);
   --icon-http-api: url(img/icons/icon-external-dark.svg);
+  --icon-sliders: url('img/icons/icon-sliders-dark.svg');
 }
 .theme-dark {
   --icon-overview: url(img/icons/icon-overview-light.svg);
@@ -946,6 +947,7 @@ footer .logo {
   --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
   --icon-users: url(img/icons/icon-users-light.svg);
   --icon-http-api: url(img/icons/icon-external-light.svg);
+  --icon-sliders: url('img/icons/icon-sliders-light.svg');
 }
 
 #menu>ul {
@@ -1267,6 +1269,49 @@ footer .logo {
   }
 }
 
+.table-subheader {
+  position: relative;
+  padding: 0.875rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-left: 1px solid var(--color-border-primary);
+  border-right: 1px solid var(--color-border-primary);
+
+  &:has(.col-toggle) {
+    padding: .5rem 1.5rem;
+    flex-direction: row-reverse;
+  }
+
+  .col-toggle {
+    position: relative;
+    border: 1px solid var(--color-border-primary);
+    top: auto;
+    right: auto;
+    padding: .4rem .4rem .4rem 1.4rem;
+    border-radius: .5rem;
+    font-size: 12px;
+    background-position: .4rem center;
+
+    span {
+      display: inline-block;
+      font-weight: 600;
+    }
+
+    &:hover {
+      background-color: var(--color-bg-hover);
+      color: var(--color-text-primary);
+    }
+  }
+
+  .tooltip {
+    top: 2.5rem;
+    right: 1.5rem;
+    max-height: 400px;
+    overflow: auto;
+  }
+}
+
 .table-wrapper {
   overflow: auto;
   scrollbar-color: var(--color-scrollbar);
@@ -1298,6 +1343,14 @@ footer .logo {
   top: 15px;
   right: 1.5rem;
   color: var(--color-text-primary);
+  background-image: var(--icon-sliders);
+  background-repeat: no-repeat;
+  background-position: center center;
+  padding: .4rem;
+
+  span {
+    display: none;
+  }
 }
 
 .table th {
@@ -2598,5 +2651,13 @@ pre.arguments .inactive-argument:before {
 
   .table-header form {
     width: 100%;
+  }
+
+  .table-subheader {
+    padding: 1rem;
+
+    &:has(.col-toggle) {
+      padding: .5rem 1rem;
+    }
   }
 }

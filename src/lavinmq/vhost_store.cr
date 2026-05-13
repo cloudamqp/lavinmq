@@ -19,7 +19,37 @@ module LavinMQ
       @vhosts = Hash(String, VHost).new
     end
 
-    forward_missing_to @vhosts
+    def []?(name : String) : VHost?
+      @vhosts[name]?
+    end
+
+    def [](name : String) : VHost
+      @vhosts[name]
+    end
+
+    def each_value(& : VHost ->) : Nil
+      @vhosts.each_value { |v| yield v }
+    end
+
+    def has_key?(name : String) : Bool
+      @vhosts.has_key?(name)
+    end
+
+    def size : Int32
+      @vhosts.size
+    end
+
+    def values : Array(VHost)
+      @vhosts.values
+    end
+
+    def first_value : VHost
+      @vhosts.first_value
+    end
+
+    def first_value? : VHost?
+      @vhosts.first_value?
+    end
 
     def each(&)
       @vhosts.each do |kv|
@@ -33,7 +63,9 @@ module LavinMQ
       end
       vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
       Log.info { "Created vhost #{name}" }
-      @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+      unless @users[user.name]?.try &.permissions[name]?
+        @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+      end
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
@@ -86,7 +118,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(f)
         end
-      else
+      elsif Config.instance.load_definitions.empty?
         Log.debug { "Loading default vhosts" }
         create("/")
       end

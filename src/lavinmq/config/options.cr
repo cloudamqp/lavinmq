@@ -1,3 +1,7 @@
+require "log"
+require "../auth/password"
+require "../amqp/exchange/consistent_hash_algorithm"
+
 module LavinMQ
   class Config
     annotation CliOpt; end
@@ -118,7 +122,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property tls_keylog_file = ""
 
-      @[CliOpt("", "--tls-ktls=BOOL", "Use native socket for kTLS support (default: false)", section: "tls")]
+      @[CliOpt("", "--tls-ktls=BOOL", "Enable kernel TLS (kTLS) offload (default: false)", section: "tls")]
       @[IniOpt(section: "main")]
       property? tls_ktls = false
 
@@ -203,6 +207,9 @@ module LavinMQ
 
       @[IniOpt(section: "main")]
       property free_disk_warn : Int64 = 0_i64 # bytes
+
+      @[IniOpt(section: "main")]
+      property load_definitions = "" # path to a JSON definitions file to import on startup
 
       @[IniOpt(section: "main")]
       property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file

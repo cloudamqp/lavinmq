@@ -1,0 +1,48 @@
+<!--#set var="TITLE" value="Virtual Hosts" -->
+<!DOCTYPE html>
+<html lang="en" class="vhosts">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/vhosts.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2>Manage virtual hosts</h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div id="table-error"></div>
+        <div class="table-wrapper">
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name" class="left">Name<span></span></th>
+                <th class="left">Users</th>
+                <th data-sort-key="messages_ready">Messages Ready<span></span></th>
+                <th data-sort-key="messages_unacknowledged">Messages Unacknowledged<span></span></th>
+                <th data-sort-key="total">Total<span></span></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="createVhost" class="form card">
+        <h3>Add virtual host</h3>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <button type="submit" class="btn btn-green">Add virtual host</button>
+      </form>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

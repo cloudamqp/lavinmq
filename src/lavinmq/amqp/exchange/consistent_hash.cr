@@ -1,15 +1,11 @@
-require "../destination"
 require "./exchange"
+require "./consistent_hash_algorithm"
+require "../destination"
 require "../../hasher.cr"
 require "../../consistent_hasher.cr"
 require "../../jump_consistent_hasher.cr"
 
 module LavinMQ
-  enum ConsistentHashAlgorithm
-    Ring
-    Jump
-  end
-
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher : Hasher(AMQP::Destination)
@@ -46,8 +42,8 @@ module LavinMQ
         end
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |destination, binding_key|
+      def bindings_details : Array(BindingDetails)
+        @bindings.map do |destination, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, destination)
         end
       end

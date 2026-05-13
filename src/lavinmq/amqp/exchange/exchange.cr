@@ -133,7 +133,7 @@ module LavinMQ
 
       def in_use?
         return true unless bindings_details.empty?
-        @vhost.exchanges.any? do |_, x|
+        @vhost.exchanges_any? do |_, x|
           x.bindings_details.any? { |bd| bd.destination == self }
         end
       end
@@ -144,7 +144,7 @@ module LavinMQ
 
         @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
 
-        @vhost.queues[queue.name] = queue
+        @vhost.register_queue(queue)
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -196,7 +196,7 @@ module LavinMQ
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      abstract def bindings_details : Iterator(BindingDetails)
+      abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       def publish(msg : Message, immediate : Bool,
@@ -268,8 +268,8 @@ module LavinMQ
           find_cc_queues(hdrs, "BCC", queues)
         end
 
-        if queues.empty? && alternate_exchange
-          @vhost.exchanges[alternate_exchange]?.try do |ae|
+        if queues.empty? && (ae_name = alternate_exchange)
+          @vhost.exchange?(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end
@@ -303,6 +303,10 @@ module LavinMQ
         x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
         return true if x_death.nil?
         q.name != x_death["queue"]?
+      end
+
+      def close
+        @delayed_queue.try &.close
       end
 
       def to_json(json : JSON::Builder)

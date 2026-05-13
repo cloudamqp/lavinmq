@@ -8,12 +8,13 @@ function renderTable (id, options = {}, renderRow) {
   const table = document.getElementById(id)
   const grandparent = table.parentElement && table.parentElement.parentElement
   const tableHeader = grandparent ? grandparent.querySelector(':scope > .table-header') : null
+  const subheader = grandparent ? grandparent.querySelector(':scope > .table-subheader') : null
   const container = tableHeader || table.parentElement
   const keyColumns = options.keyColumns
   const events = new EventTarget()
 
   if (options.columnSelector) {
-    renderColumnSelector(table)
+    renderColumnSelector(table, subheader)
   }
 
   if (options.search) {
@@ -33,6 +34,7 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   dataSource.on('update', updateTable)
+  dataSource.on('update', () => updatePageInfo(subheader))
   dataSource.on('error', error => {
     console.log(error)
     toggleDisplayError(id, 'Error fetching data: ' + error.detail)
@@ -153,6 +155,29 @@ function renderTable (id, options = {}, renderRow) {
     })
   }
 
+  function updatePageInfo (subheader) {
+    const pageInfoEl = subheader?.querySelector('.table-page-info')
+    if (!pageInfoEl) return
+
+    const total = dataSource.filteredCount
+    const pageSize = dataSource.items.length
+    const page = dataSource.page ?? 1
+
+    if (total === 0) {
+      pageInfoEl.textContent = '0 results'
+      return
+    }
+
+    // Calculate the row range for the current page.
+    // dataSource.pageSize holds the configured page size;
+    // fall back to the current items length if unavailable.
+    const configuredPageSize = dataSource.pageSize ?? pageSize
+    const firstRow = (page - 1) * configuredPageSize + 1
+    const lastRow = firstRow + pageSize - 1
+
+    pageInfoEl.textContent = `${firstRow}–${lastRow} of ${total}`
+  }
+
   return { updateTable, reload, on }
 }
 
@@ -211,9 +236,10 @@ function toggleCol (table, colIndex) {
   }
 }
 
-function renderColumnSelector (table) {
-  const container = table.parentElement
-  container.insertAdjacentHTML('afterbegin', '<a class="col-toggle" id="col-toggle">+/-</a>')
+function renderColumnSelector (table, subheader) {
+  const container = subheader ?? table.parentElement
+  container.insertAdjacentHTML('afterbegin', '<a class="col-toggle"><span>Columns</span></a>')
+  const target = subheader ? container : container.parentElement
 
   const hiddenColumns = getHiddenColumns(table)
   hiddenColumns.forEach(i => {
@@ -221,14 +247,14 @@ function renderColumnSelector (table) {
   })
 
   function close () {
-    container.parentElement.querySelectorAll('.tooltip').forEach(el => {
-      container.parentElement.removeChild(el)
+    target.querySelectorAll('.tooltip').forEach(el => {
+      target.removeChild(el)
     })
   }
 
   container.addEventListener('click', e => {
-    if (!e.target.classList.contains('col-toggle')) return true
-    const tooltip = container.parentElement.querySelector('.tooltip')
+    if (!e.target.closest('.col-toggle')) return true
+    const tooltip = target.querySelector('.tooltip')
     if (tooltip) return close()
     let str = '<form class="form tooltip"><a class="close">&times;</a>'
     const allCol = table.getElementsByTagName('th')
@@ -244,25 +270,28 @@ function renderColumnSelector (table) {
                 </label>`
     }
     str += '</form>'
-    container.parentElement.insertAdjacentHTML('beforeend', str)
-    container.parentElement.addEventListener('click', e => {
-      if (e.target.classList.contains('close')) close()
-    })
-    container.parentElement.addEventListener('change', e => {
-      if (!e.target.classList.contains('col-toggle-checkbox')) return true
-      const i = parseInt(e.target.dataset.index)
-      toggleCol(table, i)
-      const hiddenColumns = getHiddenColumns(table)
-      if (hiddenColumns.has(i)) {
-        hiddenColumns.delete(i)
-      } else {
-        hiddenColumns.add(i)
-      }
-      setHiddenColumns(table, hiddenColumns)
-    })
-    document.addEventListener('keyup', e => {
-      if (e.key === 'Escape') close()
-    })
+    target.insertAdjacentHTML('beforeend', str)
+  })
+
+  target.addEventListener('click', e => {
+    if (e.target.classList.contains('close')) close()
+  })
+
+  target.addEventListener('change', e => {
+    if (!e.target.classList.contains('col-toggle-checkbox')) return true
+    const i = parseInt(e.target.dataset.index)
+    toggleCol(table, i)
+    const hiddenColumns = getHiddenColumns(table)
+    if (hiddenColumns.has(i)) {
+      hiddenColumns.delete(i)
+    } else {
+      hiddenColumns.add(i)
+    }
+    setHiddenColumns(table, hiddenColumns)
+  })
+
+  document.addEventListener('keyup', e => {
+    if (e.key === 'Escape') close()
   })
 }
 

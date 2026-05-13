@@ -1,3 +1,6 @@
+require "../user"
+require "../../tag"
+
 module LavinMQ
   module Auth
     module JWT

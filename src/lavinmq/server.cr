@@ -29,12 +29,20 @@ module LavinMQ
     end
 
     getter vhosts, users, data_dir, parameters, authenticator
-    getter? flow
     include ParameterTarget
 
     @start = Time.instant
     @closed = BoolChannel.new(false)
     @flow = true
+
+    def closed? : Bool
+      @closed.value
+    end
+
+    def flow? : Bool
+      @flow
+    end
+
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
@@ -56,10 +64,6 @@ module LavinMQ
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
-    end
-
-    def closed?
-      @closed.value
     end
 
     def followers
@@ -108,8 +112,8 @@ module LavinMQ
       Fiber.yield
     end
 
-    def connections
-      Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
+    def connections : Array(Client)
+      @vhosts.values.flat_map(&.connections)
     end
 
     def listen(s : TCPServer, protocol : Protocol)
@@ -216,15 +220,9 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
-        if @config.tls_ktls?
-          ssl_client = OpenSSL::SSL::NativeSocket::Server.new(client, context, sync_close: true)
-          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
-          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
-        else
-          ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
-          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
-        end
+        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
+        handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
@@ -336,11 +334,11 @@ module LavinMQ
 
     def update_stats_rates
       @vhosts.each_value do |vhost|
-        vhost.queues.each_value(&.update_rates)
-        vhost.exchanges.each_value(&.update_rates)
-        vhost.connections.each do |connection|
+        vhost.each_queue(&.update_rates)
+        vhost.each_exchange(&.update_rates)
+        vhost.each_connection do |connection|
           connection.update_rates
-          connection.channels.each_value(&.update_rates)
+          connection.each_channel(&.update_rates)
         end
         vhost.update_rates
       end

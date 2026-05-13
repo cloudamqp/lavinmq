@@ -183,7 +183,7 @@ describe LavinMQ::Deduplication::Deduper do
             "x-deduplication-header" => "msg1",
           })
 
-          exchange = s.vhosts["/"].exchanges["delayed_ex"].should be_a(LavinMQ::AMQP::Exchange)
+          exchange = s.vhosts["/"].exchange("delayed_ex").should be_a(LavinMQ::AMQP::Exchange)
           delay_q = exchange.@delayed_queue.should be_a(LavinMQ::AMQP::DelayedExchangeQueue)
 
           # Publish a message and verify it has been delayed and not thrown away

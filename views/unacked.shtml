@@ -1,0 +1,42 @@
+<!--#set var="TITLE" value="Messages Unacknowledged" -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/unacked.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="unacked-main main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2 class="has-badge">
+            <a href="" id="queue-link"></a>
+            <small class="tiny-badge counter-pill" id="unacked-count"></small>
+          </h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Message tag</th>
+                <th class="left">Consumer tag</th>
+                <th class="left">Channel</th>
+                <th class="right">Seconds unacked</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

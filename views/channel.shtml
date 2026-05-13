@@ -1,0 +1,82 @@
+<!--#set var="TITLE" value="Channel" -->
+<!DOCTYPE html>
+<html lang="en" class="channels">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/channel.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-6">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Connection</th>
+            <td id="ch-connection"><a /></td>
+          </tr>
+          <tr>
+            <th>Username</th>
+            <td id="ch-username"></td>
+          </tr>
+          <tr>
+            <th>State</th>
+            <td id="ch-state"></td>
+          </tr>
+          <tr>
+            <th>Mode</th>
+            <td id="ch-mode"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6">
+        <h3>Stats</h3>
+        <table class="details-table">
+          <tr>
+            <th>Messages Unacknowledged</th>
+            <td id="ch-unacked"></td>
+          </tr>
+          <tr>
+            <th>Prefetch count</th>
+            <td id="ch-prefetch"></td>
+          </tr>
+          <tr>
+            <th>Global prefetch count</th>
+            <td id="ch-global-prefetch"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card">
+        <h3>Message rates</h3>
+        <div class="chart-container" id="chart"></div>
+      </section>
+      <section class="card">
+        <div class="table-header">
+          <h2 class="has-badge">
+            Consumers
+            <small class="tiny-badge" id="consumer-count"></small>
+          </h2>
+        </div>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Consumer tag</th>
+                <th class="left">Queue</th>
+                <th>Ack required</th>
+                <th>Exclusive</th>
+                <th>Prefetch count</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>
