@@ -21,7 +21,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Bool
-      stamped = ::LavinMQ::Replay.stamp_intake(msg.properties)
+      stamped = ::LavinMQ::Replay.stamp_intake(msg)
       stamped_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         stamped, msg.bodysize, msg.body_io)
       super(stamped_msg, dlx_tasks)

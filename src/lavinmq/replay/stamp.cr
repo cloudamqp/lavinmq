@@ -1,6 +1,7 @@
 require "amq-protocol"
 require "uuid"
 require "../rough_time"
+require "../message"
 
 module LavinMQ
   module Replay
@@ -30,30 +31,33 @@ module LavinMQ
     FIRST_DEATH_EXCHANGE    = "x-first-death-exchange"
     FIRST_DEATH_ROUTING_KEY = "x-first-death-routing-key"
 
-    # Returns a new Properties with replay metadata applied:
+    # Returns a new Properties with replay metadata applied to the
+    # incoming Message:
     #
     # * `x-replay-id` is stamped if missing (UUID).
     # * If `x-source-queue` is missing but `x-first-death-queue` is
     #   present, the `x-source-*` triplet is derived from the death
-    #   metadata. Existing `x-source-*` headers are never overwritten.
+    #   metadata. `x-first-death-exchange` falls back to the message's
+    #   current exchange; `x-first-death-routing-key` (which LavinMQ's
+    #   DLX layer does not stamp today) falls back to the message's
+    #   current routing-key so a DLX-routed message can still be
+    #   replayed even if the original routing-key is unavailable.
+    #   Existing `x-source-*` headers are never overwritten.
     # * `x-source-timestamp` is stamped if missing.
     #
     # Raises `LavinMQ::Error::PreconditionFailed` when neither
     # `x-source-queue` nor `x-first-death-queue` is available so the
     # caller can refuse the push instead of silently storing an
     # unreplayable message.
-    def self.stamp_intake(properties : AMQ::Protocol::Properties) : AMQ::Protocol::Properties
+    def self.stamp_intake(msg : ::LavinMQ::Message) : AMQ::Protocol::Properties
+      properties = msg.properties
       headers = properties.headers.try(&.clone) || AMQ::Protocol::Table.new
       headers[HEADER_REPLAY_ID] ||= UUID.random.to_s
       unless headers.has_key?(HEADER_SOURCE_QUEUE)
         if death_queue = headers[FIRST_DEATH_QUEUE]?
           headers[HEADER_SOURCE_QUEUE] = death_queue
-          if death_exchange = headers[FIRST_DEATH_EXCHANGE]?
-            headers[HEADER_SOURCE_EXCHANGE] = death_exchange
-          end
-          if death_routing_key = headers[FIRST_DEATH_ROUTING_KEY]?
-            headers[HEADER_SOURCE_ROUTING_KEY] = death_routing_key
-          end
+          headers[HEADER_SOURCE_EXCHANGE] = headers[FIRST_DEATH_EXCHANGE]? || msg.exchange_name
+          headers[HEADER_SOURCE_ROUTING_KEY] = headers[FIRST_DEATH_ROUTING_KEY]? || msg.routing_key
         else
           raise LavinMQ::Error::PreconditionFailed.new(
             "Message lacks x-source-queue and x-first-death-queue; cannot enter replay queue")

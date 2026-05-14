@@ -145,6 +145,34 @@ describe LavinMQ::AMQP::ReplayQueue do
     end
   end
 
+  describe "DLX integration" do
+    it "accepts a DLX-routed message and derives x-source-* from x-first-death-*" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("replay-dlx", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.exchange("dlx-test", "fanout", durable: true)
+          ch.queue_bind("replay-dlx", "dlx-test", "")
+          source_args = AMQP::Client::Arguments.new({
+            "x-dead-letter-exchange" => "dlx-test",
+          })
+          src = ch.queue("dlx-source", durable: true, args: source_args)
+          src.publish_confirm "payload"
+          d = ch.basic_get("dlx-source", no_ack: false).not_nil!
+          ch.basic_reject(d.delivery_tag, requeue: false)
+          sleep 20.milliseconds
+          ch.queue_declare("replay-dlx", passive: true)[:message_count].should eq 1
+          msg = ch.basic_get("replay-dlx", no_ack: true).not_nil!
+          h = msg.properties.headers.not_nil!
+          h["x-source-queue"].should eq "dlx-source"
+          h["x-source-exchange"].should eq ""
+          h["x-source-routing-key"].should eq "dlx-source"
+          h.has_key?("x-replay-id").should be_true
+        end
+      end
+    end
+  end
+
   it "stamps a fresh x-replay-id per message" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
