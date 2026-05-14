@@ -3,6 +3,7 @@ require "../controller"
 require "../binding_helpers"
 require "../../unacked_message"
 require "../../name_validator"
+require "../../queue_filter/predicate"
 
 module LavinMQ
   module HTTP
@@ -118,6 +119,48 @@ module LavinMQ
             else
               bad_request(context, "Queue was not restarted")
             end
+          end
+        end
+
+        get "/api/queues/:vhost/:name/filter" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            q = find_queue(context, params, vhost)
+            queue_filter_view(q, vhost).to_json(context.response)
+          end
+        end
+
+        put "/api/queues/:vhost/:name/filter" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
+            q = find_queue(context, params, vhost)
+            body = parse_body(context)
+            begin
+              QueueFilter::Rule.parse(body.to_json)
+            rescue ex : LavinMQ::Error::PreconditionFailed
+              bad_request(context, ex.message)
+            rescue ex : JSON::ParseException
+              bad_request(context, "invalid JSON (#{ex.message})")
+            end
+            policy_name = managed_filter_policy_name(q.name)
+            pattern = "^#{Regex.escape(q.name)}$"
+            definition = {"message-filter" => body} of String => JSON::Any
+            is_update = vhost.policies[policy_name]?
+            vhost.add_policy(policy_name, pattern, "queues", definition, 100_i8)
+            context.response.status_code = is_update ? 204 : 201
+          end
+        end
+
+        delete "/api/queues/:vhost/:name/filter" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
+            q = find_queue(context, params, vhost)
+            policy_name = managed_filter_policy_name(q.name)
+            unless vhost.policies[policy_name]?
+              not_found(context, "No managed queue-filter policy for '#{q.name}'")
+            end
+            vhost.delete_policy(policy_name)
+            context.response.status_code = 204
           end
         end
 
@@ -278,6 +321,29 @@ module LavinMQ
             bad_request(context, e.message)
           end
         end
+      end
+
+      MANAGED_FILTER_POLICY_PREFIX = "__queue-filter__"
+
+      private def managed_filter_policy_name(queue_name : String) : String
+        "#{MANAGED_FILTER_POLICY_PREFIX}#{queue_name}"
+      end
+
+      private def queue_filter_view(queue, vhost)
+        active = queue.is_a?(LavinMQ::AMQP::Queue) ? queue.filter : nil
+        source = if active.nil?
+                   nil
+                 elsif vhost.policies[managed_filter_policy_name(queue.name)]?
+                   "managed-policy"
+                 elsif (p = queue.policy) && p.definition["message-filter"]?
+                   "user-policy"
+                 else
+                   "queue-arg"
+                 end
+        {
+          source: source,
+          rule:   active,
+        }
       end
 
       private def encode_body(message, truncate, encoding, io) : String
