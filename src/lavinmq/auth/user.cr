@@ -27,11 +27,7 @@ module LavinMQ
           when "name"
             name = pull.read_string
           when "password_hash"
-            hash = pull.read_string_or_null
-            if hash.nil?
-              Log.warn { "Possibly malformed JSON: 'password_hash' was null" }
-              hash = ""
-            end
+            hash = read_password_hash(pull)
           when "hashing_algorithm"
             hash_algo = pull.read_string_or_null
           when "permissions"
@@ -64,6 +60,15 @@ module LavinMQ
         when /md5$/i    then Password::MD5Password.create(password)
         else                 raise UnknownHashAlgoritm.new(hash_algorithm)
         end
+      end
+
+      private def read_password_hash(pull : JSON::PullParser) : String
+        hash = pull.read_string_or_null
+        if hash.nil?
+          Log.warn { "Possibly malformed JSON: 'password_hash' was null" }
+          return ""
+        end
+        hash
       end
 
       private def parse_password(hash, hash_algorithm, loc = nil)
