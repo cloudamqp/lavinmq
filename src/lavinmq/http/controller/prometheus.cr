@@ -532,6 +532,28 @@ module LavinMQ
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
         end
+
+        detailed_queue_filter_metrics(vhosts, writer)
+      end
+
+      private def detailed_queue_filter_metrics(vhosts, writer)
+        write_filter_counter(vhosts, writer, "detailed_queue_filter_dropped_total",
+          "Messages dropped by a queue's live filter rule") { |q| q.filter_drop_count }
+        write_filter_counter(vhosts, writer, "detailed_queue_filter_moved_total",
+          "Messages moved to another queue by a live filter rule") { |q| q.filter_move_count }
+        write_filter_counter(vhosts, writer, "detailed_queue_filter_duplicated_total",
+          "Messages duplicated to another queue by a live filter rule") { |q| q.filter_duplicate_count }
+      end
+
+      private def write_filter_counter(vhosts, writer, name : String, help : String, &block : LavinMQ::AMQP::Queue -> UInt64)
+        writer.write_header(name, "counter", help)
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::Queue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value(name, block.call(q), labels)
+          end
+        end
       end
 
       private def detailed_queue_consumer_count(vhosts, writer)
