@@ -18,6 +18,8 @@ require "../argument_target"
 require "../argument"
 require "../argument/dead_lettering"
 require "../../queue_stats"
+require "../../queue_filter/predicate"
+require "../../queue_filter/source_stamp"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -60,6 +62,7 @@ module LavinMQ::AMQP
     @expires : Int64?
     @delivery_limit : Int64?
     @reject_on_overflow = false
+    getter filter : QueueFilter::Rule? = nil
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -374,6 +377,11 @@ module LavinMQ::AMQP
           @effective_args.delete("x-consumer-timeout")
           return true
         end
+      when "message-filter"
+        if @filter.nil?
+          @filter = QueueFilter::Rule.parse(value.to_json)
+          return true
+        end
       end
       false
     end
@@ -381,6 +389,7 @@ module LavinMQ::AMQP
     private def clear_policy_arguments
       handle_arguments
       @vhost.upstreams.try &.stop_link(self)
+      @filter = nil
     end
 
     private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
@@ -566,6 +575,14 @@ module LavinMQ::AMQP
         end
         d.add(msg)
       end
+      if (rule = @filter) && rule.match?(msg.properties)
+        case result = apply_filter_action(rule, msg)
+        in Nil
+          return false
+        in Message
+          msg = result
+        end
+      end
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
@@ -577,6 +594,75 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    private def apply_filter_action(rule : QueueFilter::Rule, msg : Message) : Message?
+      case rule.action
+      in .drop?
+        @filter_drop_count.add(1, :relaxed)
+        @log.debug { "Message dropped by filter rule=#{rule.rule_id}" }
+        nil
+      in .move_to?
+        if move_msg_to_target(rule, msg)
+          @filter_move_count.add(1, :relaxed)
+        end
+        nil
+      in .duplicate_to?
+        result = duplicate_msg_to_target(rule, msg)
+        @filter_duplicate_count.add(1, :relaxed) if result
+        result
+      end
+    end
+
+    private def move_msg_to_target(rule : QueueFilter::Rule, msg : Message) : Bool
+      target_name = rule.target
+      return false if target_name.nil? || target_name.empty?
+      target = @vhost.queue?(target_name)
+      unless target.is_a?(AMQP::Queue)
+        @log.warn { "Filter target queue #{target_name.inspect} not found for move_to (rule=#{rule.rule_id})" }
+        return false
+      end
+      stamped = QueueFilter::SourceStamp.stamp(msg.properties, @name, msg.exchange_name,
+        msg.routing_key, rule_id: rule.rule_id)
+      stamped_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        stamped, msg.bodysize, msg.body_io)
+      target.publish(stamped_msg)
+      true
+    end
+
+    private def duplicate_msg_to_target(rule : QueueFilter::Rule, msg : Message) : Message?
+      target_name = rule.target
+      if target_name.nil? || target_name.empty?
+        @log.warn { "duplicate_to filter rule has no target (rule=#{rule.rule_id}); dropping original" }
+        return nil
+      end
+      target = @vhost.queue?(target_name)
+      unless target.is_a?(AMQP::Queue)
+        @log.warn { "duplicate_to target queue #{target_name.inspect} not found (rule=#{rule.rule_id})" }
+        return nil
+      end
+      body_bytes = read_msg_body(msg)
+      stamped = QueueFilter::SourceStamp.stamp(msg.properties, @name, msg.exchange_name,
+        msg.routing_key, rule_id: rule.rule_id)
+      copy = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key, stamped,
+        msg.bodysize, IO::Memory.new(body_bytes))
+      target.publish(copy)
+      Message.new(msg.timestamp, msg.exchange_name, msg.routing_key, msg.properties,
+        msg.bodysize, IO::Memory.new(body_bytes))
+    end
+
+    private def read_msg_body(msg : Message) : Bytes
+      if io_mem = msg.body_io.as?(IO::Memory)
+        io_mem.rewind
+        bytes = io_mem.to_slice.dup
+        io_mem.pos = msg.bodysize.to_i32
+        bytes
+      else
+        bytes = Bytes.new(msg.bodysize)
+        read = msg.body_io.read_fully(bytes)
+        raise IO::Error.new("Short body read: #{read} of #{msg.bodysize}") if read != msg.bodysize.to_i
+        bytes
+      end
     end
 
     private def reject_on_overflow(msg) : Nil
