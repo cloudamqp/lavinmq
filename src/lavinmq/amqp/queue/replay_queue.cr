@@ -29,5 +29,35 @@ module LavinMQ::AMQP
       @log.warn { "Refusing message to replay queue '#{@name}': #{ex.message}" }
       false
     end
+
+    # Yields every quarantined Envelope under the message store lock.
+    # Block is run inside the lock — keep work short.
+    def each_envelope(& : Envelope ->) : Nil
+      @msg_store_lock.synchronize do
+        @msg_store.each_envelope do |env|
+          yield env
+        end
+      end
+    end
+
+    # Returns the first envelope whose header `key` matches `value`,
+    # comparing as String. Linear scan; intended for low-volume
+    # operator lookup by x-replay-id.
+    def find_envelope_with_header(key : String, value : String) : Envelope?
+      @msg_store_lock.synchronize do
+        @msg_store.each_envelope do |env|
+          headers = env.message.properties.headers
+          next unless headers
+          h_value = headers[key]?
+          return env if h_value && h_value.to_s == value
+        end
+      end
+      nil
+    end
+
+    # Removes a still-ready (never shifted) message in place.
+    def delete_envelope(sp : SegmentPosition) : Nil
+      @msg_store_lock.synchronize { @msg_store.delete_ready(sp) }
+    end
   end
 end

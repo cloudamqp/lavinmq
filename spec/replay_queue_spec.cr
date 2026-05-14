@@ -79,6 +79,72 @@ describe LavinMQ::AMQP::ReplayQueue do
     end
   end
 
+  describe "scan helpers" do
+    private_props = AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({
+      "x-source-queue"       => "src",
+      "x-source-exchange"    => "",
+      "x-source-routing-key" => "src",
+    }))
+
+    it "find_envelope_with_header locates a message by x-replay-id" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("replay-scan", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          3.times do |i|
+            ch.basic_publish_confirm("m-#{i}", "", "replay-scan", props: private_props)
+          end
+          q = s.vhosts["/"].queue?("replay-scan").as(LavinMQ::AMQP::ReplayQueue)
+          ids = [] of String
+          q.each_envelope do |env|
+            ids << env.message.properties.headers.not_nil!["x-replay-id"].to_s
+          end
+          ids.size.should eq 3
+          target = ids[1]
+          env = q.find_envelope_with_header(LavinMQ::Replay::HEADER_REPLAY_ID, target)
+          env.should_not be_nil
+          env.not_nil!.message.properties.headers.not_nil!["x-replay-id"].should eq target
+        end
+      end
+    end
+
+    it "find_envelope_with_header returns nil for an unknown id" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("replay-miss", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.basic_publish_confirm("m", "", "replay-miss", props: private_props)
+          q = s.vhosts["/"].queue?("replay-miss").as(LavinMQ::AMQP::ReplayQueue)
+          q.find_envelope_with_header(LavinMQ::Replay::HEADER_REPLAY_ID, "no-such-id").should be_nil
+        end
+      end
+    end
+
+    it "delete_envelope removes a ready message and updates count" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("replay-del", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          3.times do |i|
+            ch.basic_publish_confirm("m-#{i}", "", "replay-del", props: private_props)
+          end
+          q = s.vhosts["/"].queue?("replay-del").as(LavinMQ::AMQP::ReplayQueue)
+          q.message_count.should eq 3
+          first_sp = nil
+          q.each_envelope do |env|
+            first_sp = env.segment_position
+            break
+          end
+          q.delete_envelope(first_sp.not_nil!)
+          q.message_count.should eq 2
+          remaining = 0
+          q.each_envelope { |_| remaining += 1 }
+          remaining.should eq 2
+        end
+      end
+    end
+  end
+
   it "stamps a fresh x-replay-id per message" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
