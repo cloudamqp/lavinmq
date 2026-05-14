@@ -253,8 +253,8 @@ module LavinMQ::AMQP
       end
     end
 
-    private def shift_requeued(requeued) : Envelope?
-      while sp = requeued.shift?
+    private def shift_requeued(requeued : Sync::Exclusive(Deque(SegmentPosition))) : Envelope?
+      while sp = requeued.lock(&.shift?)
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
