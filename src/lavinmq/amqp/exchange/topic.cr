@@ -1,3 +1,4 @@
+require "sync/shared"
 require "./exchange"
 
 module LavinMQ
@@ -105,18 +106,20 @@ module LavinMQ
     end
 
     class TopicExchange < Exchange
-      @bindings = Hash(TopicBindingKey, Set({AMQP::Destination, BindingKey})).new do |h, k|
-        h[k] = Set({AMQP::Destination, BindingKey}).new
-      end
+      @bindings : Sync::Shared(Hash(TopicBindingKey, Set({AMQP::Destination, BindingKey}))) = Sync::Shared.new(
+        Hash(TopicBindingKey, Set({AMQP::Destination, BindingKey})).new { |h, k| h[k] = Set({AMQP::Destination, BindingKey}).new },
+        :unchecked)
 
       def type : String
         "topic"
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.flat_map do |_rk, ds|
-          ds.map do |d, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, d)
+        @bindings.shared do |b|
+          b.flat_map do |_rk, ds|
+            ds.map do |d, binding_key|
+              BindingDetails.new(name, vhost.name, binding_key, d)
+            end
           end
         end
       end
@@ -125,7 +128,7 @@ module LavinMQ
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
         rk = TopicBindingKey.new(routing_key.split("."))
-        return false unless @bindings[rk].add?({destination, binding_key})
+        return false unless @bindings.lock(&.[rk].add?({destination, binding_key}))
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -134,39 +137,47 @@ module LavinMQ
       def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rks = routing_key.split(".")
         rk = TopicBindingKey.new(rks)
-        bds = @bindings[rk]
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless bds.delete({destination, binding_key})
-        @bindings.delete(rk) if bds.empty?
+        removed = false
+        all_empty = false
+        @bindings.lock do |b|
+          bds = b[rk]?
+          next unless bds
+          next unless bds.delete({destination, binding_key})
+          removed = true
+          b.delete(rk) if bds.empty?
+          all_empty = b.each_value.all?(&.empty?)
+        end
+        return false unless removed
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+        delete if @auto_delete && all_empty
         true
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        bindings = @bindings
+        @bindings.shared do |bindings|
+          next if bindings.empty?
 
-        return if bindings.empty?
-
-        # optimize the case where the only binding key is '#'
-        if bindings.size == 1
-          bk, destinations = bindings.first
-          if bk.acts_as_fanout?
-            destinations.each do |destination, _binding_key|
-              yield destination
+          # optimize the case where the only binding key is '#'
+          if bindings.size == 1
+            bk, destinations = bindings.first
+            if bk.acts_as_fanout?
+              destinations.each do |destination, _binding_key|
+                yield destination
+              end
+              next
             end
-            return
           end
-        end
 
-        rk = RkIterator.new(routing_key.to_slice)
-        bindings.each do |bks, dests|
-          if bks.matches? rk
-            dests.each do |destination, _binding_key|
-              yield destination
+          rk = RkIterator.new(routing_key.to_slice)
+          bindings.each do |bks, dests|
+            if bks.matches? rk
+              dests.each do |destination, _binding_key|
+                yield destination
+              end
             end
           end
         end
