@@ -46,6 +46,10 @@ module LavinMQ::AMQP
     add_argument_validator "x-cache-size", VALIDATOR_INT_ZERO
     add_argument_validator "x-cache-ttl", VALIDATOR_INT_ZERO
     add_argument_validator "x-deduplication-header", VALIDATOR_STRING
+    add_argument_validator "x-nack-to-quarantine", VALIDATOR_BOOL
+    add_argument_validator "x-quarantine-after-redeliveries", VALIDATOR_INT_ZERO
+    add_argument_validator "x-quarantine-target", VALIDATOR_STRING
+    add_argument_validator "x-quarantine-action", VALIDATOR_STRING
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
@@ -60,6 +64,10 @@ module LavinMQ::AMQP
     @expires : Int64?
     @delivery_limit : Int64?
     @reject_on_overflow = false
+    getter? nack_to_quarantine = false
+    getter quarantine_after_redeliveries : Int64? = nil
+    getter quarantine_target : String? = nil
+    getter quarantine_action : Symbol = :move
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -374,8 +382,43 @@ module LavinMQ::AMQP
           @effective_args.delete("x-consumer-timeout")
           return true
         end
+      when "nack-to-quarantine"
+        unless @nack_to_quarantine
+          @nack_to_quarantine = value.as_bool
+          @effective_args.delete("x-nack-to-quarantine")
+          return true
+        end
+      when "quarantine-after-redeliveries"
+        unless @quarantine_after_redeliveries.try &.< value.as_i64
+          @quarantine_after_redeliveries = value.as_i64
+          @effective_args.delete("x-quarantine-after-redeliveries")
+          return true
+        end
+      when "quarantine-target"
+        if @quarantine_target.nil?
+          @quarantine_target = value.as_s
+          @effective_args.delete("x-quarantine-target")
+          return true
+        end
+      when "quarantine-action"
+        if @quarantine_action == :move
+          @quarantine_action = parse_quarantine_action(value.as_s)
+          @effective_args.delete("x-quarantine-action")
+          return true
+        end
       end
       false
+    end
+
+    private def parse_quarantine_action(raw : String) : Symbol
+      case raw
+      when "move" then :move
+      when "drop" then :drop
+      when "tee"  then :tee
+      else
+        raise LavinMQ::Error::PreconditionFailed.new(
+          "x-quarantine-action must be one of move / drop / tee (got #{raw.inspect})")
+      end
     end
 
     private def clear_policy_arguments
@@ -408,6 +451,18 @@ module LavinMQ::AMQP
       @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
       @effective_args << "x-consumer-timeout" if @consumer_timeout
+      @nack_to_quarantine = parse_header("x-nack-to-quarantine", Bool) == true
+      @effective_args << "x-nack-to-quarantine" if @nack_to_quarantine
+      @quarantine_after_redeliveries = parse_header("x-quarantine-after-redeliveries", Int).try(&.to_i64)
+      @effective_args << "x-quarantine-after-redeliveries" if @quarantine_after_redeliveries
+      @quarantine_target = parse_header("x-quarantine-target", String)
+      @effective_args << "x-quarantine-target" if @quarantine_target
+      if action_arg = parse_header("x-quarantine-action", String)
+        @quarantine_action = parse_quarantine_action(action_arg)
+        @effective_args << "x-quarantine-action"
+      else
+        @quarantine_action = :move
+      end
       if parse_header("x-message-deduplication", Bool)
         @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
