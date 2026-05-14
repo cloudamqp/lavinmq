@@ -286,6 +286,48 @@
         </table>
       </div>
       <div id="messages" class="cols-12"></div>
+      <section class="card cols-12">
+        <h3>Live Filter</h3>
+        <p class="card-desc">
+          Match inbound messages by headers and act on them. Active filter is stored as an auto-managed policy on this queue.
+          Source: <span id="q-filter-source">none</span>.
+        </p>
+        <form method="put" id="setFilter" class="form">
+          <label>
+            <span>x-match</span>
+            <select class="dropdown" name="x-match">
+              <option value="all">all (AND)</option>
+              <option value="any">any (OR)</option>
+            </select>
+          </label>
+          <label>
+            <span>Clauses (one per line, format: <code>key op value</code>; op = eq | not_eq | exists; value omitted for exists)</span>
+            <textarea name="clauses" rows="4" placeholder="x-tier eq free
+x-debug exists"></textarea>
+          </label>
+          <label>
+            <span>Action</span>
+            <select class="dropdown" id="filter-action" name="action">
+              <option value="drop">drop</option>
+              <option value="move_to">move_to</option>
+              <option value="duplicate_to">duplicate_to</option>
+            </select>
+          </label>
+          <label id="filter-target-row" class="hide">
+            <span>Target queue</span>
+            <input type="text" name="target" list="filter-target-list">
+            <datalist id="filter-target-list"></datalist>
+          </label>
+          <label>
+            <span>Rule id (optional, free text)</span>
+            <input type="text" name="rule_id">
+          </label>
+          <div class="flex gap-2">
+            <button type="submit" class="btn btn-green">Apply filter</button>
+            <button type="button" id="removeFilter" class="btn btn-red">Remove filter</button>
+          </div>
+        </form>
+      </section>
       <section class="card cols-4">
         <h3>Pause Queue</h3>
         <form method="put" id="pauseQueue" class="form">

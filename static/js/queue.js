@@ -367,7 +367,94 @@ restartQueueForm.addEventListener('submit', function (evt) {
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
 Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
+Helpers.autoCompleteDatalist('filter-target-list', 'queues', vhost)
 
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
 })
+
+const filterActionSelect = document.querySelector('#filter-action')
+const filterTargetRow = document.querySelector('#filter-target-row')
+function toggleFilterTargetRow () {
+  if (filterActionSelect.value === 'move_to' || filterActionSelect.value === 'duplicate_to') {
+    filterTargetRow.classList.remove('hide')
+  } else {
+    filterTargetRow.classList.add('hide')
+  }
+}
+filterActionSelect.addEventListener('change', toggleFilterTargetRow)
+toggleFilterTargetRow()
+
+function parseFilterClauses (text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+  return lines.map(line => {
+    const parts = line.split(/\s+/)
+    const key = parts[0]
+    const op = parts[1] || 'exists'
+    const value = parts.slice(2).join(' ')
+    const clause = { key, op }
+    if (op === 'eq' || op === 'not_eq') clause.value = value
+    return clause
+  })
+}
+
+function fillFilterForm (rule) {
+  const form = document.querySelector('#setFilter')
+  if (!rule) return
+  form.querySelector('select[name="x-match"]').value = rule['x-match'] || 'all'
+  form.querySelector('select[name="action"]').value = rule.action || 'drop'
+  form.querySelector('input[name="target"]').value = rule.target || ''
+  form.querySelector('input[name="rule_id"]').value = rule.rule_id || ''
+  const lines = (rule.clauses || []).map(c => {
+    if (c.op === 'exists') return `${c.key} exists`
+    return `${c.key} ${c.op} ${c.value || ''}`
+  })
+  form.querySelector('textarea[name="clauses"]').value = lines.join('\n')
+  toggleFilterTargetRow()
+}
+
+function loadFilter () {
+  HTTP.request('GET', HTTP.url`api/queues/${vhost}/${queue}/filter`)
+    .then(data => {
+      const sourceEl = document.querySelector('#q-filter-source')
+      sourceEl.textContent = data && data.source ? data.source : 'none'
+      if (data && data.rule) fillFilterForm(data.rule)
+    })
+    .catch(() => { /* ignore */ })
+}
+
+document.querySelector('#setFilter').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const form = evt.target
+  const xMatch = form.querySelector('select[name="x-match"]').value
+  const action = form.querySelector('select[name="action"]').value
+  const target = form.querySelector('input[name="target"]').value.trim()
+  const ruleId = form.querySelector('input[name="rule_id"]').value.trim()
+  const clauses = parseFilterClauses(form.querySelector('textarea[name="clauses"]').value)
+  if (clauses.length === 0) {
+    DOM.toast('Add at least one clause', 'error')
+    return
+  }
+  const body = { 'x-match': xMatch, action, clauses }
+  if (action === 'move_to' || action === 'duplicate_to') {
+    if (!target) { DOM.toast(`${action} requires a target queue`, 'error'); return }
+    body.target = target
+  }
+  if (ruleId) body.rule_id = ruleId
+  HTTP.request('PUT', HTTP.url`api/queues/${vhost}/${queue}/filter`, { body })
+    .then(() => {
+      DOM.toast('Filter applied')
+      loadFilter()
+    })
+})
+
+document.querySelector('#removeFilter').addEventListener('click', function () {
+  if (!window.confirm('Remove the active filter from this queue?')) return
+  HTTP.request('DELETE', HTTP.url`api/queues/${vhost}/${queue}/filter`)
+    .then(() => {
+      DOM.toast('Filter removed')
+      loadFilter()
+    })
+})
+
+loadFilter()
