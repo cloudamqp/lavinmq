@@ -35,6 +35,7 @@ module LavinMQ
           ConsumersController.new(@amqp_server),
           ExchangesController.new(@amqp_server),
           QueuesController.new(@amqp_server),
+          ReplayController.new(@amqp_server),
           BindingsController.new(@amqp_server),
           VHostsController.new(@amqp_server),
           VHostLimitsController.new(@amqp_server),
