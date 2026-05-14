@@ -17,6 +17,7 @@ require "../../bool_channel"
 require "../argument_target"
 require "../argument"
 require "../argument/dead_lettering"
+require "../../poison_pill/source_stamp"
 require "../../queue_stats"
 
 module LavinMQ::AMQP
@@ -786,6 +787,61 @@ module LavinMQ::AMQP
       end
     end
 
+    private def apply_quarantine_action(env : Envelope, intake : Symbol) : Nil
+      sp = env.segment_position
+      action = @quarantine_action
+      target_name = @quarantine_target
+      target_queue = target_name.try { |n| @vhost.queue?(n).as?(AMQP::Queue) }
+      target_queue = nil if target_queue == self
+
+      case action
+      when :drop
+        @log.debug { "Quarantine drop sp=#{sp} intake=#{intake}" }
+        bump_quarantine_counter(intake, :move) # :drop counts as quarantine-removed from source
+        delete_message sp
+      when :tee
+        if target_queue
+          publish_quarantine_copy(env, target_queue)
+          bump_quarantine_counter(intake, :tee)
+        else
+          @log.warn { "Quarantine tee skipped, target queue #{target_name.inspect} unavailable (sp=#{sp})" }
+        end
+        expire_reason = intake == :poison_pill ? :delivery_limit : :rejected
+        expire_msg(env, expire_reason)
+      else # :move (default)
+        if target_queue
+          publish_quarantine_copy(env, target_queue)
+          bump_quarantine_counter(intake, :move)
+          delete_message sp
+        else
+          expire_reason = intake == :poison_pill ? :delivery_limit : :rejected
+          expire_msg(env, expire_reason)
+        end
+      end
+    end
+
+    private def bump_quarantine_counter(intake : Symbol, action : Symbol) : Nil
+      case {intake, action}
+      when {:poison_pill, :tee}  then @poison_tee_count.add(1, :relaxed)
+      when {:poison_pill, :move} then @poison_quarantine_count.add(1, :relaxed)
+      when {:nack, :tee}         then @nack_tee_count.add(1, :relaxed)
+      when {:nack, :move}        then @nack_quarantine_count.add(1, :relaxed)
+      end
+    end
+
+    private def publish_quarantine_copy(env : Envelope, target : AMQP::Queue) : Nil
+      sp = env.segment_position
+      msg = env.message
+      delivery_count = @deliveries.fetch(sp, 0)
+      props = PoisonPill::SourceStamp.stamp(
+        msg.properties, @name, msg.exchange_name, msg.routing_key,
+        delivery_count: delivery_count)
+      diverted = Message.new(
+        RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
+        props, msg.bodysize, IO::Memory.new(msg.body))
+      target.publish_internal(diverted)
+    end
+
     private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
       return false unless @consumers.empty?
@@ -820,6 +876,7 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
+    # ameba:disable Metrics/CyclomaticComplexity
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
@@ -828,7 +885,7 @@ module LavinMQ::AMQP
           expire_msg(env, :expired)
           next
         end
-        if @delivery_limit && !no_ack
+        if (@delivery_limit || @quarantine_after_redeliveries) && !no_ack
           env = with_delivery_count_header(env) || next
         end
         sp = env.segment_position
@@ -870,12 +927,13 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
+      return env unless @delivery_limit || @quarantine_after_redeliveries
+      sp = env.segment_position
+      delivery_count = @deliveries.fetch(sp, 0)
+      @deliveries[sp] = delivery_count + 1
       if @delivery_limit
-        sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
         headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
@@ -894,12 +952,13 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      @deliveries.delete(sp) if @delivery_limit || @quarantine_after_redeliveries
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
@@ -918,12 +977,23 @@ module LavinMQ::AMQP
               return expire_msg(env, :delivery_limit)
             end
           end
+          if threshold = @quarantine_after_redeliveries
+            if @deliveries.fetch(sp, 0) > threshold
+              env = Envelope.new(sp, msg, false)
+              return apply_quarantine_action(env, :poison_pill)
+            end
+          end
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
           drop_overflow
         end
       else
+        if @nack_to_quarantine
+          msg = @msg_store_lock.synchronize { @msg_store[sp] }
+          env = Envelope.new(sp, msg, false)
+          return apply_quarantine_action(env, :nack)
+        end
         expire_msg(sp, :rejected)
       end
     rescue ex : MessageStore::Error
