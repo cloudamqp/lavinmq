@@ -11,7 +11,8 @@ module LavinMQ::AMQP
       rate_stats(
         {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup",
          "filter_drop", "filter_move", "filter_duplicate",
-         "replay_released", "replay_edited"},
+         "replay_released", "replay_edited",
+         "nack_quarantine", "poison_quarantine", "nack_tee", "poison_tee"},
         {"message_count", "unacked_count"})
     end
 

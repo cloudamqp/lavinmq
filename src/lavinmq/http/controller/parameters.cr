@@ -184,10 +184,17 @@ module LavinMQ
             end
             definition.keys.all? do |k|
               case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit",
+                   "quarantine-after-redeliveries"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
               when "message-filter"
                 validate_message_filter_definition(context, k, definition[k])
+              when "nack-to-quarantine"
+                bad_request(context, "Policy definition '#{k}' should be of type Bool") if definition[k].as_bool?.nil?
+              when "quarantine-action"
+                action = definition[k].as_s?
+                bad_request(context, "Policy definition '#{k}' should be of type String") if action.nil?
+                bad_request(context, "Policy definition '#{k}' must be one of move / drop / tee") unless {"move", "drop", "tee"}.includes?(action)
               else
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
@@ -244,8 +251,15 @@ module LavinMQ
             end
             definition.keys.all? do |k|
               case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit",
+                   "quarantine-after-redeliveries"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
+              when "nack-to-quarantine"
+                bad_request(context, "Policy definition '#{k}' should be of type Bool") if definition[k].as_bool?.nil?
+              when "quarantine-action"
+                action = definition[k].as_s?
+                bad_request(context, "Policy definition '#{k}' should be of type String") if action.nil?
+                bad_request(context, "Policy definition '#{k}' must be one of move / drop / tee") unless {"move", "drop", "tee"}.includes?(action)
               else
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end

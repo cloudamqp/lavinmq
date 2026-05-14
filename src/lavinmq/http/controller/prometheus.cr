@@ -553,6 +553,46 @@ module LavinMQ
           end
         end
 
+        writer.write_header("detailed_queue_poison_quarantine", "counter",
+          "Messages diverted by x-quarantine-after-redeliveries (move action)")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::Queue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_poison_quarantine", q.poison_quarantine_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_poison_tee", "counter",
+          "Messages tee-copied by x-quarantine-after-redeliveries")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::Queue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_poison_tee", q.poison_tee_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_nack_quarantine", "counter",
+          "Messages diverted by x-nack-to-quarantine (move action)")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::Queue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_nack_quarantine", q.nack_quarantine_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_nack_tee", "counter",
+          "Messages tee-copied by x-nack-to-quarantine")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::Queue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_nack_tee", q.nack_tee_count, labels)
+          end
+        end
+
         detailed_queue_filter_metrics(vhosts, writer)
       end
 
