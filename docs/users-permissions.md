@@ -69,7 +69,7 @@ The default user (`guest`) is created with full permissions (`".*"` for configur
 
 A user can be created without a password by submitting an empty string as `password_hash` via the HTTP API:
 
-```json
+```http
 PUT /api/users/<name>
 {"password_hash": "", "tags": ""}
 ```
