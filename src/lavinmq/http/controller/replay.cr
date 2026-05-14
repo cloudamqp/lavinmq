@@ -2,6 +2,7 @@ require "uri"
 require "base64"
 require "../controller"
 require "../../replay/stamp"
+require "../../rough_time"
 
 module LavinMQ
   module HTTP
@@ -49,6 +50,64 @@ module LavinMQ
             context.response.status_code = 204
           end
         end
+
+        post "/api/replay/:vhost/:name/:id/release" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
+            q = find_replay_queue(context, params, vhost)
+            env = find_envelope_or_404(context, q, params["id"])
+            reset = context.request.query_params["reset_replay"]? == "true"
+            release_envelope(context, q, env, vhost, reset)
+            context.response.status_code = 204
+          end
+        end
+      end
+
+      private def release_envelope(context, q, env, vhost, reset_replay : Bool)
+        msg = env.message
+        headers = msg.properties.headers
+        source_exchange = header_string(headers, LavinMQ::Replay::HEADER_SOURCE_EXCHANGE)
+        source_rk = header_string(headers, LavinMQ::Replay::HEADER_SOURCE_ROUTING_KEY)
+        if source_exchange.nil? || source_rk.nil?
+          bad_request(context, "Replay message missing x-source-exchange/x-source-routing-key; cannot release")
+        end
+        new_headers = AMQ::Protocol::Table.new
+        if headers
+          headers.each do |k, v|
+            next if k == LavinMQ::Replay::HEADER_REPLAY_ID
+            next if k == LavinMQ::Replay::HEADER_SOURCE_TIMESTAMP
+            next if reset_replay && k.starts_with?("x-source-")
+            new_headers[k] = v
+          end
+        end
+        new_props = AMQ::Protocol::Properties.new(
+          content_type: msg.properties.content_type,
+          content_encoding: msg.properties.content_encoding,
+          headers: new_headers,
+          delivery_mode: msg.properties.delivery_mode,
+          priority: msg.properties.priority,
+          correlation_id: msg.properties.correlation_id,
+          reply_to: msg.properties.reply_to,
+          expiration: msg.properties.expiration,
+          message_id: msg.properties.message_id,
+          timestamp: msg.properties.timestamp_raw,
+          type: msg.properties.type,
+          user_id: msg.properties.user_id,
+          app_id: msg.properties.app_id,
+          reserved1: msg.properties.reserved1,
+        )
+        ex = source_exchange.as(String)
+        rk = source_rk.as(String)
+        new_msg = LavinMQ::Message.new(
+          RoughTime.unix_ms,
+          ex,
+          rk,
+          new_props,
+          msg.bodysize,
+          IO::Memory.new(msg.body)
+        )
+        vhost.publish(new_msg)
+        q.delete_envelope(env.segment_position)
       end
 
       private def overview(q, vhost)

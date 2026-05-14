@@ -115,6 +115,96 @@ describe "replay HTTP API" do
     end
   end
 
+  describe "POST /api/replay/:vhost/:name/:id/release" do
+    it "republishes to the source via amq.default and removes from replay" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("rep-release-src", true, false)
+        with_channel(s) do |ch|
+          ch.queue("rep-release", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          props = AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({
+            "x-source-queue"       => "rep-release-src",
+            "x-source-exchange"    => "",
+            "x-source-routing-key" => "rep-release-src",
+            "user-key"             => "user-value",
+          }))
+          ch.basic_publish_confirm("payload", "", "rep-release", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "rep-release")
+        response = http.post("/api/replay/%2f/rep-release/#{id}/release", body: "")
+        response.status_code.should eq 204
+        sleep 20.milliseconds
+        s.vhosts["/"].queue?("rep-release").not_nil!.message_count.should eq 0
+        src = s.vhosts["/"].queue?("rep-release-src").not_nil!
+        src.message_count.should eq 1
+      end
+    end
+
+    it "keeps x-source-queue by default so the source's filter will skip it" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("rep-marker-src", true, false)
+        with_channel(s) do |ch|
+          ch.queue("rep-marker", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          props = AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({
+            "x-source-queue"       => "rep-marker-src",
+            "x-source-exchange"    => "",
+            "x-source-routing-key" => "rep-marker-src",
+          }))
+          ch.basic_publish_confirm("p", "", "rep-marker", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "rep-marker")
+        http.post("/api/replay/%2f/rep-marker/#{id}/release", body: "").status_code.should eq 204
+        sleep 20.milliseconds
+        with_channel(s) do |ch|
+          msg = ch.basic_get("rep-marker-src", no_ack: true).not_nil!
+          h = msg.properties.headers.not_nil!
+          h["x-source-queue"].should eq "rep-marker-src"
+          h.has_key?("x-replay-id").should be_false
+          h.has_key?("x-source-timestamp").should be_false
+        end
+      end
+    end
+
+    it "with ?reset_replay=true strips x-source-* so the filter will re-evaluate" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("rep-reset-src", true, false)
+        with_channel(s) do |ch|
+          ch.queue("rep-reset", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          props = AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({
+            "x-source-queue"       => "rep-reset-src",
+            "x-source-exchange"    => "",
+            "x-source-routing-key" => "rep-reset-src",
+            "user-key"             => "v",
+          }))
+          ch.basic_publish_confirm("p", "", "rep-reset", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "rep-reset")
+        http.post("/api/replay/%2f/rep-reset/#{id}/release?reset_replay=true", body: "").status_code.should eq 204
+        sleep 20.milliseconds
+        with_channel(s) do |ch|
+          msg = ch.basic_get("rep-reset-src", no_ack: true).not_nil!
+          h = msg.properties.headers.not_nil!
+          h.has_key?("x-source-queue").should be_false
+          h["user-key"].should eq "v"
+        end
+      end
+    end
+
+    it "returns 404 for an unknown id" do
+      with_http_server do |http, s|
+        publish_replay(s, "rep-release-miss", "x")
+        sleep 20.milliseconds
+        response = http.post("/api/replay/%2f/rep-release-miss/no-such/release", body: "")
+        response.status_code.should eq 404
+      end
+    end
+  end
+
   describe "DELETE /api/replay/:vhost/:name/:id" do
     it "purges the single message" do
       with_http_server do |http, s|
