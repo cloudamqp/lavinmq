@@ -17,7 +17,29 @@ module LavinMQ
         load!
       end
 
-      forward_missing_to @users
+      def []?(name : String) : User?
+        @users[name]?
+      end
+
+      def [](name : String) : User
+        @users[name]
+      end
+
+      def each_value(& : User ->) : Nil
+        @users.each_value { |u| yield u }
+      end
+
+      def has_key?(name : String) : Bool
+        @users.has_key?(name)
+      end
+
+      def size : Int32
+        @users.size
+      end
+
+      def values : Array(User)
+        @users.values
+      end
 
       def each(&)
         @users.each do |kv|
@@ -124,7 +146,7 @@ module LavinMQ
             end
             @replicator.try &.register_file f
           end
-        else
+        elsif Config.instance.load_definitions.empty?
           Log.debug { "Loading default users" }
           create_default_user
         end

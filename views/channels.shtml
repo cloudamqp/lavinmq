@@ -1,0 +1,42 @@
+<!--#set var="TITLE" value="Channels" -->
+<!DOCTYPE html>
+<html lang="en" class="channels">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/channels.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><!--#echo var="TITLE" --><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2>Manage channels</h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Name<span></span></th>
+                <th data-sort-key="vhost" class="left">Virtual host<span></span></th>
+                <th data-sort-key="user" class="left">User<span></span></th>
+                <th>Mode</th>
+                <th data-sort-key="consumer_count">Consumers<span></span></th>
+                <th data-sort-key="prefetch_count">Prefetch limit<span></span></th>
+                <th data-sort-key="messages_unacknowledged">Messages Unacknowledged<span></span></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

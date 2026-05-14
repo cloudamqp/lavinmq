@@ -1,0 +1,118 @@
+<!--#set var="TITLE" value="Exchanges" -->
+<!DOCTYPE html>
+<html lang="en" class="exchanges">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/exchanges.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><!--#echo var="TITLE" --><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2>Manage exchanges</h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="vhost" class="left">Virtual host<span></span></th>
+                <th data-sort-key="name" class="left">Name<span></span></th>
+                <th data-sort-key="type" class="left">Type<span></span></th>
+                <th>Features</th>
+                <th data-sort-key="policy">Policy<span></span></th>
+                <th data-sort-key="message_stats.publish_in_details.rate">Message rate in<span></span></th>
+                <th data-sort-key="message_stats.publish_out_details.rate">Message rate out<span></span></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="addExchange" class="form card">
+        <h3>Add exchange</h3>
+        <label>
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>Type</span>
+          <select class="dropdown" name="type" required></select>
+        </label>
+        <label>
+          <span>
+            <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
+                ensuring their availability and preventing data loss.</span>
+            </a>
+          </span>
+          <input type="checkbox" name="durable" value="1" checked>
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
+          are no longer in use, freeing up system resources.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="auto_delete" value="1">
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
+          use within the messaging system and are not intended for direct interaction with external components.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="internal" value="1">
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
+          messages, allowing for delayed processing or scheduling of tasks.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="delayed" value="1">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
+              <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
+            </a>
+            <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
+              <span class="tooltiptext">Enable deduplication for this exchange</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100">Deduplication cache size
+              <span class="tooltiptext">Deduplication cache size, in number of entries</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000">Deduplication cache ttl
+              <span class="tooltiptext">How long an entry lives in the deduplication cache, in milliseconds</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-deduplication-header">Deduplication header
+              <span class="tooltiptext">Which header to check for deduplication, defaults to x-deduplication-header</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-algorithm">Hash Algorithm
+              <span class="tooltiptext">Which algorithm to use for the Consistent Hash Exchange (ring or jump)</span>
+            </a>
+          </div>
+        </label>
+        <button type="submit" class="btn btn-green">Add exchange</button>
+      </form>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

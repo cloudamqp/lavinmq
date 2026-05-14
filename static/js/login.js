@@ -1,3 +1,4 @@
+import * as Auth from './auth.js'
 if (window.location.hash) {
   const params = new URLSearchParams(window.location.hash.substring(1))
   const user = params.get('username')
@@ -14,15 +15,7 @@ document.getElementById('login').addEventListener('submit', (e) => {
 })
 
 function tryLogin (user, pass) {
-  const auth = window.btoa(`${user}:${pass}`)
-  document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
-  window.fetch('api/whoami')
-    .then(resp => {
-      if (resp.ok) {
-        window.location.assign('.')
-      } else {
-        document.cookie = 'm=; max-age=0'
-        window.alert('Authentication failure')
-      }
-    })
+  Auth.login(user, pass)
+    .then(() => window.location.assign('.'))
+    .catch(() => window.alert('Authentication failure'))
 }

@@ -1,3 +1,4 @@
+require "../sortable_json"
 require "./constants"
 require "./destination"
 require "./source"

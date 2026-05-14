@@ -9,8 +9,8 @@ module LavinMQ
         "fanout"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |d, binding_key|
+      def bindings_details : Array(BindingDetails)
+        @bindings.map do |d, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, d)
         end
       end

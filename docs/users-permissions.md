@@ -17,7 +17,7 @@ Tags primarily control access to the management HTTP API and UI. AMQP/MQTT messa
 | `administrator` | Full management access. Passes every API check, including vhost-scoped ones, regardless of permissions entries. Can manage users, vhosts, permissions, policies, parameters, federation, shovels, and all server-wide settings. |
 | `monitoring` | Management API access. Vhost listings (and other "full view" endpoints) include every vhost on the server. Per-vhost endpoints still require a permissions entry on the vhost being inspected — monitoring users without a permissions entry are refused on those routes. |
 | `management` | Management API access scoped to vhosts the user has a permissions entry on. Cannot see vhosts they have no entry for. |
-| `policymaker` | Manage policies, operator policies, and parameters in vhosts the user has a permissions entry on. The tag also passes the general management gate, so a policymaker user can use the management API more broadly, though many specific endpoints have stricter checks of their own. |
+| `policymaker` | Manage vhost-scoped policies, operator policies, and parameters on vhosts the user has a permissions entry on, and manage server-wide global parameters (`/api/global-parameters`). The tag also passes the general management gate, so a policymaker user can use the management API more broadly, though many specific endpoints have stricter checks of their own. |
 | `impersonator` | AMQP-level only: bypasses the server's `user_id` property validation on publish. Has no effect on management API access, and `administrator` does not imply it. |
 
 Tags are cumulative — a user can have any combination, and the union of all granted abilities applies.

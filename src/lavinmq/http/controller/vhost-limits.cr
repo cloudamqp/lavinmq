@@ -6,8 +6,8 @@ module LavinMQ
     class VHostLimitsController < Controller
       private def register_routes
         get "/api/vhost-limits" do |context, _params|
-          vhosts = vhosts(user(context)).compact_map { |v| VHostLimitsView.new(v).self_if_limited }
-          page(context, vhosts)
+          arr = vhosts(user(context)).compact_map { |v| VHostLimitsView.new(v).self_if_limited }
+          page(context, arr)
         end
 
         get "/api/vhost-limits/:vhost" do |context, params|

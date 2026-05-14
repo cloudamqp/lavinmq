@@ -51,6 +51,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `default_user` | `--default-user` | `LAVINMQ_DEFAULT_USER` | String | `guest` | Default user name |
 | `default_password_hash` | `--default-password-hash` | `LAVINMQ_DEFAULT_PASSWORD` | String | (guest hash) | Hashed password for default user |
 | `default_user_only_loopback` | `--default-user-only-loopback` | — | Bool | `true` | Restrict default user to loopback |
+| `load_definitions` | — | — | String | (empty) | Path to a JSON definitions file imported on startup. See [Definitions](definitions.md#load-on-startup). |
 | `data_dir_lock` | `--no-data-dir-lock` | — | Bool | `true` | File lock on data directory |
 | `default_consistent_hash_algorithm` | — | — | String | `ring` | Consistent hash algorithm (ring, jump) |
 | `metrics_http_bind` | `--metrics-http-bind` | — | String | `127.0.0.1` | Prometheus metrics bind address |

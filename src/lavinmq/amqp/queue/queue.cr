@@ -16,6 +16,7 @@ require "../../deduplication"
 require "../../bool_channel"
 require "../argument_target"
 require "../argument"
+require "../argument/dead_lettering"
 require "../../queue_stats"
 
 module LavinMQ::AMQP
@@ -65,7 +66,47 @@ module LavinMQ::AMQP
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
 
-    getter basic_get_unacked = Deque(UnackedMessage).new
+    @basic_get_unacked = Deque(UnackedMessage).new
+
+    # Consumer accessors
+
+    def consumers : Array(Client::Channel::Consumer)
+      @consumers.dup
+    end
+
+    def consumers_size : Int32
+      @consumers.size
+    end
+
+    def consumers_empty? : Bool
+      @consumers.empty?
+    end
+
+    def consumers_any?(& : Client::Channel::Consumer -> Bool) : Bool
+      @consumers.any? { |c| yield c }
+    end
+
+    def each_consumer(& : Client::Channel::Consumer ->) : Nil
+      @consumers.each { |c| yield c }
+    end
+
+    def first_consumer : Client::Channel::Consumer?
+      @consumers.first?
+    end
+
+    # BasicGet unacked accessors
+
+    def basic_get_unacked_push(msg : UnackedMessage) : Nil
+      @basic_get_unacked << msg
+    end
+
+    def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
+      @basic_get_unacked.reject! { |u| yield u }
+    end
+
+    def basic_get_unacked_size : Int32
+      @basic_get_unacked.size
+    end
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
@@ -139,7 +180,7 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     end
 
-    getter name, arguments, vhost, consumers
+    getter name, arguments, vhost
     getter? auto_delete, exclusive
     getter? closed = false
     getter state = QueueState::Running
@@ -433,6 +474,8 @@ module LavinMQ::AMQP
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
+        @exclusive_consumer = false
+        @has_priority_consumers = false
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
@@ -626,11 +669,6 @@ module LavinMQ::AMQP
       end
     end
 
-    private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
-      has_expired?(msg, requeue)
-    end
-
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
       return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
       if expire_at = expire_at(msg)
@@ -764,16 +802,16 @@ module LavinMQ::AMQP
       raise ClosedError.new(cause: ex)
     end
 
-    def unacked_messages
-      unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
-        c.unacked_messages.each.compact_map do |u|
+    def unacked_messages : Array(UnackedMessage)
+      result = consumers.select(AMQP::Consumer).flat_map do |c|
+        c.unacked_messages.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer
             UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
           end
         end
       end
-      unacked_messages.chain(self.basic_get_unacked.each)
+      result.concat(@basic_get_unacked.to_a)
     end
 
     private def with_delivery_count_header(env) : Envelope?
@@ -814,12 +852,15 @@ module LavinMQ::AMQP
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
-          expire_msg(sp, :expired)
+        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
+          env = Envelope.new(sp, msg, false)
+          expire_msg(env, :expired)
         else
           if delivery_limit = @delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
-              return expire_msg(sp, :delivery_limit)
+              env = Envelope.new(sp, msg, false)
+              return expire_msg(env, :delivery_limit)
             end
           end
           @msg_store_lock.synchronize do

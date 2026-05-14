@@ -1,4 +1,4 @@
-require "socket/address"
+require "socket"
 
 module LavinMQ
   module Auth

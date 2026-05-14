@@ -91,13 +91,7 @@ module LavinMQ
             context
           end
         rescue File::NotFoundError
-          # Try serving compiled view (e.g. /overview -> /overview.html)
-          # Use `make views` to compile views to static/.
-          return if file_path.ends_with?(".html")
-          view = file_path.lstrip("/")
-          view = "overview" if view.empty?
-          file_path = "/#{view}.html"
-          serve(context, file_path)
+          nil
         end
       {% end %}
 

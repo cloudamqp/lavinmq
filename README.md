@@ -59,7 +59,7 @@ Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinm
 You can install LavinMQ from [Homebrew](https://brew.sh/) with `brew`:
 
 ```sh
-brew install cloudamqp/cloudamqp/lavinmq
+brew install lavinmq
 ```
 
 ### Docker
