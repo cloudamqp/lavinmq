@@ -322,6 +322,7 @@ module LavinMQ
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
+      Log.debug { "Configuring TLS context with #{@config.tls_cert_path}"}
       case @config.tls_min_version
       when "1.0"
         ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
