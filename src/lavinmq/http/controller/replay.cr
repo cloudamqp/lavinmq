@@ -51,6 +51,18 @@ module LavinMQ
           end
         end
 
+        patch "/api/replay/:vhost/:name/:id" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_policymaker(context, user(context), vhost)
+            q = find_replay_queue(context, params, vhost)
+            env = find_envelope_or_404(context, q, params["id"])
+            body = parse_body(context)
+            force = context.request.query_params["force"]? == "true"
+            patch_envelope(context, q, env, body, force)
+            context.response.status_code = 204
+          end
+        end
+
         post "/api/replay/:vhost/:name/:id/release" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
@@ -61,6 +73,91 @@ module LavinMQ
             context.response.status_code = 204
           end
         end
+      end
+
+      EDITABLE_CONTENT_TYPES = {
+        "text/",
+        "application/json",
+        "application/xml",
+        "application/x-www-form-urlencoded",
+      }
+
+      private def editable_content_type?(content_type : String?) : Bool
+        return false unless content_type
+        EDITABLE_CONTENT_TYPES.any? do |allowed|
+          allowed.ends_with?("/") ? content_type.starts_with?(allowed) : content_type == allowed
+        end
+      end
+
+      private def patch_envelope(context, q, env, body : JSON::Any, force : Bool)
+        msg = env.message
+        new_body_str = body["body"]?.try(&.as_s?)
+        new_headers = body["headers"]?.try(&.as_h?)
+        unless force || new_body_str.nil? || editable_content_type?(msg.properties.content_type)
+          halt(context, 415, {error:  "unsupported_content_type",
+                              reason: "content_type '#{msg.properties.content_type}' is not editable; pass ?force=true to override"})
+        end
+
+        body_bytes = new_body_str ? new_body_str.to_slice : msg.body
+        new_props = build_patched_properties(msg.properties, new_headers)
+        new_msg = LavinMQ::Message.new(
+          msg.timestamp,
+          msg.exchange_name,
+          msg.routing_key,
+          new_props,
+          body_bytes.bytesize.to_u64,
+          IO::Memory.new(body_bytes),
+        )
+        q.publish(new_msg)
+        q.delete_envelope(env.segment_position)
+      end
+
+      # Builds a Properties whose:
+      # * x-source-* / x-source-timestamp / x-source-rule-id are
+      #   carried over unchanged so origin metadata survives the edit.
+      # * x-replay-id is dropped so the intake stamp generates a fresh
+      #   id (clients addressing the message by id won't keep working
+      #   against the stale id).
+      # * Other user-authored headers are replaced by `new_headers`
+      #   when provided; otherwise carried over verbatim.
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def build_patched_properties(p, new_headers)
+        result_headers = AMQ::Protocol::Table.new
+        if existing = p.headers
+          existing.each do |k, v|
+            next if k == LavinMQ::Replay::HEADER_REPLAY_ID
+            result_headers[k] = v if k.starts_with?("x-source-")
+          end
+        end
+        if new_headers
+          new_headers.each do |k, v|
+            next if k == LavinMQ::Replay::HEADER_REPLAY_ID
+            next if k.starts_with?("x-source-")
+            result_headers[k] = v.as_s? || v.to_s
+          end
+        elsif existing = p.headers
+          existing.each do |k, v|
+            next if k == LavinMQ::Replay::HEADER_REPLAY_ID
+            next if k.starts_with?("x-source-")
+            result_headers[k] = v
+          end
+        end
+        AMQ::Protocol::Properties.new(
+          content_type: p.content_type,
+          content_encoding: p.content_encoding,
+          headers: result_headers,
+          delivery_mode: p.delivery_mode,
+          priority: p.priority,
+          correlation_id: p.correlation_id,
+          reply_to: p.reply_to,
+          expiration: p.expiration,
+          message_id: p.message_id,
+          timestamp: p.timestamp_raw,
+          type: p.type,
+          user_id: p.user_id,
+          app_id: p.app_id,
+          reserved1: p.reserved1,
+        )
       end
 
       private def release_envelope(context, q, env, vhost, reset_replay : Bool)

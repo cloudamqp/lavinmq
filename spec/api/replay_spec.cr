@@ -205,6 +205,130 @@ describe "replay HTTP API" do
     end
   end
 
+  describe "PATCH /api/replay/:vhost/:name/:id" do
+    private_text_props = AMQP::Client::Properties.new(
+      content_type: "application/json",
+      headers: AMQP::Client::Arguments.new({
+        "x-source-queue"       => "src",
+        "x-source-exchange"    => "",
+        "x-source-routing-key" => "src",
+        "user-key"             => "old-value",
+      }),
+    )
+
+    it "edits the body for editable content types" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("rep-patch", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.basic_publish_confirm(%({"a":1}), "", "rep-patch", props: private_text_props)
+        end
+        sleep 20.milliseconds
+        old_id = replay_id_of(s, "rep-patch")
+        body = %({"body":"{\\"a\\":2}"})
+        response = http.patch("/api/replay/%2f/rep-patch/#{old_id}", body: body)
+        response.status_code.should eq 204
+        new_id = replay_id_of(s, "rep-patch")
+        new_id.should_not eq old_id
+        get = http.get("/api/replay/%2f/rep-patch/#{new_id}")
+        get.status_code.should eq 200
+        data = JSON.parse(get.body)
+        data["payload"].as_s.should eq %({"a":2})
+        data["properties"]["headers"]["x-source-queue"].as_s.should eq "src"
+      end
+    end
+
+    it "replaces user headers but preserves x-source-*" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("rep-headers", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.basic_publish_confirm("p", "", "rep-headers", props: private_text_props)
+        end
+        sleep 20.milliseconds
+        old_id = replay_id_of(s, "rep-headers")
+        body = %({"headers":{"user-key":"new-value","added":"yes"}})
+        http.patch("/api/replay/%2f/rep-headers/#{old_id}", body: body).status_code.should eq 204
+        new_id = replay_id_of(s, "rep-headers")
+        get = JSON.parse(http.get("/api/replay/%2f/rep-headers/#{new_id}").body)
+        h = get["properties"]["headers"]
+        h["x-source-queue"].as_s.should eq "src"
+        h["user-key"].as_s.should eq "new-value"
+        h["added"].as_s.should eq "yes"
+      end
+    end
+
+    it "ignores attempts to set x-source-* via headers" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("rep-x-source", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.basic_publish_confirm("p", "", "rep-x-source", props: private_text_props)
+        end
+        sleep 20.milliseconds
+        old_id = replay_id_of(s, "rep-x-source")
+        body = %({"headers":{"x-source-queue":"hacker"}})
+        http.patch("/api/replay/%2f/rep-x-source/#{old_id}", body: body).status_code.should eq 204
+        new_id = replay_id_of(s, "rep-x-source")
+        get = JSON.parse(http.get("/api/replay/%2f/rep-x-source/#{new_id}").body)
+        get["properties"]["headers"]["x-source-queue"].as_s.should eq "src"
+      end
+    end
+
+    it "rejects body edit for non-editable content types without force" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("rep-binary", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          props = AMQP::Client::Properties.new(
+            content_type: "application/octet-stream",
+            headers: AMQP::Client::Arguments.new({
+              "x-source-queue"       => "src",
+              "x-source-exchange"    => "",
+              "x-source-routing-key" => "src",
+            }),
+          )
+          ch.basic_publish_confirm("\x01\x02", "", "rep-binary", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "rep-binary")
+        response = http.patch("/api/replay/%2f/rep-binary/#{id}", body: %({"body":"text"}))
+        response.status_code.should eq 415
+      end
+    end
+
+    it "force=true overrides the content-type gate" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("rep-force", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          props = AMQP::Client::Properties.new(
+            content_type: "application/octet-stream",
+            headers: AMQP::Client::Arguments.new({
+              "x-source-queue"       => "src",
+              "x-source-exchange"    => "",
+              "x-source-routing-key" => "src",
+            }),
+          )
+          ch.basic_publish_confirm("\x01\x02", "", "rep-force", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "rep-force")
+        response = http.patch("/api/replay/%2f/rep-force/#{id}?force=true", body: %({"body":"new"}))
+        response.status_code.should eq 204
+      end
+    end
+
+    it "returns 404 for an unknown id" do
+      with_http_server do |http, s|
+        publish_replay(s, "rep-patch-miss", "x")
+        sleep 20.milliseconds
+        response = http.patch("/api/replay/%2f/rep-patch-miss/no-such-id", body: %({"body":"y"}))
+        response.status_code.should eq 404
+      end
+    end
+  end
+
   describe "DELETE /api/replay/:vhost/:name/:id" do
     it "purges the single message" do
       with_http_server do |http, s|

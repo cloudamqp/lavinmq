@@ -219,6 +219,10 @@ struct HTTPSpecHelper
     HTTP::Client.delete(test_uri(path), headers: test_headers(headers), body: body)
   end
 
+  def patch(path, headers = nil, body = nil)
+    HTTP::Client.patch(test_uri(path), headers: test_headers(headers), body: body)
+  end
+
   def exec(request : HTTP::Request)
     HTTP::Client.new(URI.parse "http://#{@addr}").exec(request)
   end
