@@ -290,6 +290,22 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "returns 400 when importing a user with non-string password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":123,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":"","hashing_algorithm":42,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
     it "imports vhosts" do
       with_http_server do |http, s|
         s.vhosts.delete("def")
