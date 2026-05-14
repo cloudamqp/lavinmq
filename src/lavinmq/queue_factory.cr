@@ -1,6 +1,7 @@
 require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
+require "./amqp/queue/replay_queue"
 require "./amqp/stream/stream"
 require "./mqtt/session"
 
@@ -21,6 +22,8 @@ module LavinMQ
     private def self.make_durable(vhost, frame)
       if stream_queue? frame
         AMQP::Stream.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+      elsif replay_queue? frame
+        AMQP::ReplayQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         if prio_queue? frame
@@ -34,6 +37,9 @@ module LavinMQ
     private def self.make_queue(vhost, frame)
       if stream_queue? frame
         raise Error::PreconditionFailed.new("A stream cannot be non-durable")
+      end
+      if replay_queue? frame
+        raise Error::PreconditionFailed.new("A replay queue cannot be non-durable")
       end
       warn_if_unsupported_queue_type frame
       if prio_queue? frame
@@ -49,6 +55,10 @@ module LavinMQ
 
     private def self.stream_queue?(frame) : Bool
       frame.arguments["x-queue-type"]? == "stream"
+    end
+
+    private def self.replay_queue?(frame) : Bool
+      frame.arguments["x-queue-type"]? == "replay"
     end
 
     private def self.mqtt_session?(frame) : Bool
