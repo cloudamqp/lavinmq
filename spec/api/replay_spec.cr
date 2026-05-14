@@ -205,6 +205,45 @@ describe "replay HTTP API" do
     end
   end
 
+  describe "counters" do
+    it "release bumps replay_released_count" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("cnt-source", true, false)
+        publish_replay(s, "cnt-rel", "p", source: "cnt-source")
+        sleep 20.milliseconds
+        id = replay_id_of(s, "cnt-rel")
+        http.post("/api/replay/%2f/cnt-rel/#{id}/release", body: "").status_code.should eq 204
+        q = s.vhosts["/"].queue?("cnt-rel").as(LavinMQ::AMQP::ReplayQueue)
+        q.replay_released_count.should eq 1
+        q.replay_edited_count.should eq 0
+      end
+    end
+
+    it "patch bumps replay_edited_count" do
+      with_http_server do |http, s|
+        props = AMQP::Client::Properties.new(
+          content_type: "application/json",
+          headers: AMQP::Client::Arguments.new({
+            "x-source-queue"       => "src",
+            "x-source-exchange"    => "",
+            "x-source-routing-key" => "src",
+          }),
+        )
+        with_channel(s) do |ch|
+          ch.queue("cnt-edit", durable: true,
+            args: AMQP::Client::Arguments.new({"x-queue-type" => "replay"}))
+          ch.basic_publish_confirm(%({"a":1}), "", "cnt-edit", props: props)
+        end
+        sleep 20.milliseconds
+        id = replay_id_of(s, "cnt-edit")
+        http.patch("/api/replay/%2f/cnt-edit/#{id}", body: %({"body":"{\\"a\\":2}"})).status_code.should eq 204
+        q = s.vhosts["/"].queue?("cnt-edit").as(LavinMQ::AMQP::ReplayQueue)
+        q.replay_edited_count.should eq 1
+        q.replay_released_count.should eq 0
+      end
+    end
+  end
+
   describe "PATCH /api/replay/:vhost/:name/:id" do
     private_text_props = AMQP::Client::Properties.new(
       content_type: "application/json",

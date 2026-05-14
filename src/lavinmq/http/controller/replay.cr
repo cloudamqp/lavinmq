@@ -110,6 +110,7 @@ module LavinMQ
         )
         q.publish(new_msg)
         q.delete_envelope(env.segment_position)
+        q.record_edit
       end
 
       # Builds a Properties whose:
@@ -205,6 +206,7 @@ module LavinMQ
         )
         vhost.publish(new_msg)
         q.delete_envelope(env.segment_position)
+        q.record_release
       end
 
       private def overview(q, vhost)

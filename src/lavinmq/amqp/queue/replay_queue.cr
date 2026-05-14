@@ -59,5 +59,13 @@ module LavinMQ::AMQP
     def delete_envelope(sp : SegmentPosition) : Nil
       @msg_store_lock.synchronize { @msg_store.delete_ready(sp) }
     end
+
+    def record_release : Nil
+      @replay_released_count.add(1, :relaxed)
+    end
+
+    def record_edit : Nil
+      @replay_edited_count.add(1, :relaxed)
+    end
   end
 end
