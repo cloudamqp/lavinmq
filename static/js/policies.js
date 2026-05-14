@@ -14,6 +14,26 @@ if (vhost && vhost !== '_all') {
   url += HTTP.url`/${vhost}`
 }
 const policiesDataSource = new UrlDataSource(url)
+
+const showManagedToggle = document.querySelector('#show-managed-policies')
+if (showManagedToggle) {
+  const stored = window.sessionStorage.getItem('show-managed-policies') === 'true'
+  showManagedToggle.checked = stored
+  const baseQueryParams = policiesDataSource.queryParams.bind(policiesDataSource)
+  policiesDataSource.queryParams = function (params) {
+    const merged = baseQueryParams(params)
+    if (showManagedToggle.checked) {
+      merged.set('include_managed', 'true')
+    } else {
+      merged.delete('include_managed')
+    }
+    return merged
+  }
+  showManagedToggle.addEventListener('change', () => {
+    window.sessionStorage.setItem('show-managed-policies', String(showManagedToggle.checked))
+    policiesDataSource.reload({ updateState: false })
+  })
+}
 const tableOptions = {
   dataSource: policiesDataSource,
   keyColumns: ['vhost', 'name'],
@@ -31,25 +51,35 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
 
   const buttons = document.createElement('div')
   buttons.classList.add('buttons')
-  const deleteBtn = DOM.button.delete({
-    click: function () {
-      const name = item.name
-      const vhost = item.vhost
-      const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
-      if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
-        HTTP.request('DELETE', url)
-          .then(() => tr.parentNode.removeChild(tr))
+  if (item.name.startsWith('__queue-filter__')) {
+    const queueName = item.name.substring('__queue-filter__'.length)
+    const link = document.createElement('a')
+    link.href = HTTP.url`queue#vhost=${item.vhost}&name=${queueName}`
+    link.className = 'btn btn-outlined'
+    link.textContent = 'Manage on queue'
+    link.title = 'Auto-managed by the queue\'s Live Filter card'
+    buttons.append(link)
+  } else {
+    const deleteBtn = DOM.button.delete({
+      click: function () {
+        const name = item.name
+        const vhost = item.vhost
+        const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
+        if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
+          HTTP.request('DELETE', url)
+            .then(() => tr.parentNode.removeChild(tr))
+        }
       }
-    }
-  })
-  const editBtn = DOM.button.edit({
-    click: function () {
-      Form.editItem('#createPolicy', item, {
-        definition: item => Helpers.formatJSONargument(item.definition || {})
-      })
-    }
-  })
-  buttons.append(editBtn, deleteBtn)
+    })
+    const editBtn = DOM.button.edit({
+      click: function () {
+        Form.editItem('#createPolicy', item, {
+          definition: item => Helpers.formatJSONargument(item.definition || {})
+        })
+      }
+    })
+    buttons.append(editBtn, deleteBtn)
+  }
   Table.renderCell(tr, 6, buttons, 'right')
 })
 

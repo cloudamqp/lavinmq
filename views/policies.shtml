@@ -17,6 +17,10 @@
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
+          <label class="flex flex-row items-center gap-2">
+            <input type="checkbox" id="show-managed-policies">
+            <span>Show auto-managed policies</span>
+          </label>
         </div>
         <div class="table-wrapper">
           <div id="table-error"></div>
