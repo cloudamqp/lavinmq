@@ -1,4 +1,5 @@
 require "digest/sha1"
+require "sync/exclusive"
 require "sync/shared"
 require "../../logger"
 require "../../segment_position"
@@ -65,7 +66,7 @@ module LavinMQ::AMQP
     @consumers : Sync::Shared(Array(Client::Channel::Consumer)) = Sync::Shared.new(Array(Client::Channel::Consumer).new, :reentrant)
     @message_ttl_change = ::Channel(Nil).new
 
-    @basic_get_unacked = Deque(UnackedMessage).new
+    @basic_get_unacked : Sync::Exclusive(Deque(UnackedMessage)) = Sync::Exclusive.new(Deque(UnackedMessage).new, :unchecked)
 
     # Consumer accessors
 
@@ -100,15 +101,17 @@ module LavinMQ::AMQP
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil
-      @basic_get_unacked << msg
+      @basic_get_unacked.lock(&.push(msg))
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
-      @basic_get_unacked.reject! { |u| yield u }
+      @basic_get_unacked.lock do |d|
+        d.reject! { |u| yield u }
+      end
     end
 
     def basic_get_unacked_size : Int32
-      @basic_get_unacked.size
+      @basic_get_unacked.unsafe_get.size
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -506,7 +509,7 @@ module LavinMQ::AMQP
         @msg_store.close
       end
       @deliveries.clear
-      @basic_get_unacked.clear
+      @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -832,7 +835,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      result.concat(@basic_get_unacked.to_a)
+      result.concat(@basic_get_unacked.lock(&.to_a))
     end
 
     private def with_delivery_count_header(env) : Envelope?
