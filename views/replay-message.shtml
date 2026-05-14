@@ -1,0 +1,77 @@
+<!--#set var="TITLE" value="Replay message" -->
+<!DOCTYPE html>
+<html lang="en" class="replay">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/replay-message.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+        <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
+        <a id="back-link" class="btn btn-outlined" href="replay">&larr; Back to list</a>
+      </div>
+
+      <section class="card cols-6">
+        <h3>Origin metadata</h3>
+        <table class="details-table">
+          <tr><th>Replay id</th><td id="m-id"></td></tr>
+          <tr><th>Source queue</th><td id="m-source"></td></tr>
+          <tr><th>Source exchange</th><td id="m-exchange"></td></tr>
+          <tr><th>Source routing key</th><td id="m-routing-key"></td></tr>
+          <tr><th>Rule id</th><td id="m-rule-id"></td></tr>
+          <tr><th>Quarantined at</th><td id="m-timestamp"></td></tr>
+          <tr><th>Delivery count</th><td id="m-delivery-count"></td></tr>
+          <tr><th>Content type</th><td id="m-content-type"></td></tr>
+          <tr><th>Payload bytes</th><td id="m-payload-bytes"></td></tr>
+        </table>
+      </section>
+
+      <section class="card cols-6">
+        <h3>Properties</h3>
+        <pre id="m-properties" class="arguments"></pre>
+      </section>
+
+      <section class="card cols-12">
+        <h3>Edit message</h3>
+        <form method="patch" id="patchMessage" class="form">
+          <label>
+            <span>Body (only editable for text content types &mdash; check the box below to override)</span>
+            <textarea name="body" rows="10"></textarea>
+          </label>
+          <label>
+            <span>User headers (JSON object; x-source-* and x-replay-id are preserved automatically)</span>
+            <textarea name="headers" rows="4" placeholder='{"x-fixed":"yes"}'></textarea>
+          </label>
+          <label class="flex flex-row items-center gap-2">
+            <input type="checkbox" name="force">
+            <span>Force edit even for non-editable content type</span>
+          </label>
+          <button type="submit" class="btn btn-green">Save</button>
+        </form>
+      </section>
+
+      <section class="card cols-6">
+        <h3>Release back to source</h3>
+        <p class="card-desc">Republishes to: <strong id="m-release-target">&hellip;</strong></p>
+        <p class="card-desc">Keeps <code>x-source-queue</code> so the source's filter (if any) skips it on the next pass.</p>
+        <form method="post" id="releaseMessage" class="form">
+          <label class="flex flex-row items-center gap-2">
+            <input type="checkbox" name="reset-replay">
+            <span>Reset replay marker (let source's filter re-evaluate)</span>
+          </label>
+          <button type="submit" class="btn btn-green">Release</button>
+        </form>
+      </section>
+
+      <section class="card cols-6">
+        <h3>Delete</h3>
+        <form method="delete" id="deleteMessage" class="form">
+          <button type="submit" class="btn btn-red">Delete this message</button>
+        </form>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

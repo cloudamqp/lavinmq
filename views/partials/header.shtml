@@ -104,6 +104,11 @@
         <span class="menu-item-label menu-tooltip-label">Queues</span>
       </a>
     </li>
+    <li class="replay">
+      <a href="replay" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Replay</span>
+      </a>
+    </li>
 
     <li class="menu-group"><span>Bridges</span></li>
     <li class="shovels">

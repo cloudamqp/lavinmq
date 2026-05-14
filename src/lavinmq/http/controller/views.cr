@@ -30,6 +30,8 @@ module LavinMQ
         static_view "/user"
         static_view "/policies"
         static_view "/operator-policies"
+        static_view "/replay"
+        static_view "/replay-message"
       end
 
       macro static_view(path, *, auth_required = true, view = nil)
