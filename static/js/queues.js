@@ -145,7 +145,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   if (item.policy) {
     policyLink = document.createElement('a')
     if (item.policy.startsWith('__queue-filter__')) {
-      policyLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
+      policyLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}&scrollTo=filter`
       policyLink.textContent = 'filter (managed)'
       policyLink.title = item.policy
     } else {

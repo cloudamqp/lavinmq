@@ -54,7 +54,7 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
   if (item.name.startsWith('__queue-filter__')) {
     const queueName = item.name.substring('__queue-filter__'.length)
     const link = document.createElement('a')
-    link.href = HTTP.url`queue#vhost=${item.vhost}&name=${queueName}`
+    link.href = HTTP.url`queue#vhost=${item.vhost}&name=${queueName}&scrollTo=filter`
     link.className = 'btn btn-outlined'
     link.textContent = 'Manage on queue'
     link.title = 'Auto-managed by the queue\'s Live Filter card'

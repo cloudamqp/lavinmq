@@ -128,9 +128,13 @@ function updateQueue (all) {
         if (item.policy) {
           const policyLink = document.createElement('a')
           if (item.policy.startsWith('__queue-filter__')) {
-            policyLink.href = '#setFilter'
+            policyLink.href = '#'
             policyLink.textContent = 'filter (managed)'
             policyLink.title = item.policy
+            policyLink.addEventListener('click', evt => {
+              evt.preventDefault()
+              document.querySelector('#setFilter').scrollIntoView({ behavior: 'smooth', block: 'start' })
+            })
           } else {
             policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
             policyLink.textContent = item.policy
@@ -464,3 +468,10 @@ document.querySelector('#removeFilter').addEventListener('click', function () {
 })
 
 loadFilter()
+
+if (search.get('scrollTo') === 'filter') {
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector('#setFilter')
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
