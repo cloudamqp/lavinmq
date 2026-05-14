@@ -31,6 +31,11 @@ module LavinMQ::AMQP
         property dlx : String? = nil
         property dlrk : String? = nil
         @tasks = Tasks.new
+        # Serializes route+drain so two fibers (e.g., publish-overflow and
+        # consumer-reject) can't interleave on the same DeadLetterer's @tasks
+        # and break chain ordering. Reentrant because drain_context recurses
+        # via publish_internal(dlx_tasks: @tasks) into route().
+        @route_lock = Mutex.new(:reentrant)
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -61,52 +66,54 @@ module LavinMQ::AMQP
 
         # ameba:disable Metrics/CyclomaticComplexity
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
-          # No dead letter exchange => nothing to do
-          return routed.call unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
+          @route_lock.synchronize do
+            # No dead letter exchange => nothing to do
+            return routed.call unless dlx = (msg.dlx || dlx())
+            ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
 
-          dlrk = msg.dlrk || dlrk()
+            dlrk = msg.dlrk || dlrk()
 
-          props = create_message_properties(msg, reason)
-          routing_headers = props.headers
+            props = create_message_properties(msg, reason)
+            routing_headers = props.headers
 
-          # If a dead lettering key exists, no routing to CC/BCC should be done
-          # but the header should be maintained, so we must clone and remove them
-          # for routing
-          if dlrk && (rk = routing_headers.try &.clone)
-            rk.delete("CC")
-            rk.delete("BCC")
-            routing_headers = rk
-          end
-          routing_rk = (dlrk || msg.routing_key).to_s
-
-          # We're not publishing to an exchange, the queue itself is responsible
-          # for delivering to destinations. This is to be able to do correct
-          # cycle detection and to not create a lot of faulty stats.
-          # This means that no delay, consistent hash check or such is performed
-          # if the dead letter exchange has any of these features enabled.
-          queues = Set(AMQP::Queue).new
-          ex.find_queues(routing_rk, routing_headers, queues)
-          return routed.call if queues.empty?
-
-          first_in_chain = dlx_tasks.nil?
-          ctx = dlx_tasks || @tasks
-
-          dead_letter_msg = Message.new(
-            RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-            props, msg.bodysize, IO::Memory.new(msg.body))
-
-          queues.each do |q|
-            if cycle?(q.name, props, reason)
-              @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
-            else
-              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx.enqueue({q, dead_letter_msg})
+            # If a dead lettering key exists, no routing to CC/BCC should be done
+            # but the header should be maintained, so we must clone and remove them
+            # for routing
+            if dlrk && (rk = routing_headers.try &.clone)
+              rk.delete("CC")
+              rk.delete("BCC")
+              routing_headers = rk
             end
-          end
-          ctx.enqueue(routed)
+            routing_rk = (dlrk || msg.routing_key).to_s
 
-          drain_context if first_in_chain
+            # We're not publishing to an exchange, the queue itself is responsible
+            # for delivering to destinations. This is to be able to do correct
+            # cycle detection and to not create a lot of faulty stats.
+            # This means that no delay, consistent hash check or such is performed
+            # if the dead letter exchange has any of these features enabled.
+            queues = Set(AMQP::Queue).new
+            ex.find_queues(routing_rk, routing_headers, queues)
+            return routed.call if queues.empty?
+
+            first_in_chain = dlx_tasks.nil?
+            ctx = dlx_tasks || @tasks
+
+            dead_letter_msg = Message.new(
+              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
+              props, msg.bodysize, IO::Memory.new(msg.body))
+
+            queues.each do |q|
+              if cycle?(q.name, props, reason)
+                @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
+              else
+                @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
+                ctx.enqueue({q, dead_letter_msg})
+              end
+            end
+            ctx.enqueue(routed)
+
+            drain_context if first_in_chain
+          end
         end
 
         private def drain_context
