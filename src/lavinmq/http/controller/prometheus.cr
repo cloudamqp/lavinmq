@@ -533,6 +533,26 @@ module LavinMQ
           end
         end
 
+        writer.write_header("detailed_queue_replay_released_total", "counter",
+          "Number of messages released from a replay queue back to their source")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::ReplayQueue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_replay_released_total", q.replay_released_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_replay_edited_total", "counter",
+          "Number of messages edited in place in a replay queue")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            next unless q.is_a?(LavinMQ::AMQP::ReplayQueue)
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_replay_edited_total", q.replay_edited_count, labels)
+          end
+        end
+
         detailed_queue_filter_metrics(vhosts, writer)
       end
 

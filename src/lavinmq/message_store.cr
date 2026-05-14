@@ -161,6 +161,50 @@ module LavinMQ
       end
     end
 
+    # Yields every non-deleted Envelope by walking each segment file.
+    # Intended for low-volume admin scans (e.g. inspecting a replay
+    # queue's contents through the management API); not for hot
+    # delivery paths. Should not be called while consumers are active
+    # on the same queue since the order-of-delivery contract no longer
+    # holds during a full segment walk.
+    def each_envelope(& : Envelope ->) : Nil
+      raise ClosedError.new if @closed
+      header_size = sizeof(Int32).to_u32 # Schema::VERSION prefix at segment head
+      @segments.each do |seg_id, mfile|
+        pos = header_size
+        size = mfile.size.to_u32
+        while pos < size
+          begin
+            msg = BytesMessage.from_bytes(mfile.to_slice + pos)
+          rescue AMQ::Protocol::Error::FrameDecode | IndexError
+            break
+          end
+          break if msg.timestamp.zero?
+          sp = SegmentPosition.make(seg_id, pos, msg)
+          yield Envelope.new(sp, msg, redelivered: false) unless deleted?(seg_id, pos)
+          pos += sp.bytesize.to_u32
+        end
+      end
+    end
+
+    # Removes a still-ready (never shifted) message in place. Used by
+    # admin paths that hold an sp without having consumed it via
+    # shift?. Also marks the position in the in-memory @deleted map so
+    # subsequent each_envelope scans skip it without needing a reload.
+    def delete_ready(sp : SegmentPosition) : Nil
+      raise ClosedError.new if @closed
+      @bytesize -= sp.bytesize
+      @size -= 1
+      @empty.set true if @size.zero?
+      positions = @deleted[sp.segment] ||= [] of UInt32
+      if (idx = positions.bsearch_index { |p| p >= sp.position }).nil?
+        positions << sp.position
+      elsif positions[idx] != sp.position
+        positions.insert(idx, sp.position)
+      end
+      delete(sp)
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]

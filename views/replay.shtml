@@ -1,0 +1,64 @@
+<!--#set var="TITLE" value="Replay" -->
+<!DOCTYPE html>
+<html lang="en" class="replay">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/replay.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+        <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+
+      <section class="card" id="container-list">
+        <div class="table-header">
+          <h2>Replay queues</h2>
+        </div>
+        <p class="card-desc">Queues declared with <code>x-queue-type: replay</code>. Click a row to inspect its messages.</p>
+        <div class="table-wrapper">
+          <table id="containers-table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Vhost</th>
+                <th class="left">Name</th>
+                <th>Messages</th>
+                <th>Durable</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card hide" id="container-detail">
+        <div class="table-header">
+          <h2 id="container-name-heading"></h2>
+          <a href="replay" class="btn btn-outlined">&larr; Back to list</a>
+        </div>
+        <p class="card-desc"><span id="container-message-count">0</span> message(s) in this replay queue.</p>
+        <div class="table-wrapper">
+          <table id="messages-table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Id</th>
+                <th class="left">Source</th>
+                <th class="left">Exchange</th>
+                <th class="left">Routing key</th>
+                <th class="left">Rule</th>
+                <th>Delivery #</th>
+                <th>Bytes</th>
+                <th class="left">Content type</th>
+                <th class="left">Quarantined at</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>
