@@ -1,6 +1,7 @@
 require "../controller"
 require "../../sortable_json"
 require "../../shovel/store"
+require "../../queue_filter/predicate"
 
 module LavinMQ
   module HTTP
@@ -182,6 +183,8 @@ module LavinMQ
               case k
               when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
                 bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
+              when "message-filter"
+                validate_message_filter_definition(context, k, definition[k])
               else
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
@@ -259,6 +262,15 @@ module LavinMQ
             context.response.status_code = 204
           end
         end
+      end
+
+      private def validate_message_filter_definition(context, key, value : JSON::Any)
+        bad_request(context, "Policy definition '#{key}' should be a JSON object") if value.as_h?.nil?
+        QueueFilter::Rule.parse(value.to_json)
+      rescue ex : LavinMQ::Error::PreconditionFailed
+        bad_request(context, "Policy definition '#{key}': #{ex.message}")
+      rescue ex : JSON::ParseException
+        bad_request(context, "Policy definition '#{key}': invalid JSON (#{ex.message})")
       end
 
       private def map_parameter(vhost, p)
