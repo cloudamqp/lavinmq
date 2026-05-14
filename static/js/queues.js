@@ -144,8 +144,14 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
-    policyLink.textContent = item.policy
+    if (item.policy.startsWith('__queue-filter__')) {
+      policyLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
+      policyLink.textContent = 'filter (managed)'
+      policyLink.title = item.policy
+    } else {
+      policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
+      policyLink.textContent = item.policy
+    }
   }
   Table.renderCell(tr, 4, policyLink, 'center')
   Table.renderCell(tr, 5, item.consumers, 'right')

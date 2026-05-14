@@ -149,13 +149,16 @@ module LavinMQ
           user = user(context)
           refuse_unless_policymaker(context, user)
           arr = vhosts(user).flat_map(&.policies.values)
+          arr = filter_managed_policies(arr, context) unless include_managed_policies?(context)
           page(context, arr)
         end
 
         get "/api/policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, vhost.policies.values)
+            arr = vhost.policies.values
+            arr = filter_managed_policies(arr, context) unless include_managed_policies?(context)
+            page(context, arr)
           end
         end
 
@@ -262,6 +265,16 @@ module LavinMQ
             context.response.status_code = 204
           end
         end
+      end
+
+      MANAGED_FILTER_POLICY_PREFIX = "__queue-filter__"
+
+      private def include_managed_policies?(context) : Bool
+        context.request.query_params["include_managed"]? == "true"
+      end
+
+      private def filter_managed_policies(policies, context)
+        policies.reject(&.name.starts_with?(MANAGED_FILTER_POLICY_PREFIX))
       end
 
       private def validate_message_filter_definition(context, key, value : JSON::Any)

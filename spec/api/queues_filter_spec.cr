@@ -111,3 +111,39 @@ describe "queue filter HTTP API" do
     end
   end
 end
+describe "auto-managed filter policies" do
+  it "are hidden from default /api/policies listing" do
+    with_http_server do |http, s|
+      s.vhosts["/"].declare_queue("filter-hide", true, false)
+      http.put("/api/queues/%2f/filter-hide/filter",
+        body: %({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))
+      response = http.get("/api/policies/%2f")
+      response.status_code.should eq 200
+      names = JSON.parse(response.body).as_a.map(&.["name"].as_s)
+      names.includes?("__queue-filter__filter-hide").should be_false
+    end
+  end
+
+  it "appear when include_managed=true is set" do
+    with_http_server do |http, s|
+      s.vhosts["/"].declare_queue("filter-show", true, false)
+      http.put("/api/queues/%2f/filter-show/filter",
+        body: %({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))
+      response = http.get("/api/policies/%2f?include_managed=true")
+      response.status_code.should eq 200
+      names = JSON.parse(response.body).as_a.map(&.["name"].as_s)
+      names.includes?("__queue-filter__filter-show").should be_true
+    end
+  end
+
+  it "are addressable directly by name" do
+    with_http_server do |http, s|
+      s.vhosts["/"].declare_queue("filter-direct", true, false)
+      http.put("/api/queues/%2f/filter-direct/filter",
+        body: %({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))
+      response = http.get("/api/policies/%2f/__queue-filter__filter-direct")
+      response.status_code.should eq 200
+      JSON.parse(response.body)["definition"]["message-filter"].as_h["action"].as_s.should eq "drop"
+    end
+  end
+end

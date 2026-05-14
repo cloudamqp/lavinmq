@@ -127,8 +127,14 @@ function updateQueue (all) {
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
           const policyLink = document.createElement('a')
-          policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
-          policyLink.textContent = item.policy
+          if (item.policy.startsWith('__queue-filter__')) {
+            policyLink.href = '#setFilter'
+            policyLink.textContent = 'filter (managed)'
+            policyLink.title = item.policy
+          } else {
+            policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
+            policyLink.textContent = item.policy
+          }
           document.getElementById('q-policy').appendChild(policyLink)
         }
         if (item.operator_policy) {
