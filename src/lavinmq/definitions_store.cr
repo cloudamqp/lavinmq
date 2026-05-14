@@ -150,6 +150,10 @@ module LavinMQ
                   ex.unbind(q, binding.routing_key, binding.arguments)
                 end
               end
+              managed_policy_name = "__queue-filter__#{f.queue_name}"
+              if @vhost.policies.has_key?(managed_policy_name)
+                @vhost.delete_policy(managed_policy_name)
+              end
             end
             store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
             @vhost.event_tick(EventType::QueueDeleted) unless loading

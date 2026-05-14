@@ -111,6 +111,42 @@ describe "queue filter HTTP API" do
     end
   end
 end
+describe "queue deletion cleans up managed filter policy" do
+  it "removes the __queue-filter__<name> policy when the queue is deleted via HTTP" do
+    with_http_server do |http, s|
+      s.vhosts["/"].declare_queue("filter-cleanup-http", true, false)
+      http.put("/api/queues/%2f/filter-cleanup-http/filter",
+        body: %({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))
+      s.vhosts["/"].policies.has_key?("__queue-filter__filter-cleanup-http").should be_true
+      response = http.delete("/api/queues/%2f/filter-cleanup-http")
+      response.status_code.should eq 204
+      s.vhosts["/"].policies.has_key?("__queue-filter__filter-cleanup-http").should be_false
+    end
+  end
+
+  it "removes the managed policy when the queue is deleted via vhost.delete_queue" do
+    with_http_server do |http, s|
+      s.vhosts["/"].declare_queue("filter-cleanup-direct", true, false)
+      http.put("/api/queues/%2f/filter-cleanup-direct/filter",
+        body: %({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))
+      s.vhosts["/"].policies.has_key?("__queue-filter__filter-cleanup-direct").should be_true
+      s.vhosts["/"].delete_queue("filter-cleanup-direct")
+      s.vhosts["/"].policies.has_key?("__queue-filter__filter-cleanup-direct").should be_false
+    end
+  end
+
+  it "leaves user-authored policies untouched on queue delete" do
+    with_http_server do |_, s|
+      s.vhosts["/"].declare_queue("filter-cleanup-user", true, false)
+      defs = {"message-filter" => JSON.parse(%({"clauses":[{"key":"x","op":"exists"}],"action":"drop"}))} of String => JSON::Any
+      s.vhosts["/"].add_policy("user-pol", "^filter-cleanup-user$", "queues", defs, 10_i8)
+      s.vhosts["/"].delete_queue("filter-cleanup-user")
+      s.vhosts["/"].policies.has_key?("user-pol").should be_true
+      s.vhosts["/"].delete_policy("user-pol")
+    end
+  end
+end
+
 describe "auto-managed filter policies" do
   it "are hidden from default /api/policies listing" do
     with_http_server do |http, s|
