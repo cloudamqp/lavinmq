@@ -154,8 +154,9 @@ module LavinMQ
         users.as_a.each do |u|
           name = u["name"].as_s
           next if skip_existing && @amqp_server.users[name]?
-          pass_hash = u["password_hash"].as_s
-          hash_algo = u["hashing_algorithm"]?.try(&.as_s)
+          raise ArgumentError.new("Field 'password_hash' is required for each user") unless u["password_hash"]?
+          pass_hash = u["password_hash"].as_s? || ""
+          hash_algo = u["hashing_algorithm"]?.try(&.as_s?)
 
           # Support both array and comma-separated string formats for tags
           if tags = u["tags"]?.try &.as_s?
