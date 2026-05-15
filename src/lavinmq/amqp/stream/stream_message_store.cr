@@ -79,8 +79,21 @@ module LavinMQ::AMQP
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
-      mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
+      # `find_offset` is delegated from `Stream` without holding
+      # `@msg_store_lock`, so a new consumer's `initialize` can race against
+      # a publisher's `drop_segments_while`, which mutates @segments and
+      # @segment_first_offset. If we observe a torn snapshot — segment in
+      # @segments but no first_offset, or first_offset present but segment
+      # gone — fall through to the next segment rather than raising.
+      mfile = @segments[seg]?
+      first = @segment_first_offset[seg]?
+      if mfile.nil? || first.nil?
+        if next_seg = @segments.each_key.find { |sid| sid > seg }
+          return offset_at(next_seg, 4_u32, retried)
+        end
+        return {@last_offset, seg, pos}
+      end
+      offset = first
       mfile.pos = 4
       while mfile.pos < pos
         BytesMessage.skip(mfile)
@@ -292,17 +305,31 @@ module LavinMQ::AMQP
 
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
+        # Set the new segment's metadata BEFORE drop_overflow runs. If
+        # drop_overflow raised (e.g. inside cleanup_consumer_offsets) the
+        # entry would otherwise be left unset, and the *next* segment roll
+        # would call write_metadata_file → write_metadata → KeyError on this
+        # seg, wedging the queue: parent open_new_segment never advances
+        # @wfile_id past a failed write_metadata_file, so every subsequent
+        # push hits the same error forever.
+        new_seg = @segments.last_key
+        @segment_first_offset[new_seg] = @last_offset.zero? ? 1i64 : @last_offset
+        @segment_first_ts[new_seg] = RoughTime.unix_ms
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
-        @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
 
     private def write_metadata(io, seg)
       super
-      io.write_bytes @segment_first_offset[seg]
-      io.write_bytes @segment_first_ts[seg]
-      io.write_bytes @segment_last_ts[seg]
+      # Defensive fallbacks: if the entry is missing for any reason we'd
+      # rather write a plausible value than KeyError out of write_metadata,
+      # which would wedge the parent's open_new_segment (it never advances
+      # @wfile_id past a failure). produce_metadata rebuilds these fields
+      # from the segment file on startup, so a slightly stale value here is
+      # recoverable.
+      io.write_bytes(@segment_first_offset[seg]? || @last_offset)
+      io.write_bytes(@segment_first_ts[seg]? || RoughTime.unix_ms)
+      io.write_bytes(@segment_last_ts[seg]? || 0_i64)
     end
 
     def drop_overflow
