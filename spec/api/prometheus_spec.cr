@@ -187,6 +187,66 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose per-vhost message stats" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vms_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("q2", true, false)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("q1", durable: true)
+          q.publish_confirm "msg-a"
+          q.publish_confirm "msg-b"
+          q.publish_confirm "msg-c"
+          q.get(no_ack: true).should_not be_nil
+        end
+
+        raw = http.get("/metrics/detailed?family=vhost_message_stats").body
+        parsed = PrometheusSpecHelper.parse_prometheus(raw)
+
+        publishes = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_messages_published_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        publishes[:value].should eq 3
+
+        deliveries = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_messages_delivered_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        deliveries[:value].should eq 1
+
+        queues = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_queues" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        queues[:value].should eq 2
+      end
+    end
+
+    it "should label channel metrics with vhost and connection" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("ch_label_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("ch_q", durable: false, auto_delete: true)
+          q.subscribe(no_ack: false) { |_| }
+          wait_for { !ch.@consumers.empty? }
+
+          raw = http.get("/metrics/detailed?family=channel_metrics").body
+          lines = raw.lines.select(&.starts_with?("lavinmq_detailed_channel_consumers{"))
+
+          lines.size.should be > 0
+          relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
+          relevant.should_not be_nil
+          line = relevant.not_nil!
+          # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
+          line.should match(/connection="[^"]+"/)
+          line.should match(/channel="[^"]+"/)
+        end
+      end
+    end
+
     it "should group TYPE and HELP by metric name" do
       with_metrics_server do |http, s|
         vhost = s.vhosts.create("grouping_test")
