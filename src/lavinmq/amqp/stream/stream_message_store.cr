@@ -36,7 +36,11 @@ module LavinMQ::AMQP
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value - 1
+      # to_i64 first: when the trailing segment was opened but has no messages
+      # yet (4-byte schema header only) @segment_msg_count is 0_u32 and the
+      # subtraction would underflow UInt32. -1 here means "one before this
+      # segment's first offset", which is the last assigned offset.
+      offset += @segment_msg_count.last_value.to_i64 - 1
       offset
     end
 
@@ -394,8 +398,13 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
-        @segment_first_offset[seg] = @last_offset + 1
+      if empty? || @segment_msg_count[seg].zero?
+        # Whole queue empty, or this trailing segment was opened (4-byte
+        # Schema::VERSION header written by open_new_segment) but no message
+        # was written before shutdown — don't parse a msg out of an empty file.
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
+        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else

@@ -784,5 +784,34 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
       end
     end
+
+    it "loads when trailing segment has only the 4-byte schema header" do
+      with_datadir do |data_dir|
+        # Push 2 large msgs so segment 1 fills and segment 2 is opened.
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        2.times { store.push(msg) }
+        store.@segments.size.should be >= 2
+        last_seg_path = store.@segments.last_value.path
+        store.close
+
+        # Simulate "killed after open_new_segment but before first message":
+        # truncate the trailing segment to its 4-byte schema header and remove
+        # its meta file so produce_metadata runs on reload.
+        File.open(last_seg_path, "r+", &.truncate(4))
+        meta_path = last_seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        # Reload must not raise IndexError on the empty trailing segment.
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        last_seg_id = store.@segments.last_key
+        store.@segment_msg_count[last_seg_id].should eq 0
+        store.push(msg) # the trailing segment should still be writable
+        store.@segment_msg_count[last_seg_id].should eq 1
+        store.close
+      end
+    end
   end
 end
