@@ -75,6 +75,10 @@ components:
       "$ref": "./schemas/shovels.yaml#/ShovelList"
     Shovel:
       "$ref": "./schemas/shovels.yaml#/Shovel"
+    ScheduledJobList:
+      "$ref": "./schemas/scheduled-jobs.yaml#/ScheduledJobList"
+    ScheduledJob:
+      "$ref": "./schemas/scheduled-jobs.yaml#/ScheduledJob"
     main-federation-links:
       "$ref": "./schemas/main.yaml#/federation-links"
     main-extensions:
@@ -214,6 +218,18 @@ paths:
     "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1pause"
   "/api/shovels/{vhost}/{name}/resume":
     "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1resume"
+  "/api/scheduled-jobs":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs"
+  "/api/scheduled-jobs/{vhost}":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs~1{vhost}"
+  "/api/scheduled-jobs/{vhost}/{name}":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs~1{vhost}~1{name}"
+  "/api/scheduled-jobs/{vhost}/{name}/pause":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs~1{vhost}~1{name}~1pause"
+  "/api/scheduled-jobs/{vhost}/{name}/resume":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs~1{vhost}~1{name}~1resume"
+  "/api/scheduled-jobs/{vhost}/{name}/run":
+    "$ref": "./paths/scheduled-jobs.yaml#/~1api~1scheduled-jobs~1{vhost}~1{name}~1run"
   "/federation-links":
     "$ref": "./paths/main.yaml#/~1federation-links"
   "/federation-links/{vhost}":
@@ -307,6 +323,8 @@ tags:
     description: Query the server for various information (e.g. federation links, extensions).
   - name: shovels
     description: Manage shovels.
+  - name: scheduled-jobs
+    description: Manage scheduled jobs.
   - name: nodes
     description: Get node statistics.
   - name: parameters

@@ -116,6 +116,11 @@
         <span class="menu-item-label menu-tooltip-label">Federation</span>
       </a>
     </li>
+    <li class="scheduled-jobs">
+      <a href="scheduled-jobs" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Scheduled jobs</span>
+      </a>
+    </li>
 
     <li class="menu-group"><span>Administration</span></li>
     <li class="vhosts">

@@ -1,6 +1,7 @@
 require "../controller"
 require "../../sortable_json"
 require "../../shovel/store"
+require "../../scheduled_job/store"
 
 module LavinMQ
   module HTTP
@@ -86,6 +87,13 @@ module LavinMQ
               begin
                 Shovel::Store.validate_config!(value, context.user)
               rescue ex : Shovel::ConfigError
+                bad_request(context, ex.message)
+              end
+            end
+            if component == "scheduled-job"
+              begin
+                ScheduledJob::Store.validate_config!(value, context.user, vhost)
+              rescue ex : ScheduledJob::ConfigError
                 bad_request(context, ex.message)
               end
             end

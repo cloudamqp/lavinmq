@@ -1,0 +1,88 @@
+<!--#set var="TITLE" value="Scheduled jobs" -->
+<!DOCTYPE html>
+<html lang="en" class="scheduled-jobs">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/scheduled-jobs.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2>Manage scheduled jobs</h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th class="left" data-sort-key="name">Name<span></span></th>
+                <th>Exchange</th>
+                <th>Routing key</th>
+                <th>Cron (UTC)</th>
+                <th>Last run</th>
+                <th>Next run</th>
+                <th>Runs</th>
+                <th>State</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="createScheduledJob" class="form card">
+        <h3>
+          <span class="when-create">Add a new scheduled job</span>
+          <span class="when-edit">Edit scheduled job</span>
+        </h3>
+        <label class="when-create">
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required data-primary-key="">
+        </label>
+        <label>
+          <span>Cron expression (UTC, 5 fields: min hour dom mon dow)</span>
+          <input type="text" name="cron" required placeholder="*/5 * * * *">
+        </label>
+        <label>
+          <span>Exchange</span>
+          <input type="text" name="exchange" placeholder="default exchange if empty">
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input type="text" name="routing-key" required>
+        </label>
+        <label>
+          <span>Body</span>
+          <textarea name="body" rows="4" required></textarea>
+        </label>
+        <label>
+          <span>Content type</span>
+          <input type="text" name="content-type" placeholder="application/json">
+        </label>
+        <label>
+          <span>Headers (JSON object)</span>
+          <input type="text" name="headers" placeholder='{"x-foo":"bar"}'>
+        </label>
+        <button type="submit" class="btn btn-green when-create">Add scheduled job</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

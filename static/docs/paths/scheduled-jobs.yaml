@@ -1,0 +1,170 @@
+"/api/scheduled-jobs":
+  get:
+    tags:
+      - scheduled-jobs
+    description: List all scheduled jobs across all vhosts the user can access.
+    summary: List all scheduled jobs
+    operationId: GetScheduledJobs
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ScheduledJobList"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+
+"/api/scheduled-jobs/{vhost}":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+  get:
+    tags:
+      - scheduled-jobs
+    description: List scheduled jobs for the given vhost.
+    summary: List scheduled jobs by vhost
+    operationId: GetScheduledJobsByVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ScheduledJobList"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+
+"/api/scheduled-jobs/{vhost}/{name}":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+  get:
+    tags:
+      - scheduled-jobs
+    description: Get a scheduled job's configuration and runtime stats.
+    summary: Get scheduled job details
+    operationId: GetScheduledJob
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ScheduledJob"
+      '404':
+        description: Not Found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+
+"/api/scheduled-jobs/{vhost}/{name}/pause":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+  put:
+    tags:
+      - scheduled-jobs
+    description: Pause a scheduled job. The next-run timer is cleared; runs resume on resume.
+    summary: Pause scheduled job
+    operationId: PauseScheduledJob
+    responses:
+      '204':
+        description: Paused
+      '404':
+        description: Not Found
+      '422':
+        description: Job is not currently scheduled
+
+"/api/scheduled-jobs/{vhost}/{name}/resume":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+  put:
+    tags:
+      - scheduled-jobs
+    description: Resume a paused scheduled job.
+    summary: Resume scheduled job
+    operationId: ResumeScheduledJob
+    responses:
+      '204':
+        description: Resumed
+      '404':
+        description: Not Found
+      '422':
+        description: Job is not paused
+
+"/api/scheduled-jobs/{vhost}/{name}/run":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+  post:
+    tags:
+      - scheduled-jobs
+    description: Manually trigger the scheduled job to fire once, immediately.
+    summary: Run scheduled job now
+    operationId: RunScheduledJobNow
+    responses:
+      '202':
+        description: Trigger accepted
+      '404':
+        description: Not Found
+      '422':
+        description: Job is not in a runnable state (paused or terminated)

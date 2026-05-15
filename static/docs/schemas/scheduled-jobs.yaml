@@ -1,0 +1,68 @@
+---
+ScheduledJobList:
+  type: array
+  description: List of scheduled jobs
+  items:
+    "$ref": "#/ScheduledJob"
+
+ScheduledJob:
+  type: object
+  description: A scheduled job configuration and runtime stats
+  properties:
+    name:
+      type: string
+      description: Name of the scheduled job
+      example: "nightly-report"
+    vhost:
+      type: string
+      description: Name of the virtual host
+      example: "/"
+    exchange:
+      type: string
+      description: Target exchange. Empty string means the default exchange.
+      example: "amq.topic"
+    routing_key:
+      type: string
+      description: Routing key used when publishing
+      example: "reports.nightly"
+    cron:
+      type: string
+      description: Standard 5-field cron expression, interpreted as UTC
+      example: "0 2 * * *"
+    state:
+      type: string
+      description: Current state
+      enum:
+        - Scheduled
+        - Paused
+        - Terminated
+      example: "Scheduled"
+    run_count:
+      type: integer
+      description: Number of times the job has been fired since creation
+      minimum: 0
+      example: 42
+    last_run_at:
+      type: string
+      format: date-time
+      nullable: true
+      description: Timestamp (RFC3339, UTC) of the last completed fire
+    next_run_at:
+      type: string
+      format: date-time
+      nullable: true
+      description: Timestamp (RFC3339, UTC) of the next planned fire
+    last_error:
+      type: string
+      nullable: true
+      description: Error message from the most recent fire, if any
+    last_duration_ms:
+      type: integer
+      nullable: true
+      description: Wall-clock duration of the most recent fire, in milliseconds
+  required:
+    - name
+    - vhost
+    - cron
+    - state
+    - run_count

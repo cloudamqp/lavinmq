@@ -5,6 +5,7 @@ require "./policy"
 require "./parameter_store"
 require "./parameter"
 require "./shovel/store"
+require "./scheduled_job/store"
 require "./federation/upstream_store"
 require "./sortable_json"
 require "./amqp/exchange/*"
@@ -28,7 +29,7 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -37,6 +38,7 @@ module LavinMQ
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
+    @scheduled_jobs : ScheduledJob::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
 
@@ -177,6 +179,7 @@ module LavinMQ
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = Shovel::Store.new(self)
+      @scheduled_jobs = ScheduledJob::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
@@ -385,6 +388,7 @@ module LavinMQ
     end
 
     SHOVEL                  = "shovel"
+    SCHEDULED_JOB           = "scheduled-job"
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
@@ -401,6 +405,8 @@ module LavinMQ
       case component_name
       when SHOVEL
         shovels.delete(parameter_name)
+      when SCHEDULED_JOB
+        scheduled_jobs.delete(parameter_name)
       when FEDERATION_UPSTREAM
         upstreams.delete_upstream(parameter_name)
       when FEDERATION_UPSTREAM_SET
@@ -414,6 +420,10 @@ module LavinMQ
       shovels.each_value &.terminate
     end
 
+    def stop_scheduled_jobs
+      scheduled_jobs.close
+    end
+
     def stop_upstream_links
       upstreams.stop_all
     end
@@ -421,6 +431,7 @@ module LavinMQ
     def close(reason = "Broker shutdown")
       return if @closed.swap(true)
       stop_shovels
+      stop_scheduled_jobs
       stop_upstream_links
 
       @log.info { "Closing connections" }
@@ -473,6 +484,8 @@ module LavinMQ
         case p.component_name
         when SHOVEL
           shovels.create(p.parameter_name, p.value)
+        when SCHEDULED_JOB
+          scheduled_jobs.create(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM
           upstreams.create_upstream(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM_SET
@@ -505,6 +518,10 @@ module LavinMQ
 
     def shovels
       @shovels.not_nil!
+    end
+
+    def scheduled_jobs
+      @scheduled_jobs.not_nil!
     end
 
     def event_tick(event_type)
