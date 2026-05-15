@@ -614,6 +614,19 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "drop_overflow does not raise after the store has been deleted" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag", 1_i64)
+        msg_store.delete
+        msg_store.drop_overflow
+      end
+    end
+
     it "cleanup_consumer_offsets removes outdated offset" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, -10_i64]
