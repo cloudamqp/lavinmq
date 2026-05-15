@@ -108,7 +108,6 @@ module LavinMQ
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
       ensure
         @deliver_loop_running.set(false, :release)
-        ensure_deliver_loop unless @closed || @queue.empty?
       end
 
       private def wait_for_queue_ready

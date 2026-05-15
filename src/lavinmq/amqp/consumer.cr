@@ -97,11 +97,12 @@ module LavinMQ
         end
       rescue IdleError
         @log.debug { "deliver loop idle, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        ensure_deliver_loop unless @closed || @queue.empty?
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
       ensure
         @deliver_loop_running.set(false, :release)
-        ensure_deliver_loop unless @closed || @queue.empty?
       end
 
       private def wait_for_global_capacity
