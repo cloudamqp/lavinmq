@@ -39,6 +39,7 @@ module LavinMQ
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
       @running = true
+      @close_done = ::Channel(Nil).new
       @last_recv_frame = RoughTime.instant
       @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
@@ -212,6 +213,7 @@ module LavinMQ
       ensure
         cleanup
         close_socket
+        @close_done.close
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
       end
 
@@ -535,6 +537,17 @@ module LavinMQ
         code = ConnectionReplyCode::CONNECTION_FORCED
         send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
         @running = false
+
+        # Wait for the read_loop to receive Connection.CloseOk and exit. Without
+        # this, vhost.close (or a subsequent force_close) can drop the TCP socket
+        # before the client has read Connection.Close from its kernel buffer,
+        # leaving the client to observe IO::EOFError instead of a graceful close.
+        select
+        when @close_done.receive?
+          # client acknowledged
+        when timeout(timeout)
+          # caller (e.g. vhost.close) will force_close
+        end
       end
 
       def force_close

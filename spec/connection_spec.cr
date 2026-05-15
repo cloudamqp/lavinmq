@@ -209,4 +209,28 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  describe "server-initiated close" do
+    it "blocks until the client has acknowledged Connection.Close" do
+      with_amqp_server do |s|
+        on_close_called = Atomic(UInt8).new(0_u8)
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        conn.on_close do |_code, _text|
+          on_close_called.set(1_u8)
+        end
+        wait_for { s.connections.size == 1 }
+
+        s.connections.first.as(LavinMQ::AMQP::Client).close("spec test")
+
+        # close() must not return before the client's read_loop has
+        # received Connection.Close and acked with CloseOk. on_close is
+        # invoked synchronously during that processing, so by the time
+        # close() returns it must already have run. Without this guarantee,
+        # vhost.close's subsequent force_close races the frame delivery
+        # and idle clients observe IO::EOFError instead of a graceful
+        # shutdown.
+        on_close_called.get.should eq 1_u8
+      end
+    end
+  end
 end
