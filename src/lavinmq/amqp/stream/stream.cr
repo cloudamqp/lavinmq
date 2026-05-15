@@ -49,30 +49,36 @@ module LavinMQ::AMQP
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
-          if current_max = stream_msg_store.max_age
-            return false unless current_max > max_age_policy
+          @msg_store_lock.synchronize do
+            if current_max = stream_msg_store.max_age
+              return false unless current_max > max_age_policy
+            end
+            stream_msg_store.max_age = max_age_policy
+            @effective_args.delete("x-max-age")
+            stream_msg_store.drop_overflow
           end
-          stream_msg_store.max_age = max_age_policy
-          @effective_args.delete("x-max-age")
-          stream_msg_store.drop_overflow
           return true
         end
         false
       when "max-length"
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
-          stream_msg_store.max_length = @max_length
-          @effective_args.delete("x-max-length")
-          stream_msg_store.drop_overflow
+          @msg_store_lock.synchronize do
+            stream_msg_store.max_length = @max_length
+            @effective_args.delete("x-max-length")
+            stream_msg_store.drop_overflow
+          end
           return true
         end
         false
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
-          stream_msg_store.max_length_bytes = @max_length_bytes
-          @effective_args.delete("x-max-length-bytes")
-          stream_msg_store.drop_overflow
+          @msg_store_lock.synchronize do
+            stream_msg_store.max_length_bytes = @max_length_bytes
+            @effective_args.delete("x-max-length-bytes")
+            stream_msg_store.drop_overflow
+          end
           return true
         end
         false
@@ -194,14 +200,16 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      if max_age = parse_max_age(@arguments["x-max-age"]?)
-        stream_msg_store.max_age = max_age
-        @effective_args << "x-max-age"
+      @msg_store_lock.synchronize do
+        if max_age = parse_max_age(@arguments["x-max-age"]?)
+          stream_msg_store.max_age = max_age
+          @effective_args << "x-max-age"
+        end
+        # Propagate limits set by super to stream_msg_store
+        stream_msg_store.max_length = @max_length
+        stream_msg_store.max_length_bytes = @max_length_bytes
+        stream_msg_store.drop_overflow
       end
-      # Propagate limits set by super to stream_msg_store
-      stream_msg_store.max_length = @max_length
-      stream_msg_store.max_length_bytes = @max_length_bytes
-      stream_msg_store.drop_overflow
     end
 
     private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
