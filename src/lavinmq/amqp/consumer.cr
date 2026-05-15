@@ -21,6 +21,7 @@ module LavinMQ
       @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
+      @deliver_loop_running = Atomic(Bool).new(false)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -31,8 +32,6 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
-        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
       end
@@ -43,6 +42,13 @@ module LavinMQ
         @has_capacity.close
         @flow_change.close
         @queue.rm_consumer(self)
+      end
+
+      def ensure_deliver_loop
+        return if @closed
+        return if @deliver_loop_running.swap(true, :acquire_release)
+        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
+        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
       end
 
       @notify_closed = ::Channel(Nil).new
@@ -89,8 +95,13 @@ module LavinMQ
             Fiber.yield
           end
         end
+      rescue IdleError
+        @log.debug { "deliver loop idle, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        ensure_deliver_loop unless @closed || @queue.empty?
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+        @deliver_loop_running.set(false, :release)
       end
 
       private def wait_for_global_capacity
@@ -157,6 +168,9 @@ module LavinMQ
           select
           when @queue.empty.when_false.receive
           when @notify_closed.receive
+          when timeout 30.seconds
+            @log.debug { "Deliver loop idle timeout" }
+            raise IdleError.new
           end
           return true
         end
@@ -276,6 +290,8 @@ module LavinMQ
       end
 
       class ClosedError < Error; end
+
+      private class IdleError < Exception; end
     end
   end
 end
