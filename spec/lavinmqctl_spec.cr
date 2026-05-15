@@ -352,6 +352,33 @@ describe "LavinMQCtl" do
       end
     end
 
+    it "stop_app closes connections and rejects new ones" do
+      with_http_server do |(http, s)|
+        s.closed?.should be_false
+        result = run_lavinmqctl(http.addr.to_s, ["stop_app"])
+        result[:exit].should eq(0)
+        s.closed?.should be_true
+      end
+    end
+
+    it "start_app reopens the server after stop_app" do
+      with_http_server do |(http, s)|
+        run_lavinmqctl(http.addr.to_s, ["stop_app"])
+        s.closed?.should be_true
+        result = run_lavinmqctl(http.addr.to_s, ["start_app"])
+        result[:exit].should eq(0)
+        s.closed?.should be_false
+      end
+    end
+
+    it "HTTP management stays up after stop_app" do
+      with_http_server do |(http, s)|
+        run_lavinmqctl(http.addr.to_s, ["stop_app"])
+        resp = http.get("/api/overview")
+        resp.status_code.should eq(200)
+      end
+    end
+
     it "should list exchanges in JSON format" do
       with_http_server do |(http, s)|
         result = run_lavinmqctl(http.addr.to_s, ["list_exchanges", "--format=json"])
