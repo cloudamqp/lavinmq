@@ -22,7 +22,6 @@ NoNewPrivileges=true
 Nice=-1
 OOMScoreAdjust=-250
 TimeoutStartSec=300
-TimeoutStopSec=120
 Environment="GC_UNMAP_THRESHOLD=1"
 Environment="CRYSTAL_LOAD_DEBUG_INFO=1"
 
