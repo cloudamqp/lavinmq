@@ -152,7 +152,9 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_msg_store.store_consumer_offset(consumer_tag, offset)
+      @msg_store_lock.synchronize do
+        stream_msg_store.store_consumer_offset(consumer_tag, offset)
+      end
     end
 
     # yield the next message in the ready queue
