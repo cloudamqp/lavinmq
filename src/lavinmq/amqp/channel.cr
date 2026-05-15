@@ -303,6 +303,10 @@ module LavinMQ
       end
 
       private def confirm_ack(msgid, multiple = false)
+        @client.vhost.enqueue_ack(self, msgid)
+      end
+
+      def do_confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count.add(1, :relaxed)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)

@@ -18,6 +18,7 @@ require "./mqtt/session"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
+require "./amqp/channel"
 
 module LavinMQ
   class VHost
@@ -39,6 +40,9 @@ module LavinMQ
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
+    @pending_acks = Hash(AMQP::Channel, UInt64).new
+    @pending_acks_lock = Mutex.new(:unchecked)
+    @confirm_requested = ::Channel(Nil).new(1)
 
     # Bool accessors (later become Atomic)
     def flow? : Bool
@@ -181,6 +185,7 @@ module LavinMQ
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      spawn publish_confirm_loop, name: "Publish confirm loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -195,6 +200,69 @@ module LavinMQ
             ch.check_consumer_timeout
           end
         end
+      end
+    end
+
+    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+      @pending_acks_lock.synchronize do
+        @pending_acks[channel] = msgid
+      end
+      @confirm_requested.try_send nil
+    rescue ::Channel::ClosedError
+    end
+
+    private def publish_confirm_loop
+      loop do
+        @confirm_requested.receive
+
+        # Activity detected, start batching
+        deadline = Time.instant + Config.instance.publish_confirm_interval.milliseconds
+        idle_timeout_interval = Config.instance.publish_confirm_idle_timeout.milliseconds
+        loop do
+          remaining = deadline - Time.instant
+          break if remaining <= Time::Span::ZERO
+          idle_timeout = remaining < idle_timeout_interval ? remaining : idle_timeout_interval
+          select
+          when @confirm_requested.receive
+            # Keep batching as long as new publishes arrive
+          when timeout idle_timeout
+            break
+          end
+        end
+
+        drain_pending_acks
+      rescue ::Channel::ClosedError
+        # @confirm_requested is closed; flush anything that was persisted
+        # but not yet confirmed before exiting.
+        drain_pending_acks
+        return
+      end
+    end
+
+    private def drain_pending_acks
+      acks = @pending_acks_lock.synchronize do
+        if @pending_acks.empty?
+          nil
+        else
+          current = @pending_acks
+          @pending_acks = Hash(AMQP::Channel, UInt64).new
+          current
+        end
+      end
+      return unless acks
+
+      begin
+        sync
+      rescue ex
+        @log.error(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
+      end
+
+      acks.each do |channel, msgid|
+        channel.do_confirm_ack(msgid, multiple: true)
+      rescue ex
+        # If the channel is closed before we can ack, just ignore it
+        @log.debug { "Failed to ack message on channel #{channel}: #{ex.message}" }
       end
     end
 
@@ -420,6 +488,7 @@ module LavinMQ
 
     def close(reason = "Broker shutdown")
       return if @closed.swap(true)
+      @confirm_requested.close
       stop_shovels
       stop_upstream_links
 
