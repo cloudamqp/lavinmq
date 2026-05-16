@@ -347,6 +347,53 @@ describe LavinMQ::HTTP::ExchangesController do
         end
       end
     end
+
+    it "should return routed:false instead of 500 when queue rejects on overflow" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64, "x-overflow" => "reject-publish"})
+        s.vhosts["/"].declare_exchange("of_ex", "topic", false, false)
+        s.vhosts["/"].declare_queue("of_q", false, false, args)
+        s.vhosts["/"].bind_queue("of_q", "of_ex", "rk")
+        body = %({
+        "properties": {},
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+        response = http.post("/api/exchanges/%2f/of_ex/publish", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body)["routed"].as_bool.should be_true
+        response = http.post("/api/exchanges/%2f/of_ex/publish", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body)["routed"].as_bool.should be_false
+        s.vhosts["/"].queue("of_q").message_count.should eq 1
+      end
+    end
+
+    it "delivers to non-overflowing queues even when one bound queue rejects" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64, "x-overflow" => "reject-publish"})
+        s.vhosts["/"].declare_exchange("mof_ex", "topic", false, false)
+        s.vhosts["/"].declare_queue("mof_full", false, false, args)
+        s.vhosts["/"].declare_queue("mof_open", false, false)
+        s.vhosts["/"].bind_queue("mof_full", "mof_ex", "rk")
+        s.vhosts["/"].bind_queue("mof_open", "mof_ex", "rk")
+        body = %({
+        "properties": {},
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+        response = http.post("/api/exchanges/%2f/mof_ex/publish", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body)["routed"].as_bool.should be_true
+        response = http.post("/api/exchanges/%2f/mof_ex/publish", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body)["routed"].as_bool.should be_false
+        s.vhosts["/"].queue("mof_full").message_count.should eq 1
+        s.vhosts["/"].queue("mof_open").message_count.should eq 2
+      end
+    end
   end
 
   describe "GET /api/exchanges/vhost/name with x-hash-on argument" do

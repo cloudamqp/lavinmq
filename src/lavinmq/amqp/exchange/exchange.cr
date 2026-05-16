@@ -239,14 +239,20 @@ module LavinMQ
         end
 
         count = 0u32
+        overflow = false
         queues.each do |queue|
-          if queue.publish(msg)
-            count += 1
-            msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+          begin
+            if queue.publish(msg)
+              count += 1
+              msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+            end
+          rescue Queue::RejectOverFlow
+            overflow = true
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero?
+        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+        raise Queue::RejectOverFlow.new if overflow
         count.positive?
       end
 
