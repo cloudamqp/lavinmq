@@ -54,6 +54,53 @@ describe LavinMQ::AMQP::StreamReader do
       end
     end
   end
+  it "envelope body survives concurrent segment drop" do
+    # Regression: shift? / read returned BytesMessage whose body pointed
+    # directly into the segment's mmap. drop_segments_while munmaps the
+    # segment, and a slow consumer that's still copying bytes into the
+    # socket would SIGSEGV in pointer copy_from. The fix detaches the body
+    # off mmap before returning the envelope.
+    with_amqp_server do |s|
+      queue_name = ""
+      with_channel(s) do |ch|
+        q = ch.queue("", args: AMQP::Client::Arguments.new({
+          "x-queue-type" => "stream",
+        }))
+        queue_name = q.name
+        # Each message fills a segment so the next publish rolls a new one.
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        data[0] = 0xAA_u8
+        data[-1] = 0xBB_u8
+        3.times { q.publish_confirm data }
+      end
+
+      stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+      reader = stream.reader "first"
+
+      saved_env : LavinMQ::Envelope? = nil
+      reader.each do |env|
+        saved_env = env
+        break
+      end
+
+      # Drop every segment but the last while we still hold an env from the
+      # first segment — without the fix, mmap is gone and the next body
+      # access SIGSEGVs.
+      stream.@msg_store_lock.synchronize do
+        store = stream.stream_msg_store
+        store.max_length_bytes = 1_i64
+        store.drop_overflow
+      end
+
+      saved_env.should_not be_nil
+      env = saved_env.not_nil!
+      env.message.bodysize.should eq LavinMQ::Config.instance.segment_size
+      env.message.body.size.should eq LavinMQ::Config.instance.segment_size
+      env.message.body[0].should eq 0xAA_u8
+      env.message.body[-1].should eq 0xBB_u8
+    end
+  end
+
   it "should read over multiple segments" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
