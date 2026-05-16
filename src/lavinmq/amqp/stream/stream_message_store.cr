@@ -237,7 +237,7 @@ module LavinMQ::AMQP
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, detach_from_mmap(msg), redelivered: false)
       rescue ex
         puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
@@ -264,7 +264,7 @@ module LavinMQ::AMQP
         consumer.pos += sp.bytesize
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, detach_from_mmap(msg), redelivered: false)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
@@ -277,12 +277,26 @@ module LavinMQ::AMQP
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
-            return Envelope.new(sp, msg, redelivered: true)
+            return Envelope.new(sp, detach_from_mmap(msg), redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
           end
         end
       end
+    end
+
+    # Returns a BytesMessage whose body lives on the GC heap rather than in
+    # the segment's mmap. Stream consumers release @msg_store_lock before
+    # delivering, and drop_segments_while can munmap a segment while a
+    # consumer is still copying body bytes into the socket — that's a
+    # use-after-unmap SIGSEGV. add_offset_header already promotes the
+    # headers Table to a heap buffer via Table#check_writeable, so only the
+    # body slice needs detaching here.
+    private def detach_from_mmap(msg : BytesMessage) : BytesMessage
+      body = Bytes.new(msg.bodysize)
+      msg.body.copy_to(body)
+      BytesMessage.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, body)
     end
 
     def next_segment_id(segment) : UInt32?
