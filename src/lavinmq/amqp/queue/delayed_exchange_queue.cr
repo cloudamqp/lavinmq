@@ -120,7 +120,7 @@ module LavinMQ::AMQP
     # Overload to not ruin DLX header
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
-      msg = env.message
+      msg = env.message.as(BytesMessage)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
       if headers = msg.properties.headers
         headers.delete("x-delay")

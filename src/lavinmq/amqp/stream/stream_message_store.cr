@@ -73,6 +73,13 @@ module LavinMQ::AMQP
       end
     end
 
+    # Path on disk for a segment file, used by stream consumers and readers to
+    # open their own `File` handle (one per consumer/reader) and read the
+    # segment sequentially without contending on the shared mmap.
+    def segment_path(seg_id : UInt32) : String
+      File.join(@msg_dir, "msgs.#{seg_id.to_s.rjust(10, '0')}")
+    end
+
     def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
       @segments.each do |seg_id, mfile|
         next if mfile == @wfile
@@ -230,16 +237,23 @@ module LavinMQ::AMQP
       end
     end
 
-    def read(segment : UInt32, position : UInt32) : Envelope?
+    # Read a single message from `file` at `position`. The caller owns `file`
+    # (typically a `StreamReader`'s per-instance FD) and is responsible for
+    # keeping `file.pos == position` on entry. After this call, `file.pos` sits
+    # at the body start; reading the `FileRange` body sequentially leaves the
+    # FD at the next message's header.
+    def read(segment : UInt32, position : UInt32, file : File) : Envelope?
       return if @closed
       rfile = @segments[segment]
       return if position == rfile.size
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + position)
+        {% if flag?(:assert_stream_pos) %}
+          raise "stream pos drift in read: file.pos=#{file.pos} position=#{position}" unless file.pos == position.to_i64
+        {% end %}
+        msg = FileRangeMessage.from_io(file)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, detach_from_mmap(msg), redelivered: false)
+        Envelope.new(sp, msg, redelivered: false)
       rescue ex
-        puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
       end
     end
@@ -258,13 +272,22 @@ module LavinMQ::AMQP
         rfile = next_segment(consumer) || return
       end
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-        sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
+        file = consumer.segment_file_for(self)
+        {% if flag?(:assert_stream_pos) %}
+          raise "stream pos drift in shift?: file.pos=#{file.pos} consumer.pos=#{consumer.pos}" unless file.pos == consumer.pos.to_i64
+        {% end %}
+        start_pos = consumer.pos
+        msg = FileRangeMessage.from_io(file)
+        sp = SegmentPosition.new(consumer.segment, start_pos, msg.bytesize.to_u32)
         msg.properties.headers = add_offset_header(msg.properties.headers, consumer.offset)
         consumer.pos += sp.bytesize
         consumer.offset += 1
-        return unless consumer.filter_match?(msg.properties.headers)
-        Envelope.new(sp, detach_from_mmap(msg), redelivered: false)
+        unless consumer.filter_match?(msg.properties.headers)
+          # Skip the body the delivery path won't read so file.pos == consumer.pos again
+          file.seek(msg.bodysize.to_i64, IO::Seek::Current)
+          return
+        end
+        Envelope.new(sp, msg, redelivered: false)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
@@ -286,12 +309,15 @@ module LavinMQ::AMQP
     end
 
     # Returns a BytesMessage whose body lives on the GC heap rather than in
-    # the segment's mmap. Stream consumers release @msg_store_lock before
-    # delivering, and drop_segments_while can munmap a segment while a
-    # consumer is still copying body bytes into the socket — that's a
-    # use-after-unmap SIGSEGV. add_offset_header already promotes the
-    # headers Table to a heap buffer via Table#check_writeable, so only the
-    # body slice needs detaching here.
+    # the segment's mmap. Only the requeue path uses this now (the main shift?
+    # path returns a FileRangeMessage backed by the consumer's own FD). On
+    # requeue we can't easily reuse the consumer's sequential FD (the requeued
+    # message may live in a different segment, and seeking the FD around would
+    # leave its position out of sync with consumer.pos), so we fall back to
+    # the original mmap+copy: drop_segments_while can munmap a segment while a
+    # consumer is still writing body bytes to the socket, so the body slice
+    # must be detached to the heap. add_offset_header already promotes the
+    # headers Table to a writable heap buffer via Table#check_writeable.
     private def detach_from_mmap(msg : BytesMessage) : BytesMessage
       body = Bytes.new(msg.bodysize)
       msg.body.copy_to(body)

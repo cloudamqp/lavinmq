@@ -17,6 +17,12 @@ module LavinMQ
       @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
+      # Per-consumer read FD for the current segment. Sequential decoding from
+      # this FD lets `file.pos` track the consumer's logical position, so the
+      # delivery hot path doesn't need pread/read_at and the body bytes never
+      # have to be copied off mmap.
+      @segment_file : File? = nil
+      @segment_file_id : UInt32 = 0_u32
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -153,7 +159,31 @@ module LavinMQ
 
       def close
         @new_message_available.close
+        @segment_file.try(&.close)
+        @segment_file = nil
         super
+      end
+
+      # Return the consumer's open `File` for `@segment`, lazily opening it and
+      # closing any previously-open segment FD. On segment rollover the caller
+      # (`StreamMessageStore#next_segment`) has already reset `@pos` to 4 (past
+      # the schema-version header); we seek to `@pos` here so the next read
+      # starts at the right offset.
+      def segment_file_for(store : StreamMessageStore) : File
+        if (f = @segment_file) && @segment_file_id == @segment
+          return f
+        end
+        @segment_file.try(&.close)
+        f = File.new(store.segment_path(@segment), "r")
+        # Default `read_buffering = true` would prefetch bytes from beyond the
+        # current write position; later appends via the producer's mmap would
+        # then be masked by stale zeros in our buffer until the buffer
+        # invalidated. Read straight through to the page cache instead.
+        f.read_buffering = false
+        f.pos = @pos.to_i64
+        @segment_file = f
+        @segment_file_id = @segment
+        f
       end
 
       def filter_match?(msg_headers) : Bool
