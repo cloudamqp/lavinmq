@@ -69,7 +69,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
         q = server.vhosts["/"].queue("repli").as(LavinMQ::AMQP::DurableQueue)
         q.message_count.should eq 1
         q.basic_get(true) do |env|
-          String.new(env.message.body).to_s.should eq "hello world"
+          String.new(env.message.as(LavinMQ::BytesMessage).body).to_s.should eq "hello world"
         end.should be_true
       ensure
         server.close

@@ -46,7 +46,7 @@ describe LavinMQ::AMQP::PriorityQueue do
             q.message_count.should eq 1
             q.basic_get(true) do |env|
               env.message.properties.priority.should eq 1
-              String.new(env.message.body).to_s.should eq "hello world"
+              String.new(env.message.as(LavinMQ::BytesMessage).body).to_s.should eq "hello world"
             end.should be_true
           ensure
             server.close

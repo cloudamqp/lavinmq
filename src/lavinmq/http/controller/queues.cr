@@ -282,7 +282,19 @@ module LavinMQ
 
       private def encode_body(message, truncate, encoding, io) : String
         size = truncate ? Math.min(truncate, message.bodysize) : message.bodysize
-        payload = message.body[0, size]
+        payload = case message
+                  in BytesMessage
+                    message.body[0, size]
+                  in FileRangeMessage
+                    # StreamReader has already advanced past the body via a
+                    # sequential seek; use read_at so we don't disturb the
+                    # reader's FD position for the next iteration's header.
+                    buf = Bytes.new(size)
+                    message.body.file.read_at(message.body.pos, size, &.read_fully(buf))
+                    buf
+                  in Message
+                    raise "encode_body: Message has streaming body_io, expected stored bytes"
+                  end
         if encoding == "base64" || !Unicode.valid?(payload)
           Base64.urlsafe_encode(payload, io)
           "base64"
