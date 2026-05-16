@@ -219,7 +219,7 @@ describe LavinMQ::MessageStore do
           message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
           store.push(message)
           env = store.shift?.should_not be_nil
-          String.new(env.message.body).should eq "hello"
+          String.new(env.message.as(LavinMQ::BytesMessage).body).should eq "hello"
           store.delete(env.segment_position)
           store.close
         end
@@ -615,7 +615,7 @@ describe LavinMQ::MessageStore do
 
         env = store.shift?
         env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        String.new(env.not_nil!.message.as(LavinMQ::BytesMessage).body).should eq body
         store.@size.should eq 0
         store.close
       end

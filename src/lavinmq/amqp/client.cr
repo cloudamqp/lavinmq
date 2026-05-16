@@ -303,6 +303,10 @@ module LavinMQ
       end
 
       @write_lock = Mutex.new(:checked)
+      # Reused per-connection buffer for FileRangeMessage body chunks read from
+      # the consumer's segment FD into the socket. Allocated lazily, sized to
+      # one max-frame minus the 8-byte frame header.
+      @body_buffer : Bytes? = nil
 
       def deliver(frame, msg, flush = true)
         return false if closed?
@@ -343,6 +347,15 @@ module LavinMQ
                      AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
                    in Message
                      AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+                   in FileRangeMessage
+                     buffer = (@body_buffer ||= Bytes.new((@max_frame_size - 8).to_i32))
+                     slice = buffer[0, length]
+                     {% if flag?(:assert_stream_pos) %}
+                       expected = msg.body.pos + pos
+                       raise "stream pos drift in deliver: file.pos=#{msg.body.file.pos} expected=#{expected}" unless msg.body.file.pos == expected
+                     {% end %}
+                     msg.body.file.read_fully(slice)
+                     AMQP::Frame::BytesBody.new(frame.channel, length, slice)
                    end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
