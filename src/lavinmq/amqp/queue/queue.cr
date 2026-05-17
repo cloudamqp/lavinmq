@@ -1,4 +1,6 @@
 require "digest/sha1"
+require "sync/exclusive"
+require "sync/shared"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
@@ -8,7 +10,6 @@ require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
 require "../../queue"
-require "./state"
 require "./event"
 require "../../message_store"
 require "../../unacked_message"
@@ -62,50 +63,55 @@ module LavinMQ::AMQP
     @reject_on_overflow = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
-    @consumers = Array(Client::Channel::Consumer).new
-    @consumers_lock = Mutex.new
+    @consumers : Sync::Shared(Array(Client::Channel::Consumer)) = Sync::Shared.new(Array(Client::Channel::Consumer).new, :reentrant)
     @message_ttl_change = ::Channel(Nil).new
 
-    @basic_get_unacked = Deque(UnackedMessage).new
+    @basic_get_unacked : Sync::Exclusive(Deque(UnackedMessage)) = Sync::Exclusive.new(Deque(UnackedMessage).new, :unchecked)
 
     # Consumer accessors
 
     def consumers : Array(Client::Channel::Consumer)
-      @consumers.dup
+      @consumers.shared(&.dup)
     end
 
     def consumers_size : Int32
-      @consumers.size
+      @consumers.unsafe_get.size
     end
 
     def consumers_empty? : Bool
-      @consumers.empty?
+      @consumers.unsafe_get.empty?
     end
 
     def consumers_any?(& : Client::Channel::Consumer -> Bool) : Bool
-      @consumers.any? { |c| yield c }
+      @consumers.shared do |cs|
+        cs.any? { |c| yield c }
+      end
     end
 
     def each_consumer(& : Client::Channel::Consumer ->) : Nil
-      @consumers.each { |c| yield c }
+      @consumers.shared do |cs|
+        cs.each { |c| yield c }
+      end
     end
 
     def first_consumer : Client::Channel::Consumer?
-      @consumers.first?
+      @consumers.shared(&.first?)
     end
 
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil
-      @basic_get_unacked << msg
+      @basic_get_unacked.lock(&.push(msg))
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
-      @basic_get_unacked.reject! { |u| yield u }
+      @basic_get_unacked.lock do |d|
+        d.reject! { |u| yield u }
+      end
     end
 
     def basic_get_unacked_size : Int32
-      @basic_get_unacked.size
+      @basic_get_unacked.unsafe_get.size
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -148,7 +154,7 @@ module LavinMQ::AMQP
         @log.debug { "Consumers empty" }
         @msg_store.empty.when_false.receive
         @log.debug { "Message store not empty" }
-        next unless @consumers.empty?
+        next unless @consumers.unsafe_get.empty?
         if ttl = time_to_message_expiration
           @log.debug { "Next message TTL: #{ttl}" }
           select
@@ -182,8 +188,23 @@ module LavinMQ::AMQP
 
     getter name, arguments, vhost
     getter? auto_delete, exclusive
-    getter? closed = false
-    getter state = QueueState::Running
+
+    def state : String
+      return "deleted" if deleted?
+      return "closed" if closed?
+      return "paused" if @paused.value
+      "running"
+    end
+
+    def paused? : Bool
+      return false if deleted? || closed?
+      @paused.value
+    end
+
+    def running? : Bool
+      !deleted? && !closed? && !@paused.value
+    end
+
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -192,6 +213,16 @@ module LavinMQ::AMQP
     Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
+    @closed = Atomic(Bool).new(false)
+    @deleted = Atomic(Bool).new(false)
+
+    def closed?
+      @closed.get(:acquire)
+    end
+
+    def deleted?
+      @deleted.get(:acquire)
+    end
 
     protected def initialize(@vhost : VHost, @name : String,
                              @exclusive : Bool = false, @auto_delete : Bool = false,
@@ -218,7 +249,6 @@ module LavinMQ::AMQP
           File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
-          @state = QueueState::Paused
           @paused.set(true)
         end
         handle_arguments
@@ -229,7 +259,7 @@ module LavinMQ::AMQP
     end
 
     def restart! : Bool
-      return false unless @closed
+      return false unless closed?
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -239,8 +269,8 @@ module LavinMQ::AMQP
     end
 
     private def reset_queue_state
-      @closed = false
-      @state = QueueState::Running
+      @closed.set(false)
+      @deleted.set(false)
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
@@ -430,8 +460,8 @@ module LavinMQ::AMQP
     end
 
     def immediate_delivery?
-      @consumers_lock.synchronize do
-        @consumers.any? &.accepts?
+      @consumers.shared do |cs|
+        cs.any? &.accepts?
       end
     end
 
@@ -444,46 +474,42 @@ module LavinMQ::AMQP
     end
 
     def consumer_count
-      @consumers.size.to_u32
+      @consumers.unsafe_get.size.to_u32
     end
 
     def pause!
-      return unless @state.running?
-      @state = QueueState::Paused
+      return unless running?
       @log.debug { "Paused" }
       @paused.set(true)
       File.touch(File.join(@data_dir, "paused"))
     end
 
     def resume!
-      return unless @state.paused?
-      @state = QueueState::Running
+      return unless paused?
       @log.debug { "Resuming" }
       @paused.set(false)
       File.delete(File.join(@data_dir, "paused"))
     end
 
     def close : Bool
-      return false if @closed
-      @closed = true
-      @state = QueueState::Closed
+      return false if @closed.swap(true, :acquire_release)
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
       @paused.close
       @consumers_empty.close
-      @consumers_lock.synchronize do
-        @consumers.each &.cancel
-        @consumers.clear
-        @exclusive_consumer = false
-        @has_priority_consumers = false
+      @consumers.lock do |cs|
+        cs.each &.cancel
+        cs.clear
       end
+      @exclusive_consumer = false
+      @has_priority_consumers = false
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
       end
       @deliveries.clear
-      @basic_get_unacked.clear
+      @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -494,10 +520,8 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted
-      @deleted = true
+      return false if @deleted.swap(true, :acquire_release)
       close
-      @state = QueueState::Deleted
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
@@ -521,7 +545,7 @@ module LavinMQ::AMQP
         exclusive:                    @exclusive,
         auto_delete:                  @auto_delete,
         arguments:                    @arguments,
-        consumers:                    @consumers.size,
+        consumers:                    @consumers.unsafe_get.size,
         vhost:                        @vhost.name,
         messages:                     @msg_store.size + stats[:messages_unacknowledged],
         total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
@@ -538,9 +562,9 @@ module LavinMQ::AMQP
         unacked_avg_bytes:            stats[:unacked_avg_bytes],
         operator_policy:              operator_policy.try &.name,
         policy:                       policy.try &.name,
-        exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
+        exclusive_consumer_tag:       @exclusive ? @consumers.shared(&.first?).try(&.tag) : nil,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
-        state:                        @state,
+        state:                        state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
         effective_arguments:          @effective_args,
@@ -558,7 +582,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Bool
-      return false if @deleted || @state.closed?
+      return false if deleted? || closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -659,7 +683,7 @@ module LavinMQ::AMQP
     private def time_to_message_expiration : Time::Span?
       env = @msg_store_lock.synchronize { @msg_store.first? } || return
       @log.debug { "Checking if message #{env.message} has to be expired" }
-      if expire_at = expire_at(env.message)
+      if expire_at = expire_at(env.message.as(BytesMessage))
         expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
           expire_in.milliseconds
@@ -670,7 +694,7 @@ module LavinMQ::AMQP
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
+      return false if zero_ttl?(msg) && !requeue && !@consumers.unsafe_get.empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
@@ -696,7 +720,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         loop do
           env = @msg_store.first? || break
-          msg = env.message
+          msg = env.message.as(BytesMessage)
           @log.debug { "Checking if next message #{msg} has expired" }
           if has_expired?(msg)
             # shift it out from the msgs store, first time was just a peek
@@ -723,7 +747,10 @@ module LavinMQ::AMQP
 
     private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       sp = env.segment_position
-      msg = env.message
+      # Non-stream queues only ever hold BytesMessage envelopes; the dead-
+      # letter path needs in-memory body bytes to re-encode the message into a
+      # publish.
+      msg = env.message.as(BytesMessage)
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
       @dead_letter.route(msg, reason, dlx_tasks) do
@@ -733,14 +760,14 @@ module LavinMQ::AMQP
 
     private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
+      return false unless @consumers.unsafe_get.empty?
       @log.debug { "Queue expired" }
       @vhost.delete_queue(@name)
       true
     end
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
+      return false if paused? && !force
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
@@ -766,10 +793,10 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-        if has_expired?(env.message) # guarantee to not deliver expired messages
+        if has_expired?(env.message.as(BytesMessage)) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
         end
@@ -811,7 +838,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      result.concat(@basic_get_unacked.to_a)
+      result.concat(@basic_get_unacked.lock(&.to_a))
     end
 
     private def with_delivery_count_header(env) : Envelope?
@@ -827,7 +854,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @deleted
+      return if deleted?
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -846,7 +873,7 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
+      return if deleted? || closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -878,10 +905,10 @@ module LavinMQ::AMQP
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
-      @consumers_lock.synchronize do
-        was_empty = @consumers.empty?
-        @consumers << consumer
+      return if closed?
+      @consumers.lock do |cs|
+        was_empty = cs.empty?
+        cs << consumer
         if was_empty
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
@@ -889,7 +916,7 @@ module LavinMQ::AMQP
       end
       @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
-      @log.debug { "Adding consumer (now #{@consumers.size})" }
+      @log.debug { "Adding consumer (now #{@consumers.unsafe_get.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
       notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
@@ -897,15 +924,15 @@ module LavinMQ::AMQP
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
-      @consumers_lock.synchronize do
-        deleted = @consumers.delete consumer
-        @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
+      return if closed?
+      @consumers.lock do |cs|
+        deleted = cs.delete consumer
+        @has_priority_consumers = cs.any? { |c| !c.priority.zero? }
         if deleted
           @exclusive_consumer = false if consumer.exclusive?
-          @log.debug { "Removing consumer with #{consumer.unacked} unacked messages (#{@consumers.size} consumers left)" }
+          @log.debug { "Removing consumer with #{consumer.unacked} unacked messages (#{cs.size} consumers left)" }
           if @single_active_consumer == consumer
-            @single_active_consumer = @consumers.first?
+            @single_active_consumer = cs.first?
             if new_consumer = @single_active_consumer
               while @single_active_consumer_change.try_send? new_consumer
               end
@@ -914,12 +941,12 @@ module LavinMQ::AMQP
           @vhost.event_tick(EventType::ConsumerRemoved)
           notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
-      end
-      if @consumers.empty?
-        if @auto_delete
-          delete
-        else
-          notify_consumers_empty(true)
+        if cs.empty?
+          if @auto_delete
+            delete
+          else
+            notify_consumers_empty(true)
+          end
         end
       end
     end
@@ -963,7 +990,7 @@ module LavinMQ::AMQP
     end
 
     def in_use?
-      !(empty? && @consumers.empty?)
+      !(empty? && @consumers.unsafe_get.empty?)
     end
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
@@ -980,8 +1007,8 @@ module LavinMQ::AMQP
         end
         json.field("consumer_details") do
           json.array do
-            @consumers_lock.synchronize do
-              @consumers.each do |c|
+            @consumers.shared do |cs|
+              cs.each do |c|
                 c.to_json(json)
                 consumer_limit -= 1
                 break if consumer_limit.zero?

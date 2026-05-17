@@ -217,7 +217,7 @@ describe LavinMQ::MessageStore do
           message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
           store.push(message)
           env = store.shift?.should_not be_nil
-          String.new(env.message.body).should eq "hello"
+          String.new(env.message.as(LavinMQ::BytesMessage).body).should eq "hello"
           store.delete(env.segment_position)
           store.close
         end
@@ -613,7 +613,7 @@ describe LavinMQ::MessageStore do
 
         env = store.shift?
         env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        String.new(env.not_nil!.message.as(LavinMQ::BytesMessage).body).should eq body
         store.@size.should eq 0
         store.close
       end
@@ -691,6 +691,71 @@ describe LavinMQ::MessageStore do
         env = store.shift?
         env.should_not be_nil
         store.close
+      end
+    end
+  end
+
+  # Regression: purge_all phase 1 used to subtract @segment_msg_count from @size
+  # without accounting for already-acked messages in the segment, so any
+  # acked-but-not-fully-acked segment under purge_all could underflow @size or
+  # leave it inconsistent — observed under MT stress as "EOF but @size=N".
+  describe "#purge_all" do
+    it "leaves @size == 0 when deleted segments contain partial acks" do
+      with_store do |store|
+        # Fill several segments so phase 1 has real segments to delete.
+        half_seg = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, half_seg, IO::Memory.new("a" * half_seg))
+        6.times { store.push(big) } # 3 segments, 2 msgs each
+        store.@segments.size.should be >= 3
+
+        # Shift+ack just the first message — leaves segment 1 with one ready
+        # message and one ack, exercising the partial-ack code path in phase 1.
+        env = store.shift?.not_nil!
+        store.delete(env.segment_position)
+
+        store.purge_all
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+        store.empty?.should be_true
+        store.empty.value.should be_true
+      end
+    end
+
+    it "shift? from @requeued keeps @size consistent when the segment is gone" do
+      with_store do |store|
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        env = store.shift?.not_nil!
+        store.requeue(env.segment_position)
+        store.@size.should eq 1
+
+        # Simulate a race: the requeued sp's segment was deleted by another
+        # purge before we got back to shift?. Without the fix, shift? bubbles
+        # an exception while the requeued entry's accounting is left behind.
+        store.@segments.delete(env.segment_position.segment)
+
+        expect_raises(LavinMQ::MessageStore::Error) do
+          store.shift?
+        end
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+      end
+    end
+
+    it "leaves @size == 0 even when shift? raises during the loop" do
+      with_store do |store|
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        env = store.shift?.not_nil!
+        store.requeue(env.segment_position)
+
+        # Same race as above, but exercised through purge_all so we also
+        # confirm the rescue/reset safety net runs to completion.
+        store.@segments.delete(env.segment_position.segment)
+
+        store.purge_all
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+        store.empty.value.should be_true
       end
     end
   end

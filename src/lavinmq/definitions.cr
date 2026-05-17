@@ -126,15 +126,15 @@ module LavinMQ
           configure = p["configure"].as_s
           read = p["read"].as_s
           write = p["write"].as_s
-          unless u = @amqp_server.users[user]?
+          unless @amqp_server.users[user]?
             Log.warn { "No user named #{user}, can't import permissions" }
             next
           end
-          u.permissions[vhost] = {
-            config: parse_regex(configure, "configure", user, vhost),
-            read:   parse_regex(read, "read", user, vhost),
-            write:  parse_regex(write, "write", user, vhost),
-          }
+          @amqp_server.users.add_permission(user, vhost,
+            parse_regex(configure, "configure", user, vhost),
+            parse_regex(read, "read", user, vhost),
+            parse_regex(write, "write", user, vhost),
+            save: false)
         end
         @amqp_server.users.save!
       end

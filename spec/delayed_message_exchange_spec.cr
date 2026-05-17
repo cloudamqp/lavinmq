@@ -199,7 +199,7 @@ describe "Delayed Message Exchange" do
         expected = %w[3000 6000 1500 9000]
         expected.each do |expected_delay|
           queue.basic_get(no_ack: true) do |env|
-            String.new(env.message.body).should eq expected_delay
+            String.new(env.message.as(LavinMQ::BytesMessage).body).should eq expected_delay
           end
         end
       end

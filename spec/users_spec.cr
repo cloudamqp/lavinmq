@@ -191,6 +191,33 @@ describe LavinMQ::Auth::UserStore do
       FileUtils.rm_rf "/tmp/lavinmq-spec"
     end
   end
+
+  # Mutations on the user's permissions Hash must be serialized between writers
+  # and never tear it under concurrent readers. With multi-threading enabled,
+  # this previously raced because UserStore only took a shared lock around the
+  # mutation.
+  describe "concurrent permission mutations" do
+    it "preserves all permissions when many fibers add concurrently" do
+      Dir.mkdir_p "/tmp/lavinmq-spec-concur"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec-concur", nil)
+      user_store.create("u", "password")
+
+      vhosts = (0...50).map { |i| "vhost#{i}" }
+      done = Channel(Nil).new(vhosts.size)
+      vhosts.each do |vh|
+        spawn do
+          user_store.add_permission("u", vh, /.*/, /.*/, /.*/, save: false)
+          done.send nil
+        end
+      end
+      vhosts.size.times { done.receive }
+
+      perms = user_store["u"].permissions
+      vhosts.each { |vh| perms.has_key?(vh).should be_true }
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec-concur"
+    end
+  end
 end
 
 describe LavinMQ::Server do

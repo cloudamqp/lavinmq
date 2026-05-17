@@ -16,7 +16,7 @@ describe LavinMQ::AMQP::DurableQueue do
       begin
         q = server.vhosts["/"].queue("queue").as(LavinMQ::AMQP::DurableQueue)
         q.basic_get(true) do |env|
-          String.new(env.message.body).to_s.should eq "message"
+          String.new(env.message.as(LavinMQ::BytesMessage).body).to_s.should eq "message"
         end.should be_true
       ensure
         server.close
@@ -45,7 +45,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
             q.subscribe(tag: "tag", no_ack: false, &.ack)
 
-            should_eventually(be_true) { queue.state.closed? }
+            should_eventually(be_true) { queue.closed? }
           end
 
           vhost.queue?("corrupt_q").try &.delete

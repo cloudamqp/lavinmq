@@ -801,6 +801,37 @@ describe LavinMQ::Shovel do
     end
   end
 
+  describe "Store#create" do
+    it "is atomic under concurrent calls with the same name" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        name = "concurrent_create_shovel"
+        config = JSON.parse({
+          "src-uri":    s.amqp_url,
+          "dest-uri":   s.amqp_url,
+          "src-queue":  "cc_q1",
+          "dest-queue": "cc_q2",
+        }.to_json)
+        fiber_count = 16
+        results = Channel(LavinMQ::Shovel::Runner?).new(fiber_count)
+        fiber_count.times do
+          spawn do
+            results.send vhost.shovels.create(name, config)
+          rescue
+            results.send nil
+          end
+        end
+        shovels = Array(LavinMQ::Shovel::Runner?).new(fiber_count) { results.receive }.compact
+        shovels.size.should eq fiber_count
+        vhost.shovels.size.should eq 1
+        survivor = vhost.shovels[name]
+        shovels.count(&.same?(survivor)).should eq 1
+        shovels.reject(&.same?(survivor)).each &.terminated?.should be_true
+        vhost.shovels.delete(name)
+      end
+    end
+  end
+
   describe "Store.validate_config!" do
     it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
       with_amqp_server do |s|

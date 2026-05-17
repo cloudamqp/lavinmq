@@ -1,4 +1,5 @@
 require "socket"
+require "sync/shared"
 require "openssl"
 require "systemd"
 require "./amqp"
@@ -33,17 +34,17 @@ module LavinMQ
 
     @start = Time.instant
     @closed = BoolChannel.new(false)
-    @flow = true
+    @flow = Atomic(Bool).new(true)
 
     def closed? : Bool
       @closed.value
     end
 
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
-    @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
+    @listeners : Sync::Shared(Hash(Socket::Server, Protocol)) = Sync::Shared.new(Hash(Socket::Server, Protocol).new) # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
@@ -79,13 +80,22 @@ module LavinMQ
     end
 
     def amqp_url
-      addr = @listeners
-        .select { |_, v| v.amqp? }
-        .keys
-        .select(TCPServer)
-        .first
-        .local_address
+      addr = @listeners.shared do |h|
+        h.select { |_, v| v.amqp? }
+          .keys
+          .select(TCPServer)
+          .first
+          .local_address
+      end
       "amqp://#{addr}"
+    end
+
+    def listeners_empty? : Bool
+      @listeners.unsafe_get.empty?
+    end
+
+    def listeners_size : Int32
+      @listeners.unsafe_get.size
     end
 
     def stop
@@ -117,7 +127,7 @@ module LavinMQ
     end
 
     def listen(s : TCPServer, protocol : Protocol)
-      @listeners[s] = protocol
+      @listeners.lock { |h| h[s] = protocol }
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do
         client = s.accept? || break
@@ -127,7 +137,7 @@ module LavinMQ
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
     ensure
-      @listeners.delete(s)
+      @listeners.lock(&.delete(s))
     end
 
     private def accept_tcp(client, protocol)
@@ -167,7 +177,7 @@ module LavinMQ
     end
 
     def listen(s : UNIXServer, protocol : Protocol)
-      @listeners[s] = protocol
+      @listeners.lock { |h| h[s] = protocol }
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -177,7 +187,7 @@ module LavinMQ
     rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect_with_backtrace}"
     ensure
-      @listeners.delete(s)
+      @listeners.lock(&.delete(s))
     end
 
     private def accept_unix(client, protocol)
@@ -203,7 +213,7 @@ module LavinMQ
     end
 
     def listen_tls(s : TCPServer, context, protocol : Protocol)
-      @listeners[s] = protocol
+      @listeners.lock { |h| h[s] = protocol }
       Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -213,7 +223,7 @@ module LavinMQ
     rescue ex : IO::Error | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
     ensure
-      @listeners.delete(s)
+      @listeners.lock(&.delete(s))
     end
 
     private def accept_tls(client, context, protocol)
@@ -260,7 +270,7 @@ module LavinMQ
     def close
       @closed.set(true)
       Log.debug { "Closing listeners" }
-      @listeners.each_key &.close
+      @listeners.shared(&.each_key(&.close))
       Log.debug { "Closing vhosts" }
       @vhosts.close
     end
@@ -275,22 +285,24 @@ module LavinMQ
     end
 
     def listeners
-      @listeners.map do |l, protocol|
-        case l
-        when UNIXServer
-          addr = l.local_address
-          {
-            "path":     addr.path,
-            "protocol": protocol,
-          }
-        when TCPServer
-          addr = l.local_address
-          {
-            "ip_address": addr.address,
-            "protocol":   protocol,
-            "port":       addr.port,
-          }
-        else raise "Unexpected listener '#{l.class}'"
+      @listeners.shared do |h|
+        h.map do |l, protocol|
+          case l
+          when UNIXServer
+            addr = l.local_address
+            {
+              "path":     addr.path,
+              "protocol": protocol,
+            }
+          when TCPServer
+            addr = l.local_address
+            {
+              "ip_address": addr.address,
+              "protocol":   protocol,
+              "port":       addr.port,
+            }
+          else raise "Unexpected listener '#{l.class}'"
+          end
         end
       end
     end
@@ -508,7 +520,7 @@ module LavinMQ
     end
 
     def flow(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
       @vhosts.each_value &.flow=(active)
     end
 

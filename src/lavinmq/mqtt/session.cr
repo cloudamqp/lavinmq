@@ -32,10 +32,10 @@ module LavinMQ
       private def deliver_loop
         delivered_bytes = 0_i32
         loop do
-          break if @closed
+          break if closed?
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @consumers_empty.when_false.receive? if @consumers.empty?
-          consumer = @consumers.first.as(MQTT::Consumer)
+          consumer = @consumers.shared(&.first?).as(MQTT::Consumer?)
+          next @consumers_empty.when_false.receive? if consumer.nil?
           get_packet do |pub_packet, bytesize|
             consumer.deliver(pub_packet)
             delivered_bytes &+= bytesize
@@ -46,7 +46,7 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.each &.close
+          @consumers.shared(&.dup).each &.close
           self.client = nil
         end
       end
@@ -56,7 +56,7 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
-        return if @closed
+        return if closed?
         @last_get_time = RoughTime.instant
 
         unless clean_session?
@@ -68,7 +68,7 @@ module LavinMQ
         end
         @unacked.clear
 
-        @consumers.each do |c|
+        @consumers.shared(&.dup).each do |c|
           rm_consumer c
         end
         @client = client
@@ -101,7 +101,7 @@ module LavinMQ
 
       def publish(msg : Message) : Bool
         # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
-        return true if msg.properties.delivery_mode == 0 && @consumers.empty?
+        return true if msg.properties.delivery_mode == 0 && @consumers.unsafe_get.empty?
         super
       end
 
@@ -114,7 +114,7 @@ module LavinMQ
       end
 
       private def get_packet(& : MQTT::Publish, UInt32 -> Nil) : Bool
-        raise ClosedError.new if @closed
+        raise ClosedError.new if closed?
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
@@ -154,7 +154,9 @@ module LavinMQ
       end
 
       def build_packet(env, packet_id) : MQTT::Publish
-        msg = env.message
+        # MQTT sessions are backed by regular queues, not stream queues, so
+        # env.message is always a BytesMessage with an in-memory body slice.
+        msg = env.message.as(BytesMessage)
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1

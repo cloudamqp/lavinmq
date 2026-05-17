@@ -1,4 +1,5 @@
 require "json"
+require "sync/shared"
 require "./parameter"
 require "./logger"
 
@@ -8,52 +9,61 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "parameter_store"
 
+    @parameters : Sync::Shared(Hash(ParameterId?, T))
+    # Serializes save! so concurrent admin operations don't both
+    # truncate-and-rewrite the .tmp file from offset zero.
+    @save_lock = Mutex.new
+
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator?, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
       @log = Logger.new(Log, metadata)
-      @parameters = Hash(ParameterId?, T).new
+      @parameters = Sync::Shared.new(Hash(ParameterId?, T).new, :unchecked)
       load!
     end
 
     def []?(id) : T?
-      @parameters[id]?
+      @parameters.shared { |p| p[id]? }
     end
 
     def [](id) : T
-      @parameters[id]
+      @parameters.shared { |p| p[id] }
     end
 
     def each_value(& : T ->) : Nil
-      @parameters.each_value { |p| yield p }
+      @parameters.shared do |parameters|
+        parameters.each_value { |p| yield p }
+      end
     end
 
     def has_key?(id) : Bool
-      @parameters.has_key?(id)
+      @parameters.shared(&.has_key?(id))
     end
 
     def size : Int32
-      @parameters.size
+      @parameters.unsafe_get.size
     end
 
     def values : Array(T)
-      @parameters.values
+      @parameters.shared(&.values)
     end
 
     def empty? : Bool
-      @parameters.empty?
+      @parameters.unsafe_get.empty?
     end
 
     def any?(& : {ParameterId?, T} -> Bool) : Bool
-      @parameters.any? { |kv| yield kv }
+      @parameters.shared do |parameters|
+        parameters.any? { |kv| yield kv }
+      end
     end
 
     def create(parameter : T, save = true)
-      @parameters[parameter.name] = parameter
+      @parameters.lock { |p| p[parameter.name] = parameter }
       save! if save
     end
 
     def delete(id, save = true) : T?
-      if parameter = @parameters.delete id
+      if parameter = @parameters.lock(&.delete(id))
         save! if save
         parameter
       end
@@ -61,7 +71,7 @@ module LavinMQ
 
     def apply(parameter : Parameter? = nil, &)
       itr = if parameter.nil?
-              @parameters.each_value
+              @parameters.shared(&.values).each
             else
               [parameter].each
             end
@@ -75,8 +85,10 @@ module LavinMQ
     end
 
     def each(&)
-      @parameters.each do |kv|
-        yield kv
+      @parameters.shared do |parameters|
+        parameters.each do |kv|
+          yield kv
+        end
       end
     end
 
@@ -89,12 +101,14 @@ module LavinMQ
     end
 
     private def save!
-      @log.debug { "Saving #{@file_name}" }
-      path = File.join(@data_dir, @file_name)
-      tmpfile = "#{path}.tmp"
-      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
-      File.rename tmpfile, path
-      @replicator.try &.replace_file path
+      @save_lock.synchronize do
+        @log.debug { "Saving #{@file_name}" }
+        path = File.join(@data_dir, @file_name)
+        tmpfile = "#{path}.tmp"
+        File.open(tmpfile, "w") { |f| to_pretty_json(f) }
+        File.rename tmpfile, path
+        @replicator.try &.replace_file path
+      end
     end
 
     private def load!

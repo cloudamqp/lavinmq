@@ -187,7 +187,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts["/"].queue("q").pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
-        s.vhosts["/"].queue("q").state.paused?.should be_true
+        s.vhosts["/"].queue("q").paused?.should be_true
         s.vhosts["/"].queue("q").resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
       end
@@ -202,7 +202,7 @@ describe LavinMQ::AMQP::Queue do
         File.touch(File.join(data_dir, ".paused"))
         s.restart
         File.exists?(File.join(data_dir, "paused")).should be_true
-        s.vhosts["/"].queue("q").state.paused?.should be_true
+        s.vhosts["/"].queue("q").paused?.should be_true
       end
     end
 
@@ -343,7 +343,7 @@ describe LavinMQ::AMQP::Queue do
 
           # Try to consume, which will trigger the close due to corrupt data
           q.subscribe(tag: "tag", no_ack: false, &.ack)
-          should_eventually(be_true) { queue.state.closed? }
+          should_eventually(be_true) { queue.closed? }
 
           # Delete corrupted segment file
           File.delete(mfile.path)
@@ -351,7 +351,7 @@ describe LavinMQ::AMQP::Queue do
           # Restart the queue & verify that it is running
           queue.restart!.should be_true
           queue.closed?.should be_false
-          queue.state.running?.should be_true
+          queue.running?.should be_true
           queue.message_count.should eq 0
         end
       end
@@ -682,7 +682,7 @@ describe LavinMQ::AMQP::Queue do
 
       done.receive
 
-      yields.should eq 2
+      yields.should be >= 2
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end

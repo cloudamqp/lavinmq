@@ -25,6 +25,8 @@ module LavinMQ
     @replicator : Clustering::Server?
 
     def initialize(@config : Config)
+      count = ENV.fetch("CRYSTAL_WORKERS", "").to_i? || 1
+      Fiber::ExecutionContext.default.resize(count)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -116,7 +118,7 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       {% if flag?(:preview_mt) %}
-        Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
+        Log.info { "Multithreading: #{Fiber::ExecutionContext.default.capacity} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging

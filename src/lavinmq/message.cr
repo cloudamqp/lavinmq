@@ -107,10 +107,69 @@ module LavinMQ
     end
   end
 
+  # A range of bytes inside a `File`. Used by `FileRangeMessage` to refer to a
+  # message body still on disk, so the body bytes are read straight into the
+  # socket buffer instead of being copied off the segment's mmap onto the heap.
+  record FileRange, file : File, pos : Int64, length : UInt64
+
+  # Messages read by a stream consumer that owns its own `File` handle for the
+  # current segment. The header (`timestamp`, `exchange_name`, `routing_key`,
+  # `properties`, `bodysize`) is decoded eagerly via `from_io`; the body is
+  # left on disk and referenced as a `FileRange` so the delivery path can read
+  # it sequentially through the consumer's FD into the socket. Because the FD
+  # is single-owner and offsets are monotonic, `file.pos` after `from_io` is
+  # exactly the body start — no `pread` is needed.
+  struct FileRangeMessage
+    getter timestamp, exchange_name, routing_key, properties, bodysize, body
+
+    def initialize(@timestamp : Int64, @exchange_name : String,
+                   @routing_key : String, @properties : AMQ::Protocol::Properties,
+                   @bodysize : UInt64, @body : FileRange)
+    end
+
+    def bytesize
+      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
+        @properties.bytesize + sizeof(UInt64) + @bodysize
+    end
+
+    def ttl
+      @properties.expiration.try(&.to_i64?)
+    end
+
+    def dlx : String?
+      @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
+    end
+
+    def dlrk : String?
+      @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
+    end
+
+    def delay : UInt32?
+      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
+    rescue OverflowError
+      nil
+    end
+
+    # Decode a message header sequentially from `file`, leaving `file.pos` at
+    # the body start. The returned `FileRangeMessage` carries a `FileRange`
+    # pointing at that position; the caller will read the body sequentially
+    # from the same FD (so `file.pos` lands at the next message after).
+    def self.from_io(file : File, format = IO::ByteFormat::SystemEndian) : self
+      ts = Int64.from_io(file, format)
+      ex = AMQ::Protocol::ShortString.from_io(file, format)
+      rk = AMQ::Protocol::ShortString.from_io(file, format)
+      pr = AMQ::Protocol::Properties.from_io(file, format)
+      sz = UInt64.from_io(file, format)
+      body_pos = file.pos
+      new(ts, ex, rk, pr, sz, FileRange.new(file, body_pos, sz))
+    end
+  end
+
   struct Envelope
     getter segment_position, message, redelivered
 
-    def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
+    def initialize(@segment_position : SegmentPosition,
+                   @message : BytesMessage | FileRangeMessage,
                    @redelivered = false)
     end
   end

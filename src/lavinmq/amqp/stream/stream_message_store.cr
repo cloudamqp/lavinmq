@@ -36,7 +36,11 @@ module LavinMQ::AMQP
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value - 1
+      # to_i64 first: when the trailing segment was opened but has no messages
+      # yet (4-byte schema header only) @segment_msg_count is 0_u32 and the
+      # subtraction would underflow UInt32. -1 here means "one before this
+      # segment's first offset", which is the last assigned offset.
+      offset += @segment_msg_count.last_value.to_i64 - 1
       offset
     end
 
@@ -69,6 +73,13 @@ module LavinMQ::AMQP
       end
     end
 
+    # Path on disk for a segment file, used by stream consumers and readers to
+    # open their own `File` handle (one per consumer/reader) and read the
+    # segment sequentially without contending on the shared mmap.
+    def segment_path(seg_id : UInt32) : String
+      File.join(@msg_dir, "msgs.#{seg_id.to_s.rjust(10, '0')}")
+    end
+
     def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
       @segments.each do |seg_id, mfile|
         next if mfile == @wfile
@@ -79,8 +90,21 @@ module LavinMQ::AMQP
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
-      mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
+      # `find_offset` is delegated from `Stream` without holding
+      # `@msg_store_lock`, so a new consumer's `initialize` can race against
+      # a publisher's `drop_segments_while`, which mutates @segments and
+      # @segment_first_offset. If we observe a torn snapshot — segment in
+      # @segments but no first_offset, or first_offset present but segment
+      # gone — fall through to the next segment rather than raising.
+      mfile = @segments[seg]?
+      first = @segment_first_offset[seg]?
+      if mfile.nil? || first.nil?
+        if next_seg = @segments.each_key.find { |sid| sid > seg }
+          return offset_at(next_seg, 4_u32, retried)
+        end
+        return {@last_offset, seg, pos}
+      end
+      offset = first
       mfile.pos = 4
       while mfile.pos < pos
         BytesMessage.skip(mfile)
@@ -213,16 +237,23 @@ module LavinMQ::AMQP
       end
     end
 
-    def read(segment : UInt32, position : UInt32) : Envelope?
+    # Read a single message from `file` at `position`. The caller owns `file`
+    # (typically a `StreamReader`'s per-instance FD) and is responsible for
+    # keeping `file.pos == position` on entry. After this call, `file.pos` sits
+    # at the body start; reading the `FileRange` body sequentially leaves the
+    # FD at the next message's header.
+    def read(segment : UInt32, position : UInt32, file : File) : Envelope?
       return if @closed
       rfile = @segments[segment]
       return if position == rfile.size
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + position)
+        {% if flag?(:assert_stream_pos) %}
+          raise "stream pos drift in read: file.pos=#{file.pos} position=#{position}" unless file.pos == position.to_i64
+        {% end %}
+        msg = FileRangeMessage.from_io(file)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
-        puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
       end
     end
@@ -241,31 +272,57 @@ module LavinMQ::AMQP
         rfile = next_segment(consumer) || return
       end
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-        sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
+        file = consumer.segment_file_for(self)
+        {% if flag?(:assert_stream_pos) %}
+          raise "stream pos drift in shift?: file.pos=#{file.pos} consumer.pos=#{consumer.pos}" unless file.pos == consumer.pos.to_i64
+        {% end %}
+        start_pos = consumer.pos
+        msg = FileRangeMessage.from_io(file)
+        sp = SegmentPosition.new(consumer.segment, start_pos, msg.bytesize.to_u32)
         msg.properties.headers = add_offset_header(msg.properties.headers, consumer.offset)
         consumer.pos += sp.bytesize
         consumer.offset += 1
-        return unless consumer.filter_match?(msg.properties.headers)
+        unless consumer.filter_match?(msg.properties.headers)
+          # Skip the body the delivery path won't read so file.pos == consumer.pos again
+          file.seek(msg.bodysize.to_i64, IO::Seek::Current)
+          return
+        end
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
     end
 
-    private def shift_requeued(requeued) : Envelope?
-      while sp = requeued.shift?
+    private def shift_requeued(requeued : Sync::Exclusive(Deque(SegmentPosition))) : Envelope?
+      while sp = requeued.lock(&.shift?)
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
-            return Envelope.new(sp, msg, redelivered: true)
+            return Envelope.new(sp, detach_from_mmap(msg), redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
           end
         end
       end
+    end
+
+    # Returns a BytesMessage whose body lives on the GC heap rather than in
+    # the segment's mmap. Only the requeue path uses this now (the main shift?
+    # path returns a FileRangeMessage backed by the consumer's own FD). On
+    # requeue we can't easily reuse the consumer's sequential FD (the requeued
+    # message may live in a different segment, and seeking the FD around would
+    # leave its position out of sync with consumer.pos), so we fall back to
+    # the original mmap+copy: drop_segments_while can munmap a segment while a
+    # consumer is still writing body bytes to the socket, so the body slice
+    # must be detached to the heap. add_offset_header already promotes the
+    # headers Table to a writable heap buffer via Table#check_writeable.
+    private def detach_from_mmap(msg : BytesMessage) : BytesMessage
+      body = Bytes.new(msg.bodysize)
+      msg.body.copy_to(body)
+      BytesMessage.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, body)
     end
 
     def next_segment_id(segment) : UInt32?
@@ -292,17 +349,31 @@ module LavinMQ::AMQP
 
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
+        # Set the new segment's metadata BEFORE drop_overflow runs. If
+        # drop_overflow raised (e.g. inside cleanup_consumer_offsets) the
+        # entry would otherwise be left unset, and the *next* segment roll
+        # would call write_metadata_file → write_metadata → KeyError on this
+        # seg, wedging the queue: parent open_new_segment never advances
+        # @wfile_id past a failed write_metadata_file, so every subsequent
+        # push hits the same error forever.
+        new_seg = @segments.last_key
+        @segment_first_offset[new_seg] = @last_offset.zero? ? 1i64 : @last_offset
+        @segment_first_ts[new_seg] = RoughTime.unix_ms
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
-        @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
 
     private def write_metadata(io, seg)
       super
-      io.write_bytes @segment_first_offset[seg]
-      io.write_bytes @segment_first_ts[seg]
-      io.write_bytes @segment_last_ts[seg]
+      # Defensive fallbacks: if the entry is missing for any reason we'd
+      # rather write a plausible value than KeyError out of write_metadata,
+      # which would wedge the parent's open_new_segment (it never advances
+      # @wfile_id past a failure). produce_metadata rebuilds these fields
+      # from the segment file on startup, so a slightly stale value here is
+      # recoverable.
+      io.write_bytes(@segment_first_offset[seg]? || @last_offset)
+      io.write_bytes(@segment_first_ts[seg]? || RoughTime.unix_ms)
+      io.write_bytes(@segment_last_ts[seg]? || 0_i64)
     end
 
     def drop_overflow
@@ -367,8 +438,13 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
-        @segment_first_offset[seg] = @last_offset + 1
+      if empty? || @segment_msg_count[seg].zero?
+        # Whole queue empty, or this trailing segment was opened (4-byte
+        # Schema::VERSION header written by open_new_segment) but no message
+        # was written before shutdown — don't parse a msg out of an empty file.
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
+        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
