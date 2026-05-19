@@ -2311,6 +2311,24 @@ pre.arguments .inactive-argument:before {
   gap: 0.5rem;
 }
 
+.require-administrator,
+.require-monitoring,
+.require-management,
+.require-policymaker,
+.require-impersonator {
+  display: none;
+  .user-is-administrator & {
+    display: revert;
+  }
+}
+
+.user-is-monitoring .require-monitoring,
+.user-is-management .require-management,
+.user-is-policymaker .require-policymaker,
+.user-is-impersonator .require-impersonator {
+  display: revert;
+}
+
 /* === RESPONSIVE === */
 @media (max-width: 1850px) {
   .cols-6-md {

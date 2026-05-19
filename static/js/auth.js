@@ -1,3 +1,5 @@
+import { stateClasses } from './helpers.js'
+
 function getUsername () {
   return window.atob(getAuth()).split(':')[0]
 }
@@ -34,6 +36,7 @@ const whoAmICacheKey = 'lmq.whoami'
 function logout () {
   window.localStorage.removeItem(whoAmICacheKey)
   document.cookie = 'm=; max-age=0'
+  stateClasses.remove(/^user-is-/)
   window.location.assign('login')
 }
 
@@ -52,6 +55,10 @@ async function fetchWhoAmI () {
         delete data.password_hash
         delete data.hashing_algorithm
         window.localStorage.setItem(whoAmICacheKey, JSON.stringify(data))
+        stateClasses.remove(/^user-is-/);
+        (data.tags?.split(/,\s*/).filter(Boolean) || []).forEach(tag => {
+          stateClasses.add(`user-is-${tag}`)
+        })
         return data
       } else {
         window.localStorage.removeItem(whoAmICacheKey)
@@ -74,7 +81,7 @@ async function whoAmI (forceReload = false) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
           // fetch in background, we still return the cached
-          fetchWhoAmI().catch(e => console.warn(`Failed to load whoAmI: ${e.message}`))
+          fetchWhoAmI().catch(e => console.warn(`Failed to fetch whoAmI: ${e.message}`))
         }
         return cached
       }
