@@ -203,14 +203,20 @@ module LavinMQ
     end
 
     def purge_all
+      # Clear any requeued messages and adjust stats accordingly
+      while sp = @requeued.shift?
+        @size -= 1
+        @bytesize -= sp.bytesize
+      end
+
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
         delete_file(file, including_meta: true)
-        if msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count
-        end
+        msg_count = @segment_msg_count.delete(seg_id)
+        # Only decrement @size for segments that haven't been read yet
+        @size -= msg_count if msg_count && seg_id > @rfile_id
         if afile = @acks.delete(seg_id)
           delete_file(afile)
         end
@@ -223,8 +229,9 @@ module LavinMQ
         delete(env.segment_position)
       end
 
-      @requeued.clear
+      @size = 0_u32
       @bytesize = 0_u64
+      @empty.set(true)
     end
 
     def delete
