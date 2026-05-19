@@ -138,6 +138,44 @@ When a rule is configured every publish inspects the message's headers. High-thr
 
 Auto-managed filter policies are named `__queue-filter__<queue>`. The default `/api/policies` listings hide them; pass `?include_managed=true` to see them. Operators should not create user-authored policies under this prefix.
 
+## Use cases
+
+Diagnostic and operational scenarios where producers and consumers stay untouched and the operator changes a single live rule:
+
+* **Production debugging.** Capture or sideline a specific message signature on an existing queue without redeploying producers, consumers, or rebinding exchanges. The rule can be changed and removed within the lifetime of an incident.
+* **Tenant misrouting cleanup.** `move_to` wrong-tenant messages to a sidecar queue (often a replay queue) for repair before re-send.
+* **Audit sampling.** `duplicate_to` an analytics or audit sink while the production flow is untouched.
+* **Security review.** Sideline suspect payloads (oversized, unexpected content-type, malformed) before consumers see them.
+* **A/B sampling / migration.** Peel off a subset of traffic to a new queue during a producer cutover.
+
+Intended primarily as a debug aid for developers and operators. Steady-state routing should still go through bindings.
+
+## Comparison to existing LavinMQ features
+
+| Feature | When it runs | What it produces | Mutates flow? | Config surface |
+|---------|--------------|------------------|---------------|----------------|
+| Headers exchange | Routing time, inside the exchange. | Zero, one, or more bindings; each matching queue gets a copy. | No. Pure routing decision. | Bindings on an exchange. Change = unbind + rebind. |
+| Live filter | After routing, in `publish_internal` on the destination queue. | An action: drop, move, or duplicate. | Yes. Can drop, sideline, or duplicate. | Runtime endpoint or policy. Change = a single API call, no rebinding. |
+| Shovel | Continuously between two queues. | Moves all messages. | No per-message decision. | AMQP shovel config; coarse-grained. |
+| Stream `Stream::Filter` | Consumer-side, stream queues only. | Filters what a consumer receives. | No mutation of the stream. | Stream-specific arguments. |
+
+Headers exchange picks routes at bind time; live filter mutates flow at publish time. They live at different layers and complement each other — the same `x-match` and clause shape means an operator already comfortable with headers exchange matching can read a live filter rule immediately.
+
+## Punch list (deferred for follow-up work)
+
+The initial PR intentionally ships the smallest useful surface. The following items are designed-for but not implemented:
+
+* **Multiple rules per queue.** Single-rule today; planned as `Array(Rule)` evaluated in order with early short-circuit on `drop`.
+* **Regex / JMESPath predicate operators.** Today only `eq` / `not_eq` / `exists`.
+* **Property matching.** Read AMQP properties (`correlation_id`, `message_id`, `app_id`) in addition to headers.
+* **Body matching at filter time.** Decompress payload + content-type gating to allow rules over the body.
+* **Consume-side predicate.** Predicate that fires on delivery, independent of nack.
+* **Exchange-scope filter.** Predicate at routing time inside the exchange; actions limited to `drop` and `duplicate_to:<queue>`.
+* **Vhost-scope filter.** Predicate at vhost publish time before routing.
+* **In-store scan on a paused queue.** Apply a fresh rule to messages already present without taking the queue down.
+* **Bulk `reset-replay-headers` endpoint** on the source queue.
+* **Queue-argument form (`x-message-filter`).** Argument form was intentionally dropped; can be added back if a use case shows up.
+
 ## Limitations
 
 * **Single rule per queue.** Compound behaviour requires multiple queues today.
