@@ -349,6 +349,42 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # Regression: a `delivery-limit` policy matching a stream queue used to
+    # fall through to AMQP::Queue#apply_policy_argument, which spawned a
+    # drop_redelivered fiber. That fiber called the inherited
+    # MessageStore#first? and dereferenced the legacy `@rfile` — which
+    # streams don't maintain through `drop_segments_while` — pointing at
+    # a closed mfile from a long-dropped segment. The spawn died with
+    # IO::Error("Closed mfile"). Stream now rejects the policy key
+    # alongside the declare-time validation.
+    it "ignores delivery-limit policy on streams" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-delivery-limit-policy", args: AMQP::Client::Arguments.new(args))
+          # Roll a few segments, then drop them via max-length-bytes so the
+          # inherited @rfile is left dangling at a closed mfile — the same
+          # state observed in the production crash.
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          s.vhosts["/"].add_policy("mlb", "stream-delivery-limit-policy", "queues",
+            {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+          q.message_count.should eq 1
+          # Now apply delivery-limit. Pre-fix this spawned drop_redelivered
+          # and crashed; post-fix it's skipped entirely.
+          s.vhosts["/"].add_policy("dl", "stream-delivery-limit-policy", "queues",
+            {"delivery-limit" => JSON::Any.new(5_i64)}, 1i8)
+          stream = s.vhosts["/"].queue("stream-delivery-limit-policy").as(LavinMQ::AMQP::Stream)
+          stream.effective_policy_args.should_not contain "delivery-limit"
+          # Give the (non-existent post-fix) spawn fiber a chance to run and
+          # verify the queue is still functional.
+          Fiber.yield
+          q.publish_confirm "ok"
+          q.message_count.should eq 2
+        end
+      end
+    end
+
     it "meta files should be removed when segment is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

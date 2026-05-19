@@ -101,6 +101,7 @@ module LavinMQ
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
       rescue ex
+        @log.error(exception: ex) { "first? failed: #{state_snapshot}" }
         raise Error.new(@rfile, cause: ex)
       end
     end
@@ -147,6 +148,7 @@ module LavinMQ
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
       rescue ex
+        @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
         raise Error.new(@rfile, cause: ex)
       end
     end
@@ -173,7 +175,7 @@ module LavinMQ
         ack_count = afile.size // sizeof(UInt32)
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
-          @log.debug { "Deleting segment #{sp.segment}" }
+          @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
           if a = @acks.delete(sp.segment)
             delete_file(a)
@@ -246,11 +248,13 @@ module LavinMQ
             wg.wait
           ensure
             File.delete?(meta_file_name(file)) if including_meta
+            @log.debug { "delete_file (async close): path=#{file.path}" }
             file.close
           end
         end
       else
         File.delete?(meta_file_name(file)) if including_meta
+        @log.debug { "delete_file (sync close): path=#{file.path}" }
         file.close
       end
     end
@@ -296,14 +300,31 @@ module LavinMQ
       (@bytesize / @size).to_u32
     end
 
+    private def state_snapshot : String
+      String.build do |io|
+        io << "store_closed=" << @closed
+        io << " rfile_id=" << @rfile_id
+        io << " rfile=" << @rfile.path << "(closed=" << @rfile.closed? << " pos=" << @rfile.pos << " size=" << @rfile.size << ")"
+        io << " wfile_id=" << @wfile_id
+        io << " segments=" << @segments.keys
+        io << " size=" << @size
+      end
+    end
+
     private def select_next_read_segment : MFile?
       @rfile.dontneed unless @rfile.closed?
+      prev_id = @rfile_id
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
         rfile.advise(MFile::Advice::Sequential)
         @rfile_id = id
         @rfile = rfile
+        @log.debug { "select_next_read_segment: #{prev_id} -> #{id}, segments=#{@segments.keys}" }
+        rfile
+      else
+        @log.debug { "select_next_read_segment: no segment > #{prev_id}, segments=#{@segments.keys}, rfile_closed=#{@rfile.closed?}" }
+        nil
       end
     end
 
@@ -635,7 +656,7 @@ module LavinMQ
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
-          @log.debug { "Deleting unused segment #{seg}" }
+          @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
