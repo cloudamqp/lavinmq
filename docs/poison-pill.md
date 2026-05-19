@@ -96,3 +96,50 @@ ch.queue("orders", durable: true, args: {
   "x-dead-letter-routing-key" => "orders.audit",
 })
 ```
+
+Apply the same behaviour broker-wide via a policy (paired with an `x-queue-type: replay` target for fix-and-resend):
+
+```
+PUT /api/policies/%2F/pp-global
+{
+  "pattern": "^(?!repairs$|amq\\.|federation\\.).*",
+  "apply-to": "queues",
+  "priority": 10,
+  "definition": {
+    "quarantine-after-redeliveries": 5,
+    "quarantine-target": "repairs",
+    "quarantine-action": "move"
+  }
+}
+```
+
+## Use cases
+
+* **Crashy consumer.** A bug in a consumer keeps crashing on the same payload. Set `x-quarantine-after-redeliveries: 3` on the queue once; the consumer recovers forever; the message lands on the operator-facing target (typically a replay queue) for review.
+* **Producer-side validation failures.** A producer occasionally sends payloads that fail business validation. Consumers nack with `requeue=false`; `x-nack-to-quarantine: true` diverts those to a fix-and-resend queue instead of `/dev/null`.
+* **Replacing a bespoke "drop-list" pattern.** Many teams maintain an app-side queue of correlation-ids to drop plus a consumer that scans that queue before requeueing. With poison-pill the broker handles the divert (per redelivery threshold or per nack-with-requeue=false) and stamps origin metadata, so the consumer no longer needs to know about the drop list.
+* **Audit trail (`tee`).** Need a parallel copy of every quarantined message for compliance / audit without disturbing the existing DLX flow.
+* **Silent drop (`drop`).** "I just don't want to see this message again, and I don't care to inspect it" — bypass DLX entirely.
+* **Migrating off RabbitMQ DLX patterns.** Existing DLX setup keeps working; add `x-quarantine-target` to opt into the new flow when ready.
+
+## Comparison to existing LavinMQ features
+
+| Need | Existing | Poison-pill |
+|------|----------|--------------|
+| Dead-letter on reject / TTL / overflow | DLX (`x-dead-letter-exchange` / `x-dead-letter-routing-key`) | Same triggers continue to work. Adds two new triggers (redelivery threshold, nack-to-quarantine) plus a configurable `move` / `drop` / `tee` action. |
+| Cap on retries before dead-lettering | `x-delivery-limit` | `x-quarantine-after-redeliveries` shares the same `@deliveries` counter. Difference: delivery-limit always dead-letters via DLX; poison-pill routes to an explicit `x-quarantine-target` and stamps `x-source-*` so the message is replayable. Fall-back to DLX when no target is set keeps backwards-compatibility. |
+| Stamp origin metadata | `x-death` array + `x-first-death-*` | Adds the `x-source-*` schema shared with the live filter and replay queue type. Replay queues normalise `x-first-death-*` → `x-source-*` automatically on intake, so an existing DLX flow gains replay/edit semantics by simply pointing the DLX at a replay queue. |
+| Tee a copy somewhere for audit | None today (operators build with `duplicate_to` exchanges or alternate-exchange) | First-class `tee` action; counters distinguish full diversions from tee'd copies. |
+
+Poison-pill is intentionally "DLX with two more triggers, a configurable disposition, and `x-source-*` stamping" — same mental model, incremented. It is not a generic publish-time predicate; the trigger event itself is the match.
+
+## Punch list (deferred for follow-up work)
+
+* **TTL-expiry diversion.** Route to `x-quarantine-target` when `x-message-ttl` fires, instead of DLX.
+* **Overflow diversion.** Route to `x-quarantine-target` on `x-max-length` drop, instead of DLX.
+* **Channel-disconnect diversion.** Catch in-flight messages from a crashed consumer's channel and divert before the broker requeues them.
+* **Optional separate target per trigger.** `x-poison-target` vs `x-nack-target` for use cases where the two triggers should land on different queues.
+* **Optional separate action per trigger.** Split `x-quarantine-action` into `x-poison-action` / `x-nack-action` when a use case appears.
+* **Aggregated counter `total_diverted`** across triggers, for dashboards that don't want to sum four series.
+* **Cross-restart counter persistence.** `@deliveries` is in-memory today; a restart resets the threshold to zero. Acceptable trade-off for now, matching `x-delivery-limit` semantics, but operators sometimes want stable behaviour across rolling restarts.
+* **`x-delivery-count` header awareness.** When other features (e.g. retry-with-backoff) stamp `x-delivery-count` across DLX-roundtrips, honour it in the threshold check so the count survives republishes.
