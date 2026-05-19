@@ -87,15 +87,39 @@ Counters are emitted only for `x-queue-type: replay` queues.
 
 ## Use cases
 
-* **Fix-and-resend.** A producer bug sends a malformed message; the consumer crashes. Move the message to a replay queue (manually, via DLX, or via the planned `x-message-filter` `move_to` action), edit the body to repair the payload, release.
+* **Fix-and-resend.** A producer bug sends a malformed message; the consumer crashes. Move the message to a replay queue (manually, via DLX, or via the live filter's `move_to` action), edit the body to repair the payload, release.
 * **DLX inspection.** Bind a replay queue as a destination of an existing DLX flow and get the inspect/edit/release UI for dead-lettered messages with no changes to producers or consumers.
-* **Audit inbox.** Pair with a future `duplicate_to` filter action to keep an inspectable archive of every message matching a predicate.
+* **Poison-message review.** Pair with the poison-pill `x-quarantine-target` so operators can read the offending payload before deciding whether to fix it or drop it.
+* **Audit inbox.** Pair with the live filter's `duplicate_to` action to keep an inspectable archive of every message matching a predicate.
 * **Tenant misrouting.** Capture wrong-tenant messages in a replay queue, repair the tenant header, release.
+* **Operator-driven re-injection.** Replace the bespoke "dropped queue + admin worker" pattern many teams maintain today (consumer republishes failed messages to a side queue, a separate worker exposes an edit + replay UI).
+
+## Comparison to existing LavinMQ features
+
+| Need | Existing | Replay queue |
+|------|----------|--------------|
+| Inspect head of a queue without consuming | `POST /api/queues/:vhost/:name/get` with `ackmode: ack_requeue_true` | Stable id per message (`x-replay-id`), full envelope detail, edit-in-place, release endpoint. |
+| Capture dead-lettered messages with origin metadata | DLX + `x-death` / `x-first-death-*` | Same origin info normalised into the `x-source-*` schema; replay queue gets a dedicated inspect UI and a release endpoint that re-publishes to the original exchange + routing key. |
+| Address a single message by content id | Stream offsets only | UUID `x-replay-id` for any message, regardless of queue type semantics. |
+| Bulk-replay all dead-lettered messages | Shovel | Operator-driven, per-message; a replay queue is not a bulk re-routing primitive. |
+
+Replay queues fill the gap between "inspect head of a queue" (no edit, no addressing) and "consume everything and re-publish elsewhere" (no inspection, no per-message control).
+
+## Punch list (deferred for follow-up work)
+
+* **Per-queue TTL on replay messages** so audit inboxes don't grow unbounded.
+* **Bulk operations** (release-all, delete-all, reset-replay on the source side).
+* **Counters for `messages_inspected`**, broken down by source queue.
+* **Binary body editing in PATCH without `?force=true`** (rich editor / hex view in the UI).
+* **Replay-queue-to-replay-queue moves** (e.g. promote from `audit` to `needs-fix`).
+* **Permission scoping per replay queue** (today gated by `policymaker` tag globally).
+* **Search / filter on the replay queue list** (by source queue, content type, age).
+* **Retro-stamp on conversion.** Allow converting an existing queue to `x-queue-type: replay` and back-fill `x-source-*` from `x-death` for messages already on the queue.
 
 ## Limitations
 
 * **No consumers over AMQP.** Replay queues are operator-facing only. Use the HTTP API to consume.
-* **No bindings.** Routing messages to a replay queue happens via DLX or direct broker publish.
+* **No bindings.** Routing messages to a replay queue happens via DLX, the live filter's `move_to`, poison-pill diversion, or direct broker publish.
 * **Single-rule edit.** No batch operations on multiple replay messages (release-all, delete-all, etc.).
 * **No backfill.** Existing messages on a queue that is later converted to replay are not stamped; you cannot retro-fit `x-source-*` on already-stored messages.
 * **No per-message TTL on replay messages.** Audit inboxes need manual purging today.
