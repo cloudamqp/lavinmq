@@ -5,6 +5,21 @@ require "./stream_reader"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
+    # Arguments that have no meaning for streams. Rejected at queue declare
+    # AND when matched by a policy — otherwise a policy can quietly install
+    # state (e.g. `delivery-limit` spawning the inherited drop_redelivered
+    # fiber, which dereferences the legacy `@rfile` that streams don't
+    # maintain) and crash the server.
+    INVALID_ARGUMENTS = {
+      "x-dead-letter-exchange",
+      "x-dead-letter-routing-key",
+      "x-expires",
+      "x-delivery-limit",
+      "x-overflow",
+      "x-single-active-consumer",
+      "x-max-priority",
+    }
+
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
                     arguments : AMQP::Table = AMQP::Table.new)
@@ -17,18 +32,8 @@ module LavinMQ::AMQP
     end
 
     def self.validate_arguments!(arguments)
-      invalid_arguments = {
-        "x-dead-letter-exchange",
-        "x-dead-letter-routing-key",
-        "x-expires",
-        "x-delivery-limit",
-        "x-overflow",
-        "x-single-active-consumer",
-        "x-max-priority",
-      }
-
       arguments.each do |key, value|
-        if invalid_arguments.includes?(key)
+        if INVALID_ARGUMENTS.includes?(key)
           raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
         end
         if key == "x-max-age"
@@ -46,6 +51,14 @@ module LavinMQ::AMQP
     end
 
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool
+      # Reject policy keys that are forbidden as queue arguments, so a
+      # matching policy can't install state the stream doesn't honor.
+      # Policy keys are `arguments` keys without the `x-` prefix.
+      if INVALID_ARGUMENTS.includes?("x-#{key}")
+        @log.debug { "Policy argument #{key} not applicable to streams; skipping" }
+        return false
+      end
+
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
