@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-05-18
+
+### Changed
+
+- Build deb packages for Ubuntu 26.04, RPM for Fedora 44, drop support for Fedora 41 [#1934](https://github.com/cloudamqp/lavinmq/pull/1934)
+
+### Fixed
+
+- Clear consumer flags on queue close to unblock restart [#1904](https://github.com/cloudamqp/lavinmq/pull/1904)
+- Advance `@rfile` in `delete_unused_segments` to prevent `Closed mfile` crash [#1910](https://github.com/cloudamqp/lavinmq/pull/1910)
+- Missing vhost-limits OpenAPI schema [#1915](https://github.com/cloudamqp/lavinmq/pull/1915)
+- Slow shutdown with many autodelete queues [#1922](https://github.com/cloudamqp/lavinmq/pull/1922)
+- Install libssl-dev for Ubuntu 26.04 builds [#1936](https://github.com/cloudamqp/lavinmq/pull/1936)
+- Double message read in `reject(requeue=true)` [#1921](https://github.com/cloudamqp/lavinmq/pull/1921)
+
 ## [2.7.3] - 2026-05-08
 
 ### Fixed
