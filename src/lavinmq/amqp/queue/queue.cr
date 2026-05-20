@@ -595,8 +595,16 @@ module LavinMQ::AMQP
       return PublishResult::Overflow if reject_on_overflow?(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        drop_overflow(dlx_tasks)
       end
+      # drop_overflow MUST run outside the push critical section: if it stays
+      # nested, `expire_msg → DeadLetterer#route` calls `drain_context` which
+      # publishes to the DLX target queue (acquires its `@msg_store_lock`) and
+      # invokes the `delete_message sp` callback (re-acquires THIS queue's
+      # `@msg_store_lock`). With another fiber rejecting messages on the same
+      # queue (which holds `DL.@route_lock` and waits for our `@msg_store_lock`
+      # via the same callback), the two fibers form an AB-BA cycle. Found via
+      # stress driver dump showing one read_loop sitting on `@msg_store_lock`.
+      drop_overflow(dlx_tasks)
       @publish_count.add(1, :relaxed)
       PublishResult::Ok
     rescue ex : MessageStore::Error
@@ -630,55 +638,76 @@ module LavinMQ::AMQP
       # should be delivered instantly
       return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
 
-      counter = 0
+      # Collect envelopes to expire while holding `@msg_store_lock`, then
+      # release the lock before calling `expire_msg` (which routes through
+      # `DeadLetterer#route` → `drain_context` → arbitrary other queues and
+      # `delete_message sp` callbacks that re-acquire `@msg_store_lock`).
+      # See publish_internal for the deadlock this avoids. Bodies are
+      # `BytesMessage#detach`'d under the lock so the source segment can be
+      # munmap'd by concurrent acks without trashing our read.
+      victims = nil
       if ml = @max_length
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen, dlx_tasks)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+            (victims ||= [] of {Envelope, Symbol}) << {detach_envelope(env), :maxlen}
           end
         end
       end
-
       if mlb = @max_length_bytes
         @msg_store_lock.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes, dlx_tasks)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+            (victims ||= [] of {Envelope, Symbol}) << {detach_envelope(env), :maxlenbytes}
           end
+        end
+      end
+      return unless vs = victims
+
+      counter = 0
+      vs.each do |env, reason|
+        @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+        expire_msg(env, reason, dlx_tasks)
+        counter &+= 1
+        if counter >= 16 * 1024
+          Fiber.yield
+          counter = 0
         end
       end
     end
 
+    # Build an Envelope with a heap-copy of the message body, so it survives
+    # the source segment being `munmap`ed once `@msg_store_lock` is released.
+    private def detach_envelope(env : Envelope) : Envelope
+      msg = env.message.as(BytesMessage)
+      Envelope.new(env.segment_position, msg.detach, env.redelivered)
+    end
+
     private def drop_redelivered : Nil
+      return unless limit = @delivery_limit
+      # Same deadlock hazard as drop_overflow / expire_messages: collect
+      # envelopes to expire under `@msg_store_lock`, then route them outside.
+      # Detach bodies so the source segment can be munmap'd while we route.
+      victims = nil
+      @msg_store_lock.synchronize do
+        loop do
+          env = @msg_store.first? || break
+          delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+          break unless delivery_count > limit
+          env = @msg_store.shift? || break
+          (victims ||= [] of Envelope) << detach_envelope(env)
+        end
+      end
+      return unless vs = victims
+
       counter = 0
-      if limit = @delivery_limit
-        @msg_store_lock.synchronize do
-          loop do
-            env = @msg_store.first? || break
-            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
-            break unless delivery_count > limit
-            env = @msg_store.shift? || break
-            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
-            expire_msg(env, :delivery_limit)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
-          end
+      vs.each do |env|
+        @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
+        expire_msg(env, :delivery_limit)
+        counter &+= 1
+        if counter >= 16 * 1024
+          Fiber.yield
+          counter = 0
         end
       end
     end
@@ -719,23 +748,23 @@ module LavinMQ::AMQP
     end
 
     private def expire_messages : Nil
-      i = 0
+      # Same deadlock hazard as drop_overflow: `expire_msg` routes through
+      # `DeadLetterer#route → drain_context` which calls `delete_message sp`
+      # callbacks that re-acquire `@msg_store_lock`. Collect victims under the
+      # lock (with bodies detached off mmap), release, then route.
+      victims = nil
       @msg_store_lock.synchronize do
         loop do
           env = @msg_store.first? || break
           msg = env.message.as(BytesMessage)
-          @log.debug { "Checking if next message #{msg} has expired" }
-          if has_expired?(msg)
-            # shift it out from the msgs store, first time was just a peek
-            env = @msg_store.shift? || break
-            expire_msg(env, :expired)
-            i += 1
-          else
-            break
-          end
+          break unless has_expired?(msg)
+          env = @msg_store.shift? || break
+          (victims ||= [] of Envelope) << detach_envelope(env)
         end
       end
-      @log.info { "Expired #{i} messages" } if i > 0
+      return unless vs = victims
+      vs.each { |env| expire_msg(env, :expired) }
+      @log.info { "Expired #{vs.size} messages" } if vs.size > 0
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
