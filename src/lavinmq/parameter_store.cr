@@ -43,10 +43,6 @@ module LavinMQ
       @parameters.empty?
     end
 
-    def any?(& : {ParameterId?, T} -> Bool) : Bool
-      @parameters.any? { |kv| yield kv }
-    end
-
     def create(parameter : T, save = true)
       @parameters[parameter.name] = parameter
       save! if save

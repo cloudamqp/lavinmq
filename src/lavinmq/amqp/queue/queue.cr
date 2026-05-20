@@ -82,18 +82,6 @@ module LavinMQ::AMQP
       @consumers.empty?
     end
 
-    def consumers_any?(& : Client::Channel::Consumer -> Bool) : Bool
-      @consumers.any? { |c| yield c }
-    end
-
-    def each_consumer(& : Client::Channel::Consumer ->) : Nil
-      @consumers.each { |c| yield c }
-    end
-
-    def first_consumer : Client::Channel::Consumer?
-      @consumers.first?
-    end
-
     # BasicGet unacked accessors
 
     def basic_get_unacked_push(msg : UnackedMessage) : Nil

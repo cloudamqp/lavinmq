@@ -42,22 +42,6 @@ module LavinMQ
         end
       end
 
-      def [](topic : String) : TEntity
-        self[StringTokenIterator.new(topic, '/')]
-      rescue KeyError
-        raise KeyError.new "#{topic} not found"
-      end
-
-      def [](topic : StringTokenIterator) : TEntity
-        current = topic.next
-        if topic.next?
-          raise KeyError.new unless @sublevels.has_key?(current)
-          @sublevels[current][topic]
-        else
-          @leafs[current].last
-        end
-      end
-
       def delete(topic : String)
         delete(StringTokenIterator.new(topic, '/'))
       end
@@ -116,10 +100,6 @@ module LavinMQ
       def each(&blk : (String, TEntity) -> _)
         @leafs.values.each &blk
         @sublevels.values.each(&.each(&blk))
-      end
-
-      def inspect
-        "#{self.class.name}(@sublevels=#{@sublevels.inspect} @leafs=#{@leafs.inspect})"
       end
     end
   end

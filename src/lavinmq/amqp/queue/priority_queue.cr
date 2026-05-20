@@ -118,12 +118,6 @@ module LavinMQ::AMQP
         end
       end
 
-      private def store_for(msg, &)
-        store_for(msg.properties.priority || 0u8) do |store|
-          yield store
-        end
-      end
-
       def size
         @stores.sum(&.size)
       end

@@ -204,10 +204,5 @@ module LavinMQ
     def empty?
       @hosts.empty? && @wildcard_hosts.empty?
     end
-
-    def each(&)
-      @hosts.each_value { |host| yield host }
-      @wildcard_hosts.each_value { |host| yield host }
-    end
   end
 end

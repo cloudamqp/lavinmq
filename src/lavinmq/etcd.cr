@@ -52,20 +52,6 @@ module LavinMQ
       end
     end
 
-    def get_prefix(key) : Hash(String, String)
-      range_end = key.to_slice.dup
-      range_end.update(-1) { |v| v + 1 }
-      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}"}))
-      kvs = json["kvs"].as_a
-      h = Hash(String, String).new(initial_capacity: kvs.size)
-      kvs.each do |kv|
-        key = Base64.decode_string kv["key"].as_s
-        value = Base64.decode_string kv["value"].as_s
-        h[key] = value
-      end
-      h
-    end
-
     def put(key, value) : String?
       body = %({"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}","prev_kv":true})
       json = post("/v3/kv/put", body)
@@ -312,7 +298,7 @@ module LavinMQ
         address = "#{e.host}:#{e.port}"
         tcp_socket = create_tcp_socket(e.host, e.port)
         socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
-        # update_endpoints(socket, address, e.auth)
+
         Log.debug { "Connected to #{address}" }
         return Connection.new socket, address, e.auth
       rescue ex : IO::Error
@@ -339,32 +325,6 @@ module LavinMQ
       ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, hostname: host)
       ssl_socket.sync = false
       ssl_socket
-    end
-
-    private def update_endpoints(tcp, address, auth)
-      json = post_request(tcp, address, auth, "/v3/cluster/member/list", "")
-      new_endpoints = [] of Tuple(String, Int32, String?, Bool)
-      json["members"].as_a.each do |m|
-        m["clientURLs"]?.try &.as_a.each do |url|
-          uri = URI.parse url.as_s
-          if uri.scheme == "http" || uri.scheme == "https"
-            host = uri.hostname || "127.0.0.1"
-            port = uri.port || 2379
-            tls = uri.scheme == "https"
-            new_endpoints << {host, port, nil, tls}
-          end
-        end
-      end
-      old_addresses = endpoints
-      new_addresses = new_endpoints.map { |host, port, _, _| "#{host}:#{port}" }
-      unless old_addresses.size == new_addresses.size &&
-             old_addresses.all? { |addr| new_addresses.includes? addr }
-        Log.info { "Updated endpoints to: #{new_addresses} (from: #{old_addresses})" }
-        @endpoints = new_endpoints
-      end
-    rescue ex : KeyError
-      Log.warn { "Could not update endpoints, response was: #{json}" }
-      raise ex
     end
 
     # Parses JSON but raises if there's a error message
