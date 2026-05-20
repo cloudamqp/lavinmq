@@ -106,6 +106,11 @@ module LavinMQ
       definitions.each_queue { |v| yield v }
     end
 
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each_queue(& : Queue ->) : Nil
+      definitions.unsafe_each_queue { |v| yield v }
+    end
+
     def queues : Array(Queue)
       definitions.queues
     end
@@ -126,6 +131,11 @@ module LavinMQ
 
     def each_connection(& : Client ->) : Nil
       @connections.each { |c| yield c }
+    end
+
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each_connection(& : Client ->) : Nil
+      @connections.unsafe_each { |c| yield c }
     end
 
     def connections : Array(Client)

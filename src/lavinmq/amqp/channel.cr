@@ -26,7 +26,7 @@ module LavinMQ
         @flow.get(:acquire)
       end
 
-      @consumers : Sync::Shared(Array(Consumer)) = Sync::Shared.new(Array(Consumer).new, :unchecked)
+      @consumers : Sync::Shared(Array(Consumer)) = Sync::Shared.new(Array(Consumer).new, :checked)
 
       def running? : Bool
         @running.get(:relaxed)

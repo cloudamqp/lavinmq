@@ -19,7 +19,7 @@ module LavinMQ
       @save_lock = Mutex.new
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
-        @users = Sync::Shared.new(Hash(String, User).new, :unchecked)
+        @users = Sync::Shared.new(Hash(String, User).new, :checked)
         load!
       end
 

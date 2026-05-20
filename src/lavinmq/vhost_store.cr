@@ -22,7 +22,7 @@ module LavinMQ
     @save_lock = Mutex.new
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
-      @vhosts = Sync::Shared.new(Hash(String, VHost).new, :unchecked)
+      @vhosts = Sync::Shared.new(Hash(String, VHost).new, :checked)
     end
 
     def []?(name : String) : VHost?
@@ -37,6 +37,12 @@ module LavinMQ
       @vhosts.shared do |vhosts|
         vhosts.each_value { |v| yield v }
       end
+    end
+
+    # Iterate without taking the RWLock. ONLY for SIGUSR1 debug dumps — if a
+    # concurrent writer is mutating the hash this can observe a torn state.
+    def unsafe_each(& : VHost ->) : Nil
+      @vhosts.unsafe_get.each_value { |v| yield v }
     end
 
     def has_key?(name : String) : Bool

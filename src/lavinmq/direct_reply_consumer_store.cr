@@ -6,7 +6,7 @@ module LavinMQ
     @consumers : Sync::Shared(Hash(String, Client::Channel))
 
     def initialize
-      @consumers = Sync::Shared.new(Hash(String, Client::Channel).new, :unchecked)
+      @consumers = Sync::Shared.new(Hash(String, Client::Channel).new, :checked)
     end
 
     def []?(consumer_tag : String) : Client::Channel?

@@ -29,11 +29,15 @@ module LavinMQ
 
       @bindings : Sync::Shared(Hash(BindingKey, Set(MQTT::Session))) = Sync::Shared.new(
         Hash(BindingKey, Set(MQTT::Session)).new { |h, k| h[k] = Set(MQTT::Session).new },
-        :unchecked)
+        :checked)
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
 
       def type : String
         "mqtt"
+      end
+
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
       end
 
       def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)

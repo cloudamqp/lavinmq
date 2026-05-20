@@ -16,7 +16,7 @@ module LavinMQ
       @shovels : Sync::Shared(Hash(String, Shovel::Runner))
 
       def initialize(@vhost : VHost)
-        @shovels = Sync::Shared.new(Hash(String, Shovel::Runner).new, :unchecked)
+        @shovels = Sync::Shared.new(Hash(String, Shovel::Runner).new, :checked)
       end
 
       def []?(name : String) : Runner?

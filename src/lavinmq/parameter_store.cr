@@ -17,7 +17,7 @@ module LavinMQ
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator?, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
       @log = Logger.new(Log, metadata)
-      @parameters = Sync::Shared.new(Hash(ParameterId?, T).new, :unchecked)
+      @parameters = Sync::Shared.new(Hash(ParameterId?, T).new, :checked)
       load!
     end
 

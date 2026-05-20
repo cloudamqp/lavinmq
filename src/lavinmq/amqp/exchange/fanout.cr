@@ -4,10 +4,14 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class FanoutExchange < Exchange
-      @bindings : Sync::Shared(Set({Destination, BindingKey})) = Sync::Shared.new(Set({Destination, BindingKey}).new, :unchecked)
+      @bindings : Sync::Shared(Set({Destination, BindingKey})) = Sync::Shared.new(Set({Destination, BindingKey}).new, :checked)
 
       def type : String
         "fanout"
+      end
+
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
       end
 
       def bindings_details : Array(BindingDetails)

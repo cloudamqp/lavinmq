@@ -10,7 +10,7 @@ module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher : Hasher(AMQP::Destination)
-      @bindings : Sync::Shared(Set({Destination, BindingKey})) = Sync::Shared.new(Set({Destination, BindingKey}).new, :unchecked)
+      @bindings : Sync::Shared(Set({Destination, BindingKey})) = Sync::Shared.new(Set({Destination, BindingKey}).new, :checked)
 
       def initialize(*args, **kwargs)
         super(*args, **kwargs)
@@ -19,6 +19,10 @@ module LavinMQ
 
       def type : String
         "x-consistent-hash"
+      end
+
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
       end
 
       def handle_arguments

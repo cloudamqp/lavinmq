@@ -108,10 +108,14 @@ module LavinMQ
     class TopicExchange < Exchange
       @bindings : Sync::Shared(Hash(TopicBindingKey, Set({AMQP::Destination, BindingKey}))) = Sync::Shared.new(
         Hash(TopicBindingKey, Set({AMQP::Destination, BindingKey})).new { |h, k| h[k] = Set({AMQP::Destination, BindingKey}).new },
-        :unchecked)
+        :checked)
 
       def type : String
         "topic"
+      end
+
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
       end
 
       def bindings_details : Array(BindingDetails)

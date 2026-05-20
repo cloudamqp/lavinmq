@@ -35,7 +35,7 @@ module LavinMQ
       getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
-      @channels : Sync::Shared(Hash(UInt16, Client::Channel)) = Sync::Shared.new(Hash(UInt16, Client::Channel).new, :unchecked)
+      @channels : Sync::Shared(Hash(UInt16, Client::Channel)) = Sync::Shared.new(Hash(UInt16, Client::Channel).new, :checked)
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
@@ -303,6 +303,17 @@ module LavinMQ
       end
 
       @write_lock = Mutex.new(:checked)
+
+      # SIGUSR1 debug dump helper: returns the fiber currently holding the
+      # `@write_lock`, or nil if free.
+      def write_lock_holder : Fiber?
+        @write_lock.locked_by_fiber
+      end
+
+      def channels_lock_holder : Fiber?
+        @channels.locked_by_fiber
+      end
+
       # Reused per-connection buffer for FileRangeMessage body chunks read from
       # the consumer's segment FD into the socket. Allocated lazily, sized to
       # one max-frame minus the 8-byte frame header.

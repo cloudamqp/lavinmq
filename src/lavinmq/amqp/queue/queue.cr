@@ -66,7 +66,7 @@ module LavinMQ::AMQP
     @consumers : Sync::Shared(Array(Client::Channel::Consumer)) = Sync::Shared.new(Array(Client::Channel::Consumer).new, :reentrant)
     @message_ttl_change = ::Channel(Nil).new
 
-    @basic_get_unacked : Sync::Exclusive(Deque(UnackedMessage)) = Sync::Exclusive.new(Deque(UnackedMessage).new, :unchecked)
+    @basic_get_unacked : Sync::Exclusive(Deque(UnackedMessage)) = Sync::Exclusive.new(Deque(UnackedMessage).new, :checked)
 
     # Consumer accessors
 
@@ -101,6 +101,20 @@ module LavinMQ::AMQP
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
     getter deliver_loop_wg = WaitGroup.new
+
+    # SIGUSR1 debug dump helper: returns the fiber currently holding the
+    # `@msg_store_lock`, or nil if free. Reentrant Mutex tracks @locked_by.
+    def msg_store_lock_holder : Fiber?
+      @msg_store_lock.locked_by_fiber
+    end
+
+    def consumers_lock_holder : Fiber?
+      @consumers.locked_by_fiber
+    end
+
+    def basic_get_unacked_lock_holder : Fiber?
+      @basic_get_unacked.locked_by_fiber
+    end
 
     getter paused = BoolChannel.new(false)
 

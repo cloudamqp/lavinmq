@@ -12,7 +12,7 @@ module LavinMQ
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
-      getter requeued : Sync::Exclusive(Deque(SegmentPosition)) = Sync::Exclusive.new(Deque(SegmentPosition).new, :unchecked)
+      getter requeued : Sync::Exclusive(Deque(SegmentPosition)) = Sync::Exclusive.new(Deque(SegmentPosition).new, :checked)
       @filters = Array(StreamFilter).new
       @filter_match_all = true
       @match_unfiltered = false

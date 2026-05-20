@@ -8,7 +8,7 @@ module LavinMQ
     @connections : Sync::Shared(Array(Client))
 
     def initialize
-      @connections = Sync::Shared.new(Array(Client).new(512), :unchecked)
+      @connections = Sync::Shared.new(Array(Client).new(512), :checked)
     end
 
     def add(client : Client)
@@ -23,6 +23,11 @@ module LavinMQ
       @connections.shared do |conns|
         conns.each { |c| yield c }
       end
+    end
+
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each(& : Client ->) : Nil
+      @connections.unsafe_get.each { |c| yield c }
     end
 
     def to_a : Array(Client)

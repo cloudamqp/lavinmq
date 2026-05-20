@@ -14,8 +14,8 @@ module LavinMQ
     @queues : Sync::Shared(Hash(String, Queue))
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
-      @exchanges = Sync::Shared.new(Hash(String, Exchange).new, :unchecked)
-      @queues = Sync::Shared.new(Hash(String, Queue).new, :unchecked)
+      @exchanges = Sync::Shared.new(Hash(String, Exchange).new, :checked)
+      @queues = Sync::Shared.new(Hash(String, Queue).new, :checked)
       # Serializes multi-step `apply` flows and all definitions-file I/O
       # (`store_definition`, `compact!`). Sync::Shared on the hashes only
       # guards individual reads/writes, not the file or check-then-set logic.
@@ -45,6 +45,11 @@ module LavinMQ
       @exchanges.shared do |exchanges|
         exchanges.each_value { |v| yield v }
       end
+    end
+
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each_queue(& : Queue ->) : Nil
+      @queues.unsafe_get.each_value { |v| yield v }
     end
 
     def exchanges : Array(Exchange)

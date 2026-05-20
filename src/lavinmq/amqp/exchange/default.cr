@@ -13,6 +13,10 @@ module LavinMQ
         [] of BindingDetails
       end
 
+      def bindings_lock_holder : Fiber?
+        nil
+      end
+
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         if q = @vhost.queue?(routing_key)
           yield q

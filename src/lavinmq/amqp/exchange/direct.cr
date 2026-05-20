@@ -6,10 +6,14 @@ module LavinMQ
     class DirectExchange < Exchange
       @bindings : Sync::Shared(Hash(String, Set({Destination, BindingKey}))) = Sync::Shared.new(
         Hash(String, Set({Destination, BindingKey})).new { |h, k| h[k] = Set({Destination, BindingKey}).new },
-        :unchecked)
+        :checked)
 
       def type : String
         "direct"
+      end
+
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
       end
 
       def bindings_details : Array(BindingDetails)
