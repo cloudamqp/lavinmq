@@ -120,6 +120,17 @@ module LavinMQ::AMQP
     @queue_expiration_ttl_change = ::Channel(Nil).new
     @effective_args = Array(String).new
 
+    # Idempotency guards for spawn sites driven by policy/argument application.
+    # Without these, every `apply_policy_argument` call spawned a fresh fiber,
+    # so heavy policy churn against the same queue (the stress driver hits
+    # `stress.q` hundreds of times) accumulated zombie loops parked on
+    # `@consumers_empty.when_true` etc.
+    @queue_expire_loop_running = Atomic(Bool).new(false)
+    @drop_overflow_loop_running = Atomic(Bool).new(false)
+    @drop_overflow_pending = Atomic(Bool).new(false)
+    @drop_redelivered_loop_running = Atomic(Bool).new(false)
+    @drop_redelivered_pending = Atomic(Bool).new(false)
+
     getter? internal = false
 
     private def queue_expire_loop
@@ -139,6 +150,43 @@ module LavinMQ::AMQP
         end
       end
     rescue ::Channel::ClosedError
+    ensure
+      @queue_expire_loop_running.set(false)
+    end
+
+    private def start_queue_expire_loop
+      return if @queue_expire_loop_running.swap(true)
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    # Coalescing scheduler for drop_overflow. Multiple back-to-back policy
+    # applies (or the same one re-applied) share a single in-flight fiber:
+    # the pending flag bridges races where a request arrives mid-run.
+    private def schedule_drop_overflow
+      @drop_overflow_pending.set(true)
+      return if @drop_overflow_loop_running.swap(true)
+      spawn(name: "Queue#drop_overflow #{@vhost.name}/#{@name}") do
+        @vhost.closed.when_false.receive?
+        while @drop_overflow_pending.swap(false)
+          drop_overflow
+        end
+        @drop_overflow_loop_running.set(false)
+        # Re-trigger if a request slipped in after the last swap.
+        schedule_drop_overflow if @drop_overflow_pending.get
+      end
+    end
+
+    private def schedule_drop_redelivered
+      @drop_redelivered_pending.set(true)
+      return if @drop_redelivered_loop_running.swap(true)
+      spawn(name: "Queue#drop_redelivered #{@vhost.name}/#{@name}") do
+        @vhost.closed.when_false.receive?
+        while @drop_redelivered_pending.swap(false)
+          drop_redelivered
+        end
+        @drop_redelivered_loop_running.set(false)
+        schedule_drop_redelivered if @drop_redelivered_pending.get
+      end
     end
 
     private def message_expire_loop
@@ -222,7 +270,7 @@ module LavinMQ::AMQP
           @paused.set(true)
         end
         handle_arguments
-        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+        start_queue_expire_loop if @expires
         spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
         true
       end
@@ -302,20 +350,14 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_drop_overflow
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_drop_overflow
           return true
         end
       when "message-ttl"
@@ -328,7 +370,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          start_queue_expire_loop
           @queue_expiration_ttl_change.try_send? nil
           @effective_args.delete("x-expires")
           return true
@@ -356,10 +398,7 @@ module LavinMQ::AMQP
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
           @effective_args.delete("x-delivery-limit")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_redelivered
-          end
+          schedule_drop_redelivered
           return true
         end
       when "federation-upstream"
