@@ -836,6 +836,11 @@ module LavinMQ::AMQP
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
+      # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
+      # callback (or any other in-flight delete) racing with close would hit
+      # MessageStore::ClosedError on @msg_store.delete. The store is gone
+      # anyway, so the per-sp bookkeeping is a no-op.
+      return if closed?
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
