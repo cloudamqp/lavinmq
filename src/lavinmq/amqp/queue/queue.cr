@@ -929,13 +929,16 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      if unacked_count == 0 && max_count >= message_count
-        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-        delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
-      else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
-      end
+      delete_count = 0u32
+      @msg_store_lock.synchronize {
+        if unacked_count == 0 && max_count >= message_count
+          # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+          delete_count = message_count
+          @msg_store.purge_all
+        else
+          delete_count = @msg_store.purge(max_count)
+        end
+      }
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message
       if delete_count > 0
