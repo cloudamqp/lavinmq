@@ -76,7 +76,9 @@ module LavinMQ
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
           body = parse_body(context)
-          bad_request(context, "Field 'password_hash' must be a string, not null") if body["password_hash"]?.try { |v| v.raw.nil? }
+          if raw_ph = body["password_hash"]?
+            bad_request(context, "Field 'password_hash' must be a string or null") unless raw_ph.raw.nil? || raw_ph.raw.is_a?(String)
+          end
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
