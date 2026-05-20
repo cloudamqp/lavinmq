@@ -25,7 +25,12 @@ module LavinMQ
             if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
-                  socket.read_timeout = heartbeat_timeout(tune_ok)
+                  # heartbeat>0: replace the accept-time default with heartbeat/2.
+                  # heartbeat=0: leave the fallback set by Server#set_io_timeouts
+                  # so dead peers still get caught by the liveness probe.
+                  if t = heartbeat_timeout(tune_ok)
+                    socket.read_timeout = t
+                  end
                   return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
               end

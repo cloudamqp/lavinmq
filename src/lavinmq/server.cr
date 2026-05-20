@@ -184,6 +184,7 @@ module LavinMQ
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
         set_buffer_size(client)
+        set_io_timeouts(client)
         conn_info =
           case @config.unix_proxy_protocol
           when 1 then ProxyProtocol::V1.parse(client)
@@ -319,6 +320,16 @@ module LavinMQ
       socket.tcp_nodelay = true if @config.tcp_nodelay?
       @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
+      set_io_timeouts(socket)
+    end
+
+    private def set_io_timeouts(socket)
+      if (t = @config.tcp_write_timeout).positive?
+        socket.write_timeout = t.seconds
+      end
+      if (t = @config.tcp_read_timeout).positive?
+        socket.read_timeout = t.seconds
+      end
     end
 
     private def set_buffer_size(socket)

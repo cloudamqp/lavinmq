@@ -99,6 +99,8 @@ describe LavinMQ::Config do
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
+          tcp_write_timeout = 30
+          tcp_read_timeout = 90
           log_exchange = true
           free_disk_min = 1073741824
           free_disk_warn = 5368709120
@@ -182,6 +184,8 @@ describe LavinMQ::Config do
       config.tcp_keepalive.should eq({120, 20, 5})
       config.tcp_recv_buffer_size.should eq 65536
       config.tcp_send_buffer_size.should eq 65536
+      config.tcp_write_timeout.should eq 30
+      config.tcp_read_timeout.should eq 90
       config.log_exchange?.should be_true
       config.free_disk_min.should eq 1073741824
       config.free_disk_warn.should eq 5368709120
