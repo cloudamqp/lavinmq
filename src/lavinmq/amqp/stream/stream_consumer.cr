@@ -112,6 +112,14 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+      ensure
+        # @segment_file is owned by this fiber; close it here so a concurrent
+        # `close` from the channel/connection fiber can't yank the FD out from
+        # under a mid-flight read. (Doing so would surface as IO::Error: Closed
+        # stream inside `shift?`, which `Stream#get` treats as unrecoverable
+        # and uses to close the whole queue.)
+        @segment_file.try(&.close)
+        @segment_file = nil
       end
 
       private def wait_for_queue_ready
@@ -155,8 +163,8 @@ module LavinMQ
 
       def close
         @new_message_available.close
-        @segment_file.try(&.close)
-        @segment_file = nil
+        # @segment_file is closed by `deliver_loop`'s ensure block — it owns
+        # the FD. Closing here would race against an in-flight `from_io`.
         super
       end
 
