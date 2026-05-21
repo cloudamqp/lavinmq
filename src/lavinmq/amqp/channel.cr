@@ -344,7 +344,7 @@ module LavinMQ
         end
       end
 
-      def deliver(frame, msg, redelivered = false, flush = true) : Nil
+      def deliver(frame, msg, redelivered = false, flush = true) : Bool
         raise ClosedError.new("Channel is closed") unless @running
         @client.deliver(frame, msg, flush)
       end

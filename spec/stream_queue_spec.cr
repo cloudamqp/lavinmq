@@ -739,6 +739,80 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "Abrupt consumer disconnect" do
+    # Regression: an abrupt TCP close while the server was mid-body-write made
+    # `Client#deliver` rescue the IO::Error and return false silently. The
+    # stream `deliver_loop` ignored that return value, so `consumer.pos` had
+    # advanced past the message even though `file.pos` was still inside the
+    # body. If the loop then ran another `shift?` before the connection-close
+    # cleanup closed the consumer, it decoded body bytes as a message header
+    # and the queue was closed with "Invalid property flags". The fix is to
+    # propagate the Bool from `Client#deliver` through `Channel#deliver` and
+    # `Consumer#deliver`, then have `StreamConsumer#deliver_loop` raise
+    # ClosedError on a `false` return so its `ensure` block closes the FD.
+    #
+    # This test exercises the IO::Error path with multi-frame bodies; whether
+    # the drifted `shift?` actually runs depends on a small scheduler race
+    # between cleanup and the deliver_loop's next iteration. Either way, the
+    # post-fix queue must stay open and continue serving consumers.
+    it "stream queue survives an abrupt TCP close mid-delivery" do
+      with_amqp_server do |s|
+        # Body spans multiple AMQP body frames (default frame_max ~128 KiB) so
+        # that an IO::Error mid-write leaves `file.pos` short of `consumer.pos`
+        # — the precondition for the drift. With single-frame bodies,
+        # `read_fully` completes before the failing flush and the positions
+        # stay in sync.
+        body = Bytes.new(512 * 1024)
+        with_channel(s) do |ch|
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          200.times { q.publish body }
+        end
+
+        20.times do
+          conn = AMQP::Client.new(port: amqp_port(s), name: "abrupt-close-spec").connect
+          ch = conn.channel
+          ch.prefetch 50
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          delivered = Atomic(Int32).new(0)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msg.ack rescue nil
+            delivered.add(1, :relaxed)
+          end
+          wait_for { delivered.get(:relaxed) >= 5 }
+          # SO_LINGER=0 turns close() into a TCP RST so the server's pending
+          # body write fails immediately with IO::Error rather than letting
+          # the kernel drain its send buffer first.
+          if tcp = conn.@io.as?(TCPSocket)
+            tcp.linger = 0
+          end
+          conn.@io.close rescue nil
+        end
+
+        # Let the server's reader fibers observe the dropped sockets.
+        sleep 0.2.seconds
+
+        stream = s.vhosts["/"].queue("stream-abrupt-close").as(LavinMQ::AMQP::Stream)
+        stream.closed?.should be_false
+
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          msgs = ::Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, tag: "verifier",
+            args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msgs.send(msg) rescue nil
+            msg.ack
+          end
+          select
+          when msgs.receive
+          when timeout(5.seconds)
+            fail "stream queue stopped delivering after abrupt consumer disconnects"
+          end
+        end
+      end
+    end
+  end
+
   describe "Restarting stream" do
     queue_name = Random::Secure.hex
     it "should restart a closed stream" do

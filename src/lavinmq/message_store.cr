@@ -684,6 +684,14 @@ module LavinMQ
       def initialize(mfile : MFile, cause = nil)
         super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
       end
+
+      # Used by stream consumers, whose reads happen on a per-instance `File`
+      # rather than the shared `MFile`. Reporting `MFile#pos` is misleading in
+      # that case — the position the bytes were actually decoded from is the
+      # consumer's `File#pos`.
+      def initialize(mfile : MFile, *, consumer_pos : Int, file_pos : Int, cause = nil)
+        super("path=#{mfile.path} consumer_pos=#{consumer_pos} file_pos=#{file_pos} size=#{mfile.size}", cause: cause)
+      end
     end
   end
 end

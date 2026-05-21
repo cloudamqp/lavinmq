@@ -254,7 +254,7 @@ module LavinMQ::AMQP
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        raise Error.new(rfile, consumer_pos: position.to_i64, file_pos: file.pos, cause: ex)
       end
     end
 
@@ -271,6 +271,7 @@ module LavinMQ::AMQP
         return if rfile == @wfile
         rfile = next_segment(consumer) || return
       end
+      file : File? = nil
       begin
         file = consumer.segment_file_for(self)
         {% if flag?(:assert_stream_pos) %}
@@ -289,7 +290,7 @@ module LavinMQ::AMQP
         end
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        raise Error.new(rfile, consumer_pos: consumer.pos.to_i64, file_pos: file.try(&.pos) || -1_i64, cause: ex)
       end
     end
 
