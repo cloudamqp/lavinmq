@@ -51,11 +51,11 @@ module LavinMQ
       end
 
       private def do_delete_upstream(name)
-        @upstreams.delete(name).try(&.close)
+        @upstreams.delete(name).try(&.delete)
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
             return false unless upstream.name == name
-            upstream.close
+            upstream.delete
             true
           end
         end

@@ -28,11 +28,11 @@ module LavinMQ
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
-        @ex_links.delete(federated_exchange.name).try(&.terminate)
+        @ex_links.delete(federated_exchange.name).try(&.delete)
       end
 
       def stop_link(federated_q : Queue)
-        @q_links.delete(federated_q.name).try(&.terminate)
+        @q_links.delete(federated_q.name).try(&.delete)
       end
 
       def links : Array(Link)
@@ -79,8 +79,17 @@ module LavinMQ
         link
       end
 
+      # Stop all links without touching upstream resources. Use on broker shutdown.
       def close
-        links.each(&.terminate)
+        links.each(&.stop)
+        @ex_links.clear
+        @q_links.clear
+      end
+
+      # Stop all links and remove the resources they created on the upstream broker.
+      # Use when the upstream is being explicitly deleted.
+      def delete
+        links.each(&.delete)
         @ex_links.clear
         @q_links.clear
       end
