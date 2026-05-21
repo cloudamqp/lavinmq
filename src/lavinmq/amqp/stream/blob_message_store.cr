@@ -11,8 +11,8 @@ module LavinMQ::AMQP
       @remote_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
       @storage_client : BlobStorageClient
       @segment_cache : BlobSegmentCache?
-      @failed_uploads = Deque(UInt32).new
-      @upload_queue = ::Channel(UInt32).new
+      @upload_queue = ::Channel(UInt32).new(64)
+      @upload_mutex = Mutex.new
       @catalog_io : File?
       @catalog_data : Hash(UInt32, NamedTuple(msg_count: UInt32, first_offset: Int64, first_ts: Int64, last_ts: Int64))?
       @catalog_dirty = false
@@ -71,10 +71,6 @@ module LavinMQ::AMQP
       private def open_new_segment(next_msg_size = 0) : MFile
         prev_seg_id = @wfile_id unless @wfile_id.zero? || @segment_msg_count[@wfile_id]?.try(&.zero?)
         super.tap do
-          # Re-enqueue any previously failed uploads first
-          while failed_id = @failed_uploads.shift?
-            @upload_queue.send(failed_id)
-          end
           if prev_seg_id
             @upload_queue.send(prev_seg_id)
           end
@@ -82,10 +78,9 @@ module LavinMQ::AMQP
       end
 
       private def start_upload_workers
+        upload_context = Fiber::ExecutionContext::Parallel.new("blob-uploads", maximum: Math.max(1, NUM_UPLOAD_WORKERS // 2))
         NUM_UPLOAD_WORKERS.times do |i|
-          spawn(name: "BlobMessageStore#upload-worker-#{i}") do
-            upload_worker(i)
-          end
+          upload_context.spawn(name: "blob-upload-#{i}") { upload_worker(i) }
         end
       end
 
@@ -108,12 +103,12 @@ module LavinMQ::AMQP
           upload_segment_to_remote(seg_id, h)
           return
         rescue ex
-          if attempt < 2
-            @log.warn { "Failed to upload segment #{seg_id} to remote storage (attempt #{attempt + 1}/3): #{ex.message}" }
-          else
-            @log.error { "Failed to upload segment #{seg_id} to remote storage after 3 attempts, will retry on next rotation: #{ex.message}" }
-            @failed_uploads << seg_id unless @failed_uploads.includes?(seg_id)
-          end
+          @log.warn { "Failed to upload segment #{seg_id} to remote storage (attempt #{attempt + 1}/3): #{ex.message}" }
+        end
+        @log.error { "Failed to upload segment #{seg_id} after 3 attempts, re-enqueuing with backoff" }
+        spawn(name: "blob-upload-retry-#{seg_id}") do
+          sleep 5.seconds
+          @upload_queue.send(seg_id) rescue nil
         end
       end
 
@@ -345,13 +340,15 @@ module LavinMQ::AMQP
 
         upload_meta_to_remote(seg_id, mfile, h)
 
-        @remote_segments[seg_id] = {
-          path: remote_path[1..],
-          etag: etag,
-          size: mfile.size,
-          meta: true,
-        }
-        append_to_catalog(seg_id)
+        @upload_mutex.synchronize do
+          @remote_segments[seg_id] = {
+            path: remote_path[1..],
+            etag: etag,
+            size: mfile.size,
+            meta: true,
+          }
+          append_to_catalog(seg_id)
+        end
       end
 
       private def upload_meta_to_remote(seg_id : UInt32, mfile : MFile, h : ::HTTP::Client)
