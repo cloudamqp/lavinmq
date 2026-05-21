@@ -211,8 +211,9 @@ module LavinMQ
             super sp
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+          ensure
+            @has_capacity.set(true)
           end
-          @has_capacity.set(true)
         else
           raise ::IO::Error.new("No message inflight for id '#{id}'")
         end
