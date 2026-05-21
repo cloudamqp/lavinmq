@@ -607,6 +607,12 @@ module LavinMQ::AMQP
       drop_overflow(dlx_tasks)
       @publish_count.add(1, :relaxed)
       PublishResult::Ok
+    rescue ex : MessageStore::ClosedError
+      # `close` takes `@msg_store_lock` before closing `@msg_store`, so the
+      # top-of-method check races with a concurrent close/delete. If that's
+      # what happened, treat the publish as not routed; otherwise re-raise.
+      raise ex unless closed? || deleted?
+      PublishResult::Dropped
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

@@ -276,6 +276,48 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Close" do
     q_name = "close"
+    it "swallows MessageStore::ClosedError when queue is closed mid-publish" do
+      # Regression: if `close` runs between publish_internal's top-level
+      # `closed?` check and acquiring `@msg_store_lock`, `@msg_store.push`
+      # raises `ClosedError`, which would otherwise propagate to the AMQP
+      # client's read_loop and disconnect the client with INTERNAL_ERROR.
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("close-race", false, false)
+        queue = vhost.queue("close-race").as(LavinMQ::AMQP::Queue)
+
+        # Hold the lock so the publisher fiber blocks after the top check.
+        queue.@msg_store_lock.lock
+
+        publish_result = nil
+        publish_error = nil
+        done = Channel(Nil).new
+        spawn do
+          msg = LavinMQ::Message.new("", "close-race", "body")
+          publish_result = queue.publish(msg)
+        rescue ex
+          publish_error = ex
+        ensure
+          done.send(nil)
+        end
+
+        # Let the publisher reach the lock-acquire site.
+        Fiber.yield
+
+        # Simulate `close` having marked the queue closed and closed the
+        # underlying msg_store while we held the lock.
+        queue.@closed.set(true, :release)
+        queue.@msg_store.close
+        queue.@msg_store_lock.unlock
+
+        done.receive
+        publish_error.should be_nil
+        publish_result.should be_false
+      ensure
+        queue.try &.delete
+      end
+    end
+
     it "should cancel consumer" do
       with_amqp_server do |s|
         tag = "consumer-to-be-canceled"
