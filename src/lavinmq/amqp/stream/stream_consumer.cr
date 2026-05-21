@@ -107,7 +107,15 @@ module LavinMQ
             @log.debug { "Getting a new message" }
           {% end %}
           stream_queue.consume_get(self) do |env|
-            deliver(env.message, env.segment_position, env.redelivered)
+            # If delivery fails (socket closed, IO error, frame encode error),
+            # `Client#deliver` returns false without finishing the body read.
+            # `consumer.pos` has already been advanced past the message in
+            # `shift?`, so the consumer's FD position is now `bodysize` bytes
+            # behind — silently iterating again would decode body bytes as a
+            # message header and close the queue. Exit the loop so the `ensure`
+            # block closes `@segment_file`; the connection cleanup will close
+            # this consumer.
+            raise ClosedError.new unless deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
