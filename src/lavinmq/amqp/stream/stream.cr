@@ -160,6 +160,7 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
+      stream_msg_store.ensure_available(consumer)
       env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message
       true

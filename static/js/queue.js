@@ -93,7 +93,7 @@ function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
       const qType = item.arguments['x-queue-type']
-      if (qType === 'stream') {
+      if (qType === 'stream' || qType === 'blob-stream') {
         window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
       }
       Chart.update(chart, item.message_stats)

@@ -123,7 +123,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     }
     const queueLink = document.createElement('a')
     const qType = item.arguments['x-queue-type']
-    if (qType === 'stream') {
+    if (qType === 'stream' || qType === 'blob-stream') {
       queueLink.href = HTTP.url`stream#vhost=${item.vhost}&name=${item.name}`
     } else {
       queueLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`

@@ -2,6 +2,7 @@ require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
 require "./amqp/stream/stream"
+require "./amqp/stream/blob_stream"
 require "./mqtt/session"
 
 module LavinMQ
@@ -19,8 +20,11 @@ module LavinMQ
     end
 
     private def self.make_durable(vhost, frame)
-      if stream_queue? frame
+      case frame.arguments["x-queue-type"]?
+      when "stream"
         AMQP::Stream.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+      when "blob-stream"
+        AMQP::BlobStream.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         if prio_queue? frame
@@ -32,7 +36,7 @@ module LavinMQ
     end
 
     private def self.make_queue(vhost, frame)
-      if stream_queue? frame
+      if stream_queue?(frame) || blob_stream_queue?(frame)
         raise Error::PreconditionFailed.new("A stream cannot be non-durable")
       end
       warn_if_unsupported_queue_type frame
@@ -49,6 +53,10 @@ module LavinMQ
 
     private def self.stream_queue?(frame) : Bool
       frame.arguments["x-queue-type"]? == "stream"
+    end
+
+    private def self.blob_stream_queue?(frame) : Bool
+      frame.arguments["x-queue-type"]? == "blob-stream"
     end
 
     private def self.mqtt_session?(frame) : Bool
