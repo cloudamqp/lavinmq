@@ -601,7 +601,10 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels.lock(&.delete(frame.channel)).try &.close
+        # Mark the channel closed (running=false, drains consumers/unacked) but
+        # keep it in @channels until the client's CloseOk arrives, so in-flight
+        # frames land in the "not running" branch and are discarded gracefully.
+        @channels.shared(&.[frame.channel]?).try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -655,7 +658,7 @@ module LavinMQ
           @running.set(false, :release)
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels.lock(&.delete(ex.channel)).try &.close
+          @channels.shared(&.[ex.channel]?).try &.close
         end
       end
 

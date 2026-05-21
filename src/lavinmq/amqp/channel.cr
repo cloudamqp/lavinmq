@@ -713,7 +713,7 @@ module LavinMQ
       end
 
       def close
-        return unless @running.swap(false, :release)
+        return unless @running.swap(false, :acquire_release)
         @confirm_ack_mailbox.try &.close
         @consumers.shared(&.dup).each_with_index(1) do |consumer, i|
           consumer.close
