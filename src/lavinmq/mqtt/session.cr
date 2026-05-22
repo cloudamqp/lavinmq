@@ -68,14 +68,16 @@ module LavinMQ
             end
           end
         end
+
+        @consumers.each do |c|
+          rm_consumer c
+        end
+
         @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
         @has_capacity.set(true)
 
-        @consumers.each do |c|
-          rm_consumer c
-        end
         @client = client
         if c = client
           add_consumer MQTT::Consumer.new(c, self)
