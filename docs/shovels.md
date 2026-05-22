@@ -41,13 +41,26 @@ A shovel consists of:
 
 ## HTTP Destination
 
-Shovels can POST messages to an HTTP endpoint:
+A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message to the endpoint instead of republishing it over AMQP. Useful for delivering broker traffic to webhook receivers, serverless handlers, or any HTTP service.
 
 | Parameter | Description |
 |-----------|-------------|
-| `dest-uri` | HTTP/HTTPS URL to POST to |
+| `dest-uri` | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
 
-The message body is sent as the request body.
+The AMQP message is mapped to the HTTP request as follows:
+
+| HTTP element | Source |
+|--------------|--------|
+| Method | `POST` |
+| Path | The `dest-uri` path if set, else the message header `uri_path`, else `/` |
+| Body | The raw AMQP message body |
+| `Content-Type` | The message `content_type` property, if set |
+| `X-Message-Id` | The message `message_id` property, if set |
+| `X-Shovel` | The shovel name |
+| `X-<header>` | One header per AMQP header on the message |
+| `User-Agent` | `LavinMQ` |
+
+For `on-confirm` and `on-publish` ack modes, the source delivery is acked only when the destination returns a 2xx response; any other status triggers the shovel's reconnect/retry path. `no-ack` skips the check.
 
 ## Multi-Destination
 

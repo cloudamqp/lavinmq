@@ -82,7 +82,9 @@ The proxy is transparent and runs on every follower for:
 - MQTT and MQTTS (TCP and Unix socket)
 - HTTP/management (TCP and Unix socket)
 
-For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. No configuration is needed; the proxy starts and stops automatically as leadership changes.
+TCP listeners always proxy; Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node.
+
+For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
 
 ## Security
 
