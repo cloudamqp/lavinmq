@@ -56,7 +56,7 @@ module LavinMQ
       range_end = key.to_slice.dup
       range_end.update(-1) { |v| v + 1 }
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}"}))
-      kvs = json["kvs"].as_a
+      kvs = json["kvs"]?.try(&.as_a) || return Hash(String, String).new
       h = Hash(String, String).new(initial_capacity: kvs.size)
       kvs.each do |kv|
         key = Base64.decode_string kv["key"].as_s
@@ -160,6 +160,15 @@ module LavinMQ
           raise Error.new("Unexpected election response: '#{json}'")
         end
       end
+    end
+
+    def election_leader(name) : String?
+      json = post("/v3/election/leader", %({"name":"#{Base64.strict_encode name}"}))
+      if value = json.dig?("kv", "value")
+        Base64.decode_string(value.as_s)
+      end
+    rescue Error
+      nil
     end
 
     private def post(path, body) : JSON::Any
