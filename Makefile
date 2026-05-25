@@ -108,7 +108,7 @@ lint-js:
 
 .PHONY: lint-openapi
 lint-openapi:
-	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
+	npx --yes -p @stoplight/spectral-cli -p @stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
 test: lib views
