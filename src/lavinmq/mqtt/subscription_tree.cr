@@ -131,6 +131,10 @@ module LavinMQ
           sublevel.each_entry &block
         end
       end
+
+      def inspect
+        "#{self.class.name}(@wildcard_rest=#{@wildcard_rest.inspect}, @non_wildcards=#{@non_wildcards.inspect}, @plus=#{@plus.inspect}, @sublevels=#{@sublevels.inspect}, @leafs=#{@leafs.inspect})"
+      end
     end
   end
 end

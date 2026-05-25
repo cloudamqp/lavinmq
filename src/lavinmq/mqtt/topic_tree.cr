@@ -101,6 +101,10 @@ module LavinMQ
         @leafs.values.each &blk
         @sublevels.values.each(&.each(&blk))
       end
+
+      def inspect
+        "#{self.class.name}(@sublevels=#{@sublevels.inspect} @leafs=#{@leafs.inspect})"
+      end
     end
   end
 end

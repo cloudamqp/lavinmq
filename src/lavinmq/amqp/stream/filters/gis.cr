@@ -21,6 +21,10 @@ module LavinMQ::AMQP
         raise ArgumentError.new("Longitude must be between -180 and 180") unless @lon >= -180 && @lon <= 180
       end
 
+      def to_s(io : IO)
+        io << "Point(lat=" << @lat << ", lon=" << @lon << ")"
+      end
+
       def self.from_headers(headers : AMQP::Table | Nil) : Point | Nil
         return unless headers
 
@@ -74,6 +78,10 @@ module LavinMQ::AMQP
 
         false
       end
+
+      def to_s(io : IO)
+        io << "RadiusFilter(center=" << @center << ", radius_km=" << @radius_km << ")"
+      end
     end
 
     class BoundingBoxFilter
@@ -90,6 +98,10 @@ module LavinMQ::AMQP
         end
 
         false
+      end
+
+      def to_s(io : IO)
+        io << "BoundingBoxFilter(" << @bbox << ")"
       end
     end
 
@@ -114,6 +126,11 @@ module LavinMQ::AMQP
       def contains?(point : Point) : Bool
         point.lat >= @min_lat && point.lat <= @max_lat &&
           point.lon >= @min_lon && point.lon <= @max_lon
+      end
+
+      def to_s(io : IO)
+        io << "BoundingBox(lat=" << @min_lat << ".." << @max_lat
+        io << ", lon=" << @min_lon << ".." << @max_lon << ")"
       end
     end
 
@@ -159,6 +176,10 @@ module LavinMQ::AMQP
         end
         inside
       end
+
+      def to_s(io : IO)
+        io << "Polygon(" << @points.size << " points)"
+      end
     end
 
     class PolygonFilter
@@ -175,6 +196,10 @@ module LavinMQ::AMQP
         end
 
         false
+      end
+
+      def to_s(io : IO)
+        io << "PolygonFilter(" << @polygon << ")"
       end
     end
 

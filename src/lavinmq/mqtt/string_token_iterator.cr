@@ -41,6 +41,10 @@ module LavinMQ
       def to_s
         @str
       end
+
+      def inspect
+        "#{self.class.name}(@str=#{@str} @reader.pos=#{@reader.pos} @reader.current_char=#{@reader.current_char} @iteration=#{@iteration})"
+      end
     end
   end
 end
