@@ -210,18 +210,22 @@ module LavinMQ
     end
 
     def purge_all
+      # Drain @requeued and decrement @size/@bytesize for each entry
+      while sp = @requeued.shift?
+        @size -= 1
+        @bytesize -= sp.bytesize
+      end
+
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
         delete_file(file, including_meta: true)
-        # @segment_msg_count tracks total writes (including acked); @size only
-        # counts ready (unshifted) messages, so subtract msg_count - acks_count
-        # instead of msg_count or we underflow @size on segments with acks.
-        ack_count = ((af = @acks[seg_id]?) ? af.size // sizeof(UInt32) : 0).to_u32
+        # Only decrement @size for unread segments. Read segments don't
+        # contribute to @size: their msgs are either acked, in-flight, or
+        # were drained from @requeued above.
         if msg_count = @segment_msg_count.delete(seg_id)
-          ready_count = msg_count > ack_count ? msg_count - ack_count : 0_u32
-          @size -= ready_count
+          @size -= msg_count if seg_id > @rfile_id
         end
         if afile = @acks.delete(seg_id)
           delete_file(afile)
@@ -241,7 +245,6 @@ module LavinMQ
         @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
       end
 
-      @requeued.clear
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
