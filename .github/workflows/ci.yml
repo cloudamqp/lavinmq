@@ -503,3 +503,41 @@ jobs:
           prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
           run: gmake test
         continue-on-error: true
+
+  stress:
+    name: Stress test
+    runs-on: ubuntu-24.04
+    needs: compile
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp >lavinmq.log 2>&1 &
+
+      - name: Run stress test
+        run: make stress
+
+      - name: Print LavinMQ log
+        if: ${{ !cancelled() }}
+        run: cat lavinmq.log
+
+      - name: Check LavinMQ log for errors
+        run: |
+          if grep -E -i 'error|unhandled exception|fatal|panic|backtrace' lavinmq.log; then
+            echo "::error::Found errors in LavinMQ log"
+            exit 1
+          fi
