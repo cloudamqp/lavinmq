@@ -524,9 +524,28 @@ describe LavinMQ::Federation::Upstream do
           wait_for { link.state.running? }
           upstream_vhost.queue_exists?(federation_name).should eq true
           upstream_vhost.exchange_exists?(federation_name).should eq true
-          link.terminate
+          link.delete
           upstream_vhost.queue_exists?(federation_name).should eq false
           upstream_vhost.exchange_exists?(federation_name).should eq false
+        end
+      end
+    end
+
+    it "should keep internal exchange and queue after broker shutdown" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream, upstream_vhost = UpstreamSpecHelpers.setup_federation(s, "qf test upstream shutdown", "upstream_ex", "upstream_q")
+        federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+
+        with_channel(s) do |ch|
+          downstream_ex = ch.exchange("downstream_ex", "topic")
+          link = upstream.link(vhost.exchange(downstream_ex.name))
+          wait_for { link.state.running? }
+          upstream_vhost.queue_exists?(federation_name).should eq true
+          upstream_vhost.exchange_exists?(federation_name).should eq true
+          upstream.close # broker shutdown path — must not delete upstream resources
+          upstream_vhost.queue_exists?(federation_name).should eq true
+          upstream_vhost.exchange_exists?(federation_name).should eq true
         end
       end
     end

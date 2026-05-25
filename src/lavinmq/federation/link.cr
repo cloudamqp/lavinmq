@@ -67,11 +67,20 @@ module LavinMQ
           loop { @state_changed.try_send?(state) || break }
         end
 
-        # Does not trigger reconnect, but a graceful close
-        def terminate
+        # Graceful close of the link without removing any upstream resources.
+        # Use on broker shutdown — the upstream queue/exchange must survive a
+        # restart so buffered messages aren't lost.
+        def stop
           return if @state.terminated?
           state(State::Terminating)
           @upstream_connection.try &.close
+        end
+
+        # Permanently remove the link, including any resources it created on
+        # the upstream broker. Use when the federation, federated resource or
+        # upstream itself is being deleted.
+        def delete
+          stop
         end
 
         private def run_loop
@@ -250,7 +259,7 @@ module LavinMQ
           @federated_q.name
         end
 
-        def terminate
+        def stop
           @federated_q.unregister_observer(self)
           super
           @consumer_available.close
@@ -388,9 +397,13 @@ module LavinMQ
           end
         end
 
-        def terminate
+        def stop
           super
           @federated_ex.unregister_observer(self)
+        end
+
+        def delete
+          stop
           cleanup
         end
 
