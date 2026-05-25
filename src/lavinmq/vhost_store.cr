@@ -43,10 +43,6 @@ module LavinMQ
       @vhosts.values
     end
 
-    def first_value : VHost
-      @vhosts.first_value
-    end
-
     def first_value? : VHost?
       @vhosts.first_value?
     end
