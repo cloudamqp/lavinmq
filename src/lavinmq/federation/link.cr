@@ -128,7 +128,7 @@ module LavinMQ
           state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, exchange, routing_key, *, immediate = false)
+        private def federate(msg, exchange, routing_key, *, immediate = false) : Bool
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           @upstream.vhost.publish(
             Message.new(
@@ -136,7 +136,7 @@ module LavinMQ
               msg.body_io.bytesize.to_u64, msg.body_io,
             ),
             immediate
-          )
+          ).routed
         end
 
         private def try_passive(client, ch = nil, &)

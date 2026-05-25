@@ -236,19 +236,22 @@ module LavinMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
-    # should be Acks, apart from Exceptions.
-    # As long as at least one queue reject the publish due to overflow a Nack should be sent,
-    # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
-    # True if it also succesfully wrote to one or more queues
-    # False if no queue was able to receive the message because they're
-    # closed
+    # Routes a message through the named exchange.
+    # Returns an `AMQP::Exchange::PublishResult` describing whether the message
+    # was routed to at least one queue, and whether any matched queue rejected
+    # it due to a reject-publish overflow policy. As long as at least one queue
+    # rejects the publish, the caller should NACK the publisher on confirm
+    # channels, even if other queues accepted the message (behaviour confirmed
+    # with RabbitMQ).
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
-      ex = exchange?(msg.exchange_name) || return false
-      ex.publish(msg, immediate, found_queues, visited)
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : AMQP::Exchange::PublishResult
+      if ex = exchange?(msg.exchange_name)
+        ex.publish(msg, immediate, found_queues, visited)
+      else
+        AMQP::Exchange::PublishResult.new(routed: false, overflowed: false)
+      end
     ensure
       visited.clear
       found_queues.clear

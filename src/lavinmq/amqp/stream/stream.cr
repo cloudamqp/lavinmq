@@ -110,20 +110,20 @@ module LavinMQ::AMQP
       @msg_store.as(StreamMessageStore)
     end
 
-    def publish(msg : Message) : Bool
+    def publish(msg : Message) : PublishResult
       publish_internal(msg, nil)
     end
 
     # save message id / segment position
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : Bool
-      return false if @state.closed?
+    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+      return PublishResult::Dropped if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
       # Notify all waiting stream consumers about new messages
       notify_all_stream_consumers
-      true
+      PublishResult::Ok
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

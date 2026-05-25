@@ -132,10 +132,10 @@ module LavinMQ
               AMQP::Properties.new,
               4_u64,
               IO::Memory.new("test"))
-            ok = vhost.publish(msg)
+            routed = vhost.publish(msg).routed
             env = nil
             vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = ok && env && String.new(env.message.body) == "test"
+            ok = routed && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end

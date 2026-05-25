@@ -142,12 +142,12 @@ module LavinMQ::AMQP
     private def queue_expire_loop
     end
 
-    def publish(message : Message) : Bool
-      false
+    def publish(message : Message) : PublishResult
+      PublishResult::Dropped
     end
 
-    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : Bool
-      false
+    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+      PublishResult::Dropped
     end
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool

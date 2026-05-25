@@ -267,15 +267,15 @@ module LavinMQ
         end
 
         confirm do
-          ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
-          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+          result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed
+          result
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           code = ChannelReplyCode::PRECONDITION_FAILED
           send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
+          Exchange::PublishResult.new(routed: false, overflowed: false)
         end
-      rescue Queue::RejectOverFlow
-        # nack but then do nothing
       end
 
       private def validate_user_id(user_id)
@@ -287,12 +287,22 @@ module LavinMQ
         end
       end
 
+      # Yields to the block which must return an `Exchange::PublishResult`, then
+      # sends a publisher confirm based on the outcome:
+      # * if the block raises, send NACK and re-raise
+      # * if any matched queue rejected on overflow, send NACK
+      # * otherwise send ACK
+      # When publisher confirms are disabled the block is just yielded.
       private def confirm(&)
         if @confirm
           msgid = @confirm_total &+= 1
           begin
-            yield
-            confirm_ack(msgid)
+            result = yield
+            if result.overflowed
+              confirm_nack(msgid)
+            else
+              confirm_ack(msgid)
+            end
           rescue ex
             confirm_nack(msgid)
             raise ex
@@ -324,6 +334,8 @@ module LavinMQ
               msg.exchange_name,
               msg.routing_key)
             ch.deliver(deliver, msg)
+            # Direct reply delivery is always a routed publish with no overflow
+            Exchange::PublishResult.new(routed: true, overflowed: false)
           end
           true
         else
@@ -785,8 +797,8 @@ module LavinMQ
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
-          ok = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
-          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless ok
+          result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
+          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed
           # skip to next msg body in the next_msg_body_file
           tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)
         end
