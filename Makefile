@@ -41,6 +41,10 @@ bin/stress: extras/stress.cr lib | bin
 stress: bin/stress
 	$<
 
+.PHONY: benchmark
+benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
+	$<
+
 lib: shard.yml shard.lock
 	shards install --production
 
