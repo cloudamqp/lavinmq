@@ -34,6 +34,13 @@ bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
+bin/stress: extras/stress.cr lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+.PHONY: stress
+stress: bin/stress
+	$<
+
 lib: shard.yml shard.lock
 	shards install --production
 
