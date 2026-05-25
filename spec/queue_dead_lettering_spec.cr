@@ -1062,6 +1062,29 @@ module DeadLetteringSpec
         end
       end
 
+      # Regression for "Unexpected error in dead letter routed callback"
+      # caused by MessageStore::ClosedError. The stress driver churns
+      # queues while publishing into max-length+DLX configs, so close()
+      # races with the in-flight dead-letter drain_context callback that
+      # tries to remove the source SP. The msg_store is being torn down
+      # anyway -- the callback must no-op rather than raise.
+      it "ack/delete_message no-ops after close races a dead-letter drain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("q")
+            ch.default_exchange.publish_confirm("msg", "q")
+            queue = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue)
+            env = queue.@msg_store_lock.synchronize { queue.@msg_store.first? }
+              .should_not be_nil
+            queue.close
+            queue.closed?.should be_true
+            # Before the fix this re-entered @msg_store.delete on a closed
+            # store and raised MessageStore::ClosedError.
+            queue.ack(env.segment_position)
+          end
+        end
+      end
+
       # When cycle detection drops all destinations the routed callback
       # must still fire so the source message is removed from storage.
       # The queue self-binds to the fanout DLX: on first TTL the message

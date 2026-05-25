@@ -558,7 +558,7 @@ module LavinMQ::AMQP
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Bool
-      return false if @deleted || @state.closed?
+      return false if @closed
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -827,7 +827,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @deleted
+      return if @closed
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -836,6 +836,11 @@ module LavinMQ::AMQP
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
+      # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
+      # callback (or any other in-flight delete) racing with close would hit
+      # MessageStore::ClosedError on @msg_store.delete. The store is gone
+      # anyway, so the per-sp bookkeeping is a no-op.
+      return if closed?
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
@@ -846,7 +851,7 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
+      return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -929,6 +934,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
+      return 0_u32 if @closed
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
