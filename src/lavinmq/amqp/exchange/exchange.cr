@@ -200,13 +200,17 @@ module LavinMQ
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       # Result of routing a message through an exchange.
-      # `routed` is true if at least one queue accepted the message.
-      # `overflowed` is true if at least one matched queue rejected the message
+      # `Routed` is set if at least one queue accepted the message.
+      # `Overflowed` is set if at least one matched queue rejected the message
       # due to a reject-publish overflow policy. The two flags are independent:
       # a publish can be both routed (one queue accepted) and overflowed
       # (another queue rejected), in which case the publisher should still be
       # nack'ed on confirm channels.
-      record PublishResult, routed : Bool, overflowed : Bool
+      @[Flags]
+      enum PublishResult
+        Routed
+        Overflowed
+      end
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
@@ -215,7 +219,7 @@ module LavinMQ
         if d = @deduper
           if d.duplicate?(msg)
             @dedup_count.add(1, :relaxed)
-            return PublishResult.new(routed: false, overflowed: false)
+            return PublishResult::None
           end
           d.add(msg)
         end
@@ -223,10 +227,10 @@ module LavinMQ
           if q = @delayed_queue
             q.delay(msg)
             @publish_out_count.add(1, :relaxed)
-            return PublishResult.new(routed: true, overflowed: false)
+            return PublishResult::Routed
           else
             @unroutable_count.add(1, :relaxed)
-            return PublishResult.new(routed: false, overflowed: false)
+            return PublishResult::None
           end
         end
         route_msg(msg, immediate, queues, exchanges)
@@ -241,7 +245,7 @@ module LavinMQ
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
           @unroutable_count.add(1, :relaxed)
-          return PublishResult.new(routed: false, overflowed: false)
+          return PublishResult::None
         end
 
         count = 0u32
@@ -259,7 +263,11 @@ module LavinMQ
         end
         @publish_out_count.add(count, :relaxed)
         @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
-        PublishResult.new(routed: count.positive?, overflowed: overflow)
+
+        result = PublishResult::None
+        result |= PublishResult::Routed if count.positive?
+        result |= PublishResult::Overflowed if overflow
+        result
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,

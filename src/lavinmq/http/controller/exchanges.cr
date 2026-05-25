@@ -151,7 +151,7 @@ module LavinMQ
             # Report overflow as not-routed so HTTP callers see the same signal a
             # publisher-confirms client would: any reject-publish overflow turns
             # the publish into "not routed", even if other bound queues accepted.
-            {routed: result.routed && !result.overflowed}.to_json(context.response)
+            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
           end
         end
       end

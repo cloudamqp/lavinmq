@@ -250,7 +250,7 @@ module LavinMQ
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else
-        AMQP::Exchange::PublishResult.new(routed: false, overflowed: false)
+        AMQP::Exchange::PublishResult::None
       end
     ensure
       visited.clear

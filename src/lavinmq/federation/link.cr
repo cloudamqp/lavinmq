@@ -136,7 +136,7 @@ module LavinMQ
               msg.body_io.bytesize.to_u64, msg.body_io,
             ),
             immediate
-          ).routed
+          ).routed?
         end
 
         private def try_passive(client, ch = nil, &)
