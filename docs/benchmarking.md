@@ -1,4 +1,4 @@
-# Benchmarking (lavinmqperf)
+# lavinmqperf
 
 `lavinmqperf` is a built-in benchmarking tool for measuring LavinMQ performance.
 
