@@ -199,14 +199,27 @@ module LavinMQ
       abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
+      # Result of routing a message through an exchange.
+      # `Routed` is set if at least one queue accepted the message.
+      # `Overflowed` is set if at least one matched queue rejected the message
+      # due to a reject-publish overflow policy. The two flags are independent:
+      # a publish can be both routed (one queue accepted) and overflowed
+      # (another queue rejected), in which case the publisher should still be
+      # nack'ed on confirm channels.
+      @[Flags]
+      enum PublishResult
+        Routed
+        Overflowed
+      end
+
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Bool
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
             @dedup_count.add(1, :relaxed)
-            return false
+            return PublishResult::None
           end
           d.add(msg)
         end
@@ -214,37 +227,47 @@ module LavinMQ
           if q = @delayed_queue
             q.delay(msg)
             @publish_out_count.add(1, :relaxed)
-            return true
+            return PublishResult::Routed
           else
             @unroutable_count.add(1, :relaxed)
-            return false
+            return PublishResult::None
           end
         end
         route_msg(msg, immediate, queues, exchanges)
       end
 
-      def route_msg(msg : Message) : Bool
+      def route_msg(msg : Message) : PublishResult
         route_msg(msg, false, Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
           @unroutable_count.add(1, :relaxed)
-          return false
+          return PublishResult::None
         end
 
         count = 0u32
+        overflow = false
         queues.each do |queue|
-          if queue.publish(msg)
+          case queue.publish(msg)
+          in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+          in .overflow?
+            overflow = true
+          in .dropped?
+            # queue was closed or message was a duplicate; nothing to do
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero?
-        count.positive?
+        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+
+        result = PublishResult::None
+        result |= PublishResult::Routed if count.positive?
+        result |= PublishResult::Overflowed if overflow
+        result
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,

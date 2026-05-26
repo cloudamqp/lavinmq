@@ -537,51 +537,56 @@ module LavinMQ::AMQP
       }
     end
 
-    class RejectOverFlow < Exception; end
+    enum PublishResult
+      Ok       # message accepted and stored
+      Dropped  # queue closed or message was a duplicate
+      Overflow # rejected by max-length / max-length-bytes (overflow=reject-publish)
+    end
 
     class Closed < Exception; end
 
-    def publish(msg : Message) : Bool
+    def publish(msg : Message) : PublishResult
       publish_internal(msg)
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Bool
-      return false if @closed
+    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+      return PublishResult::Dropped if @closed
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
-          return false
+          return PublishResult::Dropped
         end
         d.add(msg)
       end
-      reject_on_overflow(msg)
+      return PublishResult::Overflow if reject_on_overflow?(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
-      true
+      PublishResult::Ok
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
     end
 
-    private def reject_on_overflow(msg) : Nil
-      return unless @reject_on_overflow
+    private def reject_on_overflow?(msg) : Bool
+      return false unless @reject_on_overflow
       if ml = @max_length
         if @msg_store.size >= ml
           @log.debug { "Overflow reject message msg=#{msg}" }
-          raise RejectOverFlow.new
+          return true
         end
       end
 
       if mlb = @max_length_bytes
         if @msg_store.bytesize + msg.bytesize >= mlb
           @log.debug { " Overflow reject message msg=#{msg}" }
-          raise RejectOverFlow.new
+          return true
         end
       end
+      false
     end
 
     # ameba:disable Metrics/CyclomaticComplexity

@@ -57,7 +57,7 @@ module LavinMQ
         count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos|
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
+          if queue.publish(msg).ok?
             count += 1
             msg.body_io.rewind
           end

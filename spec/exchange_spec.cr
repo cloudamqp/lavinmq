@@ -228,13 +228,13 @@ describe LavinMQ::Exchange do
             "x-deduplication-header" => "msg1",
           }))
           msg = LavinMQ::Message.new("ex", "rk", "body", props)
-          ex.publish(msg, false).should eq true
+          ex.publish(msg, false).routed?.should be_true
           ex.dedup_count.should eq 0
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "x-deduplication-header" => "msg1",
           }))
           msg = LavinMQ::Message.new("ex", "rk", "body", props)
-          ex.publish(msg, false).should eq false
+          ex.publish(msg, false).routed?.should be_false
           ex.dedup_count.should eq 1
 
           q.message_count.should eq 1
@@ -257,13 +257,13 @@ describe LavinMQ::Exchange do
             "custom" => "msg1",
           }))
           msg = LavinMQ::Message.new("ex", "rk", "body", props)
-          ex.publish(msg, false).should eq true
+          ex.publish(msg, false).routed?.should be_true
           ex.dedup_count.should eq 0
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "custom" => "msg1",
           }))
           msg = LavinMQ::Message.new("ex", "rk", "body", props)
-          ex.publish(msg, false).should eq false
+          ex.publish(msg, false).routed?.should be_false
           ex.dedup_count.should eq 1
 
           q.message_count.should eq 1

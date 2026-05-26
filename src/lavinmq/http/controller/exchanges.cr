@@ -145,10 +145,13 @@ module LavinMQ
               size,
               IO::Memory.new(content))
             Log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
-            ok = e.vhost.publish(msg)
+            result = e.vhost.publish(msg)
             e.vhost.event_tick(EventType::ClientPublish)
             e.vhost.add_recv_bytes(size)
-            {routed: ok}.to_json(context.response)
+            # Report overflow as not-routed so HTTP callers see the same signal a
+            # publisher-confirms client would: any reject-publish overflow turns
+            # the publish into "not routed", even if other bound queues accepted.
+            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
           end
         end
       end

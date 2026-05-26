@@ -121,9 +121,9 @@ module LavinMQ::AMQP
             else
               dst_q, msg = task
               begin
+                # Result intentionally discarded: if the destination queue is closed
+                # or rejects on overflow we drop the dead-lettered message.
                 dst_q.publish_internal(msg, dlx_tasks: @tasks)
-              rescue Queue::RejectOverFlow
-                # noop
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end
