@@ -269,6 +269,7 @@
                 <option value="get">Get Ack</option>
                 <option value="reject_requeue_true" selected>Reject and Requeue</option>
                 <option value="reject_requeue_false">Reject</option>
+                <option value="peek">Peek (non-destructive)</option>
               </select>
             </label>
             <label>
@@ -281,7 +282,15 @@
             <label>
               <span>Messages</span>
               <input type="number" name="messages" value=1 min="1" max="1000">
-              <small id="dataTags">Maximum 1000 messages</small>
+              <small class="form-help">Maximum 1000 messages</small>
+            </label>
+            <label class="peek-only hide">
+              <span>Offset</span>
+              <input type="number" name="offset" value="0" min="0">
+            </label>
+            <label class="peek-only hide">
+              <input type="checkbox" name="include_unacked">
+              <span>Include unacked messages</span>
             </label>
             <button type="submit" class="btn btn-outlined">Get message(s)</button>
           </form>
@@ -300,6 +309,10 @@
           <h4 class="message-header">Message <span class="message-number"></span></h4>
           <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
           <table>
+            <tr class="message-state-row hide">
+              <th>State</th>
+              <td class="message-state"></td>
+            </tr>
             <tr>
               <th>Exchange</th>
               <td class="message-exchange"></td>

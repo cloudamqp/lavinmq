@@ -108,4 +108,35 @@ module LavinMQ
                    @redelivered = false)
     end
   end
+
+  # Heap-only copy of a message for the HTTP peek API. A BytesMessage's body
+  # and header table are slices into a mmap:ed segment file that can be
+  # unmapped at any time, so peek copies them while holding the message store
+  # lock and serializes from the copy after releasing it.
+  struct PeekedMessage
+    getter exchange_name : String
+    getter routing_key : String
+    getter properties : AMQ::Protocol::Properties
+    getter bodysize : UInt64
+    getter body : Bytes
+    getter? redelivered : Bool
+
+    def initialize(msg : BytesMessage, max_body : Int32, @redelivered : Bool)
+      @exchange_name = msg.exchange_name
+      @routing_key = msg.routing_key
+      @properties = copy_properties(msg.properties)
+      @bodysize = msg.bodysize
+      @body = msg.body[0, Math.min(msg.body.size, max_body)].dup
+    end
+
+    # Strings in Properties are heap allocated when decoded, but the headers
+    # table is a slice into the source bytes and must be copied.
+    private def copy_properties(pr : AMQ::Protocol::Properties) : AMQ::Protocol::Properties
+      AMQ::Protocol::Properties.new(
+        pr.content_type, pr.content_encoding, pr.headers.try(&.clone),
+        pr.delivery_mode, pr.priority, pr.correlation_id, pr.reply_to,
+        pr.expiration, pr.message_id, pr.timestamp_raw, pr.type,
+        pr.user_id, pr.app_id, pr.reserved1)
+    end
+  end
 end

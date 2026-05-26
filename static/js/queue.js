@@ -251,23 +251,43 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     })
 })
 
-document.querySelector('#getMessages').addEventListener('submit', function (evt) {
+const getMessagesForm = document.querySelector('#getMessages')
+getMessagesForm.querySelector('[name=mode]').addEventListener('change', function () {
+  const peek = this.value === 'peek'
+  getMessagesForm.querySelectorAll('.peek-only').forEach(el => el.classList.toggle('hide', !peek))
+})
+getMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = HTTP.url`api/queues/${vhost}/${queue}/get`
-  const body = {
-    count: parseInt(data.get('messages')),
-    ack_mode: data.get('mode'),
-    encoding: data.get('encoding'),
-    truncate: 50000
+  const peek = data.get('mode') === 'peek'
+  const count = parseInt(data.get('messages')) || 1
+  const offset = peek ? parseInt(data.get('offset')) || 0 : 0
+  let url, body
+  if (peek) {
+    url = HTTP.url`api/queues/${vhost}/${queue}/peek`
+    body = {
+      offset,
+      count,
+      include_unacked: data.get('include_unacked') === 'on',
+      encoding: data.get('encoding'),
+      truncate: 50000
+    }
+  } else {
+    url = HTTP.url`api/queues/${vhost}/${queue}/get`
+    body = {
+      count,
+      ack_mode: data.get('mode'),
+      encoding: data.get('encoding'),
+      truncate: 50000
+    }
   }
   HTTP.request('POST', url, { body })
     .then(messages => {
       if (messages.length === 0) {
-        window.alert('No messages in queue')
+        window.alert(peek ? 'No messages to peek at this offset' : 'No messages in queue')
         return
       }
-      updateQueue(false)
+      if (!peek) updateQueue(false)
       const messagesContainer = document.getElementById('messages')
       messagesContainer.textContent = ''
       const template = document.getElementById('message-template')
@@ -275,8 +295,12 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         const message = messages[i]
         const msgNode = template.cloneNode(true)
         msgNode.removeAttribute('id')
-        msgNode.querySelector('.message-number').textContent = i + 1
+        msgNode.querySelector('.message-number').textContent = i + 1 + offset
         msgNode.querySelector('.messages-remaining').textContent = message.message_count
+        if (message.state) {
+          msgNode.querySelector('.message-state-row').classList.remove('hide')
+          msgNode.querySelector('.message-state').textContent = message.state
+        }
         const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
         msgNode.querySelector('.message-exchange').textContent = exchange
         msgNode.querySelector('.message-routing-key').textContent = message.routing_key

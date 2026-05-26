@@ -892,6 +892,104 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
+    # Non-destructive peek at messages in the queue.
+    # Yields up to `count` (PeekedMessage, state) pairs starting at logical
+    # `offset`; state is "ready" or "unacked". Unacked messages sit at the
+    # tail of the logical index space and are only included when
+    # `include_unacked` is set. The store lock is only held while copying one
+    # message at a time, so publishes and deliveries proceed in between.
+    def peek(offset : Int32, count : Int32, include_unacked : Bool, max_body : Int32,
+             &block : PeekedMessage, String -> Nil) : Nil
+      raise ClosedError.new if @closed
+      return if count <= 0
+
+      requeued_sps = Array(SegmentPosition).new
+      requeued_count = 0
+      ready_count = 0_i64
+      @msg_store_lock.synchronize do
+        requeued_sps, requeued_count = @msg_store.peek_requeued(offset, count)
+        ready_count = @msg_store.size.to_i64
+      end
+
+      yielded = 0
+      requeued_sps.each do |sp|
+        if message = peek_copy(sp, redelivered: true, max_body: max_body)
+          block.call(message, "ready")
+          yielded += 1
+        end
+      end
+
+      remaining_skip = offset > requeued_count ? offset - requeued_count : 0
+      yielded = peek_segments(remaining_skip, count, yielded, max_body, block)
+
+      return if yielded >= count
+      return unless include_unacked
+      peek_unacked(offset, count - yielded, ready_count, max_body, block)
+    end
+
+    # Copy one message out of the store under the lock, so it stays valid
+    # after the underlying segment is unmapped. Returns nil if the message
+    # is gone.
+    private def peek_copy(sp : SegmentPosition, redelivered : Bool, max_body : Int32) : PeekedMessage?
+      message = @msg_store_lock.synchronize do
+        begin
+          PeekedMessage.new(@msg_store[sp], max_body, redelivered: redelivered)
+        rescue
+          nil
+        end
+      end
+      Fiber.yield # let clients take the store lock between copies
+      message
+    end
+
+    private def peek_segments(skip : Int32, count : Int32, yielded : Int32, max_body : Int32,
+                              block : Proc(PeekedMessage, String, Nil)) : Int32
+      seg = nil.as(UInt32?)
+      pos = 0_u32
+      while yielded < count
+        step = @msg_store_lock.synchronize { @msg_store.peek_step(seg, pos, skip, max_body) }
+        Fiber.yield # let clients take the store lock between scan steps
+        seg = step.seg
+        pos = step.pos
+        skip -= step.skipped
+        if message = step.message
+          block.call(message, "ready")
+          yielded += 1
+        end
+        break if step.done
+      end
+      yielded
+    end
+
+    private def peek_unacked(offset : Int32, remaining : Int32, ready_count : Int64, max_body : Int32,
+                             block : Proc(PeekedMessage, String, Nil)) : Nil
+      skip = offset.to_i64 > ready_count ? offset.to_i64 - ready_count : 0_i64
+
+      seen_channels = Set(Client::Channel).new
+      sps = [] of SegmentPosition
+      consumers.select(AMQP::Consumer).each do |c|
+        ch = c.channel
+        next if seen_channels.includes?(ch)
+        seen_channels << ch
+        ch.unacked.each do |u|
+          sps << u.sp if u.queue == self
+        end
+      end
+
+      yielded = 0
+      sps.each do |sp|
+        break if yielded >= remaining
+        if skip > 0
+          skip -= 1
+          next
+        end
+        if message = peek_copy(sp, redelivered: false, max_body: max_body)
+          block.call(message, "unacked")
+          yielded += 1
+        end
+      end
+    end
+
     private def with_delivery_count_header(env) : Envelope?
       if @delivery_limit
         sp = env.segment_position
