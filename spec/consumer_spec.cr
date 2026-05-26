@@ -222,5 +222,33 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "respawns idle consumer's deliver loop when channel close requeues a message" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          conn = AMQP::Client.new(port: amqp_port(s)).connect
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+
+          q = conn.channel.queue("respawn-on-reject")
+          q.subscribe(no_ack: false) { |msg| msgs.send msg }
+          q.publish "test-msg"
+          msgs.receive
+
+          # Subscribes to an empty queue, so its deliver_loop won't start
+          ch.queue("respawn-on-reject").subscribe(no_ack: false) { |msg| msgs.send msg }
+
+          # Closing connection requeues the unacked msg via reject;
+          # The other consumers deliver_loop must respawn to consume it
+          conn.close
+
+          select
+          when msg = msgs.receive
+            msg.body_io.to_s.should eq "test-msg"
+          when timeout 500.milliseconds
+            fail "Consumer did not receive requeued message"
+          end
+        end
+      end
+    end
   end
 end
