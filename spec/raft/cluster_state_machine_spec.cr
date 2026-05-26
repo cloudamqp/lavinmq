@@ -42,4 +42,46 @@ describe LavinMQ::Raft::ClusterStateMachine do
       sm.isr.should be_empty
     end
   end
+
+  describe "snapshot/restore" do
+    it "round-trips state through snapshot and restore" do
+      original = LavinMQ::Raft::ClusterStateMachine.new
+      original.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("hunter2"))
+      original.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(1_u64))
+      original.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(2_u64))
+
+      io = IO::Memory.new
+      original.snapshot(io)
+      io.rewind
+
+      restored = LavinMQ::Raft::ClusterStateMachine.new
+      restored.restore(io)
+
+      restored.secret.should eq "hunter2"
+      restored.isr.should eq Set{1_u64, 2_u64}
+    end
+
+    it "round-trips empty state" do
+      original = LavinMQ::Raft::ClusterStateMachine.new
+      io = IO::Memory.new
+      original.snapshot(io)
+      io.rewind
+
+      restored = LavinMQ::Raft::ClusterStateMachine.new
+      restored.restore(io)
+
+      restored.secret.should eq ""
+      restored.isr.should be_empty
+    end
+
+    it "raises on unknown snapshot version" do
+      io = IO::Memory.new
+      io.write_bytes(99_u8, IO::ByteFormat::LittleEndian)
+      io.rewind
+      sm = LavinMQ::Raft::ClusterStateMachine.new
+      expect_raises(LavinMQ::Raft::ClusterStateMachine::InvalidSnapshotVersion) do
+        sm.restore(io)
+      end
+    end
+  end
 end
