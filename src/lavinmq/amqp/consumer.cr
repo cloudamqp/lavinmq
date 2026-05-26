@@ -77,7 +77,15 @@ module LavinMQ
             raise ClosedError.new if @closed
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
-            next if wait_for_queue_ready
+            case wait_for_queue_ready
+            when :timeout
+              @log.debug { "deliver loop idle, exiting fiber" }
+              @deliver_loop_running.set(false, :release)
+              ensure_deliver_loop unless @queue.empty?
+              return
+            when :ready
+              next
+            end
             next if wait_for_paused_queue
             next if wait_for_flow
             break
@@ -95,10 +103,6 @@ module LavinMQ
             Fiber.yield
           end
         end
-      rescue IdleError
-        @log.debug { "deliver loop idle, exiting fiber" }
-        @deliver_loop_running.set(false, :release)
-        ensure_deliver_loop unless @closed || @queue.empty?
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
         @deliver_loop_running.set(false, :release)
@@ -162,17 +166,17 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @queue.empty?
-          @log.debug { "Waiting for queue not to be empty" }
-          flush
-          select
-          when @queue.empty.when_false.receive
-          when @notify_closed.receive
-          when timeout 30.seconds
-            @log.debug { "Deliver loop idle timeout" }
-            raise IdleError.new
-          end
-          return true
+        return unless @queue.empty?
+        @log.debug { "Waiting for queue not to be empty" }
+        flush
+        select
+        when @queue.empty.when_false.receive
+          :ready
+        when @notify_closed.receive
+          raise ClosedError.new
+        when timeout 30.seconds
+          @log.debug { "Deliver loop idle timeout" }
+          :timeout
         end
       end
 
@@ -290,8 +294,6 @@ module LavinMQ
       end
 
       class ClosedError < Error; end
-
-      private class IdleError < Exception; end
     end
   end
 end
