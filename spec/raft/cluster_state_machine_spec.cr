@@ -83,5 +83,23 @@ describe LavinMQ::Raft::ClusterStateMachine do
         sm.restore(io)
       end
     end
+
+    it "replaces existing state on restore" do
+      sm = LavinMQ::Raft::ClusterStateMachine.new
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("old"))
+      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(99_u64))
+
+      source = LavinMQ::Raft::ClusterStateMachine.new
+      source.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("new"))
+      source.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(1_u64))
+
+      io = IO::Memory.new
+      source.snapshot(io)
+      io.rewind
+      sm.restore(io)
+
+      sm.secret.should eq "new"
+      sm.isr.should eq Set{1_u64}
+    end
   end
 end
