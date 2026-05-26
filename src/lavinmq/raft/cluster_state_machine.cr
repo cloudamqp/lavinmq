@@ -17,11 +17,31 @@ module LavinMQ::Raft
     end
 
     def snapshot(io : IO) : Nil
-      raise NotImplementedError.new("snapshot not yet implemented")
+      fmt = IO::ByteFormat::LittleEndian
+      io.write_bytes(SNAPSHOT_VERSION, fmt)
+      io.write_bytes(@secret.bytesize.to_u32, fmt)
+      io.write(@secret.to_slice)
+      io.write_bytes(@isr.size.to_u32, fmt)
+      @isr.each { |id| io.write_bytes(id, fmt) }
     end
 
     def restore(io : IO) : Nil
-      raise NotImplementedError.new("restore not yet implemented")
+      fmt = IO::ByteFormat::LittleEndian
+      version = io.read_bytes(UInt8, fmt)
+      raise InvalidSnapshotVersion.new(version) unless version == SNAPSHOT_VERSION
+      secret_len = io.read_bytes(UInt32, fmt)
+      buf = Bytes.new(secret_len)
+      io.read_fully(buf)
+      @secret = String.new(buf)
+      isr_count = io.read_bytes(UInt32, fmt)
+      @isr.clear
+      isr_count.times { @isr.add(io.read_bytes(UInt64, fmt)) }
+    end
+
+    class InvalidSnapshotVersion < Exception
+      def initialize(version : UInt8)
+        super("Unsupported ClusterStateMachine snapshot version: #{version}")
+      end
     end
   end
 end
