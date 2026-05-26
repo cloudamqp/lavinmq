@@ -167,6 +167,33 @@ module LavinMQ::AMQP
         store_for sp, &.[sp]
       end
 
+      def peek_requeued(offset : Int32, max : Int32) : {Array(SegmentPosition), Int32}
+        raise ClosedError.new if @closed
+        sps = Array(SegmentPosition).new
+        total = 0
+        @stores.reverse_each do |s|
+          s_sps, s_count = s.peek_requeued(Math.max(0, offset - total), max - sps.size)
+          sps.concat s_sps
+          total += s_count
+        end
+        {sps, total}
+      end
+
+      # PeekStep#store tracks which substore the cursor is in,
+      # in reverse order since substores are peeked highest priority first
+      def peek_step(prev : PeekStep?, skip : Int32, max_body : Int32) : PeekStep
+        raise ClosedError.new if @closed
+        store = prev.try(&.store) || 0
+        i = @stores.size - 1 - store
+        return PeekStep.new(nil, 0_u32, 0, nil, true, store) if i < 0
+        step = @stores[i].peek_step(prev.try(&.seg) ? prev : nil, skip, max_body)
+        if step.done && i > 0
+          PeekStep.new(nil, 0_u32, step.skipped, step.message, false, store + 1)
+        else
+          step.copy_with(store: store)
+        end
+      end
+
       def delete(sp) : Nil
         raise ClosedError.new if @closed
         store_for sp, &.delete(sp)

@@ -54,6 +54,10 @@ module LavinMQ::AMQP
         def clear : Nil
           @segment_positions = Deque(DelayedSegmentPosition).new
         end
+
+        def each(& : SegmentPosition -> Nil) : Nil
+          @segment_positions.each { |dsp| yield dsp.sp }
+        end
       end
     end
   end

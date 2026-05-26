@@ -26,6 +26,9 @@ module LavinMQ
       include BindingHelpers
       include QueueHelpers
 
+      # Caps the payload bytes peek copies under the store lock per message
+      PEEK_MAX_BODY = 1024 * 1024
+
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
@@ -236,6 +239,48 @@ module LavinMQ
           end
         end
 
+        post "/api/queues/:vhost/:name/peek" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            q = find_queue(context, params, vhost)
+            unless q.is_a?(AMQP::Queue)
+              forbidden(context, "Only supported by AMQP queues")
+            end
+            unless user.can_read?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+            end
+            if q.is_a?(LavinMQ::AMQP::Stream)
+              bad_request(context, "Use /stream for stream queues")
+            end
+            body = parse_body(context)
+            offset = body["offset"]?.try(&.as_i?) || 0
+            count = body["count"]?.try(&.as_i?) || 1
+            state = body["state"]?.try(&.as_s) || "ready"
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            truncate = body["truncate"]?.try(&.as_i?)
+            bad_request(context, "offset must be >= 0") if offset < 0
+            bad_request(context, "count must be > 0") if count <= 0
+            bad_request(context, "count must be <= 1000") if count > 1000
+            bad_request(context, "state must be 'ready' or 'unacked'") unless state.in?("ready", "unacked")
+            bad_request(context, "truncate must be >= 0") if truncate && truncate < 0
+            max_body = truncate ? Math.min(truncate, PEEK_MAX_BODY) : PEEK_MAX_BODY
+            JSON.build(context.response) do |j|
+              j.array do
+                if state == "unacked"
+                  q.peek_unacked(offset, count, max_body) do |message|
+                    peeked_message_json(j, q, message, state, encoding, max_body)
+                  end
+                else
+                  q.peek(offset, count, max_body) do |message|
+                    peeked_message_json(j, q, message, state, encoding, max_body)
+                  end
+                end
+              end
+            end
+          end
+        end
+
         post "/api/queues/:vhost/:name/stream" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)
@@ -281,6 +326,25 @@ module LavinMQ
           rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
             bad_request(context, e.message)
           end
+        end
+      end
+
+      private def peeked_message_json(j, q, message, state, encoding, max_body) : Nil
+        j.object do
+          payload_encoding = "string"
+          j.field("payload_bytes", message.bodysize)
+          j.field("redelivered", message.redelivered?)
+          j.field("exchange", message.exchange_name)
+          j.field("routing_key", message.routing_key)
+          j.field("message_count", q.message_count)
+          j.field("properties", message.properties)
+          j.field("state", state)
+          j.field("payload") do
+            j.string do |io|
+              payload_encoding = encode_body(message, max_body, encoding, io)
+            end
+          end
+          j.field("payload_encoding", payload_encoding)
         end
       end
 

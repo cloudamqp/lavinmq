@@ -1723,6 +1723,12 @@ a[data-tag] {
   margin: 0.5em 0;
 }
 
+.form .form-help {
+  display: block;
+  margin-left: 155px;
+  color: var(--color-text-secondary);
+}
+
 .form legend {
   margin-bottom: 20px;
   padding: 0 0.25rem;
@@ -2487,6 +2493,10 @@ pre.arguments .inactive-argument:before {
   #dataTags {
     margin-left: 0;
     padding-left: 0;
+  }
+
+  .form .form-help {
+    margin-left: 0;
   }
 
   textarea {

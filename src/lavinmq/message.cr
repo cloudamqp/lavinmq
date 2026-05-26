@@ -108,4 +108,25 @@ module LavinMQ
                    @redelivered = false)
     end
   end
+
+  # Heap-only copy of a BytesMessage, whose body and headers table are slices
+  # into a mmap:ed segment that can be unmapped at any time. Must be created
+  # while holding the message store lock; safe to use after releasing it.
+  struct PeekedMessage
+    getter exchange_name : String
+    getter routing_key : String
+    getter properties : AMQ::Protocol::Properties
+    getter bodysize : UInt64
+    getter body : Bytes
+    getter? redelivered : Bool
+
+    def initialize(msg : BytesMessage, max_body : Int32, @redelivered : Bool)
+      @exchange_name = msg.exchange_name
+      @routing_key = msg.routing_key
+      @properties = msg.properties
+      @properties.headers = @properties.headers.try &.clone
+      @bodysize = msg.bodysize
+      @body = msg.body[0, Math.min(msg.body.size, max_body)].dup
+    end
+  end
 end

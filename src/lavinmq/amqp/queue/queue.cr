@@ -892,6 +892,73 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
+    # Non-destructive peek at the ready messages, in delivery order (requeued
+    # first, then from the read head forward), yielding up to `count`
+    # PeekedMessages from logical `offset`. The store lock is only held while
+    # copying one message at a time.
+    def peek(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
+      return if @closed || count <= 0
+
+      requeued_sps, requeued_count = @msg_store_lock.synchronize do
+        @msg_store.peek_requeued(offset, count)
+      end
+
+      yielded = 0
+      requeued_sps.each do |sp|
+        if message = peek_copy(sp, redelivered: true, max_body: max_body)
+          block.call(message)
+          yielded += 1
+        end
+      end
+
+      peek_segments(Math.max(0, offset - requeued_count), count, yielded, max_body, block)
+    rescue ClosedError | MessageStore::ClosedError
+      # queue was deleted/closed mid peek, end the result list early
+    end
+
+    # Non-destructive peek at messages delivered to consumers but not yet acked.
+    def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
+      return if @closed || count <= 0
+
+      sps = [] of SegmentPosition
+      consumers.select(AMQP::Consumer).map(&.channel).uniq!.each do |ch|
+        ch.unacked.each { |u| sps << u.sp if u.queue == self }
+      end
+
+      yielded = 0
+      sps.each.skip(offset).each do |sp|
+        break if yielded >= count
+        if message = peek_copy(sp, redelivered: false, max_body: max_body)
+          block.call(message)
+          yielded += 1
+        end
+      end
+    end
+
+    private def peek_copy(sp : SegmentPosition, redelivered : Bool, max_body : Int32) : PeekedMessage?
+      message = @msg_store_lock.synchronize do
+        PeekedMessage.new(@msg_store[sp], max_body, redelivered: redelivered) rescue nil
+      end
+      # without this the peek fiber can reacquire the lock before waiters run
+      Fiber.yield
+      message
+    end
+
+    private def peek_segments(skip : Int32, count : Int32, yielded : Int32, max_body : Int32,
+                              block : Proc(PeekedMessage, Nil)) : Nil
+      step = nil.as(MessageStore::PeekStep?)
+      while yielded < count
+        step = @msg_store_lock.synchronize { @msg_store.peek_step(step, skip, max_body) }
+        Fiber.yield
+        skip -= step.skipped
+        if message = step.message
+          block.call(message)
+          yielded += 1
+        end
+        break if step.done
+      end
+    end
+
     private def with_delivery_count_header(env) : Envelope?
       if @delivery_limit
         sp = env.segment_position
