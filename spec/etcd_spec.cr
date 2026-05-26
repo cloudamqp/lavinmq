@@ -94,7 +94,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will lose leadership when loosing quorum" do
+  it "will lose lease when loosing quorum" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -104,6 +104,41 @@ describe LavinMQ::Etcd, tags: "etcd" do
 
       expect_raises(LavinMQ::Etcd::Lease::Expired) do
         lease.wait(20.seconds)
+      end
+    end
+  end
+
+  it "signals expired channel with the underlying error" do
+    cluster = EtcdCluster.new
+    cluster.run do |etcds|
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      key = "foo/#{rand}"
+      lease = etcd.elect(key, "bar", ttl: 1)
+      etcds.first(2).each &.terminate(graceful: false)
+
+      select
+      when err = lease.expired.receive?
+        err.should be_a(LavinMQ::Etcd::Error)
+      when timeout(20.seconds)
+        fail "lease.expired channel never signaled"
+      end
+    end
+  end
+
+  it "signals expired channel when all lease is revoked" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      key = "foo/#{rand}"
+      lease = etcd.elect(key, "bar", ttl: 10)
+
+      etcd.lease_revoke(lease.id)
+
+      select
+      when err = lease.expired.receive?
+        err.should be_a(LavinMQ::Etcd::Error)
+      when timeout(20.seconds)
+        fail "lease.expired channel never signaled"
       end
     end
   end
