@@ -19,6 +19,24 @@ describe LavinMQ::Raft::ClusterCommand do
       cmd.to_io(io, IO::ByteFormat::LittleEndian)
       io.pos.should eq cmd.bytesize
     end
+
+    it "round-trips an empty secret" do
+      original = LavinMQ::Raft::ClusterCommand::SetSecret.new("")
+      io = IO::Memory.new
+      original.to_io(io, IO::ByteFormat::LittleEndian)
+      io.rewind
+      decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
+      decoded.as(LavinMQ::Raft::ClusterCommand::SetSecret).secret.should eq ""
+    end
+
+    it "round-trips a non-ASCII secret" do
+      original = LavinMQ::Raft::ClusterCommand::SetSecret.new("hü€nter🦀")
+      io = IO::Memory.new
+      original.to_io(io, IO::ByteFormat::LittleEndian)
+      io.rewind
+      decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
+      decoded.as(LavinMQ::Raft::ClusterCommand::SetSecret).secret.should eq "hü€nter🦀"
+    end
   end
 
   describe "AddToIsr" do
