@@ -46,6 +46,11 @@ module LavinMQ
         property hashing_algorithm : String = "SHA256"
       end
 
+      struct BulkDeleteUsers
+        include JSON::Serializable
+        property users : Array(String)
+      end
+
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
@@ -61,18 +66,10 @@ module LavinMQ
           page(context, arr)
         end
 
-        post "/api/users/bulk-delete" do |context, _params|
+        post "/api/users/bulk-delete", model: BulkDeleteUsers do |context, _params, model|
           refuse_unless_administrator(context, user(context))
-          body = parse_body(context)
-          users = body["users"]?
-          unless users.try &.as_a?
-            bad_request(context, "Field 'users' is required")
-          end
-          users.try &.as_a.each do |u|
-            unless u.as_s?
-              bad_request(context, "Field 'users' must be array of user names")
-            end
-            @amqp_server.users.delete(u.as_s, false)
+          model.users.each do |u|
+            @amqp_server.users.delete(u, false)
           end
           context.response.status_code = 204
           context
