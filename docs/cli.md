@@ -1,4 +1,4 @@
-# CLI (lavinmqctl)
+# lavinmqctl
 
 `lavinmqctl` is the command-line tool for managing a running LavinMQ server. It communicates with the server via the HTTP management API.
 
