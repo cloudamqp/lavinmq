@@ -19,7 +19,7 @@ module LavinMQ::Raft
       tag = Tag.new(io.read_bytes(UInt8, format))
       case tag
       in .set_secret?      then SetSecret.read_body(io, format)
-      in .add_to_isr?      then raise NotImplementedError.new("AddToIsr not yet implemented")
+      in .add_to_isr?      then AddToIsr.read_body(io, format)
       in .remove_from_isr? then raise NotImplementedError.new("RemoveFromIsr not yet implemented")
       end
     end
@@ -56,6 +56,31 @@ module LavinMQ::Raft
         buf = Bytes.new(len)
         io.read_fully(buf)
         new(String.new(buf))
+      end
+    end
+
+    struct AddToIsr < ClusterCommand
+      getter node_id : UInt64
+
+      def initialize(@node_id : UInt64)
+      end
+
+      def tag : Tag
+        Tag::AddToIsr
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat) : Nil
+        io.write_bytes(SCHEMA_VERSION, format)
+        io.write_bytes(tag.value, format)
+        io.write_bytes(@node_id, format)
+      end
+
+      def bytesize : Int32
+        1 + 1 + 8
+      end
+
+      protected def self.read_body(io : IO, format : IO::ByteFormat) : AddToIsr
+        new(io.read_bytes(UInt64, format))
       end
     end
   end
