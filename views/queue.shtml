@@ -241,6 +241,33 @@
           <button type="submit" class="btn btn-outlined">Get message(s)</button>
         </form>
       </section>
+      <section class="card cols-6">
+        <form method="post" id="peekMessages" class="form">
+          <h3>Peek messages</h3>
+          <p class="card-desc">Read messages without consuming them. Reads directly from disk and can include unacked messages.</p>
+          <label>
+            <span>Encoding</span>
+            <select class="dropdown" name="encoding">
+              <option value="auto">Auto string/base64</option>
+              <option value="base64">Base64</option>
+            </select>
+          </label>
+          <label>
+            <span>Offset</span>
+            <input type="number" name="offset" value="0" min="0">
+          </label>
+          <label>
+            <span>Count</span>
+            <input type="number" name="count" value="1" min="1" max="1000">
+            <small>Maximum 1000 messages</small>
+          </label>
+          <label>
+            <input type="checkbox" name="include_unacked">
+            <span>Include unacked messages</span>
+          </label>
+          <button type="submit" class="btn btn-outlined">Peek message(s)</button>
+        </form>
+      </section>
       <form method="post" id="moveMessages" class="form card cols-6">
         <h3>Move messages</h3>
         <label>
@@ -255,6 +282,10 @@
         <h4 class="message-header">Message <span class="message-number"></span></h4>
         <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
         <table>
+          <tr class="message-state-row hide">
+            <th>State</th>
+            <td class="message-state"></td>
+          </tr>
           <tr>
             <th>Exchange</th>
             <td class="message-exchange"></td>

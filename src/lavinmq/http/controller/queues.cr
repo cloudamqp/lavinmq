@@ -232,6 +232,51 @@ module LavinMQ
           end
         end
 
+        post "/api/queues/:vhost/:name/peek" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            q = find_queue(context, params, vhost)
+            unless user.can_read?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+            end
+            if q.is_a?(LavinMQ::AMQP::Stream)
+              bad_request(context, "Use /stream for stream queues")
+            end
+            body = parse_body(context)
+            offset = body["offset"]?.try(&.as_i?) || 0
+            count = body["count"]?.try(&.as_i?) || 10
+            include_unacked = body["include_unacked"]?.try(&.as_bool?) || false
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            truncate = body["truncate"]?.try(&.as_i?)
+            bad_request(context, "offset must be >= 0") if offset < 0
+            bad_request(context, "count must be > 0") if count <= 0
+            bad_request(context, "count must be <= 1000") if count > 1000
+            JSON.build(context.response) do |j|
+              j.array do
+                q.peek(offset, count, include_unacked) do |env, state|
+                  j.object do
+                    payload_encoding = "string"
+                    j.field("payload_bytes", env.message.bodysize)
+                    j.field("redelivered", env.redelivered)
+                    j.field("exchange", env.message.exchange_name)
+                    j.field("routing_key", env.message.routing_key)
+                    j.field("message_count", q.message_count)
+                    j.field("properties", env.message.properties)
+                    j.field("state", state)
+                    j.field("payload") do
+                      j.string do |io|
+                        payload_encoding = encode_body(env.message, truncate, encoding, io)
+                      end
+                    end
+                    j.field("payload_encoding", payload_encoding)
+                  end
+                end
+              end
+            end
+          end
+        end
+
         post "/api/queues/:vhost/:name/stream" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)

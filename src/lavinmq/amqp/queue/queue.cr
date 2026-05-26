@@ -807,6 +807,59 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
+    # Non-destructive peek at messages in the queue.
+    # Yields up to `count` (Envelope, state) pairs starting at logical `offset`.
+    # state is "ready", "requeued", or "unacked". Unacked entries are included
+    # at the tail of the logical index space when `include_unacked` is true.
+    def peek(offset : Int, count : Int, include_unacked : Bool, & : Envelope, String -> Nil) : Nil # ameba:disable Metrics/CyclomaticComplexity
+      raise ClosedError.new if @closed
+      return if count <= 0
+
+      ready_yielded = 0
+      ready_count = 0
+      @msg_store_lock.synchronize do
+        ready_count = @msg_store.size.to_i64
+        @msg_store.peek(offset, count) do |env|
+          yield env, env.redelivered ? "requeued" : "ready"
+          ready_yielded += 1
+        end
+      end
+
+      remaining = count - ready_yielded
+      return if remaining <= 0
+      return unless include_unacked
+
+      unacked_offset = offset.to_i64 > ready_count ? offset.to_i64 - ready_count : 0_i64
+      unacked_skipped = 0_i64
+      unacked_yielded = 0
+
+      seen_channels = Set(Client::Channel).new
+      sps = [] of SegmentPosition
+      consumers.select(AMQP::Consumer).each do |c|
+        ch = c.channel
+        next if seen_channels.includes?(ch)
+        seen_channels << ch
+        ch.unacked.each do |u|
+          sps << u.sp if u.queue == self
+        end
+      end
+
+      sps.each do |sp|
+        break if unacked_yielded >= remaining
+        if unacked_skipped < unacked_offset
+          unacked_skipped += 1
+          next
+        end
+        begin
+          msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        rescue
+          next
+        end
+        yield Envelope.new(sp, msg, redelivered: false), "unacked"
+        unacked_yielded += 1
+      end
+    end
+
     private def with_delivery_count_header(env) : Envelope?
       if @delivery_limit
         sp = env.segment_position

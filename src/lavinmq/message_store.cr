@@ -173,6 +173,65 @@ module LavinMQ
       end
     end
 
+    # Non-destructive walk over the ready/requeued messages.
+    # Yields up to `count` envelopes starting at logical offset `offset`,
+    # in the same order as repeated shift? would produce.
+    def peek(offset : Int, count : Int, & : Envelope -> Nil) : Nil # ameba:disable Metrics/CyclomaticComplexity
+      raise ClosedError.new if @closed
+      return if count <= 0
+      skipped = 0
+      yielded = 0
+
+      @requeued.each do |sp|
+        return if yielded >= count
+        if seg = @segments[sp.segment]?
+          begin
+            msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
+          rescue
+            next
+          end
+          if skipped < offset
+            skipped += 1
+          else
+            yield Envelope.new(sp, msg, redelivered: true)
+            yielded += 1
+          end
+        end
+      end
+
+      @segments.each do |seg_id, mfile|
+        return if yielded >= count
+        next if seg_id < @rfile_id
+        pos = seg_id == @rfile_id ? @rfile.pos.to_u32 : 4_u32
+        slice = mfile.to_slice
+        file_size = mfile.size.to_u32
+        while pos < file_size
+          return if yielded >= count
+          break if pos + 8 > file_size
+          ts = IO::ByteFormat::SystemEndian.decode(Int64, slice[pos, 8])
+          break if ts.zero?
+          begin
+            msg = BytesMessage.from_bytes(slice + pos)
+          rescue
+            break
+          end
+          bs = msg.bytesize.to_u32
+          if deleted?(seg_id, pos)
+            pos += bs
+            next
+          end
+          if skipped < offset
+            skipped += 1
+          else
+            sp = SegmentPosition.make(seg_id, pos, msg)
+            yield Envelope.new(sp, msg, redelivered: false)
+            yielded += 1
+          end
+          pos += bs
+        end
+      end
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]

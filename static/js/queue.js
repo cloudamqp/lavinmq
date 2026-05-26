@@ -278,6 +278,49 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
     })
 })
 
+document.querySelector('#peekMessages').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const data = new window.FormData(this)
+  const url = HTTP.url`api/queues/${vhost}/${queue}/peek`
+  const body = {
+    offset: parseInt(data.get('offset')) || 0,
+    count: parseInt(data.get('count')) || 1,
+    include_unacked: data.get('include_unacked') === 'on',
+    encoding: data.get('encoding'),
+    truncate: 50000
+  }
+  HTTP.request('POST', url, { body })
+    .then(messages => {
+      const messagesContainer = document.getElementById('messages')
+      messagesContainer.textContent = ''
+      if (messages.length === 0) {
+        window.alert('No messages to peek at this offset')
+        return
+      }
+      const template = document.getElementById('message-template')
+      for (let i = 0; i < messages.length; i++) {
+        const message = messages[i]
+        const msgNode = template.cloneNode(true)
+        msgNode.removeAttribute('id')
+        msgNode.querySelector('.message-number').textContent = i + 1 + body.offset
+        msgNode.querySelector('.messages-remaining').textContent = message.message_count
+        const stateRow = msgNode.querySelector('.message-state-row')
+        stateRow.classList.remove('hide')
+        msgNode.querySelector('.message-state').textContent = message.state
+        const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
+        msgNode.querySelector('.message-exchange').textContent = exchange
+        msgNode.querySelector('.message-routing-key').textContent = message.routing_key
+        msgNode.querySelector('.message-redelivered').textContent = message.redelivered
+        msgNode.querySelector('.message-properties').textContent = JSON.stringify(message.properties)
+        msgNode.querySelector('.message-size').textContent = message.payload_bytes
+        msgNode.querySelector('.message-encoding').textContent = message.payload_encoding
+        msgNode.querySelector('.message-payload').textContent = message.payload
+        msgNode.classList.remove('hide')
+        messagesContainer.appendChild(msgNode)
+      }
+    })
+})
+
 document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const username = Auth.getUsername()

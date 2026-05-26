@@ -545,6 +545,105 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
 
+  describe "POST /api/queues/vhost/name/peek" do
+    it "should peek messages without consuming them" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q1")
+          server_q = s.vhosts["/"].queue("peek_q1")
+          q.publish "m1"
+          q.publish "m2"
+          q.publish "m3"
+          wait_for { server_q.message_count == 3 }
+          body = %({ "offset": 0, "count": 10, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q1/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 3
+          messages.map(&.["payload"].as_s).should eq ["m1", "m2", "m3"]
+          messages.each(&.["state"].as_s.should(eq("ready")))
+          server_q.message_count.should eq 3
+        end
+      end
+    end
+
+    it "should support offset and count windowing" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q2")
+          server_q = s.vhosts["/"].queue("peek_q2")
+          5.times { |i| q.publish "m#{i}" }
+          wait_for { server_q.message_count == 5 }
+          body = %({ "offset": 1, "count": 2, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q2/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.map(&.["payload"].as_s).should eq ["m1", "m2"]
+          server_q.message_count.should eq 5
+        end
+      end
+    end
+
+    it "should include unacked messages when flag is set" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q3")
+          server_q = s.vhosts["/"].queue("peek_q3")
+          3.times { |i| q.publish "m#{i}" }
+          wait_for { server_q.message_count == 3 }
+          # Consume but do not ack two messages to leave them unacked.
+          ch.prefetch 10
+          unacked = [] of String
+          q.subscribe(no_ack: false) do |msg|
+            unacked << String.new(msg.body_io.to_slice)
+          end
+          wait_for { server_q.unacked_count == 3 }
+
+          # Without include_unacked: no ready messages, returns []
+          body = %({ "offset": 0, "count": 10, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q3/peek", body: body)
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.size.should eq 0
+
+          # With include_unacked: returns the 3 unacked messages
+          body = %({ "offset": 0, "count": 10, "include_unacked": true, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q3/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 3
+          messages.each(&.["state"].as_s.should(eq("unacked")))
+          messages.map(&.["payload"].as_s).sort!.should eq ["m0", "m1", "m2"]
+        end
+      end
+    end
+
+    it "should return empty array for empty queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("peek_q4")
+          body = %({ "offset": 0, "count": 1, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q4/peek", body: body)
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.should be_empty
+        end
+      end
+    end
+
+    it "should validate count and offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("peek_q5")
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": -1, "count": 1}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": 0, "count": 0}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": 0, "count": 1001}))
+          response.status_code.should eq 400
+        end
+      end
+    end
+  end
+
   describe "PUT /api/queues/vhost/name/pause" do
     it "should pause the queue" do
       with_http_server do |http, s|
