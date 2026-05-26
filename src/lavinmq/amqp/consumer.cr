@@ -174,7 +174,7 @@ module LavinMQ
           :ready
         when @notify_closed.receive
           raise ClosedError.new
-        when timeout 30.seconds
+        when timeout Config.instance.deliver_loop_idle_timeout
           @log.debug { "Deliver loop idle timeout" }
           :timeout
         end

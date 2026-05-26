@@ -223,6 +223,32 @@ describe LavinMQ::Client::Channel::Consumer do
       end
     end
 
+    it "shuts down deliver_loop after idle timeout and respawns on next message" do
+      config = LavinMQ::Config.new
+      config.deliver_loop_idle_timeout = 100.milliseconds
+      with_amqp_server(config: config) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("idle-respawn")
+          msgs = Channel(String).new
+          q.subscribe(no_ack: true) { |msg| msgs.send msg.body_io.to_s }
+
+          q.publish "first"
+          msgs.receive.should eq "first"
+
+          # Wait for deliver_loop to idle out
+          sleep 300.milliseconds
+
+          q.publish "after-idle"
+          select
+          when msg = msgs.receive
+            msg.should eq "after-idle"
+          when timeout 500.milliseconds
+            fail "deliver_loop did not respawn after idle timeout"
+          end
+        end
+      end
+    end
+
     it "respawns idle consumer's deliver loop when channel close requeues a message" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
