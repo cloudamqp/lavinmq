@@ -8,7 +8,7 @@ module LavinMQ::Raft
     getter secret : String = ""
     getter isr : Set(UInt64) = Set(UInt64).new
 
-    def apply(entry : ClusterCommand)
+    def apply(entry : ClusterCommand) : Nil
       case entry
       in ClusterCommand::SetSecret     then @secret = entry.secret
       in ClusterCommand::AddToIsr      then @isr.add(entry.node_id)
