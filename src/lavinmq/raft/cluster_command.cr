@@ -1,6 +1,7 @@
 module LavinMQ::Raft
   abstract struct ClusterCommand
-    SCHEMA_VERSION = 1_u8
+    SCHEMA_VERSION  = 1_u8
+    HEADER_BYTESIZE =    2 # version + tag
 
     enum Tag : UInt8
       SetSecret     = 0
@@ -10,8 +11,18 @@ module LavinMQ::Raft
     end
 
     abstract def tag : Tag
-    abstract def to_io(io : IO, format : IO::ByteFormat) : Nil
-    abstract def bytesize : Int32
+    abstract def body_to_io(io : IO, format : IO::ByteFormat) : Nil
+    abstract def body_bytesize : Int32
+
+    def to_io(io : IO, format : IO::ByteFormat) : Nil
+      io.write_bytes(SCHEMA_VERSION, format)
+      io.write_bytes(tag.value, format)
+      body_to_io(io, format)
+    end
+
+    def bytesize : Int32
+      HEADER_BYTESIZE + body_bytesize
+    end
 
     def self.from_io(io : IO, format : IO::ByteFormat) : ClusterCommand
       version = io.read_bytes(UInt8, format)
@@ -40,15 +51,13 @@ module LavinMQ::Raft
         Tag::SetSecret
       end
 
-      def to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(SCHEMA_VERSION, format)
-        io.write_bytes(tag.value, format)
+      def body_to_io(io : IO, format : IO::ByteFormat) : Nil
         io.write_bytes(@secret.bytesize.to_u32, format)
         io.write(@secret.to_slice)
       end
 
-      def bytesize : Int32
-        1 + 1 + 4 + @secret.bytesize
+      def body_bytesize : Int32
+        4 + @secret.bytesize
       end
 
       protected def self.read_body(io : IO, format : IO::ByteFormat) : SetSecret
@@ -69,14 +78,12 @@ module LavinMQ::Raft
         Tag::AddToIsr
       end
 
-      def to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(SCHEMA_VERSION, format)
-        io.write_bytes(tag.value, format)
+      def body_to_io(io : IO, format : IO::ByteFormat) : Nil
         io.write_bytes(@node_id, format)
       end
 
-      def bytesize : Int32
-        1 + 1 + 8
+      def body_bytesize : Int32
+        8
       end
 
       protected def self.read_body(io : IO, format : IO::ByteFormat) : AddToIsr
@@ -94,14 +101,12 @@ module LavinMQ::Raft
         Tag::RemoveFromIsr
       end
 
-      def to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(SCHEMA_VERSION, format)
-        io.write_bytes(tag.value, format)
+      def body_to_io(io : IO, format : IO::ByteFormat) : Nil
         io.write_bytes(@node_id, format)
       end
 
-      def bytesize : Int32
-        1 + 1 + 8
+      def body_bytesize : Int32
+        8
       end
 
       protected def self.read_body(io : IO, format : IO::ByteFormat) : RemoveFromIsr
