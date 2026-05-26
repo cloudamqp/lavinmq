@@ -99,7 +99,8 @@ module LavinMQ
       begin
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       rescue LeaseAlreadyExists
-        expires_in = lease_ttl(id) + 1
+        # Add two seconds to the TTL to make sure it has expired before we try again.
+        expires_in = lease_ttl(id) + 2
         Log.warn { "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire" }
         sleep expires_in.seconds
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
