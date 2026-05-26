@@ -102,7 +102,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       lease = etcd.elect(key, "bar", ttl: 1)
       etcds.first(2).each &.terminate(graceful: false)
 
-      expect_raises(LavinMQ::Etcd::Lease::Lost) do
+      expect_raises(LavinMQ::Etcd::Lease::Expired) do
         lease.wait(20.seconds)
       end
     end
