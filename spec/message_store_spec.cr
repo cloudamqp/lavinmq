@@ -696,4 +696,121 @@ describe LavinMQ::MessageStore do
       end
     end
   end
+
+  describe "#purge_all" do
+    it "leaves @size == 0 when deleted segments contain partial acks" do
+      with_store do |store|
+        # Fill several segments so purge_all has segments to delete beyond rfile/wfile.
+        third_seg = LavinMQ::Config.instance.segment_size.to_u64 // 3 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, third_seg, IO::Memory.new("a" * third_seg))
+        6.times { store.push(big) } # 3 segments, 2 msgs each
+        store.@segments.size.should eq 3
+
+        # Shift+ack m1 - leaves seg 1 partially acked (one ready msg, one ack).
+        # purge_all keeps seg 1 (it's the rfile) and the shift loop finishes
+        # draining it.
+        env = store.shift?.not_nil!
+        store.delete(env.segment_position)
+
+        store.purge_all
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+        store.empty?.should be_true
+        store.empty.value.should be_true
+      end
+    end
+
+    it "shift? from @requeued keeps @size consistent when the segment is gone" do
+      with_store do |store|
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        env = store.shift?.not_nil!
+        store.requeue(env.segment_position)
+        store.@size.should eq 1
+
+        # Simulate a race: the requeued sp's segment was deleted by another
+        # purge before we got back to shift?. Without the fix, shift? bubbles
+        # an exception while the requeued entry's accounting is left behind.
+        store.@segments.delete(env.segment_position.segment)
+
+        expect_raises(LavinMQ::MessageStore::Error) do
+          store.shift?
+        end
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+      end
+    end
+
+    it "does not raise when @requeued sp points to a missing segment" do
+      with_store do |store|
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        env = store.shift?.not_nil!
+        store.requeue(env.segment_position)
+
+        # Simulate a race where the requeued sp's segment was deleted before
+        # purge_all ran. The @requeued drain in purge_all must not touch the
+        # missing segment when decrementing @size/@bytesize.
+        store.@segments.delete(env.segment_position.segment)
+
+        store.purge_all
+        store.@size.should eq 0
+        store.@bytesize.should eq 0
+        store.empty.value.should be_true
+      end
+    end
+
+    it "does not raise when an older segment has in-flight messages" do
+      with_store do |store|
+        half_seg = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, half_seg, IO::Memory.new("a" * half_seg))
+
+        # One big msg per segment; second shift advances rfile to seg 2.
+        store.push(big)
+        store.push(big)
+        store.shift?.should_not be_nil
+        store.shift?.should_not be_nil
+
+        store.@segments.keys.should contain(1u32)
+        store.@rfile_id.should eq 2u32
+        store.@size.should eq 0u32
+
+        store.purge_all
+        store.empty?.should be_true
+      end
+    end
+
+    it "does not raise when @requeued points to a segment that gets deleted" do
+      with_store do |store|
+        half_seg = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, half_seg, IO::Memory.new("a" * half_seg))
+        small = LavinMQ::Message.new("ex", "rk", "body")
+
+        # Layout: seg 1 = [big], seg 2 = [big, small], seg 3 = [big].
+        store.push(big)
+        store.push(big)
+        store.push(small)
+        store.push(big)
+
+        # Ack M1 -> seg 1 auto-deletes. Shift the rest; ack M4 (wfile, kept).
+        env = store.shift?.not_nil!
+        store.delete(env.segment_position)
+        env_m2 = store.shift?.not_nil!
+        env_m3 = store.shift?.not_nil!
+        env_m4 = store.shift?.not_nil!
+        store.delete(env_m4.segment_position)
+
+        # Requeue m2/m3 -> @requeued holds sps to seg 2, no longer rfile/wfile.
+        store.requeue(env_m2.segment_position)
+        store.requeue(env_m3.segment_position)
+
+        store.@segments.keys.should contain(2u32)
+        store.@rfile_id.should eq 3u32
+
+        store.purge_all
+        store.empty?.should be_true
+      end
+    end
+  end
 end

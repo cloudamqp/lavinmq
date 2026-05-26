@@ -112,15 +112,22 @@ module LavinMQ
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
-        segment = @segments[sp.segment]
         begin
+          segment = @segments[sp.segment]
           msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
           return Envelope.new(sp, msg, redelivered: true)
         rescue ex
-          raise Error.new(segment, cause: ex)
+          # sp has already been removed from @requeued; drop its accounting too
+          # so @size/@bytesize don't leak when the segment is gone or the
+          # payload can't be parsed. Without this, future shift? calls can hit
+          # EOF with @size > 0 because the requeued entry can never be re-read.
+          @bytesize -= sp.bytesize
+          @size -= 1
+          @empty.set true if @size.zero?
+          raise Error.new(@segments[sp.segment]? || @rfile, cause: ex)
         end
       end
 
@@ -208,13 +215,22 @@ module LavinMQ
     end
 
     def purge_all
+      # Drain @requeued and decrement @size/@bytesize for each entry
+      while sp = @requeued.shift?
+        @size -= 1
+        @bytesize -= sp.bytesize
+      end
+
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
         delete_file(file, including_meta: true)
+        # Only decrement @size for unread segments. Read segments don't
+        # contribute to @size: their msgs are either acked, in-flight, or
+        # were drained from @requeued above.
         if msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count
+          @size -= msg_count if seg_id > @rfile_id
         end
         if afile = @acks.delete(seg_id)
           delete_file(afile)
@@ -223,13 +239,20 @@ module LavinMQ
         true
       end
 
-      # Purge @rfile and @wfile
-      while env = shift?
-        delete(env.segment_position)
+      # Purge @rfile and @wfile. Swallow any inconsistency between @size and the
+      # on-disk segments — purge_all's postcondition is an empty store, so we
+      # force the counters to zero below regardless of how the loop exits.
+      begin
+        while env = shift?
+          delete(env.segment_position)
+        end
+      rescue ex : IO::EOFError | Error
+        @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
       end
 
-      @requeued.clear
       @bytesize = 0_u64
+      @size = 0_u32
+      @empty.set true
     end
 
     def delete
