@@ -55,12 +55,39 @@ Per-hostname TLS certificates can be configured using `[sni:hostname]` sections 
 tls_cert = /etc/lavinmq/app1.crt
 tls_key = /etc/lavinmq/app1.key
 
-[sni:app2.example.com]
-tls_cert = /etc/lavinmq/app2.crt
-tls_key = /etc/lavinmq/app2.key
+[sni:*.example.com]
+tls_cert = /etc/lavinmq/wildcard.crt
+tls_key = /etc/lavinmq/wildcard.key
 ```
 
-During the TLS handshake the client may include a `server_name` extension naming the host it intends to reach. LavinMQ looks the name up in the configured `[sni:hostname]` sections (exact match), and the matching section's certificate, ciphers, minimum version, and mTLS settings are used for that connection. If no SNI section matches — or the client sends no `server_name` at all — the server falls back to the certificate and settings from `[main]`.
+During the TLS handshake the client may include a `server_name` extension naming the host it intends to reach. LavinMQ looks the name up in the configured `[sni:hostname]` sections, and the matching section's certificate, ciphers, minimum version, and mTLS settings are used for that connection. If no SNI section matches, or the client sends no `server_name` at all, the server falls back to the certificate and settings from `[main]`.
+
+Lookup tries an exact match first, then a wildcard. Wildcard sections use the `*.domain` syntax and match a single label only: `[sni:*.example.com]` matches `foo.example.com` but not `bar.foo.example.com` and not the bare `example.com`.
+
+### Per-protocol overrides
+
+Inside an `[sni:hostname]` section, any TLS setting can be overridden for a single protocol by prefixing the key with `amqp_`, `mqtt_`, or `http_`. The protocol-specific value wins for that protocol; the unprefixed value covers the rest. Useful when, for example, only one protocol on a hostname should enforce mTLS, or when one protocol needs its own key log file.
+
+```ini
+[sni:app1.example.com]
+tls_cert = /etc/lavinmq/app1.crt
+tls_key = /etc/lavinmq/app1.key
+amqp_tls_verify_peer = true
+amqp_tls_ca_cert = /etc/lavinmq/clients-ca.pem
+mqtt_tls_keylog_file = /var/log/lavinmq/mqtt-keys.log
+```
+
+The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `tls_ciphers`, `tls_verify_peer`, `tls_ca_cert`, `tls_keylog_file`.
+
+## Reloading certificates
+
+Send `SIGHUP` to the LavinMQ process to reload the configuration file and rebuild every TLS context (main and all SNI sections) without dropping existing connections. New connections pick up the renewed certificates immediately; connections already established keep using the certificate that was active when they handshook. This is the supported path for certificate rotation in production.
+
+```sh
+kill -HUP $(pidof lavinmq)
+```
+
+On a systemd unit, `systemctl reload lavinmq` issues the same signal.
 
 ## kTLS (Kernel TLS)
 
