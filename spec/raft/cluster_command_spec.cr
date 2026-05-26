@@ -58,4 +58,26 @@ describe LavinMQ::Raft::ClusterCommand do
       io.pos.should eq cmd.bytesize
     end
   end
+
+  describe ".from_io error handling" do
+    it "raises on unknown schema version" do
+      io = IO::Memory.new
+      io.write_bytes(99_u8, IO::ByteFormat::LittleEndian) # bogus version
+      io.write_bytes(0_u8, IO::ByteFormat::LittleEndian)  # SetSecret tag
+      io.rewind
+      expect_raises(LavinMQ::Raft::ClusterCommand::InvalidSchemaVersion) do
+        LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
+      end
+    end
+
+    it "raises on unknown tag value" do
+      io = IO::Memory.new
+      io.write_bytes(LavinMQ::Raft::ClusterCommand::SCHEMA_VERSION, IO::ByteFormat::LittleEndian)
+      io.write_bytes(99_u8, IO::ByteFormat::LittleEndian) # bogus tag
+      io.rewind
+      expect_raises(Exception) do
+        LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
+      end
+    end
+  end
 end
