@@ -34,7 +34,7 @@ module LavinMQ
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
-    property? sparkplug_aware = false
+    getter? sparkplug_aware = false
 
     @flow = true
     @direct_reply_consumers = DirectReplyConsumerStore.new

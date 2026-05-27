@@ -54,6 +54,16 @@ module LavinMQ
             )
           end
 
+          # Host STATE certificate (spBv3.0/STATE/{host_id}) has no group_id;
+          # the host_id is carried in edge_node_id. Validate just that and return.
+          if parts.message_type.state? && parts.group_id.empty?
+            if parts.edge_node_id.empty?
+              raise ValidationError.new("Missing host_id in topic: #{topic}")
+            end
+            validate_identifier(parts.edge_node_id, "host_id", topic)
+            return parts.message_type
+          end
+
           # Validate group_id
           if parts.group_id.empty?
             raise ValidationError.new("Missing group_id in topic: #{topic}")
@@ -89,6 +99,12 @@ module LavinMQ
           # A Sparkplug topic has at most 5 segments
           segments = Array(String).new(5)
           topic.split('/') { |segment| segments << segment }
+
+          # Host STATE certificate: spBv3.0/STATE/{host_id} (no group_id/edge_node_id)
+          if segments.size == 3 && segments[1] == "STATE"
+            return TopicParts.new(topic, segments[0], "", MessageType::STATE, segments[2])
+          end
+
           return nil if segments.size < 4
 
           namespace = segments[0]
@@ -127,7 +143,7 @@ module LavinMQ
         # Validate identifier contains only allowed characters
         # Sparkplug allows: alphanumeric, dash, underscore, period
         private def self.validate_identifier(id : String, field_name : String, topic : String)
-          unless id.matches?(/^[a-zA-Z0-9_.\-]+$/)
+          unless id.matches?(/\A[a-zA-Z0-9_.\-]+\z/)
             raise ValidationError.new(
               "Invalid #{field_name} '#{id}' contains disallowed characters in topic: #{topic}"
             )

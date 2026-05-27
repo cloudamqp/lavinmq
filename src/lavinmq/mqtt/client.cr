@@ -165,7 +165,6 @@ module LavinMQ
         send MQTT::PingResp.new
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       def recieve_publish(packet : MQTT::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
@@ -176,35 +175,7 @@ module LavinMQ
         # Sparkplug validation if enabled
         if @broker.vhost.sparkplug_aware?
           begin
-            # Only validate if publishing to Sparkplug namespace
-            if packet.topic.starts_with?("spBv3.0/")
-              if parts = Sparkplug::Validator.parse_topic(packet.topic)
-                msg_type = Sparkplug::Validator.validate_topic(parts)
-
-                # Validate protobuf payload
-                result = Sparkplug::ProtobufValidator.validate_payload(packet.payload, msg_type)
-                unless result.valid?
-                  raise Sparkplug::ValidationError.new(
-                    "Payload validation failed: #{result.error}"
-                  )
-                end
-
-                # Auto-retain BIRTH messages
-                if (msg_type.nbirth? || msg_type.dbirth?) && !packet.retain?
-                  packet = MQTT::Publish.new(
-                    topic: packet.topic,
-                    payload: packet.payload,
-                    packet_id: packet.packet_id,
-                    qos: packet.qos,
-                    retain: true,
-                    dup: packet.dup?
-                  )
-                end
-              end
-            elsif packet.topic.starts_with?("$sparkplug/")
-              # Reject publishing to certificate topics
-              raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
-            end
+            packet = sparkplug_validate(packet)
           rescue ex : Sparkplug::ValidationError
             Log.warn { "Sparkplug validation error: #{ex.message}" }
             close_socket
@@ -218,6 +189,41 @@ module LavinMQ
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
         end
+      end
+
+      # Validates a publish against the Sparkplug 3.0 spec, returning the packet
+      # to publish (BIRTH messages are forced to be retained). Raises
+      # `Sparkplug::ValidationError` for anything that violates the spec.
+      private def sparkplug_validate(packet : MQTT::Publish) : MQTT::Publish
+        if packet.topic.starts_with?("spBv3.0/")
+          parts = Sparkplug::Validator.parse_topic(packet.topic)
+          unless parts
+            raise Sparkplug::ValidationError.new("Invalid Sparkplug topic: #{packet.topic}")
+          end
+          msg_type = Sparkplug::Validator.validate_topic(parts)
+
+          # Validate protobuf payload
+          result = Sparkplug::ProtobufValidator.validate_payload(packet.payload, msg_type)
+          unless result.valid?
+            raise Sparkplug::ValidationError.new("Payload validation failed: #{result.error}")
+          end
+
+          # Auto-retain BIRTH messages
+          if (msg_type.nbirth? || msg_type.dbirth?) && !packet.retain?
+            packet = MQTT::Publish.new(
+              topic: packet.topic,
+              payload: packet.payload,
+              packet_id: packet.packet_id,
+              qos: packet.qos,
+              retain: true,
+              dup: packet.dup?
+            )
+          end
+        elsif packet.topic.starts_with?("$sparkplug/")
+          # Reject publishing to certificate topics
+          raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
+        end
+        packet
       end
 
       def recieve_puback(packet : MQTT::PubAck)

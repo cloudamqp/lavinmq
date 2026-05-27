@@ -62,15 +62,12 @@ module LavinMQ
         # Parse payload fields and return field presence info or error
         private def self.parse_payload_fields(payload : Bytes)
           io = ::IO::Memory.new(payload)
-          io.rewind
 
-          fields = {
-            has_timestamp: false,
-            has_metrics:   false,
-            has_seq:       false,
-            has_bdseq:     false,
-            metric_count:  0,
-          }
+          has_timestamp = false
+          has_metrics = false
+          has_seq = false
+          has_bdseq = false
+          metric_count = 0
 
           begin
             while io.pos < io.size
@@ -80,24 +77,25 @@ module LavinMQ
 
               case field_number
               when PayloadField::Timestamp.value
-                fields = fields.merge({has_timestamp: true})
+                has_timestamp = true
                 skip_field(io, wire_type)
               when PayloadField::Metrics.value
-                fields = fields.merge({has_metrics: true, metric_count: fields[:metric_count] + 1})
-                if wire_type.length_delimited?
-                  length = read_varint(io)
-                  metric_bytes = Bytes.new(length.to_i32)
-                  io.read_fully(metric_bytes)
-                  result = validate_metric(metric_bytes)
-                  return result unless result.valid?
-                else
+                has_metrics = true
+                metric_count += 1
+                unless wire_type.length_delimited?
                   return ValidationResult.error("Metrics field has incorrect wire type")
                 end
+                # Slice the metric out of the backing buffer (no copy) and validate it
+                length = read_length(io)
+                metric_bytes = payload[io.pos, length]
+                io.skip(length)
+                result = validate_metric(metric_bytes)
+                return result unless result.valid?
               when PayloadField::Seq.value
-                fields = fields.merge({has_seq: true})
+                has_seq = true
                 skip_field(io, wire_type)
               when PayloadField::BdSeq.value
-                fields = fields.merge({has_bdseq: true})
+                has_bdseq = true
                 skip_field(io, wire_type)
               else
                 skip_field(io, wire_type)
@@ -109,7 +107,13 @@ module LavinMQ
             return ValidationResult.error("Invalid protobuf wire format: #{ex.message}")
           end
 
-          fields
+          {
+            has_timestamp: has_timestamp,
+            has_metrics:   has_metrics,
+            has_seq:       has_seq,
+            has_bdseq:     has_bdseq,
+            metric_count:  metric_count,
+          }
         end
 
         # Validate required fields based on message type
@@ -190,8 +194,19 @@ module LavinMQ
           raise ArgumentError.new("Varint exceeds maximum length")
         end
 
+        # Read a length-delimited field's length, bounds-checked against the
+        # bytes remaining in `io` so a bogus length can't over-read or overflow.
+        private def self.read_length(io : ::IO::Memory) : Int32
+          length = read_varint(io)
+          remaining = (io.size - io.pos).to_u64
+          if length > remaining
+            raise ::IO::Error.new("Length #{length} exceeds #{remaining} remaining bytes")
+          end
+          length.to_i32
+        end
+
         # Skip a field based on its wire type
-        private def self.skip_field(io : ::IO, wire_type : WireType) : Nil
+        private def self.skip_field(io : ::IO::Memory, wire_type : WireType) : Nil
           case wire_type
           when .varint?
             # Read and discard varint
@@ -201,8 +216,7 @@ module LavinMQ
             io.skip(8)
           when .length_delimited?
             # Read length, then skip that many bytes
-            length = read_varint(io)
-            io.skip(length.to_i32)
+            io.skip(read_length(io))
           when .fixed32?
             # Skip 4 bytes
             io.skip(4)

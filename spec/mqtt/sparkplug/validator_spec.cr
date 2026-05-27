@@ -65,6 +65,19 @@ module SparkplugSpecs
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::STATE)
       end
 
+      it "accepts host STATE certificate topic (spBv3.0/STATE/{host_id})" do
+        topic = "spBv3.0/STATE/host1"
+        result = validate(topic)
+        result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::STATE)
+      end
+
+      it "rejects host STATE topic without host_id" do
+        topic = "spBv3.0/STATE/"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /Missing host_id/) do
+          validate(topic)
+        end
+      end
+
       it "accepts identifiers with alphanumeric, dash, underscore, period" do
         topic = "spBv3.0/group-1.2/NBIRTH/node_1.test"
         result = validate(topic)
@@ -136,6 +149,13 @@ module SparkplugSpecs
 
       it "rejects identifiers with spaces" do
         topic = "spBv3.0/group 1/NBIRTH/node1"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do
+          validate(topic)
+        end
+      end
+
+      it "rejects identifiers with a trailing newline" do
+        topic = "spBv3.0/group1/NBIRTH/node1\n"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do
           validate(topic)
         end

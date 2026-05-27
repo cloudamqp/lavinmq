@@ -168,6 +168,27 @@ module SparkplugSpecs
       end
     end
 
+    it "rejects malformed Sparkplug topics with too few segments" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.sparkplug_aware = true
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+
+          # Topic in the reserved namespace but missing message_type/edge_node_id
+          publish(io, topic: "spBv3.0/group1",
+            payload: "test".to_slice, qos: 0u8, expect_response: false)
+
+          # Connection should be closed due to validation error
+          sleep 0.1.seconds
+          expect_raises(IO::EOFError) do
+            read_packet(io)
+          end
+        end
+      end
+    end
+
     it "rejects DBIRTH without device_id" do
       with_server do |server|
         vhost = server.vhosts["/"]
