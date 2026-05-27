@@ -77,5 +77,25 @@ describe LavinMQ::Raft::Server do
         server.is_leader.value.should be_true
       end
     end
+
+    it "applies a proposed command to the state machine" do
+      with_single_node do |server|
+        server.bootstrap.should be_true
+        select
+        when server.is_leader.when_true.receive
+          # leader
+        when timeout(2.seconds)
+          fail "timed out waiting for leadership"
+        end
+
+        server.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64)).should be_true
+
+        deadline = Time.monotonic + 2.seconds
+        until server.state_machine.isr.includes?(7_u64)
+          fail "timed out waiting for apply" if Time.monotonic > deadline
+          Fiber.yield
+        end
+      end
+    end
   end
 end
