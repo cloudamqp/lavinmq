@@ -170,5 +170,21 @@ describe LavinMQ::Raft::Server do
         retry_until { servers.all? { |s| s.leader_id == leader.node_id } }
       end
     end
+
+    it "replicates a proposed command to all state machines" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        leader.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(42_u64)).should be_true
+        retry_until(5.seconds) { servers.all?(&.state_machine.isr.includes?(42_u64)) }
+      end
+    end
+
+    it "returns false when proposing on a follower" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        follower = servers.find! { |s| s != leader }
+        follower.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(99_u64)).should be_false
+      end
+    end
   end
 end
