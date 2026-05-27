@@ -5,6 +5,8 @@ require "./cluster_state_machine"
 
 module LavinMQ::Raft
   class Server
+    Log = LavinMQ::Log.for "raft.server"
+
     GROUP_ID = 0_u64
 
     getter node_id : UInt64
@@ -85,8 +87,9 @@ module LavinMQ::Raft
       begin
         File.read(path).strip.to_u64
       rescue File::NotFoundError
-        id = Random::Secure.rand(UInt64::MAX)
+        id = Random::Secure.rand(UInt64)
         File.write(path, id.to_s)
+        Log.info { "Generated new clustering id #{id}" }
         id
       end
     end
