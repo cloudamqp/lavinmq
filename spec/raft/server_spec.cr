@@ -196,19 +196,17 @@ describe LavinMQ::Raft::Server do
         # Isolate the leader; the other two should elect a new one.
         transports[old_leader.node_id].isolated = true
         new_leader = nil
-        deadline = Time.instant + 5.seconds
-        until new_leader
+        retry_until(5.seconds) do
           candidates = servers.select { |s| s != old_leader && s.is_leader.value }
           new_leader = candidates.first if candidates.size == 1
-          fail "timed out electing a new leader" if Time.instant > deadline
-          Fiber.yield unless new_leader
+          !new_leader.nil?
         end
 
         # Heal the partition; the old leader sees a higher term and steps down.
         transports[old_leader.node_id].isolated = false
         select
         when old_leader.is_leader.when_false.receive
-          # stepped down
+          # expected: stepped down on seeing the new leader's higher term
         when timeout(5.seconds)
           fail "old leader did not step down after heal"
         end
