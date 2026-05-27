@@ -219,7 +219,7 @@ module LavinMQ
               dup: packet.dup?
             )
           end
-        elsif packet.topic.starts_with?("$sparkplug/")
+        elsif Sparkplug::Validator.certificate_topic?(packet.topic)
           # Reject publishing to certificate topics
           raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
         end

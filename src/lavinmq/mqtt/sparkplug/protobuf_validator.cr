@@ -51,6 +51,9 @@ module LavinMQ
         # Validates a Sparkplug payload for required fields based on message type
         # Returns ValidationResult indicating success or failure with error message
         def self.validate_payload(payload : Bytes, msg_type : MessageType) : ValidationResult
+          # STATE messages are plain text/JSON, not protobuf payloads
+          return ValidationResult.ok if msg_type.state?
+
           return ValidationResult.ok if payload.empty? && (msg_type.ndeath? || msg_type.ddeath?)
 
           fields = parse_payload_fields(payload)
