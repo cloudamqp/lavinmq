@@ -62,7 +62,7 @@ module LavinMQ::AMQP
     @delivery_limit : Int64?
     @reject_on_overflow = false
     @exclusive_consumer = false
-    @deliveries = Hash(SegmentPosition, Int32).new
+    @deliveries = Hash(SegmentPosition, Int32).new(0)
     @consumers : Sync::Shared(Array(Client::Channel::Consumer)) = Sync::Shared.new(Array(Client::Channel::Consumer).new, :reentrant)
     @message_ttl_change = ::Channel(Nil).new
 
@@ -505,8 +505,8 @@ module LavinMQ::AMQP
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
+        @deliveries.clear
       end
-      @deliveries.clear
       @basic_get_unacked.lock(&.clear)
       @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
@@ -698,10 +698,15 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         loop do
           env = @msg_store.first? || break
-          delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+          delivery_count = @deliveries[env.segment_position]
           break unless delivery_count > limit
           env = @msg_store.shift? || break
-          (victims ||= [] of Envelope) << detach_envelope(env)
+          case victims
+          when Nil
+            victims = [detach_envelope(env)]
+          when Array
+            victims << detach_envelope(env)
+          end
         end
       end
       return unless vs = victims
@@ -880,14 +885,13 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit
-        sp = env.segment_position
-        headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
-        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        @deliveries[sp] = delivery_count + 1
-        env.message.properties.headers = headers
+      sp = env.segment_position
+      headers = env.message.properties.headers || AMQP::Table.new
+      delivery_count = @msg_store_lock.synchronize do
+        @deliveries.update(sp) { |count| count + 1 }
       end
+      headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+      env.message.properties.headers = headers
       env
     end
 
@@ -909,8 +913,8 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
+        @deliveries.delete(sp) if @delivery_limit
         @msg_store.delete(sp)
       end
     end
@@ -928,7 +932,7 @@ module LavinMQ::AMQP
           expire_msg(env, :expired)
         else
           if delivery_limit = @delivery_limit
-            if @deliveries.fetch(sp, 0) > delivery_limit
+            if @msg_store_lock.synchronize { @deliveries[sp] } > delivery_limit
               env = Envelope.new(sp, msg, false)
               return expire_msg(env, :delivery_limit)
             end
