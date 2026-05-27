@@ -38,7 +38,7 @@ module LavinMQ::Raft
     end
 
     def start : Nil
-      raise NotImplementedError.new("start — implemented in Task 2")
+      @execution_context.spawn { tick_loop }
     end
 
     def stop : Nil
@@ -64,6 +64,22 @@ module LavinMQ::Raft
 
     def leader_id : UInt64?
       @node.leader_id
+    end
+
+    private def tick_loop : Nil
+      loop do
+        select
+        when msg = @node.inbox.receive
+          @node.step(msg)
+        when timeout(50.milliseconds)
+          @node.tick
+        end
+        @node.take_messages.each do |target_id, outbound|
+          @transport.outbox.send({target_id, outbound})
+        end
+      end
+    rescue ::Channel::ClosedError
+      # inbox closed by stop — exit cleanly
     end
 
     private def wire_callbacks : Nil
