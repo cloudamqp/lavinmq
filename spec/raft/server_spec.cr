@@ -90,9 +90,9 @@ describe LavinMQ::Raft::Server do
 
         server.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64)).should be_true
 
-        deadline = Time.monotonic + 2.seconds
+        deadline = Time.instant + 2.seconds
         until server.state_machine.isr.includes?(7_u64)
-          fail "timed out waiting for apply" if Time.monotonic > deadline
+          fail "timed out waiting for apply" if Time.instant > deadline
           Fiber.yield
         end
       end
