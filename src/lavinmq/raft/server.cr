@@ -9,6 +9,8 @@ module LavinMQ::Raft
 
     GROUP_ID = 0_u64
 
+    @started = false
+
     getter node_id : UInt64
     getter state_machine : ClusterStateMachine
     getter is_leader : BoolChannel
@@ -38,7 +40,9 @@ module LavinMQ::Raft
     end
 
     def start : Nil
-      @execution_context.spawn { tick_loop }
+      return if @started
+      @started = true
+      @execution_context.spawn(name: "Raft::Server#tick_loop") { tick_loop }
     end
 
     def stop : Nil

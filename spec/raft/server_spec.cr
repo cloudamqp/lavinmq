@@ -8,7 +8,7 @@ private def tmp_data_dir : String
   dir
 end
 
-private def build_single_node : LavinMQ::Raft::Server
+private def with_single_node(&)
   dir = tmp_data_dir
   File.write(File.join(dir, ".clustering_id"), "1")
   transport = ::Raft::MemoryTransport.new(1_u64)
@@ -20,7 +20,13 @@ private def build_single_node : LavinMQ::Raft::Server
   )
   transport.start
   server.start
-  server
+  begin
+    yield server
+  ensure
+    server.stop
+    transport.stop
+    FileUtils.rm_rf(dir)
+  end
 end
 
 describe LavinMQ::Raft::Server do
@@ -53,17 +59,14 @@ describe LavinMQ::Raft::Server do
 
   describe "single node" do
     it "stays follower until bootstrap" do
-      server = build_single_node
-      begin
+      with_single_node do |server|
+        Fiber.yield # let the tick loop run at least once
         server.is_leader.value.should be_false
-      ensure
-        server.stop
       end
     end
 
     it "becomes leader after bootstrap and fires is_leader.when_true" do
-      server = build_single_node
-      begin
+      with_single_node do |server|
         server.bootstrap.should be_true
         select
         when server.is_leader.when_true.receive
@@ -72,8 +75,6 @@ describe LavinMQ::Raft::Server do
           fail "timed out waiting for leadership"
         end
         server.is_leader.value.should be_true
-      ensure
-        server.stop
       end
     end
   end
