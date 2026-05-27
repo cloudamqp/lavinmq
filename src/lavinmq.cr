@@ -3,7 +3,11 @@ require "./stdlib/*"
 require "./lavinmq/config"
 
 config = LavinMQ::Config.instance
-config.parse # both ARGV and config file
+begin
+  config.parse # both ARGV and config file
+rescue ex : OptionParser::Exception
+  abort "Error: #{ex.message}\nTry '#{PROGRAM_NAME} --help' for more information."
+end
 
 {% unless flag?(:gc_none) %}
   if config.raise_gc_warn?
