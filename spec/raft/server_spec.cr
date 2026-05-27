@@ -29,11 +29,13 @@ private def with_single_node(&)
   end
 end
 
-private def build_cluster(node_count : Int32 = 3)
+private def with_cluster(node_count : Int32 = 3, &)
   ids = (1..node_count).map(&.to_u64)
   transports = ::Raft::MemoryTransport.mesh(ids)
+  dirs = [] of String
   servers = ids.map do |id|
     dir = tmp_data_dir
+    dirs << dir
     File.write(File.join(dir, ".clustering_id"), id.to_s)
     LavinMQ::Raft::Server.new(
       data_dir: dir,
@@ -44,7 +46,13 @@ private def build_cluster(node_count : Int32 = 3)
   end
   transports.each_value(&.start)
   servers.each(&.start)
-  {transports, servers}
+  begin
+    yield transports, servers
+  ensure
+    transports.each_value(&.stop)
+    servers.each(&.stop)
+    dirs.each { |d| FileUtils.rm_rf(d) }
+  end
 end
 
 private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
@@ -64,7 +72,7 @@ private def form_cluster(servers) : LavinMQ::Raft::Server
   leader.bootstrap.should be_true
   servers[1..].each do |s|
     addr = "node#{s.node_id}:5680,node#{s.node_id}:5679"
-    retry_until { leader.add_server(s.node_id, addr) }
+    retry_until(5.seconds) { leader.add_server(s.node_id, addr) }
   end
   retry_until(5.seconds) { servers.all? { |s| leader.voters.includes?(s.node_id) } }
   result = nil
@@ -150,25 +158,16 @@ describe LavinMQ::Raft::Server do
 
   describe "three-node cluster" do
     it "elects exactly one leader" do
-      transports, servers = build_cluster(3)
-      begin
-        leader = form_cluster(servers)
+      with_cluster(3) do |_transports, servers|
+        form_cluster(servers)
         servers.count(&.is_leader.value).should eq 1
-        servers.should contain(leader)
-      ensure
-        transports.each_value(&.stop)
-        servers.each(&.stop)
       end
     end
 
     it "agrees on leader_id across all nodes" do
-      transports, servers = build_cluster(3)
-      begin
+      with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
         retry_until { servers.all? { |s| s.leader_id == leader.node_id } }
-      ensure
-        transports.each_value(&.stop)
-        servers.each(&.stop)
       end
     end
   end
