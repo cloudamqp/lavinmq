@@ -312,7 +312,7 @@ describe LavinMQ::AMQP::Queue do
 
         done.receive
         publish_error.should be_nil
-        publish_result.should be_false
+        publish_result.should eq LavinMQ::AMQP::Queue::PublishResult::Dropped
       ensure
         queue.try &.delete
       end

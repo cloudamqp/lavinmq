@@ -999,7 +999,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      return 0_u32 if @closed
+      return 0_u32 if closed?
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
