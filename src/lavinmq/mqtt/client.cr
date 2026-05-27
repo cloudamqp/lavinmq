@@ -240,26 +240,41 @@ module LavinMQ
           end
         end
 
-        # Expand certificate topics if Sparkplug aware
-        topic_filters = packet.topic_filters
-        if @broker.vhost.sparkplug_aware?
-          # Times 2 because each certificate topic may expand into at most 2 Sparkplug topics
-          expanded_filters = Array(MQTT::Subscribe::TopicFilter).new(topic_filters.size * 2)
-          topic_filters.each do |tf|
-            if Sparkplug::CertificateMapper.certificate_topic?(tf.topic)
-              # Expand to actual BIRTH topics
-              Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic) do |actual_topic|
-                expanded_filters << MQTT::Subscribe::TopicFilter.new(actual_topic, tf.qos)
-              end
-            else
-              expanded_filters << tf
-            end
-          end
-          topic_filters = expanded_filters
+        unless @broker.vhost.sparkplug_aware?
+          qos = @broker.subscribe(self, packet.topic_filters)
+          send(MQTT::SubAck.new(qos, packet.packet_id))
+          return
         end
 
-        qos = @broker.subscribe(self, topic_filters)
-        send(MQTT::SubAck.new(qos, packet.packet_id))
+        send(MQTT::SubAck.new(sparkplug_subscribe(packet.topic_filters), packet.packet_id))
+      end
+
+      # Subscribes, expanding $sparkplug/certificates filters into the actual
+      # BIRTH topics. Returns exactly one SubAck return code per *original*
+      # filter (MQTT 3.1.1 §3.9): a certificate filter that expands to no real
+      # topic is reported as a failure.
+      private def sparkplug_subscribe(topic_filters) : Array(MQTT::SubAck::ReturnCode)
+        return_codes = Array(MQTT::SubAck::ReturnCode).new(topic_filters.size)
+        expanded = Array(MQTT::Subscribe::TopicFilter).new(topic_filters.size)
+        topic_filters.each do |tf|
+          if Sparkplug::CertificateMapper.certificate_topic?(tf.topic)
+            before = expanded.size
+            Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic) do |actual_topic|
+              expanded << MQTT::Subscribe::TopicFilter.new(actual_topic, tf.qos)
+            end
+            if expanded.size == before
+              # Certificate filter that maps to no real topic
+              return_codes << MQTT::SubAck::ReturnCode::Failure
+            else
+              return_codes << MQTT::SubAck::ReturnCode.from_int(tf.qos)
+            end
+          else
+            expanded << tf
+            return_codes << MQTT::SubAck::ReturnCode.from_int(tf.qos)
+          end
+        end
+        @broker.subscribe(self, expanded)
+        return_codes
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)

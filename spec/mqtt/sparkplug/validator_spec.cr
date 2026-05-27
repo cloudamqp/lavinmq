@@ -140,6 +140,27 @@ module SparkplugSpecs
         end
       end
 
+      it "rejects a node-level topic that carries a device_id (5 segments)" do
+        topic = "spBv3.0/group1/NBIRTH/node1/device1"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /must not have a device_id/) do
+          validate(topic)
+        end
+      end
+
+      it "rejects a device-level topic with too many segments" do
+        topic = "spBv3.0/group1/DBIRTH/node1/device1/extra"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /too many topic levels/) do
+          validate(topic)
+        end
+      end
+
+      it "rejects a node-level topic with too many segments" do
+        topic = "spBv3.0/group1/NDATA/node1/extra/more"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /must not have a device_id/) do
+          validate(topic)
+        end
+      end
+
       it "rejects identifiers with invalid characters" do
         topic = "spBv3.0/group@1/NBIRTH/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do

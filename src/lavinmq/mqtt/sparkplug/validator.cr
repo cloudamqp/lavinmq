@@ -111,7 +111,6 @@ module LavinMQ
           group_id = segments[1]
           message_type_str = segments[2]
           edge_node_id = segments[3]
-          device_id = segments.size > 4 ? segments[4] : nil
 
           # Parse message type
           message_type = parse_message_type(message_type_str)
@@ -121,6 +120,20 @@ module LavinMQ
             )
           end
 
+          # Enforce the exact topic-level count for the message type:
+          #   device-level (DBIRTH/DDEATH/DDATA/DCMD) -> 5 segments (device_id required)
+          #   node-level   (everything else)          -> 4 segments (no device_id)
+          if message_type.requires_device_id?
+            if segments.size < 5
+              raise ValidationError.new("Message type #{message_type} requires device_id in topic: #{topic}")
+            elsif segments.size > 5
+              raise ValidationError.new("Message type #{message_type} has too many topic levels (#{segments.size}) in topic: #{topic}")
+            end
+          elsif segments.size > 4
+            raise ValidationError.new("Message type #{message_type} must not have a device_id in topic: #{topic}")
+          end
+
+          device_id = segments.size > 4 ? segments[4] : nil
           TopicParts.new(topic, namespace, group_id, message_type, edge_node_id, device_id)
         end
 

@@ -415,6 +415,50 @@ module SparkplugSpecs
       end
     end
 
+    it "returns a failure code for a certificate filter that expands to nothing" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.sparkplug_aware = true
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+
+          # "$sparkplug/certificates/group1" is incomplete and maps to no real topic
+          topic_filters = mk_topic_filters({"$sparkplug/certificates/group1", 0})
+          suback = subscribe(io, topic_filters: topic_filters)
+
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback = suback.as(MQTT::Protocol::SubAck)
+          # Exactly one return code per requested filter (MQTT 3.1.1 §3.9)
+          suback.return_codes.size.should eq(1)
+          suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::Failure)
+
+          disconnect(io)
+        end
+      end
+    end
+
+    it "returns one return code for a certificate wildcard that expands to many topics" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.sparkplug_aware = true
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+
+          # Expands to 2 actual topics, but the client subscribed to 1 filter
+          topic_filters = mk_topic_filters({"$sparkplug/certificates/#", 0})
+          suback = subscribe(io, topic_filters: topic_filters)
+
+          suback = suback.as(MQTT::Protocol::SubAck)
+          suback.return_codes.size.should eq(1)
+          suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
+
+          disconnect(io)
+        end
+      end
+    end
+
     it "persists sparkplug_aware config across restarts" do
       path = LavinMQ::Config.instance.data_dir
 
