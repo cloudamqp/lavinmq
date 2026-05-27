@@ -109,6 +109,9 @@ module LavinMQ::Raft
       Dir.mkdir_p(@data_dir)
       path = File.join(@data_dir, ".clustering_id")
       begin
+        # A non-decimal file (e.g. the legacy base-36 Int32 written by the etcd
+        # controller) raises ArgumentError here — intentional fail-loud. The
+        # launcher-integration slice must migrate existing ids before this runs.
         File.read(path).strip.to_u64
       rescue File::NotFoundError
         id = Random::Secure.rand(UInt64)
