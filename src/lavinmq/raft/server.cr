@@ -54,12 +54,11 @@ module LavinMQ::Raft
       @node.bootstrap
     end
 
+    # Adds a node as a learner. raft.cr auto-promotes it to a voter once it has
+    # caught up with the leader's log (see Node#maybe_promote_learner), so no
+    # explicit promotion call is needed.
     def add_server(node_id : UInt64, address : String) : Bool
       @node.add_server(node_id, address)
-    end
-
-    def promote_learner(node_id : UInt64) : Bool
-      @node.promote_learner(node_id)
     end
 
     def propose(cmd : ClusterCommand) : Bool
@@ -68,6 +67,11 @@ module LavinMQ::Raft
 
     def leader_id : UInt64?
       @node.leader_id
+    end
+
+    # The node ids currently in the voting set (learners excluded).
+    def voters : Array(UInt64)
+      @node.voters.map(&.id)
     end
 
     private def tick_loop : Nil

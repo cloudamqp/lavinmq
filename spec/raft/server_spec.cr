@@ -55,19 +55,18 @@ private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
   end
 end
 
-# Bootstraps servers[0], then adds AND promotes each remaining node to a voter
-# (add_server adds a learner; promote_learner makes it vote). Waits until exactly
-# one server reports itself leader. Returns the leader.
+# Bootstraps servers[0] and adds each remaining node. raft.cr auto-promotes
+# learners to voters once they catch up, so we just add and then wait for the
+# voting set to include every node. Waits until exactly one server reports
+# itself leader. Returns the leader.
 private def form_cluster(servers) : LavinMQ::Raft::Server
   leader = servers.first
   leader.bootstrap.should be_true
   servers[1..].each do |s|
     addr = "node#{s.node_id}:5680,node#{s.node_id}:5679"
     retry_until { leader.add_server(s.node_id, addr) }
-    # promote_learner returns false if the node was already auto-promoted by the
-    # leader's maybe_promote_learner path, so accept either outcome.
-    retry_until { leader.promote_learner(s.node_id) || leader.@node.voters.any? { |v| v.id == s.node_id } }
   end
+  retry_until(5.seconds) { servers.all? { |s| leader.voters.includes?(s.node_id) } }
   result = nil
   deadline = Time.instant + 5.seconds
   until result
