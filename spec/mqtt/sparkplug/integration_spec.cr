@@ -210,7 +210,7 @@ module SparkplugSpecs
       end
     end
 
-    it "tracks edge node state from BIRTH/DEATH messages" do
+    it "accepts BIRTH and DEATH messages" do
       with_server do |server|
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
@@ -230,8 +230,7 @@ module SparkplugSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "edge_node")
 
-          # Publish valid NBIRTH and NDEATH messages
-          # The state tracking is tested in unit tests, here we just verify they're accepted
+          # Publish valid NBIRTH and NDEATH messages and verify they're accepted
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
             payload: nbirth_payload, qos: 0u8, expect_response: false)
 

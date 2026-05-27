@@ -178,21 +178,19 @@ module LavinMQ
           begin
             # Only validate if publishing to Sparkplug namespace
             if packet.topic.starts_with?("spBv3.0/")
-              msg_type = Sparkplug::Validator.validate_topic(packet.topic)
+              if parts = Sparkplug::Validator.parse_topic(packet.topic)
+                msg_type = Sparkplug::Validator.validate_topic(parts)
 
-              # Validate protobuf payload
-              if msg_type
+                # Validate protobuf payload
                 result = Sparkplug::ProtobufValidator.validate_payload(packet.payload, msg_type)
                 unless result.valid?
                   raise Sparkplug::ValidationError.new(
                     "Payload validation failed: #{result.error}"
                   )
                 end
-              end
 
-              # Auto-retain BIRTH messages
-              if msg_type.try(&.nbirth?) || msg_type.try(&.dbirth?)
-                unless packet.retain?
+                # Auto-retain BIRTH messages
+                if (msg_type.nbirth? || msg_type.dbirth?) && !packet.retain?
                   packet = MQTT::Publish.new(
                     topic: packet.topic,
                     payload: packet.payload,
@@ -239,12 +237,12 @@ module LavinMQ
         # Expand certificate topics if Sparkplug aware
         topic_filters = packet.topic_filters
         if @broker.vhost.sparkplug_aware?
-          expanded_filters = [] of MQTT::Subscribe::TopicFilter
+          # Times 2 because each certificate topic may expand into at most 2 Sparkplug topics
+          expanded_filters = Array(MQTT::Subscribe::TopicFilter).new(topic_filters.size * 2)
           topic_filters.each do |tf|
             if Sparkplug::CertificateMapper.certificate_topic?(tf.topic)
               # Expand to actual BIRTH topics
-              actual_topics = Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic)
-              actual_topics.each do |actual_topic|
+              Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic) do |actual_topic|
                 expanded_filters << MQTT::Subscribe::TopicFilter.new(actual_topic, tf.qos)
               end
             else

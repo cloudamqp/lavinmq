@@ -26,13 +26,14 @@ module LavinMQ
       end
 
       struct TopicParts
+        getter topic : String
         property namespace : String
         property group_id : String
         property message_type : MessageType
         property edge_node_id : String
         property device_id : String?
 
-        def initialize(@namespace, @group_id, @message_type, @edge_node_id, @device_id = nil)
+        def initialize(@topic, @namespace, @group_id, @message_type, @edge_node_id, @device_id = nil)
         end
       end
 
@@ -40,17 +41,11 @@ module LavinMQ
         SPARKPLUG_NAMESPACE = "spBv3.0"
         CERTIFICATE_PREFIX  = "$sparkplug/certificates/"
 
-        # Validates Sparkplug 3.0 topic format
-        # Returns: MessageType if valid Sparkplug topic
-        # Returns: nil if certificate topic (valid but not a message type)
-        # Raises: ValidationError if invalid Sparkplug topic
-        def self.validate_topic(topic : String) : MessageType?
-          # Certificate topics are valid for subscriptions only
-          return nil if topic.starts_with?(CERTIFICATE_PREFIX)
-
-          # Parse Sparkplug topic
-          parts = parse_topic(topic)
-          return nil unless parts
+        # Validates the parsed parts of a Sparkplug 3.0 topic
+        # Returns: the topic's MessageType if valid
+        # Raises: ValidationError if invalid
+        def self.validate_topic(parts : TopicParts) : MessageType
+          topic = parts.topic
 
           # Validate namespace
           unless parts.namespace == SPARKPLUG_NAMESPACE
@@ -88,9 +83,12 @@ module LavinMQ
 
         # Parse Sparkplug topic into components
         # Returns: TopicParts if valid format, nil if not a Sparkplug topic
+        # Raises: ValidationError if the message type is unknown
         def self.parse_topic(topic : String) : TopicParts?
           # Expected format: spBv3.0/{group_id}/{message_type}/{edge_node_id}/{device_id?}
-          segments = topic.split('/')
+          # A Sparkplug topic has at most 5 segments
+          segments = Array(String).new(5)
+          topic.split('/') { |segment| segments << segment }
           return nil if segments.size < 4
 
           namespace = segments[0]
@@ -107,9 +105,7 @@ module LavinMQ
             )
           end
 
-          TopicParts.new(namespace, group_id, message_type, edge_node_id, device_id)
-        rescue ArgumentError
-          nil
+          TopicParts.new(topic, namespace, group_id, message_type, edge_node_id, device_id)
         end
 
         # Parse message type string to enum
