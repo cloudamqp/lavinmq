@@ -76,16 +76,10 @@ module LavinMQ
           end
           validate_identifier(parts.edge_node_id, "edge_node_id", topic)
 
-          # Validate device_id if present
+          # Validate device_id if present (its presence/absence per message type
+          # is already enforced by the topic-level count check in #parse_topic)
           if device_id = parts.device_id
             validate_identifier(device_id, "device_id", topic)
-          end
-
-          # Check if device_id is required for this message type
-          if parts.message_type.requires_device_id? && parts.device_id.nil?
-            raise ValidationError.new(
-              "Message type #{parts.message_type} requires device_id in topic: #{topic}"
-            )
           end
 
           parts.message_type
