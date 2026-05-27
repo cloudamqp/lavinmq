@@ -28,7 +28,7 @@ class LavinMQ::Clustering::Controller
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync
+    wait_to_be_insync(lease)
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
     @is_leader.set(true)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
@@ -39,10 +39,10 @@ class LavinMQ::Clustering::Controller
       lease.wait(30.seconds)
       GC.collect
     end
-  rescue Etcd::Lease::Lost
+  rescue Etcd::Lease::Expired
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
     unless @stopped
-      Log.fatal { "Lost cluster leadership" }
+      Log.fatal { "Lease expired, lost leadership" }
       exit 3
     end
   rescue Etcd::LeaseAlreadyExists
@@ -122,15 +122,31 @@ class LavinMQ::Clustering::Controller
     exit 36 # 36 for CF (Cluster Follower)
   end
 
-  def wait_to_be_insync
+  def wait_to_be_insync(lease)
     if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
       unless isr.split(",").map(&.to_i(36)).includes?(@id)
         Log.info { "ISR: #{isr}" }
         Log.info { "Not in sync, waiting for a leader" }
-        @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
-          break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
+        in_sync = Channel(Nil).new
+        spawn do
+          @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
+            if value.try &.split(",").map(&.to_i(36)).includes?(@id)
+              in_sync.close
+              break
+            end
+          end
         end
-        Log.info { "In sync with leader" }
+        select
+        when err = lease.expired.receive?
+          if err
+            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
+          else
+            Log.fatal { "Lease expired while waiting to be in sync" }
+          end
+          exit 3
+        when in_sync.receive?
+          Log.info { "In sync with leader" }
+        end
       end
     end
   end

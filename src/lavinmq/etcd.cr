@@ -101,7 +101,7 @@ module LavinMQ
       if ttl = json.dig?("result", "TTL")
         ttl.as_s.to_i
       else
-        raise Error.new("Lease #{id} expired")
+        raise LeaseExpired.new(id)
       end
     end
 
@@ -355,7 +355,7 @@ module LavinMQ
       when "etcdserver: no leader"
         raise NoLeader.new(error_msg)
       when "etcdserver: lease already exists"
-        raise LeaseAlreadyExists.new
+        raise LeaseAlreadyExists.new(error_msg)
       when "etcdserver: requested lease not found"
         raise LeaseNotFound.new(error_msg)
       else
@@ -370,5 +370,12 @@ module LavinMQ
     class LeaseAlreadyExists < Error; end
 
     class LeaseNotFound < Error; end
+
+    class LeaseExpired < Error
+      def initialize(@id : Int64)
+        # to_s(16) to match output from etcdctl list lease
+        super("Lease #{@id.to_s(16)} expired")
+      end
+    end
   end
 end
