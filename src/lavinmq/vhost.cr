@@ -18,6 +18,8 @@ require "./mqtt/session"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
+require "./amqp/channel"
+require "./persister"
 
 module LavinMQ
   class VHost
@@ -165,7 +167,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -196,6 +198,10 @@ module LavinMQ
           end
         end
       end
+    end
+
+    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+      @persister.enqueue_ack(channel, msgid)
     end
 
     def max_connections=(value : Int32) : Nil
@@ -549,7 +555,7 @@ module LavinMQ
     end
 
     def sync : Nil
-      definitions.sync
+      @persister.sync
     end
 
     private def definitions : DefinitionsStore

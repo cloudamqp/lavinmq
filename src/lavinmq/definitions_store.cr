@@ -259,15 +259,6 @@ module LavinMQ
       @definitions_file.close
     end
 
-    def sync : Nil
-      {% if flag?(:linux) %}
-        ret = LibC.syncfs(@definitions_file.fd)
-        raise IO::Error.from_errno("syncfs") if ret != 0
-      {% else %}
-        LibC.sync
-      {% end %}
-    end
-
     protected def load_apply(frame : AMQP::Frame)
       apply frame, loading: true
     rescue ex : LavinMQ::Error

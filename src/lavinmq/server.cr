@@ -5,6 +5,7 @@ require "./amqp"
 require "./mqtt/protocol"
 require "./rough_time"
 require "../stdlib/*"
+require "./persister"
 require "./vhost_store"
 require "./auth/user_store"
 require "./exchange"
@@ -52,8 +53,9 @@ module LavinMQ
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
+      @persister = Persister.new(@data_dir)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
@@ -65,6 +67,8 @@ module LavinMQ
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
+
+    getter persister : Persister
 
     def followers
       @replicator.try(&.followers) || Array(Clustering::Follower).new
@@ -90,6 +94,7 @@ module LavinMQ
 
     def stop
       return if @closed.swap(true)
+      @persister.close
       @vhosts.close
       @replicator.try &.clear
       @authenticator.try &.cleanup
@@ -100,9 +105,10 @@ module LavinMQ
       stop
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
+      @persister = Persister.new(@data_dir)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
-      @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
@@ -257,6 +263,7 @@ module LavinMQ
       @closed.set(true)
       Log.debug { "Closing listeners" }
       @listeners.each_key &.close
+      @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
     end
