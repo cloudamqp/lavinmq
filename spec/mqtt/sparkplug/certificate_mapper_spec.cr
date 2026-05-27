@@ -1,87 +1,23 @@
 require "../spec_helper"
 
 module SparkplugSpecs
-  # Collect the topics yielded by expand_certificate_subscription into an array
-  def self.expand(filter : String) : Array(String)
-    result = [] of String
-    LavinMQ::MQTT::Sparkplug::CertificateMapper.expand_certificate_subscription(filter) do |topic|
-      result << topic
-    end
-    result
+  # Build a TopicParts by parsing a real Sparkplug topic.
+  def self.parts(topic : String) : LavinMQ::MQTT::Sparkplug::TopicParts
+    LavinMQ::MQTT::Sparkplug::Validator.parse_topic(topic).not_nil!
   end
 
   describe LavinMQ::MQTT::Sparkplug::CertificateMapper do
-    describe "#expand_certificate_subscription" do
-      it "expands wildcard to NBIRTH and DBIRTH patterns" do
-        result = expand("$sparkplug/certificates/#")
-        result.should contain("spBv3.0/+/NBIRTH/+")
-        result.should contain("spBv3.0/+/DBIRTH/+/+")
-        result.size.should eq(2)
+    describe "#certificate_topic_for" do
+      it "builds the NBIRTH certificate topic including the namespace segment" do
+        topic = LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic_for(
+          parts("spBv1.0/G1/NBIRTH/E1"))
+        topic.should eq("$sparkplug/certificates/spBv1.0/G1/NBIRTH/E1")
       end
 
-      it "expands group-specific certificate subscription" do
-        result = expand("$sparkplug/certificates/group1/#")
-        result.should contain("spBv3.0/group1/NBIRTH/+")
-        result.should contain("spBv3.0/group1/DBIRTH/+/+")
-        result.size.should eq(2)
-      end
-
-      it "expands NBIRTH-specific certificate subscription" do
-        result = expand("$sparkplug/certificates/group1/NBIRTH/#")
-        result.should contain("spBv3.0/group1/NBIRTH/+")
-        result.size.should eq(1)
-      end
-
-      it "expands specific NBIRTH certificate" do
-        result = expand("$sparkplug/certificates/group1/NBIRTH/node1")
-        result.should contain("spBv3.0/group1/NBIRTH/node1")
-        result.size.should eq(1)
-      end
-
-      it "expands DBIRTH-specific certificate subscription" do
-        result = expand("$sparkplug/certificates/group1/DBIRTH/#")
-        result.should contain("spBv3.0/group1/DBIRTH/+/+")
-        result.size.should eq(1)
-      end
-
-      it "expands DBIRTH for specific edge node" do
-        result = expand("$sparkplug/certificates/group1/DBIRTH/node1/#")
-        result.should contain("spBv3.0/group1/DBIRTH/node1/+")
-        result.size.should eq(1)
-      end
-
-      it "expands specific DBIRTH certificate" do
-        result = expand("$sparkplug/certificates/group1/DBIRTH/node1/device1")
-        result.should contain("spBv3.0/group1/DBIRTH/node1/device1")
-        result.size.should eq(1)
-      end
-
-      it "yields nothing for invalid certificate topic with just prefix" do
-        expand("$sparkplug/certificates/").should be_empty
-      end
-
-      it "yields nothing for incomplete certificate topic" do
-        expand("$sparkplug/certificates/group1").should be_empty
-      end
-
-      it "yields nothing for incomplete NBIRTH certificate topic" do
-        expand("$sparkplug/certificates/group1/NBIRTH").should be_empty
-      end
-
-      it "yields nothing for incomplete DBIRTH certificate topic without device" do
-        expand("$sparkplug/certificates/group1/DBIRTH/node1").should be_empty
-      end
-
-      it "yields nothing for non-BIRTH message types" do
-        expand("$sparkplug/certificates/group1/NDATA/#").should be_empty
-      end
-
-      it "yields nothing for invalid message type" do
-        expand("$sparkplug/certificates/group1/INVALID/#").should be_empty
-      end
-
-      it "yields the original filter for non-certificate topics" do
-        expand("sensor/temperature").should eq(["sensor/temperature"])
+      it "builds the DBIRTH certificate topic including the device_id" do
+        topic = LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic_for(
+          parts("spBv1.0/G1/DBIRTH/E1/D1"))
+        topic.should eq("$sparkplug/certificates/spBv1.0/G1/DBIRTH/E1/D1")
       end
     end
 
@@ -92,12 +28,12 @@ module SparkplugSpecs
       end
 
       it "returns true for specific certificate topic" do
-        topic = "$sparkplug/certificates/group1/NBIRTH/node1"
+        topic = "$sparkplug/certificates/spBv1.0/group1/NBIRTH/node1"
         LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_true
       end
 
       it "returns false for regular Sparkplug topic" do
-        topic = "spBv3.0/group1/NBIRTH/node1"
+        topic = "spBv1.0/group1/NBIRTH/node1"
         LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_false
       end
 

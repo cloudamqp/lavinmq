@@ -27,23 +27,28 @@ module LavinMQ
           Fixed32         = 5
         end
 
-        # Sparkplug field numbers for Payload message
+        # Sparkplug field numbers for the top-level Payload message.
+        # Note: there is no top-level bdSeq field — bdSeq is carried as a Metric
+        # named "bdSeq" (see #validate_metric / has_bdseq detection).
         enum PayloadField
           Timestamp = 1
           Metrics   = 2
           Seq       = 3
-          BdSeq     = 4
-          Uuid      = 5
-          Body      = 6
+          Uuid      = 4
+          Body      = 5
         end
 
-        # Sparkplug field numbers for Metric message
+        # Sparkplug field numbers for the Metric message.
         enum MetricField
-          Name     = 1
-          Alias    = 2
-          DataType = 3
-          # Value fields: 4-16 (various types)
+          Name      = 1
+          Alias     = 2
+          Timestamp = 3
+          DataType  = 4
+          # Value fields: 10-19 (various types)
         end
+
+        # Metric name carrying the birth/death sequence number.
+        BDSEQ_METRIC_NAME = "bdSeq"
 
         # Maximum varint bytes (10 bytes for 64-bit)
         MAX_VARINT_BYTES = 10
@@ -56,15 +61,19 @@ module LavinMQ
 
           return ValidationResult.ok if payload.empty? && (msg_type.ndeath? || msg_type.ddeath?)
 
-          fields = parse_payload_fields(payload)
+          fields = parse_payload_fields(payload, msg_type)
           return fields if fields.is_a?(ValidationResult) # Error result
 
           validate_required_fields(fields, msg_type)
         end
 
-        # Parse payload fields and return field presence info or error
-        private def self.parse_payload_fields(payload : Bytes)
+        # Parse payload fields and return field presence info or error.
+        # On BIRTH messages every metric MUST carry name + datatype; on DATA/CMD
+        # messages metrics are referenced by alias and the name MUST be omitted,
+        # so name/datatype are not required there.
+        private def self.parse_payload_fields(payload : Bytes, msg_type : MessageType)
           io = ::IO::Memory.new(payload)
+          require_metric_name_datatype = msg_type.nbirth? || msg_type.dbirth?
 
           has_timestamp = false
           has_metrics = false
@@ -92,13 +101,12 @@ module LavinMQ
                 length = read_length(io)
                 metric_bytes = payload[io.pos, length]
                 io.skip(length)
-                result = validate_metric(metric_bytes)
+                result, name = validate_metric(metric_bytes, require_metric_name_datatype)
                 return result unless result.valid?
+                # bdSeq is conveyed as a Metric named "bdSeq", not a top-level field.
+                has_bdseq = true if name == BDSEQ_METRIC_NAME
               when PayloadField::Seq.value
                 has_seq = true
-                skip_field(io, wire_type)
-              when PayloadField::BdSeq.value
-                has_bdseq = true
                 skip_field(io, wire_type)
               else
                 skip_field(io, wire_type)
@@ -122,27 +130,33 @@ module LavinMQ
         # Validate required fields based on message type
         private def self.validate_required_fields(fields, msg_type : MessageType) : ValidationResult
           case msg_type
-          when .nbirth?, .dbirth?
+          when .nbirth?
+            return ValidationResult.error("Missing required field 'timestamp'") unless fields[:has_timestamp]
+            return ValidationResult.error("Missing required field 'seq'") unless fields[:has_seq]
+            return ValidationResult.error("Missing required metric 'bdSeq'") unless fields[:has_bdseq]
+          when .dbirth?
             return ValidationResult.error("Missing required field 'timestamp'") unless fields[:has_timestamp]
             return ValidationResult.error("Missing required field 'metrics'") unless fields[:has_metrics]
             return ValidationResult.error("BIRTH message must contain at least one metric") if fields[:metric_count] == 0
             return ValidationResult.error("Missing required field 'seq'") unless fields[:has_seq]
-            return ValidationResult.error("Missing required field 'bdSeq'") unless fields[:has_bdseq]
-          when .ndata?, .ddata?
+          when .ndata?, .ddata?, .ddeath?
             return ValidationResult.error("Missing required field 'seq'") unless fields[:has_seq]
-          when .ndeath?, .ddeath?
-            return ValidationResult.error("Missing required field 'bdSeq'") unless fields[:has_bdseq]
+          when .ndeath?
+            return ValidationResult.error("Missing required metric 'bdSeq'") unless fields[:has_bdseq]
           end
 
           ValidationResult.ok
         end
 
-        # Validate a single Metric message structure
-        private def self.validate_metric(bytes : Bytes) : ValidationResult
+        # Validate a single Metric message structure. Returns the validation
+        # result together with the metric's name (nil if absent), so the caller
+        # can detect the special "bdSeq" metric. When +require_name_datatype+ is
+        # true (BIRTH messages) the metric MUST carry both a name and a datatype;
+        # otherwise (DATA/CMD alias flows) those are optional.
+        private def self.validate_metric(bytes : Bytes, require_name_datatype : Bool) : {ValidationResult, String?}
           io = ::IO::Memory.new(bytes)
-          io.rewind
 
-          has_name = false
+          name = nil
           has_datatype = false
 
           begin
@@ -153,26 +167,32 @@ module LavinMQ
 
               case field_number
               when MetricField::Name.value
-                has_name = true
-                skip_field(io, wire_type)
+                unless wire_type.length_delimited?
+                  return {ValidationResult.error("Metric name has incorrect wire type"), nil}
+                end
+                length = read_length(io)
+                name = String.new(bytes[io.pos, length])
+                io.skip(length)
               when MetricField::DataType.value
                 has_datatype = true
                 skip_field(io, wire_type)
               else
-                # Other fields (alias, value fields, etc.)
+                # Other fields (alias, timestamp, value fields, etc.)
                 skip_field(io, wire_type)
               end
             end
           rescue ex : ::IO::Error
-            return ValidationResult.error("Invalid metric structure: #{ex.message}")
+            return {ValidationResult.error("Invalid metric structure: #{ex.message}"), nil}
           rescue ex : ArgumentError
-            return ValidationResult.error("Invalid metric structure: #{ex.message}")
+            return {ValidationResult.error("Invalid metric structure: #{ex.message}"), nil}
           end
 
-          return ValidationResult.error("Metric missing required field 'name'") unless has_name
-          return ValidationResult.error("Metric missing required field 'datatype'") unless has_datatype
+          if require_name_datatype
+            return {ValidationResult.error("Metric missing required field 'name'"), name} if name.nil?
+            return {ValidationResult.error("Metric missing required field 'datatype'"), name} unless has_datatype
+          end
 
-          ValidationResult.ok
+          {ValidationResult.ok, name}
         end
 
         # Read a protobuf varint from IO

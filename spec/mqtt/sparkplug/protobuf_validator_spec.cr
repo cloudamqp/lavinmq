@@ -40,26 +40,34 @@ module SparkplugSpecs
       io.to_slice
     end
 
-    # Build a Sparkplug Metric message
-    def self.build_metric(name : String, datatype : UInt32 = 1_u32, with_value : Bool = true) : Bytes
+    # Build a Sparkplug Metric message.
+    # Field layout: name=1, alias=2, timestamp=3, datatype=4, value=10 (int_value).
+    def self.build_metric(name : String?, datatype : UInt32 = 1_u32, with_value : Bool = true, alias_id : UInt64? = nil) : Bytes
       io = IO::Memory.new
 
-      # Field 1: name (string, length-delimited)
-      name_bytes = name.to_slice
-      io.write(build_length_delimited(1_u32, name_bytes))
+      # Field 1: name (string, length-delimited) - omitted for alias-only metrics
+      if name
+        io.write(build_length_delimited(1_u32, name.to_slice))
+      end
 
-      # Field 3: datatype (varint)
-      io.write(build_varint_field(3_u32, datatype.to_u64))
+      # Field 2: alias (varint)
+      if alias_id
+        io.write(build_varint_field(2_u32, alias_id))
+      end
 
-      # Field 4-16: value (optional, we'll add a simple int value)
+      # Field 4: datatype (varint)
+      io.write(build_varint_field(4_u32, datatype.to_u64))
+
+      # Field 10: int_value (optional)
       if with_value
-        io.write(build_varint_field(4_u32, 42_u64)) # int_value = 42
+        io.write(build_varint_field(10_u32, 42_u64))
       end
 
       io.to_slice
     end
 
-    # Build a complete Sparkplug Payload message
+    # Build a complete Sparkplug Payload message.
+    # bdSeq is encoded as a Metric named "bdSeq" (not a top-level field).
     def self.build_payload(
       timestamp : UInt64? = nil,
       metrics : Array(String)? = nil,
@@ -76,19 +84,18 @@ module SparkplugSpecs
       # Field 2: metrics (repeated)
       if metrics
         metrics.each do |metric_name|
-          metric_data = build_metric(metric_name)
-          io.write(build_length_delimited(2_u32, metric_data))
+          io.write(build_length_delimited(2_u32, build_metric(metric_name)))
         end
+      end
+
+      # bdSeq carried as a metric named "bdSeq"
+      if bdseq
+        io.write(build_length_delimited(2_u32, build_metric("bdSeq", datatype: 8_u32)))
       end
 
       # Field 3: seq
       if seq
         io.write(build_varint_field(3_u32, seq))
-      end
-
-      # Field 4: bdSeq
-      if bdseq
-        io.write(build_varint_field(4_u32, bdseq))
       end
 
       io.to_slice
@@ -148,7 +155,8 @@ module SparkplugSpecs
           result.error.not_nil!.should contain("timestamp")
         end
 
-        it "rejects NBIRTH without metrics" do
+        it "accepts NBIRTH whose only metric is bdSeq" do
+          # bdSeq is itself a metric, so an NBIRTH carrying just it is valid.
           payload = ProtobufBuilder.build_payload(
             timestamp: 1234567890_u64,
             seq: 1_u64,
@@ -160,27 +168,23 @@ module SparkplugSpecs
             LavinMQ::MQTT::Sparkplug::MessageType::NBIRTH
           )
 
-          result.valid?.should be_false
-          result.error.should_not be_nil
-          result.error.not_nil!.should contain("metrics")
+          result.valid?.should be_true
         end
 
-        it "rejects NBIRTH with empty metrics array" do
+        it "rejects DBIRTH without metrics" do
           payload = ProtobufBuilder.build_payload(
             timestamp: 1234567890_u64,
-            metrics: [] of String,
-            seq: 1_u64,
-            bdseq: 0_u64
+            seq: 1_u64
           )
 
           result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
             payload,
-            LavinMQ::MQTT::Sparkplug::MessageType::NBIRTH
+            LavinMQ::MQTT::Sparkplug::MessageType::DBIRTH
           )
 
           result.valid?.should be_false
           result.error.should_not be_nil
-          result.error.not_nil!.should contain("metrics")
+          result.error.not_nil!.should contain("metric")
         end
 
         it "rejects NBIRTH without seq" do
@@ -278,10 +282,11 @@ module SparkplugSpecs
           result.valid?.should be_true
         end
 
-        it "accepts valid DDEATH payload with bdSeq" do
+        it "accepts valid DDEATH payload with seq" do
+          # DDEATH carries a seq number (it is a device-level message), not bdSeq.
           payload = ProtobufBuilder.build_payload(
             timestamp: 1234567890_u64,
-            bdseq: 1_u64
+            seq: 7_u64
           )
 
           result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
@@ -290,6 +295,20 @@ module SparkplugSpecs
           )
 
           result.valid?.should be_true
+        end
+
+        it "rejects DDEATH without seq" do
+          payload = ProtobufBuilder.build_payload(
+            timestamp: 1234567890_u64
+          )
+
+          result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
+            payload,
+            LavinMQ::MQTT::Sparkplug::MessageType::DDEATH
+          )
+
+          result.valid?.should be_false
+          result.error.not_nil!.should contain("seq")
         end
 
         it "rejects NDEATH without bdSeq" do
@@ -386,18 +405,14 @@ module SparkplugSpecs
       end
 
       context "metric validation" do
-        it "rejects metric without name field" do
-          # Build a metric with only datatype, no name
-          io = IO::Memory.new
-          io.write(ProtobufBuilder.build_varint_field(3_u32, 1_u64)) # datatype only
-          metric_bytes = io.to_slice
+        it "rejects BIRTH metric without name field" do
+          # An alias-only metric (no name) is invalid in a BIRTH message.
+          metric_bytes = ProtobufBuilder.build_metric(nil, alias_id: 1_u64)
 
-          # Build payload with this invalid metric
           payload_io = IO::Memory.new
           payload_io.write(ProtobufBuilder.build_varint_field(1_u32, 1234567890_u64))   # timestamp
           payload_io.write(ProtobufBuilder.build_length_delimited(2_u32, metric_bytes)) # invalid metric
           payload_io.write(ProtobufBuilder.build_varint_field(3_u32, 1_u64))            # seq
-          payload_io.write(ProtobufBuilder.build_varint_field(4_u32, 0_u64))            # bdSeq
           payload = payload_io.to_slice
 
           result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
@@ -406,23 +421,19 @@ module SparkplugSpecs
           )
 
           result.valid?.should be_false
-          result.error.should_not be_nil
           result.error.not_nil!.should contain("name")
         end
 
-        it "rejects metric without datatype field" do
-          # Build a metric with only name, no datatype
-          name_bytes = "temperature".to_slice
+        it "rejects BIRTH metric without datatype field" do
+          # Build a metric with only name (field 1), no datatype (field 4)
           metric_io = IO::Memory.new
-          metric_io.write(ProtobufBuilder.build_length_delimited(1_u32, name_bytes)) # name only
+          metric_io.write(ProtobufBuilder.build_length_delimited(1_u32, "temperature".to_slice))
           metric_bytes = metric_io.to_slice
 
-          # Build payload with this invalid metric
           payload_io = IO::Memory.new
           payload_io.write(ProtobufBuilder.build_varint_field(1_u32, 1234567890_u64))   # timestamp
           payload_io.write(ProtobufBuilder.build_length_delimited(2_u32, metric_bytes)) # invalid metric
           payload_io.write(ProtobufBuilder.build_varint_field(3_u32, 1_u64))            # seq
-          payload_io.write(ProtobufBuilder.build_varint_field(4_u32, 0_u64))            # bdSeq
           payload = payload_io.to_slice
 
           result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
@@ -431,8 +442,25 @@ module SparkplugSpecs
           )
 
           result.valid?.should be_false
-          result.error.should_not be_nil
           result.error.not_nil!.should contain("datatype")
+        end
+
+        it "accepts alias-only metrics in DATA messages" do
+          # NDATA/DDATA/NCMD/DCMD metrics reference an alias and omit the name.
+          metric_bytes = ProtobufBuilder.build_metric(nil, alias_id: 7_u64)
+
+          payload_io = IO::Memory.new
+          payload_io.write(ProtobufBuilder.build_varint_field(1_u32, 1234567890_u64))   # timestamp
+          payload_io.write(ProtobufBuilder.build_length_delimited(2_u32, metric_bytes)) # alias-only metric
+          payload_io.write(ProtobufBuilder.build_varint_field(3_u32, 5_u64))            # seq
+          payload = payload_io.to_slice
+
+          result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(
+            payload,
+            LavinMQ::MQTT::Sparkplug::MessageType::NDATA
+          )
+
+          result.valid?.should be_true
         end
       end
 
@@ -456,12 +484,11 @@ module SparkplugSpecs
         it "accepts payload with unknown fields (forward compatibility)" do
           # Build payload with known and unknown fields
           io = IO::Memory.new
-          io.write(ProtobufBuilder.build_varint_field(1_u32, 1234567890_u64)) # timestamp
-          io.write(ProtobufBuilder.build_varint_field(99_u32, 42_u64))        # unknown field
-          metric_bytes = ProtobufBuilder.build_metric("test")
-          io.write(ProtobufBuilder.build_length_delimited(2_u32, metric_bytes)) # metrics
-          io.write(ProtobufBuilder.build_varint_field(3_u32, 1_u64))            # seq
-          io.write(ProtobufBuilder.build_varint_field(4_u32, 0_u64))            # bdSeq
+          io.write(ProtobufBuilder.build_varint_field(1_u32, 1234567890_u64))                            # timestamp
+          io.write(ProtobufBuilder.build_varint_field(99_u32, 42_u64))                                   # unknown field
+          io.write(ProtobufBuilder.build_length_delimited(2_u32, ProtobufBuilder.build_metric("test")))  # metric
+          io.write(ProtobufBuilder.build_length_delimited(2_u32, ProtobufBuilder.build_metric("bdSeq"))) # bdSeq metric
+          io.write(ProtobufBuilder.build_varint_field(3_u32, 1_u64))                                     # seq
           payload = io.to_slice
 
           result = LavinMQ::MQTT::Sparkplug::ProtobufValidator.validate_payload(

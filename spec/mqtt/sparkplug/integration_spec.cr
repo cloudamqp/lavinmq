@@ -23,7 +23,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH without retain flag
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node1",
             payload: nbirth_payload, retain: false, qos: 0u8, expect_response: false)
 
           disconnect(io)
@@ -34,7 +34,7 @@ module SparkplugSpecs
           connect(io, client_id: "subscriber")
 
           # Subscribe to NBIRTH topic
-          topic_filters = mk_topic_filters({"spBv3.0/group1/NBIRTH/node1", 0})
+          topic_filters = mk_topic_filters({"spBv1.0/group1/NBIRTH/node1", 0})
           subscribe(io, topic_filters: topic_filters)
 
           # Should receive retained message
@@ -66,7 +66,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Publish DBIRTH without retain flag
-          publish(io, topic: "spBv3.0/group1/DBIRTH/node1/device1",
+          publish(io, topic: "spBv1.0/group1/DBIRTH/node1/device1",
             payload: dbirth_payload, retain: false, qos: 0u8, expect_response: false)
 
           disconnect(io)
@@ -76,7 +76,7 @@ module SparkplugSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
 
-          topic_filters = mk_topic_filters({"spBv3.0/group1/DBIRTH/node1/device1", 0})
+          topic_filters = mk_topic_filters({"spBv1.0/group1/DBIRTH/node1/device1", 0})
           subscribe(io, topic_filters: topic_filters)
 
           pub = read_packet(io)
@@ -113,9 +113,9 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH messages
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node1",
             payload: node1_payload, retain: true, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node2",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node2",
             payload: node2_payload, retain: true, qos: 0u8, expect_response: false)
 
           disconnect(io)
@@ -156,7 +156,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Try to publish invalid topic (wrong message type)
-          publish(io, topic: "spBv3.0/group1/INVALID/node1",
+          publish(io, topic: "spBv1.0/group1/INVALID/node1",
             payload: "test".to_slice, qos: 0u8, expect_response: false)
 
           # Connection should be closed due to validation error
@@ -177,7 +177,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Topic in the reserved namespace but missing message_type/edge_node_id
-          publish(io, topic: "spBv3.0/group1",
+          publish(io, topic: "spBv1.0/group1",
             payload: "test".to_slice, qos: 0u8, expect_response: false)
 
           # Connection should be closed due to validation error
@@ -198,7 +198,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Try to publish DBIRTH without device_id (invalid)
-          publish(io, topic: "spBv3.0/group1/DBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/DBIRTH/node1",
             payload: "test".to_slice, qos: 0u8, expect_response: false)
 
           # Connection should be closed
@@ -252,10 +252,10 @@ module SparkplugSpecs
           connect(io, client_id: "edge_node")
 
           # Publish valid NBIRTH and NDEATH messages and verify they're accepted
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node1",
             payload: nbirth_payload, qos: 0u8, expect_response: false)
 
-          publish(io, topic: "spBv3.0/group1/NDEATH/node1",
+          publish(io, topic: "spBv1.0/group1/NDEATH/node1",
             payload: ndeath_payload, qos: 0u8, expect_response: false)
 
           # Verify connection is still open (messages were accepted)
@@ -276,7 +276,7 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Publish invalid Sparkplug topic (should be accepted)
-          publish(io, topic: "spBv3.0/group1/INVALID/node1",
+          publish(io, topic: "spBv1.0/group1/INVALID/node1",
             payload: "test".to_slice, qos: 0u8, expect_response: false)
 
           # Publish to certificate topic (should be accepted)
@@ -327,7 +327,7 @@ module SparkplugSpecs
         ncmd_payload = Bytes.empty  # CMD messages have relaxed validation
         state_payload = Bytes.empty # STATE messages have relaxed validation
         dbirth_payload = ProtobufBuilder.build_payload(timestamp: 1_u64, metrics: ["m1"], seq: 1_u64, bdseq: 0_u64)
-        ddeath_payload = ProtobufBuilder.build_payload(bdseq: 0_u64)
+        ddeath_payload = ProtobufBuilder.build_payload(seq: 1_u64)
         ddata_payload = ProtobufBuilder.build_payload(seq: 1_u64)
         dcmd_payload = Bytes.empty
 
@@ -335,23 +335,23 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Test all valid message types
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node1",
             payload: nbirth_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/NDEATH/node1",
+          publish(io, topic: "spBv1.0/group1/NDEATH/node1",
             payload: ndeath_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/NDATA/node1",
+          publish(io, topic: "spBv1.0/group1/NDATA/node1",
             payload: ndata_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/NCMD/node1",
+          publish(io, topic: "spBv1.0/group1/NCMD/node1",
             payload: ncmd_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/STATE/host1",
+          publish(io, topic: "spBv1.0/group1/STATE/host1",
             payload: state_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/DBIRTH/node1/device1",
+          publish(io, topic: "spBv1.0/group1/DBIRTH/node1/device1",
             payload: dbirth_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/DDEATH/node1/device1",
+          publish(io, topic: "spBv1.0/group1/DDEATH/node1/device1",
             payload: ddeath_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/DDATA/node1/device1",
+          publish(io, topic: "spBv1.0/group1/DDATA/node1/device1",
             payload: ddata_payload, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group1/DCMD/node1/device1",
+          publish(io, topic: "spBv1.0/group1/DCMD/node1/device1",
             payload: dcmd_payload, qos: 0u8, expect_response: false)
 
           # Connection should remain open
@@ -363,7 +363,7 @@ module SparkplugSpecs
       end
     end
 
-    it "expands group-specific certificate subscription" do
+    it "exposes group-specific certificates under $sparkplug/certificates/<namespace>/<group>" do
       with_server do |server|
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
@@ -386,9 +386,9 @@ module SparkplugSpecs
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH for different groups
-          publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group1/NBIRTH/node1",
             payload: group1_payload, retain: true, qos: 0u8, expect_response: false)
-          publish(io, topic: "spBv3.0/group2/NBIRTH/node1",
+          publish(io, topic: "spBv1.0/group2/NBIRTH/node1",
             payload: group2_payload, retain: true, qos: 0u8, expect_response: false)
 
           disconnect(io)
@@ -398,7 +398,7 @@ module SparkplugSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
 
-          topic_filters = mk_topic_filters({"$sparkplug/certificates/group1/#", 0})
+          topic_filters = mk_topic_filters({"$sparkplug/certificates/spBv1.0/group1/#", 0})
           subscribe(io, topic_filters: topic_filters)
 
           # Should only receive group1 NBIRTH
@@ -415,7 +415,7 @@ module SparkplugSpecs
       end
     end
 
-    it "returns a failure code for a certificate filter that expands to nothing" do
+    it "returns one return code per certificate subscription filter" do
       with_server do |server|
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
@@ -423,30 +423,8 @@ module SparkplugSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
 
-          # "$sparkplug/certificates/group1" is incomplete and maps to no real topic
-          topic_filters = mk_topic_filters({"$sparkplug/certificates/group1", 0})
-          suback = subscribe(io, topic_filters: topic_filters)
-
-          suback.should be_a(MQTT::Protocol::SubAck)
-          suback = suback.as(MQTT::Protocol::SubAck)
-          # Exactly one return code per requested filter (MQTT 3.1.1 §3.9)
-          suback.return_codes.size.should eq(1)
-          suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::Failure)
-
-          disconnect(io)
-        end
-      end
-    end
-
-    it "returns one return code for a certificate wildcard that expands to many topics" do
-      with_server do |server|
-        vhost = server.vhosts["/"]
-        vhost.sparkplug_aware = true
-
-        with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
-
-          # Expands to 2 actual topics, but the client subscribed to 1 filter
+          # Certificate topics are ordinary retained topics now, so a normal
+          # subscription succeeds with exactly one return code (MQTT 3.1.1 §3.9).
           topic_filters = mk_topic_filters({"$sparkplug/certificates/#", 0})
           suback = subscribe(io, topic_filters: topic_filters)
 

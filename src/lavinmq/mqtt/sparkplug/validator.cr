@@ -38,8 +38,13 @@ module LavinMQ
       end
 
       module Validator
-        SPARKPLUG_NAMESPACE = "spBv3.0"
-        CERTIFICATE_PREFIX  = "$sparkplug/certificates/"
+        # The Sparkplug B MQTT topic namespace element. Note that even in the
+        # Sparkplug 3.0.0 specification this constant remains "spBv1.0" — the
+        # "3.0.0" is the specification document version, not the namespace.
+        SPARKPLUG_NAMESPACE = "spBv1.0"
+        # Precomputed "<namespace>/" prefix so hot-path topic checks don't allocate.
+        NAMESPACE_PREFIX   = "#{SPARKPLUG_NAMESPACE}/"
+        CERTIFICATE_PREFIX = "$sparkplug/certificates/"
 
         # Validates the parsed parts of a Sparkplug 3.0 topic
         # Returns: the topic's MessageType if valid
@@ -54,7 +59,7 @@ module LavinMQ
             )
           end
 
-          # Host STATE certificate (spBv3.0/STATE/{host_id}) has no group_id;
+          # Host STATE certificate (spBv1.0/STATE/{host_id}) has no group_id;
           # the host_id is carried in edge_node_id. Validate just that and return.
           if parts.message_type.state? && parts.group_id.empty?
             if parts.edge_node_id.empty?
@@ -89,12 +94,12 @@ module LavinMQ
         # Returns: TopicParts if valid format, nil if not a Sparkplug topic
         # Raises: ValidationError if the message type is unknown
         def self.parse_topic(topic : String) : TopicParts?
-          # Expected format: spBv3.0/{group_id}/{message_type}/{edge_node_id}/{device_id?}
+          # Expected format: spBv1.0/{group_id}/{message_type}/{edge_node_id}/{device_id?}
           # A Sparkplug topic has at most 5 segments
           segments = Array(String).new(5)
           topic.split('/') { |segment| segments << segment }
 
-          # Host STATE certificate: spBv3.0/STATE/{host_id} (no group_id/edge_node_id)
+          # Host STATE certificate: spBv1.0/STATE/{host_id} (no group_id/edge_node_id)
           if segments.size == 3 && segments[1] == "STATE"
             return TopicParts.new(topic, segments[0], "", MessageType::STATE, segments[2])
           end
@@ -147,12 +152,15 @@ module LavinMQ
           end
         end
 
-        # Validate identifier contains only allowed characters
-        # Sparkplug allows: alphanumeric, dash, underscore, period
+        # Validate identifier characters. Per the Sparkplug spec, Group ID, Edge
+        # Node ID and Device ID MUST be valid UTF-8 strings with the exception of
+        # the reserved MQTT characters '+', '/' and '#'. (The '/' can never appear
+        # here since identifiers are produced by splitting the topic on '/'.)
+        # Anything else — including spaces and non-ASCII — is allowed.
         private def self.validate_identifier(id : String, field_name : String, topic : String)
-          unless id.matches?(/\A[a-zA-Z0-9_.\-]+\z/)
+          if id.includes?('+') || id.includes?('#')
             raise ValidationError.new(
-              "Invalid #{field_name} '#{id}' contains disallowed characters in topic: #{topic}"
+              "Invalid #{field_name} '#{id}' contains a reserved character in topic: #{topic}"
             )
           end
         end

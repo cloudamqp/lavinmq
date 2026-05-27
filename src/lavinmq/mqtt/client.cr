@@ -191,11 +191,14 @@ module LavinMQ
         end
       end
 
-      # Validates a publish against the Sparkplug 3.0 spec, returning the packet
-      # to publish (BIRTH messages are forced to be retained). Raises
-      # `Sparkplug::ValidationError` for anything that violates the spec.
+      # Validates a publish against the Sparkplug spec, returning the packet
+      # to publish (BIRTH messages are forced to be retained). For BIRTH messages
+      # a retained copy is also republished on the corresponding
+      # `$sparkplug/certificates/...` topic so the broker acts as a Sparkplug
+      # Aware MQTT Server. Raises `Sparkplug::ValidationError` for anything that
+      # violates the spec.
       private def sparkplug_validate(packet : MQTT::Publish) : MQTT::Publish
-        if packet.topic.starts_with?("spBv3.0/")
+        if packet.topic.starts_with?(Sparkplug::Validator::NAMESPACE_PREFIX)
           parts = Sparkplug::Validator.parse_topic(packet.topic)
           unless parts
             raise Sparkplug::ValidationError.new("Invalid Sparkplug topic: #{packet.topic}")
@@ -208,22 +211,40 @@ module LavinMQ
             raise Sparkplug::ValidationError.new("Payload validation failed: #{result.error}")
           end
 
-          # Auto-retain BIRTH messages
-          if (msg_type.nbirth? || msg_type.dbirth?) && !packet.retain?
-            packet = MQTT::Publish.new(
-              topic: packet.topic,
-              payload: packet.payload,
-              packet_id: packet.packet_id,
-              qos: packet.qos,
-              retain: true,
-              dup: packet.dup?
-            )
+          if msg_type.nbirth? || msg_type.dbirth?
+            # Auto-retain BIRTH messages
+            unless packet.retain?
+              packet = MQTT::Publish.new(
+                topic: packet.topic,
+                payload: packet.payload,
+                packet_id: packet.packet_id,
+                qos: packet.qos,
+                retain: true,
+                dup: packet.dup?
+              )
+            end
+            republish_certificate(parts, packet)
           end
         elsif Sparkplug::Validator.certificate_topic?(packet.topic)
           # Reject publishing to certificate topics
           raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
         end
         packet
+      end
+
+      # Republishes a BIRTH message as a retained copy on its
+      # `$sparkplug/certificates/<namespace>/<group>/<type>/<edge>[/<device>]`
+      # topic, as required of a Sparkplug Aware MQTT Server.
+      private def republish_certificate(parts : Sparkplug::TopicParts, packet : MQTT::Publish) : Nil
+        cert_topic = Sparkplug::CertificateMapper.certificate_topic_for(parts)
+        @broker.publish(MQTT::Publish.new(
+          topic: cert_topic,
+          payload: packet.payload,
+          packet_id: nil,
+          qos: 0u8,
+          retain: true,
+          dup: false,
+        ))
       end
 
       def recieve_puback(packet : MQTT::PubAck)
@@ -240,41 +261,11 @@ module LavinMQ
           end
         end
 
-        unless @broker.vhost.sparkplug_aware?
-          qos = @broker.subscribe(self, packet.topic_filters)
-          send(MQTT::SubAck.new(qos, packet.packet_id))
-          return
-        end
-
-        send(MQTT::SubAck.new(sparkplug_subscribe(packet.topic_filters), packet.packet_id))
-      end
-
-      # Subscribes, expanding $sparkplug/certificates filters into the actual
-      # BIRTH topics. Returns exactly one SubAck return code per *original*
-      # filter (MQTT 3.1.1 §3.9): a certificate filter that expands to no real
-      # topic is reported as a failure.
-      private def sparkplug_subscribe(topic_filters) : Array(MQTT::SubAck::ReturnCode)
-        return_codes = Array(MQTT::SubAck::ReturnCode).new(topic_filters.size)
-        expanded = Array(MQTT::Subscribe::TopicFilter).new(topic_filters.size)
-        topic_filters.each do |tf|
-          if Sparkplug::CertificateMapper.certificate_topic?(tf.topic)
-            before = expanded.size
-            Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic) do |actual_topic|
-              expanded << MQTT::Subscribe::TopicFilter.new(actual_topic, tf.qos)
-            end
-            if expanded.size == before
-              # Certificate filter that maps to no real topic
-              return_codes << MQTT::SubAck::ReturnCode::Failure
-            else
-              return_codes << MQTT::SubAck::ReturnCode.from_int(tf.qos)
-            end
-          else
-            expanded << tf
-            return_codes << MQTT::SubAck::ReturnCode.from_int(tf.qos)
-          end
-        end
-        @broker.subscribe(self, expanded)
-        return_codes
+        # Sparkplug Aware mode exposes BIRTH certificates as ordinary retained
+        # messages under $sparkplug/certificates/... (republished on publish),
+        # so a normal subscription to those topics just works — no rewriting.
+        qos = @broker.subscribe(self, packet.topic_filters)
+        send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)

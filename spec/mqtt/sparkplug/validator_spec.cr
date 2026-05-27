@@ -12,74 +12,81 @@ module SparkplugSpecs
   describe LavinMQ::MQTT::Sparkplug::Validator do
     describe "#validate_topic" do
       it "accepts valid NBIRTH topic" do
-        topic = "spBv3.0/group1/NBIRTH/node1"
+        topic = "spBv1.0/group1/NBIRTH/node1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NBIRTH)
       end
 
       it "accepts valid NDEATH topic" do
-        topic = "spBv3.0/group1/NDEATH/node1"
+        topic = "spBv1.0/group1/NDEATH/node1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NDEATH)
       end
 
       it "accepts valid DBIRTH topic with device" do
-        topic = "spBv3.0/group1/DBIRTH/node1/device1"
+        topic = "spBv1.0/group1/DBIRTH/node1/device1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::DBIRTH)
       end
 
       it "accepts valid DDEATH topic with device" do
-        topic = "spBv3.0/group1/DDEATH/node1/device1"
+        topic = "spBv1.0/group1/DDEATH/node1/device1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::DDEATH)
       end
 
       it "accepts valid NDATA topic" do
-        topic = "spBv3.0/group1/NDATA/node1"
+        topic = "spBv1.0/group1/NDATA/node1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NDATA)
       end
 
       it "accepts valid DDATA topic with device" do
-        topic = "spBv3.0/group1/DDATA/node1/device1"
+        topic = "spBv1.0/group1/DDATA/node1/device1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::DDATA)
       end
 
       it "accepts valid NCMD topic" do
-        topic = "spBv3.0/group1/NCMD/node1"
+        topic = "spBv1.0/group1/NCMD/node1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NCMD)
       end
 
       it "accepts valid DCMD topic with device" do
-        topic = "spBv3.0/group1/DCMD/node1/device1"
+        topic = "spBv1.0/group1/DCMD/node1/device1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::DCMD)
       end
 
       it "accepts valid STATE topic" do
-        topic = "spBv3.0/group1/STATE/host1"
+        topic = "spBv1.0/group1/STATE/host1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::STATE)
       end
 
-      it "accepts host STATE certificate topic (spBv3.0/STATE/{host_id})" do
-        topic = "spBv3.0/STATE/host1"
+      it "accepts host STATE certificate topic (spBv1.0/STATE/{host_id})" do
+        topic = "spBv1.0/STATE/host1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::STATE)
       end
 
       it "rejects host STATE topic without host_id" do
-        topic = "spBv3.0/STATE/"
+        topic = "spBv1.0/STATE/"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /Missing host_id/) do
           validate(topic)
         end
       end
 
       it "accepts identifiers with alphanumeric, dash, underscore, period" do
-        topic = "spBv3.0/group-1.2/NBIRTH/node_1.test"
+        topic = "spBv1.0/group-1.2/NBIRTH/node_1.test"
+        result = validate(topic)
+        result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NBIRTH)
+      end
+
+      it "accepts identifiers with spaces and other UTF-8 characters" do
+        # The spec allows any UTF-8 except the reserved MQTT characters + / #
+        topic = "spBv1.0/group @1/NBIRTH/node-é 1"
         result = validate(topic)
         result.should eq(LavinMQ::MQTT::Sparkplug::MessageType::NBIRTH)
       end
@@ -92,92 +99,85 @@ module SparkplugSpecs
       end
 
       it "rejects invalid message type" do
-        topic = "spBv3.0/group1/INVALID/node1"
+        topic = "spBv1.0/group1/INVALID/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /Unknown message type/) do
           validate(topic)
         end
       end
 
       it "rejects missing group_id" do
-        topic = "spBv3.0//NBIRTH/node1"
+        topic = "spBv1.0//NBIRTH/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /Missing group_id/) do
           validate(topic)
         end
       end
 
       it "rejects missing edge_node_id" do
-        topic = "spBv3.0/group1/NBIRTH/"
+        topic = "spBv1.0/group1/NBIRTH/"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /Missing edge_node_id/) do
           validate(topic)
         end
       end
 
       it "rejects DBIRTH without device_id" do
-        topic = "spBv3.0/group1/DBIRTH/node1"
+        topic = "spBv1.0/group1/DBIRTH/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /requires device_id/) do
           validate(topic)
         end
       end
 
       it "rejects DDEATH without device_id" do
-        topic = "spBv3.0/group1/DDEATH/node1"
+        topic = "spBv1.0/group1/DDEATH/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /requires device_id/) do
           validate(topic)
         end
       end
 
       it "rejects DDATA without device_id" do
-        topic = "spBv3.0/group1/DDATA/node1"
+        topic = "spBv1.0/group1/DDATA/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /requires device_id/) do
           validate(topic)
         end
       end
 
       it "rejects DCMD without device_id" do
-        topic = "spBv3.0/group1/DCMD/node1"
+        topic = "spBv1.0/group1/DCMD/node1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /requires device_id/) do
           validate(topic)
         end
       end
 
       it "rejects a node-level topic that carries a device_id (5 segments)" do
-        topic = "spBv3.0/group1/NBIRTH/node1/device1"
+        topic = "spBv1.0/group1/NBIRTH/node1/device1"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /must not have a device_id/) do
           validate(topic)
         end
       end
 
       it "rejects a device-level topic with too many segments" do
-        topic = "spBv3.0/group1/DBIRTH/node1/device1/extra"
+        topic = "spBv1.0/group1/DBIRTH/node1/device1/extra"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /too many topic levels/) do
           validate(topic)
         end
       end
 
       it "rejects a node-level topic with too many segments" do
-        topic = "spBv3.0/group1/NDATA/node1/extra/more"
+        topic = "spBv1.0/group1/NDATA/node1/extra/more"
         expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /must not have a device_id/) do
           validate(topic)
         end
       end
 
-      it "rejects identifiers with invalid characters" do
-        topic = "spBv3.0/group@1/NBIRTH/node1"
-        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do
+      it "rejects identifiers containing the reserved '+' character" do
+        topic = "spBv1.0/group+1/NBIRTH/node1"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains a reserved character/) do
           validate(topic)
         end
       end
 
-      it "rejects identifiers with spaces" do
-        topic = "spBv3.0/group 1/NBIRTH/node1"
-        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do
-          validate(topic)
-        end
-      end
-
-      it "rejects identifiers with a trailing newline" do
-        topic = "spBv3.0/group1/NBIRTH/node1\n"
-        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains disallowed characters/) do
+      it "rejects identifiers containing the reserved '#' character" do
+        topic = "spBv1.0/group1/NBIRTH/node#1"
+        expect_raises(LavinMQ::MQTT::Sparkplug::ValidationError, /contains a reserved character/) do
           validate(topic)
         end
       end
@@ -195,7 +195,7 @@ module SparkplugSpecs
       end
 
       it "returns false for regular Sparkplug topic" do
-        topic = "spBv3.0/group1/NBIRTH/node1"
+        topic = "spBv1.0/group1/NBIRTH/node1"
         LavinMQ::MQTT::Sparkplug::Validator.certificate_topic?(topic).should be_false
       end
 
@@ -207,7 +207,7 @@ module SparkplugSpecs
 
     describe "#sparkplug_topic?" do
       it "returns true for Sparkplug topics" do
-        topic = "spBv3.0/group1/NBIRTH/node1"
+        topic = "spBv1.0/group1/NBIRTH/node1"
         LavinMQ::MQTT::Sparkplug::Validator.sparkplug_topic?(topic).should be_true
       end
 
