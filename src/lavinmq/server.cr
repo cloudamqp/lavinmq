@@ -172,6 +172,7 @@ module LavinMQ
     end
 
     private def trusted_proxy_source?(address : String) : Bool
+      # If no trusted sources are configured, accept from all sources for backward compatibility
       return true if @config.proxy_protocol_trusted_sources.empty?
       @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end

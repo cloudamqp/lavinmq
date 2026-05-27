@@ -40,16 +40,25 @@ describe LavinMQ::IPMatcher do
         matcher.matches?("::2").should be_false
       end
 
-      it "exact match requires same string representation" do
-        # Exact IPs use string comparison for performance
-        # Different representations of the same IPv6 address won't match
-        matcher = LavinMQ::IPMatcher.parse("2001:0db8:0000:0000:0000:0000:0000:0001")
-        matcher.matches?("2001:0db8:0000:0000:0000:0000:0000:0001").should be_true
-        matcher.matches?("2001:db8::1").should be_false
+      it "matches equivalent IPv6 representations of loopback" do
+        matcher = LavinMQ::IPMatcher.parse("::1")
+        matcher.matches?("0:0:0:0:0:0:0:1").should be_true
+        matcher.matches?("0000:0000:0000:0000:0000:0000:0000:0001").should be_true
+      end
 
-        # If you need to match different representations, use CIDR /128
-        cidr_matcher = LavinMQ::IPMatcher.parse("2001:db8::1/128")
-        cidr_matcher.matches?("2001:db8::1").should be_true
+      it "matches expanded form against zero-compressed form" do
+        matcher = LavinMQ::IPMatcher.parse("2001:0db8:0000:0000:0000:0000:0000:0001")
+        matcher.matches?("2001:db8::1").should be_true
+      end
+
+      it "matches zero-compressed form against expanded form" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8::1")
+        matcher.matches?("2001:0db8:0000:0000:0000:0000:0000:0001").should be_true
+      end
+
+      it "matches mixed-case hex digits" do
+        matcher = LavinMQ::IPMatcher.parse("2001:DB8::1")
+        matcher.matches?("2001:db8::1").should be_true
       end
     end
 
@@ -239,7 +248,7 @@ describe LavinMQ::IPMatcher do
       end
 
       it "raises on CIDR with invalid IP" do
-        expect_raises(ArgumentError, /Invalid IP address in CIDR/) do
+        expect_raises(ArgumentError, /Invalid IP address/) do
           LavinMQ::IPMatcher.parse("not-an-ip/24")
         end
       end
@@ -267,10 +276,70 @@ describe LavinMQ::IPMatcher do
       end
 
       it "CIDR notation can match different IPv6 representations" do
-        # CIDR notation uses byte comparison and can match different representations
         matcher = LavinMQ::IPMatcher.parse("2001:db8::1/128")
         matcher.matches?("2001:0db8:0000:0000:0000:0000:0000:0001").should be_true
         matcher.matches?("2001:db8::1").should be_true
+      end
+    end
+
+    describe "negative matches" do
+      it "IPv4 off-by-one in last octet" do
+        matcher = LavinMQ::IPMatcher.parse("192.168.0.1")
+        matcher.matches?("192.168.0.2").should be_false
+        matcher.matches?("192.168.0.0").should be_false
+      end
+
+      it "IPv4 off-by-one at /24 boundary" do
+        matcher = LavinMQ::IPMatcher.parse("192.168.1.0/24")
+        matcher.matches?("192.168.0.255").should be_false
+        matcher.matches?("192.168.2.0").should be_false
+      end
+
+      it "IPv6 off-by-one in last group" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8::1")
+        matcher.matches?("2001:db8::2").should be_false
+        matcher.matches?("2001:db8::0").should be_false
+      end
+
+      it "IPv6 lookalike with different magnitude doesn't match" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8::1")
+        matcher.matches?("2001:db8::10").should be_false
+        matcher.matches?("2001:db8::100").should be_false
+        matcher.matches?("2001:db8:1::").should be_false
+      end
+
+      it "IPv6 /127 boundary" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8::/127")
+        matcher.matches?("2001:db8::").should be_true
+        matcher.matches?("2001:db8::1").should be_true
+        matcher.matches?("2001:db8::2").should be_false
+      end
+
+      it "IPv6 /126 boundary" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8::/126")
+        matcher.matches?("2001:db8::3").should be_true
+        matcher.matches?("2001:db8::4").should be_false
+      end
+
+      it "IPv6 /64 doesn't bleed into adjacent /64" do
+        matcher = LavinMQ::IPMatcher.parse("2001:db8:0:1::/64")
+        matcher.matches?("2001:db8:0:0:ffff:ffff:ffff:ffff").should be_false
+        matcher.matches?("2001:db8:0:2::").should be_false
+      end
+
+      it "IPv4 matcher rejects IPv4-mapped IPv6" do
+        matcher = LavinMQ::IPMatcher.parse("192.168.1.1")
+        matcher.matches?("::ffff:192.168.1.1").should be_false
+      end
+
+      it "IPv4 CIDR rejects IPv4-mapped IPv6" do
+        matcher = LavinMQ::IPMatcher.parse("192.168.1.0/24")
+        matcher.matches?("::ffff:192.168.1.50").should be_false
+      end
+
+      it "IPv6 matcher rejects raw IPv4" do
+        matcher = LavinMQ::IPMatcher.parse("::ffff:192.168.1.1")
+        matcher.matches?("192.168.1.1").should be_false
       end
     end
   end
