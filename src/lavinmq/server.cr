@@ -204,8 +204,14 @@ module LavinMQ
     end
 
     def listen(bind = "::", port = 5672, protocol : Protocol = :amqp)
-      s = TCPServer.new(bind, port)
-      listen(s, protocol)
+      listen(bind_tcp(bind, port), protocol)
+    end
+
+    # Bind a TCP server, aborting with a clean message (no stacktrace) if the address is unavailable
+    private def bind_tcp(bind, port) : TCPServer
+      TCPServer.new(bind, port)
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     def listen_tls(s : TCPServer, context, protocol : Protocol)
@@ -245,7 +251,7 @@ module LavinMQ
     end
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)
-      listen_tls(TCPServer.new(bind, port), context, protocol)
+      listen_tls(bind_tcp(bind, port), context, protocol)
     end
 
     def listen_unix(path : String, protocol : Protocol)
@@ -253,10 +259,12 @@ module LavinMQ
       s = UNIXServer.new(path)
       File.chmod(path, 0o666)
       listen(s, protocol)
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     def listen_clustering(bind, port)
-      @replicator.try &.listen(TCPServer.new(bind, port))
+      @replicator.try &.listen(bind_tcp(bind, port))
     end
 
     def close

@@ -70,6 +70,8 @@ module LavinMQ
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     def run
