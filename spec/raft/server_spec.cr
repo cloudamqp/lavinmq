@@ -187,4 +187,33 @@ describe LavinMQ::Raft::Server do
       end
     end
   end
+
+  describe "leadership loss" do
+    it "elects a new leader after the current leader is isolated, and the old leader steps down on heal" do
+      with_cluster(3) do |transports, servers|
+        old_leader = form_cluster(servers)
+
+        # Isolate the leader; the other two should elect a new one.
+        transports[old_leader.node_id].isolated = true
+        new_leader = nil
+        deadline = Time.instant + 5.seconds
+        until new_leader
+          candidates = servers.select { |s| s != old_leader && s.is_leader.value }
+          new_leader = candidates.first if candidates.size == 1
+          fail "timed out electing a new leader" if Time.instant > deadline
+          Fiber.yield unless new_leader
+        end
+
+        # Heal the partition; the old leader sees a higher term and steps down.
+        transports[old_leader.node_id].isolated = false
+        select
+        when old_leader.is_leader.when_false.receive
+          # stepped down
+        when timeout(5.seconds)
+          fail "old leader did not step down after heal"
+        end
+        old_leader.is_leader.value.should be_false
+      end
+    end
+  end
 end
