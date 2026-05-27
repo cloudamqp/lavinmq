@@ -8,6 +8,21 @@ private def tmp_data_dir : String
   dir
 end
 
+private def build_single_node : LavinMQ::Raft::Server
+  dir = tmp_data_dir
+  File.write(File.join(dir, ".clustering_id"), "1")
+  transport = ::Raft::MemoryTransport.new(1_u64)
+  server = LavinMQ::Raft::Server.new(
+    data_dir: dir,
+    advertised_address: "node1:5680,node1:5679",
+    transport: transport,
+    execution_context: Fiber::ExecutionContext.current,
+  )
+  transport.start
+  server.start
+  server
+end
+
 describe LavinMQ::Raft::Server do
   describe "node_id" do
     it "generates and persists across reconstruction with the same data_dir" do
@@ -32,6 +47,33 @@ describe LavinMQ::Raft::Server do
         s2.stop
       ensure
         FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
+  describe "single node" do
+    it "stays follower until bootstrap" do
+      server = build_single_node
+      begin
+        server.is_leader.value.should be_false
+      ensure
+        server.stop
+      end
+    end
+
+    it "becomes leader after bootstrap and fires is_leader.when_true" do
+      server = build_single_node
+      begin
+        server.bootstrap.should be_true
+        select
+        when server.is_leader.when_true.receive
+          # became leader
+        when timeout(2.seconds)
+          fail "timed out waiting for leadership"
+        end
+        server.is_leader.value.should be_true
+      ensure
+        server.stop
       end
     end
   end
