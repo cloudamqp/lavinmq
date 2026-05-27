@@ -15,7 +15,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost_store"
 
-    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?)
+    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
     end
 
@@ -57,7 +57,7 @@ module LavinMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
       Log.info { "Created vhost #{name}" }
       unless @users[user.name]?.try &.permissions[name]?
         @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
@@ -109,7 +109,7 @@ module LavinMQ
             name = vhost["name"].as_s
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
-            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
             @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
           end
           @replicator.try &.register_file(f)

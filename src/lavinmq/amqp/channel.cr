@@ -45,6 +45,7 @@ module LavinMQ
       @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
+      @confirm_ack_mailbox : ::Channel(UInt64)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -116,7 +117,11 @@ module LavinMQ
           @client.send_precondition_failed(frame, "Channel already in transactional mode")
           return
         end
-        @confirm = true
+        unless @confirm
+          @confirm_ack_mailbox = mailbox = ::Channel(UInt64).new(1)
+          spawn confirm_writer(mailbox), name: "Channel##{@id} confirm writer"
+          @confirm = true
+        end
         unless frame.no_wait
           send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
         end
@@ -312,10 +317,30 @@ module LavinMQ
         end
       end
 
-      private def confirm_ack(msgid, multiple = false)
+      private def confirm_ack(msgid)
+        @client.vhost.enqueue_ack(self, msgid)
+      end
+
+      def do_confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count.add(1, :relaxed)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
+      end
+
+      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = @confirm_ack_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def confirm_writer(mailbox : ::Channel(UInt64))
+        while msgid = mailbox.receive?
+          do_confirm_ack(msgid, multiple: true)
+        end
       end
 
       private def confirm_nack(msgid, multiple = false)
@@ -679,6 +704,7 @@ module LavinMQ
 
       def close
         @running = false
+        @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close
           Fiber.yield if (i % 128) == 0
