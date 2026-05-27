@@ -13,7 +13,12 @@ module LavinMQ::Raft
       in ClusterCommand::SetSecret     then @secret = entry.secret
       in ClusterCommand::AddToIsr      then @isr.add(entry.node_id)
       in ClusterCommand::RemoveFromIsr then @isr.delete(entry.node_id)
-      in ClusterCommand                then nil # abstract base; never instantiated
+        # The abstract base is unreachable (never instantiated), but Crystal
+        # requires it in the exhaustive `case` when ClusterCommand is used as a
+        # generic type argument (Raft::StateMachine(ClusterCommand)). Raise
+        # loudly so a future concrete variant added without its own branch
+        # fails here at runtime rather than being silently ignored.
+      in ClusterCommand then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
       end
     end
 
