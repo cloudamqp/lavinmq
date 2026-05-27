@@ -13,6 +13,7 @@ module LavinMQ::Raft
       in ClusterCommand::SetSecret     then @secret = entry.secret
       in ClusterCommand::AddToIsr      then @isr.add(entry.node_id)
       in ClusterCommand::RemoveFromIsr then @isr.delete(entry.node_id)
+      in ClusterCommand                then nil # abstract base; never instantiated
       end
     end
 
