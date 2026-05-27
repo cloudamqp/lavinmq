@@ -29,6 +29,56 @@ private def with_single_node(&)
   end
 end
 
+private def build_cluster(node_count : Int32 = 3)
+  ids = (1..node_count).map(&.to_u64)
+  transports = ::Raft::MemoryTransport.mesh(ids)
+  servers = ids.map do |id|
+    dir = tmp_data_dir
+    File.write(File.join(dir, ".clustering_id"), id.to_s)
+    LavinMQ::Raft::Server.new(
+      data_dir: dir,
+      advertised_address: "node#{id}:5680,node#{id}:5679",
+      transport: transports[id],
+      execution_context: Fiber::ExecutionContext.current,
+    )
+  end
+  transports.each_value(&.start)
+  servers.each(&.start)
+  {transports, servers}
+end
+
+private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
+  deadline = Time.instant + timeout
+  until block.call
+    fail "operation timed out" if Time.instant > deadline
+    Fiber.yield
+  end
+end
+
+# Bootstraps servers[0], then adds AND promotes each remaining node to a voter
+# (add_server adds a learner; promote_learner makes it vote). Waits until exactly
+# one server reports itself leader. Returns the leader.
+private def form_cluster(servers) : LavinMQ::Raft::Server
+  leader = servers.first
+  leader.bootstrap.should be_true
+  servers[1..].each do |s|
+    addr = "node#{s.node_id}:5680,node#{s.node_id}:5679"
+    retry_until { leader.add_server(s.node_id, addr) }
+    # promote_learner returns false if the node was already auto-promoted by the
+    # leader's maybe_promote_learner path, so accept either outcome.
+    retry_until { leader.promote_learner(s.node_id) || leader.@node.voters.any? { |v| v.id == s.node_id } }
+  end
+  result = nil
+  deadline = Time.instant + 5.seconds
+  until result
+    leaders = servers.select(&.is_leader.value)
+    result = leaders.first if leaders.size == 1
+    fail "timed out waiting for a single leader (had #{leaders.size})" if Time.instant > deadline
+    Fiber.yield unless result
+  end
+  result.not_nil!
+end
+
 describe LavinMQ::Raft::Server do
   describe "node_id" do
     it "generates and persists across reconstruction with the same data_dir" do
@@ -95,6 +145,31 @@ describe LavinMQ::Raft::Server do
           fail "timed out waiting for apply" if Time.instant > deadline
           Fiber.yield
         end
+      end
+    end
+  end
+
+  describe "three-node cluster" do
+    it "elects exactly one leader" do
+      transports, servers = build_cluster(3)
+      begin
+        leader = form_cluster(servers)
+        servers.count(&.is_leader.value).should eq 1
+        servers.should contain(leader)
+      ensure
+        transports.each_value(&.stop)
+        servers.each(&.stop)
+      end
+    end
+
+    it "agrees on leader_id across all nodes" do
+      transports, servers = build_cluster(3)
+      begin
+        leader = form_cluster(servers)
+        retry_until { servers.all? { |s| s.leader_id == leader.node_id } }
+      ensure
+        transports.each_value(&.stop)
+        servers.each(&.stop)
       end
     end
   end
