@@ -43,6 +43,7 @@ jobs:
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
+        id: claude
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
@@ -53,20 +54,23 @@ jobs:
           claude_args: |
             --model ${{ steps.config.outputs.model }}
             --max-turns 15
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep,Write(/tmp/docs-verdict)"
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
       - name: Apply verdict
         run: |
-          verdict=$(cat /tmp/docs-verdict 2>/dev/null || echo missing)
+          out='${{ steps.claude.outputs.structured_output }}'
+          verdict=$(jq -r .verdict <<< "$out")
+          reason=$(jq -r .reason <<< "$out")
           case "$verdict" in
             pass)
-              echo "::notice::Docs check passed"
+              echo "Docs check passed: $reason"
               ;;
             fail)
-              echo "::error::Docs check failed: user-facing changes missing docs/ entry"
+              echo "::error::$reason"
               exit 1
               ;;
             *)
-              echo "::error::Docs check could not produce a verdict (got: '$verdict')"
+              echo "::error::Could not produce a verdict (got: '$verdict')"
               exit 1
               ;;
           esac
