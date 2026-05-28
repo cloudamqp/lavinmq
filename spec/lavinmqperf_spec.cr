@@ -116,12 +116,12 @@ describe "LavinMQPerf" do
       total_ops = 250
       ticker = LavinMQPerf::Ticker.new(rate)
       timestamps = Array(Time::Span).new(total_ops)
-      start = Time.monotonic
+      start = Time.instant
       total_ops.times do
         ticker.tick
-        timestamps << Time.monotonic - start
+        timestamps << Time.instant - start
       end
-      elapsed = Time.monotonic - start
+      elapsed = Time.instant - start
 
       target = (total_ops.to_f64 / rate).seconds
       elapsed.should be >= target * 0.7
@@ -143,9 +143,9 @@ describe "LavinMQPerf" do
     it "keeps pacing when ticked through another method" do
       ticker = LavinMQPerf::Ticker.new(500)
       tick = ->(t : LavinMQPerf::Ticker) { t.tick }
-      start = Time.monotonic
+      start = Time.instant
       250.times { tick.call(ticker) }
-      (Time.monotonic - start).should be >= (250.0 / 500).seconds * 0.7
+      (Time.instant - start).should be >= (250.0 / 500).seconds * 0.7
     end
   end
 
