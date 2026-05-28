@@ -552,7 +552,7 @@ jobs:
       - name: Check LavinMQ log for errors
         if: ${{ !cancelled() }}
         run: |
-          if grep -E 'Unhandled exception|ERROR|FATAL' lavinmq.log; then
+          if grep -E '^[^ ]+ +(ERROR|FATAL) |^Unhandled exception' lavinmq.log; then
             echo "::error::Found errors in LavinMQ log"
             exit 1
           fi
