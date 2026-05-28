@@ -513,7 +513,7 @@ module LavinMQ
       each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
-      # each_session &.close (currently included in each_queue)
+      each_session &.close
       each_exchange &.close
       Fiber.yield
       definitions.close
