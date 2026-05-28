@@ -94,7 +94,13 @@ module LavinMQ::AMQP
       end
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
+    delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
+
+    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
+      @msg_store_lock.synchronize do
+        stream_msg_store.find_offset(offset, tag, track_offset)
+      end
+    end
 
     private def message_expire_loop
       # Streams doesn't handle message expiration
@@ -165,7 +171,9 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_msg_store.store_consumer_offset(consumer_tag, offset)
+      @msg_store_lock.synchronize do
+        stream_msg_store.store_consumer_offset(consumer_tag, offset)
+      end
     end
 
     # yield the next message in the ready queue
