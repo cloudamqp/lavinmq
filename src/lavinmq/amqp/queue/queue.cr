@@ -18,6 +18,7 @@ require "../argument_target"
 require "../argument"
 require "../argument/dead_lettering"
 require "../../queue_stats"
+require "../../processed_log"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -176,7 +177,8 @@ module LavinMQ::AMQP
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
-    @data_dir : String
+    getter data_dir : String
+    @processed_log : ProcessedLog?
     Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
@@ -195,7 +197,31 @@ module LavinMQ::AMQP
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
+      @processed_log = build_processed_log
       start
+    end
+
+    # Stream queues override this to disable processed-log recording.
+    protected def build_processed_log : ProcessedLog?
+      config = Config.instance
+      ProcessedLog.new(@data_dir,
+        config.processed_log_retention_ms,
+        config.processed_log_segment_size,
+        config.processed_log_buffer_capacity)
+    end
+
+    # Used by ack hot path. Drops on full buffer; never blocks.
+    def record_processed(rec : ProcessedLog::Record) : Nil
+      @processed_log.try &.record(rec)
+    end
+
+    # Read API used by the HTTP controller.
+    def processed_query(from_ts : Int64, to_ts : Int64, offset : Int32, limit : Int32) : Array(ProcessedLog::Record)
+      @processed_log.try(&.query(from_ts, to_ts, offset, limit)) || [] of ProcessedLog::Record
+    end
+
+    def processed_summary(from_ts : Int64, to_ts : Int64) : ProcessedLog::Summary?
+      @processed_log.try &.summary(from_ts, to_ts)
     end
 
     private def start : Bool
@@ -221,6 +247,7 @@ module LavinMQ::AMQP
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
+      @processed_log = build_processed_log
       start.tap do |started|
         reapply_policy if started
       end
@@ -470,6 +497,8 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.close
       end
+      @processed_log.try &.close
+      @processed_log = nil
       @deliveries.clear
       @basic_get_unacked.clear
       @deduper = nil
@@ -489,6 +518,10 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.delete
       end
+      # Processed log files live in @data_dir, so closing has already
+      # released file handles. Files are unlinked alongside other queue
+      # files when the directory is cleaned up below.
+      Dir.glob(File.join(@data_dir, "processed.*")).each { |p| File.delete?(p) }
       if durable?
         @vhost.@replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
@@ -766,9 +799,7 @@ module LavinMQ::AMQP
           expire_msg(env, :expired)
           next
         end
-        if @delivery_limit && !no_ack
-          env = with_delivery_count_header(env) || next
-        end
+        track_delivery(env) unless no_ack
         sp = env.segment_position
         if no_ack
           begin
@@ -807,16 +838,25 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
-    private def with_delivery_count_header(env) : Envelope?
+    # Bumps the per-sp delivery counter and stamps `x-delivery-count` on the
+    # outgoing message when the queue has `x-delivery-limit` configured. The
+    # counter is always maintained so that the ack path can report the final
+    # redelivery count via processed_log.
+    private def track_delivery(env : Envelope) : Nil
+      sp = env.segment_position
+      delivery_count = @deliveries.fetch(sp, 0)
+      @deliveries[sp] = delivery_count + 1
       if @delivery_limit
-        sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
         headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
-        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
-      env
+    end
+
+    # Read the current delivery count for a segment position. Used by the ack
+    # hot path to compute redelivery_count = delivery_count - 1.
+    def delivery_count_for(sp : SegmentPosition) : Int32
+      @deliveries.fetch(sp, 0)
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -837,7 +877,7 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      @deliveries.delete(sp)
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end

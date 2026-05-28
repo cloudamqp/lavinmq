@@ -107,6 +107,121 @@
         </div>
         <button class="load-more" id="load-more-consumers"></button>
       </section>
+      <section class="card cols-12" id="processedLogCard">
+        <div class="table-header">
+          <h2 class="has-badge">
+            Processed messages
+            <small class="tiny-badge counter-pill" id="processed-window-label">last 1h</small>
+          </h2>
+          <div class="table-actions">
+            <label>
+              <span>Window</span>
+              <select class="dropdown" id="processed-window">
+                <option value="60000">Last 1 minute</option>
+                <option value="600000">Last 10 minutes</option>
+                <option value="3600000" selected>Last 1 hour</option>
+                <option value="86400000">Last 24 hours</option>
+              </select>
+            </label>
+            <button type="button" class="btn btn-outlined" id="processed-refresh" title="Refresh">↻ Refresh</button>
+          </div>
+        </div>
+        <p class="card-desc">
+          Successful acks recorded by this queue, persisted to disk per-queue
+          alongside the message store. Latency is measured from the message's
+          publish timestamp to the ack time. Retention is configurable
+          (default 24h), leader-only — not replicated to followers. The ack
+          path is never blocked; under burst the metadata buffer may drop
+          (see <em>Dropped (buffer)</em>).
+          <span id="processed-updated" class="muted"></span>
+        </p>
+        <div id="processed-empty" class="processed-empty hide">
+          <p>No acked messages in this window.</p>
+          <small>Try a longer window, or send + ack a message to populate this view.</small>
+        </div>
+        <div id="processed-content">
+          <div class="processed-summary">
+            <div class="stat stat-primary">
+              <span class="stat-label">Acks in window</span>
+              <span class="stat-value" id="processed-count">–</span>
+              <span class="stat-sub" id="processed-throughput">– /s</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Latency p50</span>
+              <span class="stat-value" id="processed-p50">–</span>
+              <span class="stat-sub">publish → ack</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Latency p95</span>
+              <span class="stat-value" id="processed-p95">–</span>
+              <span class="stat-sub">publish → ack</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Latency p99</span>
+              <span class="stat-value" id="processed-p99">–</span>
+              <span class="stat-sub">publish → ack</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Avg payload</span>
+              <span class="stat-value" id="processed-payload">–</span>
+              <span class="stat-sub" id="processed-total-bytes">total –</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Avg retries</span>
+              <span class="stat-value" id="processed-retries-avg">–</span>
+              <span class="stat-sub">max <span id="processed-retries-max">–</span></span>
+            </div>
+            <div class="stat" id="processed-dropped-stat" title="Records dropped because the in-memory buffer was full at the moment of the ack. The ack itself was never blocked.">
+              <span class="stat-label">Dropped (buffer)</span>
+              <span class="stat-value" id="processed-dropped">–</span>
+              <span class="stat-sub">cumulative</span>
+            </div>
+          </div>
+          <div class="processed-histogram">
+            <h4 class="histogram-title">Retry distribution</h4>
+            <div class="histogram-bars">
+              <div class="histogram-row">
+                <span class="bucket-label">0 retries (first try)</span>
+                <div class="bucket-bar-track"><div class="bucket-bar-fill" id="processed-retries-bar-0"></div></div>
+                <span class="bucket-value" id="processed-retries-0">–</span>
+              </div>
+              <div class="histogram-row">
+                <span class="bucket-label">1–3 retries</span>
+                <div class="bucket-bar-track"><div class="bucket-bar-fill" id="processed-retries-bar-1"></div></div>
+                <span class="bucket-value" id="processed-retries-1">–</span>
+              </div>
+              <div class="histogram-row">
+                <span class="bucket-label">4–7 retries</span>
+                <div class="bucket-bar-track"><div class="bucket-bar-fill bucket-warn" id="processed-retries-bar-2"></div></div>
+                <span class="bucket-value" id="processed-retries-2">–</span>
+              </div>
+              <div class="histogram-row">
+                <span class="bucket-label">8+ retries</span>
+                <div class="bucket-bar-track"><div class="bucket-bar-fill bucket-bad" id="processed-retries-bar-3"></div></div>
+                <span class="bucket-value" id="processed-retries-3">–</span>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <div id="processed-error"></div>
+            <div class="table-subheader"><h4>Recent acks (newest first)</h4></div>
+            <table id="processed-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">When</th>
+                  <th class="right">Latency</th>
+                  <th class="right">Retries</th>
+                  <th class="left">Exchange</th>
+                  <th class="left">Routing key</th>
+                  <th class="left">Consumer</th>
+                  <th class="right">Payload</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
       <section class="card">
         <div class="table-header">
           <h2 class="has-badge">

@@ -44,6 +44,12 @@ module LavinMQ::AMQP
       super
     end
 
+    # Streams have their own consumption model and do not produce per-ack
+    # records; skip processed-log construction.
+    protected def build_processed_log : ProcessedLog?
+      nil
+    end
+
     protected def initialize(@vhost : VHost, @name : String,
                              @exclusive = false, @auto_delete = false,
                              @arguments = AMQP::Table.new)

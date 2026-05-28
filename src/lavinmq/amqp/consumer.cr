@@ -208,7 +208,7 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self, msg)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,

@@ -2679,3 +2679,153 @@ pre.arguments .inactive-argument:before {
     }
   }
 }
+
+#processedLogCard .card-desc {
+  opacity: 0.9;
+  padding: 0 1rem;
+  margin: 0 0 1rem;
+  line-height: 1.45;
+}
+
+.processed-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+}
+
+.processed-summary .stat {
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.2));
+  border-radius: 6px;
+  background: var(--card-bg, rgba(127, 127, 127, 0.04));
+}
+
+.processed-summary .stat-primary {
+  border-color: var(--primary-color, #4285f4);
+  background: rgba(66, 133, 244, 0.06);
+}
+
+.processed-summary .stat-label {
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.processed-summary .stat-value {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.25rem 0;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+.processed-summary .stat-sub {
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+
+.processed-summary .muted-stat .stat-value {
+  opacity: 0.55;
+  font-weight: 500;
+}
+
+.processed-histogram {
+  padding: 0 1rem 1rem;
+}
+
+.histogram-title {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.histogram-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.histogram-row {
+  display: grid;
+  grid-template-columns: 12rem 1fr 4rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.histogram-row .bucket-label {
+  font-size: 0.9em;
+  opacity: 1;
+}
+
+.histogram-row .bucket-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bucket-bar-track {
+  background: rgba(127, 127, 127, 0.15);
+  border-radius: 3px;
+  height: 0.75rem;
+  overflow: hidden;
+}
+
+.bucket-bar-fill {
+  background: var(--primary-color, #4285f4);
+  height: 100%;
+  width: 0;
+  transition: width 0.3s ease;
+}
+
+.bucket-bar-fill.bucket-warn {
+  background: #e0a800;
+}
+
+.bucket-bar-fill.bucket-bad {
+  background: #d44a4a;
+}
+
+.processed-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.processed-empty p {
+  margin: 0 0 0.5rem;
+  font-size: 1.05em;
+}
+
+.cell-when {
+  cursor: help;
+  border-bottom: 1px dotted rgba(127, 127, 127, 0.4);
+}
+
+.retry-warn {
+  color: #b07c00;
+  font-weight: 600;
+}
+
+.retry-bad {
+  color: #d44a4a;
+  font-weight: 600;
+}
+
+.muted {
+  opacity: 0.75;
+  font-size: 0.9em;
+}
+
+.table-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+}

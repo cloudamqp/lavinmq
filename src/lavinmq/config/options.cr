@@ -181,6 +181,15 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property segment_size : Int32 = 8 * 1024**2 # bytes
 
+      @[IniOpt(section: "main")]
+      property processed_log_retention_ms : Int64 = 86_400_000_i64 # 24h
+
+      @[IniOpt(section: "main")]
+      property processed_log_segment_size : Int64 = 16_i64 * 1024 * 1024 # 16 MB
+
+      @[IniOpt(section: "main")]
+      property processed_log_buffer_capacity : Int32 = 4096
+
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 

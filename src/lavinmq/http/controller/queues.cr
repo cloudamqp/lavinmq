@@ -59,6 +59,53 @@ module LavinMQ
           end
         end
 
+        get "/api/queues/:vhost/:name/processed" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            q = find_queue(context, params, vhost)
+            if q.is_a?(LavinMQ::AMQP::Stream)
+              bad_request(context, "Stream queues do not record processed messages")
+            end
+            unless q.is_a?(LavinMQ::AMQP::Queue)
+              bad_request(context, "Processed log not available for this queue type")
+            end
+            from_ts, to_ts = parse_processed_range(context)
+            offset = (context.request.query_params["offset"]?.try &.to_i?) || 0
+            limit = (context.request.query_params["limit"]?.try &.to_i?) || 100
+            limit = 1000 if limit > 1000
+            limit = 1 if limit < 1
+            offset = 0 if offset < 0
+            records = q.processed_query(from_ts, to_ts, offset, limit)
+            JSON.build(context.response) do |json|
+              json.array do
+                records.each { |r| processed_record_to_json(r, json) }
+              end
+            end
+          end
+        end
+
+        get "/api/queues/:vhost/:name/processed/summary" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            q = find_queue(context, params, vhost)
+            if q.is_a?(LavinMQ::AMQP::Stream)
+              bad_request(context, "Stream queues do not record processed messages")
+            end
+            unless q.is_a?(LavinMQ::AMQP::Queue)
+              bad_request(context, "Processed log not available for this queue type")
+            end
+            from_ts, to_ts = parse_processed_range(context)
+            summary = q.processed_summary(from_ts, to_ts)
+            JSON.build(context.response) do |json|
+              if summary
+                processed_summary_to_json(summary, from_ts, to_ts, json)
+              else
+                json.object { }
+              end
+            end
+          end
+        end
+
         put "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
@@ -289,6 +336,67 @@ module LavinMQ
         else
           io.write payload
           "string"
+        end
+      end
+
+      private def parse_processed_range(context) : Tuple(Int64, Int64)
+        params = context.request.query_params
+        now = RoughTime.unix_ms
+        to_ts = (params["to"]?.try &.to_i64?) || now
+        default_from = to_ts - 3_600_000_i64 # 1h window
+        from_ts = (params["from"]?.try &.to_i64?) || default_from
+        {from_ts, to_ts}
+      end
+
+      private def processed_record_to_json(rec : LavinMQ::ProcessedLog::Record, json : JSON::Builder) : Nil
+        json.object do
+          json.field "ack_ts", rec.ack_ts_ms
+          json.field "latency_ms", rec.latency_ms
+          json.field "payload_size", rec.payload_size
+          json.field "redelivery_count", rec.redelivery_count
+          json.field "exchange", rec.exchange
+          json.field "routing_key", rec.routing_key
+          json.field "consumer_tag", rec.consumer_tag
+        end
+      end
+
+      private def processed_summary_to_json(s : LavinMQ::ProcessedLog::Summary, from_ts : Int64, to_ts : Int64, json : JSON::Builder) : Nil
+        json.object do
+          json.field "from", from_ts
+          json.field "to", to_ts
+          json.field "count", s.count
+          json.field "latency" do
+            json.object do
+              json.field "p50", s.latency_p50
+              json.field "p95", s.latency_p95
+              json.field "p99", s.latency_p99
+              json.field "avg", s.latency_avg
+            end
+          end
+          json.field "redeliveries" do
+            json.object do
+              json.field "avg", s.redeliveries_avg
+              json.field "max", s.redeliveries_max
+              json.field "histogram" do
+                json.array do
+                  json.number(s.redeliveries_histogram[0])
+                  json.number(s.redeliveries_histogram[1])
+                  json.number(s.redeliveries_histogram[2])
+                  json.number(s.redeliveries_histogram[3])
+                end
+              end
+              json.field "buckets" do
+                json.array do
+                  json.string "0"
+                  json.string "1-3"
+                  json.string "4-7"
+                  json.string "8+"
+                end
+              end
+            end
+          end
+          json.field "payload_size_avg", s.payload_size_avg
+          json.field "dropped", s.dropped
         end
       end
     end

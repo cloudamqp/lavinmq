@@ -371,3 +371,144 @@ Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
 })
+
+const processedCard = document.getElementById('processedLogCard')
+if (processedCard) {
+  const windowSel = document.getElementById('processed-window')
+  const refreshBtn = document.getElementById('processed-refresh')
+  const errorBox = document.getElementById('processed-error')
+  const tbody = document.querySelector('#processed-table tbody')
+  const emptyState = document.getElementById('processed-empty')
+  const contentBox = document.getElementById('processed-content')
+  const windowLabel = document.getElementById('processed-window-label')
+  const updatedLabel = document.getElementById('processed-updated')
+  const droppedStat = document.getElementById('processed-dropped-stat')
+
+  function fmtNum (n) {
+    if (n === null || n === undefined) return '–'
+    return n.toLocaleString()
+  }
+
+  function fmtMs (n) {
+    if (n < 0) return 'n/a'
+    if (n < 1000) return n + ' ms'
+    if (n < 60000) return (n / 1000).toFixed(2) + ' s'
+    return Math.floor(n / 60000) + 'm ' + Math.floor((n % 60000) / 1000) + 's'
+  }
+
+  function fmtBytes (n) {
+    if (n === 0) return '0 B'
+    if (n < 1024) return n + ' B'
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
+    return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+  }
+
+  function fmtTsAbsolute (ms) {
+    const d = new Date(ms)
+    return d.toLocaleTimeString() + '.' + String(d.getMilliseconds()).padStart(3, '0')
+  }
+
+  function fmtRelative (ms) {
+    const diff = Date.now() - ms
+    if (diff < 1000) return 'just now'
+    if (diff < 60000) return Math.floor(diff / 1000) + 's ago'
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago'
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago'
+    return Math.floor(diff / 86400000) + 'd ago'
+  }
+
+  function windowDescription (ms) {
+    if (ms <= 60000) return 'last 1m'
+    if (ms <= 600000) return 'last 10m'
+    if (ms <= 3600000) return 'last 1h'
+    return 'last 24h'
+  }
+
+  function renderHistogramBar (id, count, total) {
+    const el = document.getElementById(id)
+    if (!el) return
+    const pct = total > 0 ? (count / total) * 100 : 0
+    el.style.width = pct.toFixed(1) + '%'
+  }
+
+  function renderSummary (s, windowMs) {
+    document.getElementById('processed-count').textContent = fmtNum(s.count)
+    const seconds = windowMs / 1000
+    const rate = seconds > 0 ? (s.count / seconds) : 0
+    const rateText = rate >= 100 ? rate.toFixed(0) : (rate >= 1 ? rate.toFixed(1) : rate.toFixed(2))
+    document.getElementById('processed-throughput').textContent = rateText + ' acks/s avg'
+    document.getElementById('processed-p50').textContent = fmtMs(s.latency.p50)
+    document.getElementById('processed-p95').textContent = fmtMs(s.latency.p95)
+    document.getElementById('processed-p99').textContent = fmtMs(s.latency.p99)
+    document.getElementById('processed-payload').textContent = fmtBytes(s.payload_size_avg)
+    document.getElementById('processed-total-bytes').textContent = 'total ' + fmtBytes(s.payload_size_avg * s.count)
+    document.getElementById('processed-retries-avg').textContent = s.redeliveries.avg.toFixed(2)
+    document.getElementById('processed-retries-max').textContent = fmtNum(s.redeliveries.max)
+    document.getElementById('processed-dropped').textContent = fmtNum(s.dropped)
+    droppedStat.classList.toggle('muted-stat', s.dropped === 0)
+    const hist = s.redeliveries.histogram
+    document.getElementById('processed-retries-0').textContent = fmtNum(hist[0])
+    document.getElementById('processed-retries-1').textContent = fmtNum(hist[1])
+    document.getElementById('processed-retries-2').textContent = fmtNum(hist[2])
+    document.getElementById('processed-retries-3').textContent = fmtNum(hist[3])
+    const histTotal = hist[0] + hist[1] + hist[2] + hist[3]
+    renderHistogramBar('processed-retries-bar-0', hist[0], histTotal)
+    renderHistogramBar('processed-retries-bar-1', hist[1], histTotal)
+    renderHistogramBar('processed-retries-bar-2', hist[2], histTotal)
+    renderHistogramBar('processed-retries-bar-3', hist[3], histTotal)
+    if (s.count === 0) {
+      emptyState.classList.remove('hide')
+      contentBox.classList.add('hide')
+    } else {
+      emptyState.classList.add('hide')
+      contentBox.classList.remove('hide')
+    }
+  }
+
+  function renderRows (rows) {
+    tbody.innerHTML = ''
+    rows.forEach(r => {
+      const tr = tbody.insertRow()
+      const whenCell = document.createElement('span')
+      whenCell.textContent = fmtRelative(r.ack_ts)
+      whenCell.title = fmtTsAbsolute(r.ack_ts)
+      whenCell.className = 'cell-when'
+      Table.renderCell(tr, 0, whenCell)
+      Table.renderCell(tr, 1, fmtMs(r.latency_ms), 'right')
+      const retryCell = document.createElement('span')
+      retryCell.textContent = r.redelivery_count
+      if (r.redelivery_count >= 4) retryCell.className = 'retry-bad'
+      else if (r.redelivery_count >= 1) retryCell.className = 'retry-warn'
+      Table.renderCell(tr, 2, retryCell, 'right')
+      Table.renderCell(tr, 3, r.exchange || '(default)')
+      Table.renderCell(tr, 4, r.routing_key)
+      Table.renderCell(tr, 5, r.consumer_tag || '(basic.get)')
+      Table.renderCell(tr, 6, fmtBytes(r.payload_size), 'right')
+    })
+  }
+
+  function load () {
+    errorBox.textContent = ''
+    const windowMs = parseInt(windowSel.value, 10)
+    windowLabel.textContent = windowDescription(windowMs)
+    const to = Date.now()
+    const from = to - windowMs
+    const summaryUrl = HTTP.url`api/queues/${vhost}/${queue}/processed/summary?from=${from}&to=${to}`
+    const rowsUrl = HTTP.url`api/queues/${vhost}/${queue}/processed?from=${from}&to=${to}&limit=50`
+    HTTP.request('GET', summaryUrl)
+      .then(s => {
+        if (!s) return
+        renderSummary(s, windowMs)
+        updatedLabel.textContent = ' Updated ' + fmtTsAbsolute(Date.now()) + '.'
+      })
+      .catch(e => { errorBox.textContent = 'Summary error: ' + (e.message || e) })
+    HTTP.request('GET', rowsUrl)
+      .then(rows => { if (rows) renderRows(rows) })
+      .catch(e => { errorBox.textContent = 'Rows error: ' + (e.message || e) })
+  }
+
+  refreshBtn.addEventListener('click', load)
+  windowSel.addEventListener('change', load)
+  load()
+}

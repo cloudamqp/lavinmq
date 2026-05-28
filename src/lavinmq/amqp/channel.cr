@@ -74,7 +74,11 @@ module LavinMQ
         queue : Queue,
         sp : SegmentPosition,
         consumer : Consumer?,
-        delivered_at : Time::Instant
+        delivered_at : Time::Instant,
+        exchange : String,
+        routing_key : String,
+        publish_ts : Int64,
+        payload_size : UInt32
 
       def details_tuple
         {
@@ -465,7 +469,7 @@ module LavinMQ
             end
             @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
-              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil, env.message)
               unless frame.no_ack # track unacked messages
                 q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
               end
@@ -562,10 +566,28 @@ module LavinMQ
         if c = unack.consumer
           c.ack(unack.sp)
         end
+        ack_ts = RoughTime.unix_ms
+        delivery_count = unack.queue.delivery_count_for(unack.sp)
         unack.queue.ack(unack.sp)
         unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
+        record_processed_event(unack, ack_ts, delivery_count)
+      end
+
+      private def record_processed_event(unack : Unack, ack_ts : Int64, delivery_count : Int32) : Nil
+        latency = unack.publish_ts > 0 ? ack_ts - unack.publish_ts : -1_i64
+        redelivery_count = delivery_count > 1 ? (delivery_count - 1).to_u32 : 0_u32
+        consumer_tag = unack.consumer.try(&.tag) || ""
+        unack.queue.record_processed(::LavinMQ::ProcessedLog::Record.new(
+          ack_ts_ms: ack_ts,
+          latency_ms: latency,
+          payload_size: unack.payload_size,
+          redelivery_count: redelivery_count,
+          exchange: unack.exchange,
+          routing_key: unack.routing_key,
+          consumer_tag: consumer_tag,
+        ))
       end
 
       def basic_reject(frame)
@@ -727,11 +749,12 @@ module LavinMQ
         @log.debug { "Closed" }
       end
 
-      protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
+      protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer, msg : BytesMessage) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
           @unack_lock.synchronize do
-            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
+            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant,
+              msg.exchange_name, msg.routing_key, msg.timestamp, sp.bytesize)
           end
           add = consumer ? 0u32 : 1u32
           basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
