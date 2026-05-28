@@ -1,0 +1,127 @@
+name: Docs Check
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "src/**/*.cr"
+      - "docs/**/*.md"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to check'
+        required: true
+        type: string
+
+jobs:
+  docs-check:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+      id-token: write
+      actions: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Determine PR number
+        id: pr
+        run: echo "number=${{ inputs.pr_number || github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect docs-only PR
+        id: docs_only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          files=$(gh pr diff "$PR_NUMBER" --name-only)
+          if [[ -z "$files" ]]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          non_docs=$(echo "$files" | grep -v '^docs/' || true)
+          if [[ -z "$non_docs" ]]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            mkdir -p /tmp
+            printf '%s' '{"verdict":"pass","reason":"Documentation-only PR, no code changes to evaluate."}' > /tmp/docs-verdict.json
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Load config
+        if: steps.docs_only.outputs.docs_only != 'true'
+        id: config
+        run: |
+          source .review-config
+          if [[ -z "$MODEL" || -z "$DOCS_CRITERIA" ]]; then
+            echo "::error::.review-config must define MODEL and DOCS_CRITERIA"
+            exit 1
+          fi
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "criteria<<$DELIM"
+            cat "$DOCS_CRITERIA"
+            echo "$DELIM"
+            echo "model=$MODEL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run docs check
+        if: steps.docs_only.outputs.docs_only != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR_NUMBER: ${{ steps.pr.outputs.number }}
+
+            ${{ steps.config.outputs.criteria }}
+
+          claude_args: |
+            --model ${{ steps.config.outputs.model }}
+            --max-turns 20
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep,Write(/tmp/docs-verdict.json)"
+
+      - name: Publish check run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ ! -f /tmp/docs-verdict.json ]]; then
+            verdict="neutral"
+            reason="docs check could not run, see action logs"
+          else
+            verdict=$(jq -r '.verdict' /tmp/docs-verdict.json)
+            reason=$(jq -r '.reason' /tmp/docs-verdict.json)
+            if [[ -z "$verdict" || "$verdict" == "null" ]]; then
+              verdict="neutral"
+              reason="docs check returned no verdict, see action logs"
+            fi
+          fi
+
+          case "$verdict" in
+            pass) conclusion="success" ;;
+            neutral) conclusion="neutral" ;;
+            fail) conclusion="failure" ;;
+            *)
+              conclusion="neutral"
+              reason="docs check returned unknown verdict: $verdict"
+              ;;
+          esac
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/check-runs" \
+            -f name="Docs check" \
+            -f head_sha="$PR_HEAD_SHA" \
+            -f status="completed" \
+            -f conclusion="$conclusion" \
+            -f "output[title]=Docs check" \
+            -f "output[summary]=$reason"
