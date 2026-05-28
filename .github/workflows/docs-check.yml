@@ -1,0 +1,58 @@
+name: Docs Check
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "src/**/*.cr"
+      - "docs/**/*.md"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to check'
+        required: true
+        type: string
+
+jobs:
+  docs-check:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      - name: Load review config
+        id: config
+        run: |
+          source .review-config
+          if [[ -z "$MODEL" || -z "$DOCS_CRITERIA" ]]; then
+            echo "::error::.review-config must define MODEL and DOCS_CRITERIA"
+            exit 1
+          fi
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "criteria<<$DELIM"
+            cat "$DOCS_CRITERIA"
+            echo "$DELIM"
+            echo "model=$MODEL"
+          } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+            HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+            ${{ steps.config.outputs.criteria }}
+          claude_args: |
+            --model ${{ steps.config.outputs.model }}
+            --max-turns 15
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Read,Glob,Grep"
