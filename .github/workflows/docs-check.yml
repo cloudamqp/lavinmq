@@ -19,7 +19,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      checks: write
       id-token: write
     timeout-minutes: 10
     steps:
@@ -46,14 +45,28 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
-            HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
             ${{ steps.config.outputs.criteria }}
           claude_args: |
             --model ${{ steps.config.outputs.model }}
             --max-turns 15
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Read,Glob,Grep"
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep,Write(/tmp/docs-verdict)"
+      - name: Apply verdict
+        run: |
+          verdict=$(cat /tmp/docs-verdict 2>/dev/null || echo missing)
+          case "$verdict" in
+            pass)
+              echo "::notice::Docs check passed"
+              ;;
+            fail)
+              echo "::error::Docs check failed: user-facing changes missing docs/ entry"
+              exit 1
+              ;;
+            *)
+              echo "::error::Docs check could not produce a verdict (got: '$verdict')"
+              exit 1
+              ;;
+          esac
