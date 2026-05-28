@@ -57,7 +57,61 @@ class AMQP::Client::UnsafeClient < AMQP::Client
   end
 end
 
+def with_raw_amqp_connection(s, &)
+  io = TCPSocket.new("localhost", amqp_port(s))
+  io.read_timeout = 5.seconds
+
+  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+  io.flush
+  stream = AMQ::Protocol::Stream.new(io)
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+  response = "\u0000guest\u0000guest"
+  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+    AMQ::Protocol::Table.new, "PLAIN", response, ""),
+    IO::ByteFormat::NetworkEndian)
+  io.flush
+  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
+  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+    IO::ByteFormat::NetworkEndian
+  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+  io.flush
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
+
+  yield io, stream
+ensure
+  io.try &.close
+end
+
 describe LavinMQ::Server do
+  describe "channel close" do
+    it "does not close the connection for frames on a channel waiting for close-ok" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 999_u64, false), IO::ByteFormat::NetworkEndian
+          io.flush
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Channel::Close)
+          close.reply_code.should eq 406
+
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 999_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+  end
+
   describe "channel_max" do
     it "should not accept a channel_max from the client lower than the server config" do
       with_amqp_server do |s|

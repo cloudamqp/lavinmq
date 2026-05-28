@@ -703,6 +703,7 @@ module LavinMQ
       end
 
       def close
+        return unless @running
         @running = false
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|

@@ -556,7 +556,7 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels.delete(frame.channel).try &.close
+        @channels[frame.channel]?.try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -610,7 +610,7 @@ module LavinMQ
           @running = false
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels.delete(ex.channel).try &.close
+          @channels[ex.channel]?.try &.close
         end
       end
 
