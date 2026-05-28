@@ -1,9 +1,8 @@
-Decide if this PR's code changes require updates to `docs/`. Publish the result as a check run.
+Decide if this PR's code changes require updates to `docs/`.
 
 Verdicts:
-- `success`: no user-facing changes, OR docs are updated sufficiently
-- `neutral`: user-facing changes exist, docs were touched but are incomplete
-- `failure`: user-facing changes exist, no `docs/` files touched
+- `pass`: no user-facing changes, OR every user-facing change has a matching entry in `docs/` (presence only, do not grade quality)
+- `fail`: at least one user-facing change has no corresponding entry in `docs/`
 
-Publish with:
-`gh api -X POST /repos/$REPO/check-runs -f name="Docs check" -f head_sha=$HEAD_SHA -f status=completed -f conclusion=<verdict> -f "output[title]=Docs check" -f "output[summary]=<one sentence naming the specific flag, feature, or file>"`
+Write the verdict (`pass` or `fail`) to `/tmp/docs-verdict`.
+Print to stdout: a one-sentence reason naming the specific flag, feature, or file.
