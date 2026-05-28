@@ -291,7 +291,6 @@ module LavinMQ
         id = packet.packet_id
         if sp = @unacked.delete(id)
           begin
-            @unacked.delete id
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)
             @unacked_bytesize.sub(sp.bytesize, :relaxed)
