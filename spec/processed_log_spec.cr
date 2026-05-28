@@ -130,6 +130,32 @@ describe LavinMQ::ProcessedLog do
       end
     end
 
+    it "filters by dotted-path header equality on nested tables" do
+      with_datadir do |dir|
+        log = LavinMQ::ProcessedLog.new(dir, retention_ms: 86_400_000_i64,
+          segment_size: 4_i64 * 1024 * 1024, buffer_capacity: 16)
+        begin
+          inner = AMQ::Protocol::Table.new
+          inner["name"] = "api"
+          inner["request_id"] = "abc-123"
+          outer = AMQ::Protocol::Table.new
+          outer["sender"] = inner
+          other = AMQ::Protocol::Table.new
+          other_inner = AMQ::Protocol::Table.new
+          other_inner["name"] = "worker"
+          other["sender"] = other_inner
+          log.record(ack_record(1_001_i64, 1_i64, "a", headers: outer))
+          log.record(ack_record(1_002_i64, 1_i64, "b", headers: other))
+          wait_for { log.query(0_i64, 10_000_i64, 0, 100).size == 2 }
+          matches = log.query(0_i64, 10_000_i64, 0, 100, nil, {"sender.name" => "api"})
+          matches.size.should eq 1
+          matches.first.consumer_tag.should eq "a"
+        ensure
+          log.close
+        end
+      end
+    end
+
     it "filters by header equality" do
       with_datadir do |dir|
         log = LavinMQ::ProcessedLog.new(dir, retention_ms: 86_400_000_i64,

@@ -180,9 +180,26 @@ module LavinMQ
       h = rec.headers
       return false unless h
       header_match.all? do |key, val|
-        v = h[key]?
-        v && v.to_s == val
+        actual = lookup_header(h, key.split('.'))
+        !actual.nil? && actual.to_s == val
       end
+    end
+
+    # Walk a dotted path into the headers table. `path = ["sender", "name"]`
+    # resolves the value of `headers["sender"]["name"]` when each level is a
+    # nested Table. Returns nil if any step is missing or a non-Table.
+    private def lookup_header(table : AMQ::Protocol::Table, path : Array(String))
+      return nil if path.empty?
+      current : AMQ::Protocol::Field? = table[path.first]?
+      path[1..].each do |key|
+        case node = current
+        when AMQ::Protocol::Table
+          current = node[key]?
+        else
+          return nil
+        end
+      end
+      current
     end
 
     private def run_flusher : Nil

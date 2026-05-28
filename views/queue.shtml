@@ -176,8 +176,8 @@
               </select>
             </label>
             <label class="header-filter">
-              <span>Header filter <small class="muted">(format: <code>key=value</code>, comma-separated)</small></span>
-              <input type="text" id="processed-filter-headers" placeholder="x-tenant=acme, x-region=eu">
+              <span>Header filter <small class="muted">(<code>key=value</code> or <code>nested.key=value</code>, comma-separated)</small></span>
+              <input type="text" id="processed-filter-headers" placeholder="x-tenant=acme, sender.name=api">
             </label>
             <button type="button" class="btn btn-outlined" id="processed-apply-filter">Apply</button>
             <button type="button" class="btn btn-link" id="processed-clear-filter">Clear</button>
