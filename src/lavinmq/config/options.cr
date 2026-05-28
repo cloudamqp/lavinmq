@@ -220,6 +220,11 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property consumer_timeout_loop_interval = 60 # seconds
 
+      @[CliOpt("", "--connection-idle-timeout=SECONDS", "Close idle client connections after SECONDS of inactivity (default: 0, disabled)", section: "options")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_CONNECTION_IDLE_TIMEOUT")]
+      property connection_idle_timeout : UInt32 = 0
+
       @[IniOpt(section: "experimental")]
       property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
 
