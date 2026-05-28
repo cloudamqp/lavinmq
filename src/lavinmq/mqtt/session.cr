@@ -5,6 +5,7 @@ require "../sortable_json"
 require "./client"
 require "../policy"
 require "../queue_stats"
+require "../vhost"
 require "./consts"
 
 module LavinMQ
