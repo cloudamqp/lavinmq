@@ -45,6 +45,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
 | `consumer_timeout` | — | — | UInt64 | (none) | Consumer idle timeout (ms) |
 | `consumer_timeout_loop_interval` | — | — | Int | `60` | Consumer timeout check interval (s) |
+| `connection_idle_timeout` | `--connection-idle-timeout` | `LAVINMQ_CONNECTION_IDLE_TIMEOUT` | UInt32 | `0` | Close idle client connections after this many seconds of inactivity. `0` disables the timeout. |
 | `log_exchange` | — | — | Bool | `false` | Enable the log exchange |
 | `auth_backends` | — | — | Array | `[]` | Authentication backends |
 | `default_consumer_prefetch` | `--default-consumer-prefetch` | `LAVINMQ_DEFAULT_CONSUMER_PREFETCH` | UInt16 | `65535` | Default consumer prefetch |
