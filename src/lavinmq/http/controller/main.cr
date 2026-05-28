@@ -47,7 +47,7 @@ module LavinMQ
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size
-            queues += vhost.exchanges_size
+            queues += vhost.sessions_size
             vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
