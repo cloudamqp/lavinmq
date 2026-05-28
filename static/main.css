@@ -2829,3 +2829,114 @@ pre.arguments .inactive-argument:before {
   gap: 0.75rem;
   align-items: end;
 }
+
+.processed-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+
+.outcome-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9em;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+
+.outcome-pill:hover { filter: brightness(1.05); }
+.outcome-pill:active { transform: translateY(1px); }
+
+.outcome-pill .outcome-label {
+  font-weight: 500;
+}
+
+.outcome-pill .outcome-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.outcome-pill.outcome-ack            { background: rgba( 70, 170,  90, 0.12); border-color: rgba( 70, 170,  90, 0.5); color: #1e7d3a; }
+.outcome-pill.outcome-reject         { background: rgba(212, 100,  60, 0.12); border-color: rgba(212, 100,  60, 0.5); color: #b3461f; }
+.outcome-pill.outcome-expired        { background: rgba(140, 140, 140, 0.12); border-color: rgba(140, 140, 140, 0.5); color: #555; }
+.outcome-pill.outcome-deliverylimit  { background: rgba(170, 110, 200, 0.12); border-color: rgba(170, 110, 200, 0.5); color: #7d3aa3; }
+.outcome-pill.outcome-maxlen         { background: rgba(220,  70,  70, 0.12); border-color: rgba(220,  70,  70, 0.5); color: #a52323; }
+
+.outcome-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.82em;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.outcome-badge.outcome-ack            { background: rgba( 70, 170,  90, 0.18); color: #1e7d3a; }
+.outcome-badge.outcome-reject         { background: rgba(212, 100,  60, 0.20); color: #b3461f; }
+.outcome-badge.outcome-expired        { background: rgba(140, 140, 140, 0.18); color: #555; }
+.outcome-badge.outcome-deliverylimit  { background: rgba(170, 110, 200, 0.20); color: #7d3aa3; }
+.outcome-badge.outcome-maxlen         { background: rgba(220,  70,  70, 0.20); color: #a52323; }
+
+.processed-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+}
+
+.processed-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.processed-filters .header-filter {
+  flex: 1 1 280px;
+}
+
+.processed-filters input,
+.processed-filters select {
+  min-width: 12rem;
+}
+
+.processed-filters .header-filter input {
+  width: 100%;
+}
+
+.btn.btn-link {
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+}
+
+.headers-details summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
+.headers-details summary:hover {
+  opacity: 1;
+}
+
+.headers-json {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem;
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 4px;
+  font-size: 0.85em;
+  max-width: 30rem;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}

@@ -78,7 +78,8 @@ module LavinMQ
         exchange : String,
         routing_key : String,
         publish_ts : Int64,
-        payload_size : UInt32
+        payload_size : UInt32,
+        headers : AMQ::Protocol::Table?
 
       def details_tuple
         {
@@ -572,21 +573,25 @@ module LavinMQ
         unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
-        record_processed_event(unack, ack_ts, delivery_count)
+        record_processed_event(unack, ack_ts, delivery_count, ::LavinMQ::ProcessedLog::Outcome::Ack)
       end
 
-      private def record_processed_event(unack : Unack, ack_ts : Int64, delivery_count : Int32) : Nil
-        latency = unack.publish_ts > 0 ? ack_ts - unack.publish_ts : -1_i64
+      private def record_processed_event(unack : Unack, event_ts : Int64,
+                                         delivery_count : Int32,
+                                         outcome : ::LavinMQ::ProcessedLog::Outcome) : Nil
+        latency = unack.publish_ts > 0 ? event_ts - unack.publish_ts : -1_i64
         redelivery_count = delivery_count > 1 ? (delivery_count - 1).to_u32 : 0_u32
         consumer_tag = unack.consumer.try(&.tag) || ""
         unack.queue.record_processed(::LavinMQ::ProcessedLog::Record.new(
-          ack_ts_ms: ack_ts,
+          ack_ts_ms: event_ts,
           latency_ms: latency,
           payload_size: unack.payload_size,
           redelivery_count: redelivery_count,
+          outcome: outcome,
           exchange: unack.exchange,
           routing_key: unack.routing_key,
           consumer_tag: consumer_tag,
+          headers: unack.headers,
         ))
       end
 
@@ -663,10 +668,15 @@ module LavinMQ
         if c = unack.consumer
           c.reject(unack.sp, requeue)
         end
+        event_ts = RoughTime.unix_ms
+        delivery_count = unack.queue.delivery_count_for(unack.sp)
         unack.queue.reject(unack.sp, requeue)
         unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
+        unless requeue
+          record_processed_event(unack, event_ts, delivery_count, ::LavinMQ::ProcessedLog::Outcome::Reject)
+        end
       end
 
       def basic_qos(frame) : Nil
@@ -754,7 +764,8 @@ module LavinMQ
         unless no_ack
           @unack_lock.synchronize do
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant,
-              msg.exchange_name, msg.routing_key, msg.timestamp, sp.bytesize)
+              msg.exchange_name, msg.routing_key, msg.timestamp, msg.bodysize.to_u32,
+              msg.properties.headers)
           end
           add = consumer ? 0u32 : 1u32
           basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add

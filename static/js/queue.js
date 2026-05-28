@@ -383,6 +383,38 @@ if (processedCard) {
   const windowLabel = document.getElementById('processed-window-label')
   const updatedLabel = document.getElementById('processed-updated')
   const droppedStat = document.getElementById('processed-dropped-stat')
+  const outcomeFilterSel = document.getElementById('processed-filter-outcome')
+  const headerFilterInput = document.getElementById('processed-filter-headers')
+  const applyFilterBtn = document.getElementById('processed-apply-filter')
+  const clearFilterBtn = document.getElementById('processed-clear-filter')
+
+  const OUTCOME_KEY = {
+    ack: 'ack',
+    reject: 'reject',
+    expired: 'expired',
+    deliverylimit: 'deliverylimit',
+    maxlen: 'maxlen'
+  }
+
+  function parseHeaderFilter (text) {
+    const out = {}
+    if (!text) return out
+    text.split(',').forEach(pair => {
+      const [k, ...rest] = pair.split('=')
+      const key = k && k.trim()
+      const value = rest.join('=').trim()
+      if (key && value) out[key] = value
+    })
+    return out
+  }
+
+  function appendHeaderFilterParams (url, headers) {
+    const u = new URL(url, window.location.origin)
+    Object.entries(headers).forEach(([k, v]) => {
+      u.searchParams.append('header.' + k, v)
+    })
+    return u.pathname + u.search
+  }
 
   function fmtNum (n) {
     if (n === null || n === undefined) return '–'
@@ -437,7 +469,13 @@ if (processedCard) {
     const seconds = windowMs / 1000
     const rate = seconds > 0 ? (s.count / seconds) : 0
     const rateText = rate >= 100 ? rate.toFixed(0) : (rate >= 1 ? rate.toFixed(1) : rate.toFixed(2))
-    document.getElementById('processed-throughput').textContent = rateText + ' acks/s avg'
+    document.getElementById('processed-throughput').textContent = rateText + ' events/s avg'
+    const oc = s.outcomes || {}
+    document.getElementById('processed-outcome-ack').textContent = fmtNum(oc.ack || 0)
+    document.getElementById('processed-outcome-reject').textContent = fmtNum(oc.reject || 0)
+    document.getElementById('processed-outcome-expired').textContent = fmtNum(oc.expired || 0)
+    document.getElementById('processed-outcome-deliverylimit').textContent = fmtNum(oc.deliverylimit || 0)
+    document.getElementById('processed-outcome-maxlen').textContent = fmtNum(oc.maxlen || 0)
     document.getElementById('processed-p50').textContent = fmtMs(s.latency.p50)
     document.getElementById('processed-p95').textContent = fmtMs(s.latency.p95)
     document.getElementById('processed-p99').textContent = fmtMs(s.latency.p99)
@@ -466,25 +504,64 @@ if (processedCard) {
     }
   }
 
+  function makeTimeCell (ms) {
+    const span = document.createElement('span')
+    span.className = 'cell-when'
+    if (ms === null) {
+      span.textContent = 'n/a'
+      return span
+    }
+    span.textContent = fmtRelative(ms)
+    span.title = fmtTsAbsolute(ms)
+    return span
+  }
+
+  function makeOutcomeBadge (outcome) {
+    const span = document.createElement('span')
+    span.className = 'outcome-badge outcome-' + (outcome || 'unknown')
+    span.textContent = outcome ? outcome.replace('deliverylimit', 'delivery-limit') : '–'
+    return span
+  }
+
+  function makeHeadersCell (headers) {
+    const keys = headers ? Object.keys(headers) : []
+    if (keys.length === 0) {
+      const span = document.createElement('span')
+      span.textContent = '–'
+      span.className = 'muted'
+      return span
+    }
+    const details = document.createElement('details')
+    details.className = 'headers-details'
+    const summary = document.createElement('summary')
+    summary.textContent = keys.length + ' header' + (keys.length === 1 ? '' : 's')
+    details.appendChild(summary)
+    const pre = document.createElement('pre')
+    pre.className = 'headers-json'
+    pre.textContent = JSON.stringify(headers, null, 2)
+    details.appendChild(pre)
+    return details
+  }
+
   function renderRows (rows) {
     tbody.innerHTML = ''
     rows.forEach(r => {
       const tr = tbody.insertRow()
-      const whenCell = document.createElement('span')
-      whenCell.textContent = fmtRelative(r.ack_ts)
-      whenCell.title = fmtTsAbsolute(r.ack_ts)
-      whenCell.className = 'cell-when'
-      Table.renderCell(tr, 0, whenCell)
-      Table.renderCell(tr, 1, fmtMs(r.latency_ms), 'right')
+      const publishTs = r.latency_ms >= 0 ? r.ack_ts - r.latency_ms : null
+      Table.renderCell(tr, 0, makeTimeCell(publishTs))
+      Table.renderCell(tr, 1, makeTimeCell(r.ack_ts))
+      Table.renderCell(tr, 2, makeOutcomeBadge(r.outcome))
+      Table.renderCell(tr, 3, fmtMs(r.latency_ms), 'right')
       const retryCell = document.createElement('span')
       retryCell.textContent = r.redelivery_count
       if (r.redelivery_count >= 4) retryCell.className = 'retry-bad'
       else if (r.redelivery_count >= 1) retryCell.className = 'retry-warn'
-      Table.renderCell(tr, 2, retryCell, 'right')
-      Table.renderCell(tr, 3, r.exchange || '(default)')
-      Table.renderCell(tr, 4, r.routing_key)
-      Table.renderCell(tr, 5, r.consumer_tag || '(basic.get)')
-      Table.renderCell(tr, 6, fmtBytes(r.payload_size), 'right')
+      Table.renderCell(tr, 4, retryCell, 'right')
+      Table.renderCell(tr, 5, r.exchange || '(default)')
+      Table.renderCell(tr, 6, r.routing_key)
+      Table.renderCell(tr, 7, r.consumer_tag || '(basic.get)')
+      Table.renderCell(tr, 8, fmtBytes(r.payload_size), 'right')
+      Table.renderCell(tr, 9, makeHeadersCell(r.headers))
     })
   }
 
@@ -494,8 +571,18 @@ if (processedCard) {
     windowLabel.textContent = windowDescription(windowMs)
     const to = Date.now()
     const from = to - windowMs
-    const summaryUrl = HTTP.url`api/queues/${vhost}/${queue}/processed/summary?from=${from}&to=${to}`
-    const rowsUrl = HTTP.url`api/queues/${vhost}/${queue}/processed?from=${from}&to=${to}&limit=50`
+    const outcome = outcomeFilterSel.value
+    const headerFilter = parseHeaderFilter(headerFilterInput.value)
+    let summaryUrl = HTTP.url`api/queues/${vhost}/${queue}/processed/summary?from=${from}&to=${to}`
+    let rowsUrl = HTTP.url`api/queues/${vhost}/${queue}/processed?from=${from}&to=${to}&limit=50`
+    if (outcome) {
+      summaryUrl += '&outcome=' + encodeURIComponent(outcome)
+      rowsUrl += '&outcome=' + encodeURIComponent(outcome)
+    }
+    if (Object.keys(headerFilter).length > 0) {
+      summaryUrl = appendHeaderFilterParams(summaryUrl, headerFilter)
+      rowsUrl = appendHeaderFilterParams(rowsUrl, headerFilter)
+    }
     HTTP.request('GET', summaryUrl)
       .then(s => {
         if (!s) return
@@ -510,5 +597,19 @@ if (processedCard) {
 
   refreshBtn.addEventListener('click', load)
   windowSel.addEventListener('change', load)
+  applyFilterBtn.addEventListener('click', load)
+  clearFilterBtn.addEventListener('click', () => {
+    outcomeFilterSel.value = ''
+    headerFilterInput.value = ''
+    load()
+  })
+  // Outcome pills also act as quick filters
+  document.querySelectorAll('.outcome-pill').forEach(el => {
+    el.addEventListener('click', () => {
+      const o = el.dataset.outcome
+      outcomeFilterSel.value = (outcomeFilterSel.value === o) ? '' : o
+      load()
+    })
+  })
   load()
 }

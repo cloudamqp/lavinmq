@@ -1,16 +1,18 @@
+require "amq-protocol"
 require "file_utils"
 require "./bool_channel"
 
 module LavinMQ
-  # Append-only log of per-ack metadata for one queue. Receives records from
-  # the ack hot path through a bounded channel, flushes them to per-queue
-  # segment files on a background fiber, and exposes query/summary reads.
+  # Append-only log of per-ack/terminal-event metadata for one queue.
+  # Receives records from the ack/reject/expire hot paths through a bounded
+  # channel, flushes them to per-queue segment files on a background fiber,
+  # and exposes query/summary reads.
   #
-  # The log is observability state, not protocol state — it is leader-only,
-  # not replicated, and writes are not fsync'd. Retention is time-based.
+  # The log is observability state, not protocol state -- leader-only, not
+  # replicated, writes are not fsync'd. Retention is time-based.
   class ProcessedLog
     MAGIC                    = "PRLG".to_slice
-    VERSION                  = 1_u32
+    VERSION                  = 2_u32
     HEADER_SIZE              = 4 + 4 + 8 + 8 # magic + version + first_ts + last_ts
     FILE_PREFIX              = "processed."
     FLUSH_INTERVAL           = 1.second
@@ -19,17 +21,30 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "processed_log"
 
+    # What happened to the message. Stored as one byte; values are stable
+    # on disk so order matters.
+    enum Outcome : UInt8
+      Ack           = 0
+      Reject        = 1
+      Expired       = 2
+      DeliveryLimit = 3
+      Maxlen        = 4
+    end
+
     record Record,
       ack_ts_ms : Int64,
       latency_ms : Int64,
       payload_size : UInt32,
       redelivery_count : UInt32,
+      outcome : Outcome,
       exchange : String,
       routing_key : String,
-      consumer_tag : String
+      consumer_tag : String,
+      headers : AMQ::Protocol::Table?
 
     record Summary,
       count : UInt64,
+      outcomes : Hash(String, UInt64), # Outcome.to_s.downcase => count
       latency_p50 : Int64,
       latency_p95 : Int64,
       latency_p99 : Int64,
@@ -56,12 +71,11 @@ module LavinMQ
       @stopped = BoolChannel.new(false)
       @last_retention_sweep = Time.instant
       @flusher_done = ::Channel(Nil).new
+      cleanup_incompatible_segments
       open_or_create_write_segment
       spawn run_flusher, name: "ProcessedLog flusher #{@data_dir}"
     end
 
-    # Non-blocking. Dropped (counted) when buffer is full so the ack path
-    # is never blocked by observability.
     def record(rec : Record) : Nil
       return if @closed.get(:relaxed)
       select
@@ -72,7 +86,9 @@ module LavinMQ
       end
     end
 
-    def query(from_ts : Int64, to_ts : Int64, offset : Int32, limit : Int32) : Array(Record)
+    def query(from_ts : Int64, to_ts : Int64, offset : Int32, limit : Int32,
+              outcome : Outcome? = nil,
+              header_match : Hash(String, String) = {} of String => String) : Array(Record)
       results = Array(Record).new
       skipped = 0
       each_segment_newest_first do |path|
@@ -81,6 +97,8 @@ module LavinMQ
         scan_segment(path) do |rec|
           next if rec.ack_ts_ms < from_ts
           next if rec.ack_ts_ms > to_ts
+          next if outcome && rec.outcome != outcome
+          next unless headers_match?(rec, header_match)
           records_in_segment << rec
         end
         records_in_segment.reverse_each do |rec|
@@ -95,7 +113,9 @@ module LavinMQ
       results
     end
 
-    def summary(from_ts : Int64, to_ts : Int64) : Summary
+    def summary(from_ts : Int64, to_ts : Int64,
+                outcome : Outcome? = nil,
+                header_match : Hash(String, String) = {} of String => String) : Summary
       count = 0_u64
       latencies = [] of Int64
       latency_sum = 0_i64
@@ -103,12 +123,17 @@ module LavinMQ
       redeliveries_max = 0_u32
       histogram = [0_u64, 0_u64, 0_u64, 0_u64]
       payload_sum = 0_u64
+      outcome_counts = Hash(String, UInt64).new(0_u64)
+      Outcome.each { |o| outcome_counts[o.to_s.downcase] = 0_u64 }
       each_segment_newest_first do |path|
         next unless segment_overlaps?(path, from_ts, to_ts)
         scan_segment(path) do |rec|
           next if rec.ack_ts_ms < from_ts
           next if rec.ack_ts_ms > to_ts
+          next if outcome && rec.outcome != outcome
+          next unless headers_match?(rec, header_match)
           count += 1
+          outcome_counts[rec.outcome.to_s.downcase] += 1
           if rec.latency_ms >= 0
             latencies << rec.latency_ms
             latency_sum += rec.latency_ms
@@ -122,6 +147,7 @@ module LavinMQ
       latencies.sort!
       Summary.new(
         count: count,
+        outcomes: outcome_counts,
         latency_p50: percentile(latencies, 0.50),
         latency_p95: percentile(latencies, 0.95),
         latency_p99: percentile(latencies, 0.99),
@@ -146,6 +172,16 @@ module LavinMQ
       close
       Dir.glob(File.join(@data_dir, "#{FILE_PREFIX}*")).each do |path|
         File.delete?(path)
+      end
+    end
+
+    private def headers_match?(rec : Record, header_match : Hash(String, String)) : Bool
+      return true if header_match.empty?
+      h = rec.headers
+      return false unless h
+      header_match.all? do |key, val|
+        v = h[key]?
+        v && v.to_s == val
       end
     end
 
@@ -232,6 +268,27 @@ module LavinMQ
       open_new_write_segment
     end
 
+    # Delete any pre-existing segments that aren't the current schema version.
+    # We just shipped v1; this throws away whatever the old binary wrote.
+    # Acceptable for PoC churn -- consumers haven't started depending on
+    # historical rows yet.
+    private def cleanup_incompatible_segments : Nil
+      return unless Dir.exists?(@data_dir)
+      Dir.glob(File.join(@data_dir, "#{FILE_PREFIX}*")).each do |path|
+        File.open(path, "r") do |f|
+          magic = Bytes.new(4)
+          if !f.read_fully?(magic) || magic != MAGIC
+            File.delete?(path)
+            next
+          end
+          version = UInt32.from_io(f, IO::ByteFormat::SystemEndian)
+          File.delete?(path) if version != VERSION
+        end
+      rescue
+        File.delete?(path)
+      end
+    end
+
     private def open_or_create_write_segment : Nil
       Dir.mkdir_p @data_dir unless Dir.exists?(@data_dir)
       ids = list_segment_ids
@@ -244,7 +301,6 @@ module LavinMQ
         file = File.new(path, "r+")
         @write_size = file.size.to_i64
         if @write_size < HEADER_SIZE
-          # corrupt/truncated header — start fresh segment after it
           file.close
           @write_segment_id += 1
           open_new_write_segment
@@ -289,12 +345,18 @@ module LavinMQ
       io.write_byte(ex_bytes.size.to_u8)
       io.write_byte(rk_bytes.size.to_u8)
       io.write_byte(ct_bytes.size.to_u8)
-      io.write_byte(0_u8)
+      io.write_byte(rec.outcome.value)
       io.write(ex_bytes)
       io.write(rk_bytes)
       io.write(ct_bytes)
+      if h = rec.headers
+        h.to_io(io, IO::ByteFormat::SystemEndian) # writes [size:UInt32][bytes]
+      else
+        io.write_bytes(0_u32, IO::ByteFormat::SystemEndian)
+      end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def scan_segment(path : String, & : Record -> Nil) : Nil
       File.open(path, "r") do |f|
         magic = Bytes.new(4)
@@ -311,21 +373,28 @@ module LavinMQ
           ex_len = f.read_byte || break
           rk_len = f.read_byte || break
           ct_len = f.read_byte || break
-          f.skip(1) # reserved
+          outcome_byte = f.read_byte || break
+          outcome = Outcome.from_value?(outcome_byte) || Outcome::Ack
           ex_buf = Bytes.new(ex_len)
           rk_buf = Bytes.new(rk_len)
           ct_buf = Bytes.new(ct_len)
           f.read_fully(ex_buf) if ex_len > 0
           f.read_fully(rk_buf) if rk_len > 0
           f.read_fully(ct_buf) if ct_len > 0
+          headers_size = UInt32.from_io(f, IO::ByteFormat::SystemEndian)
+          headers = if headers_size > 0
+                      AMQ::Protocol::Table.from_io(f, IO::ByteFormat::SystemEndian, headers_size)
+                    end
           yield Record.new(
             ack_ts_ms: ack_ts,
             latency_ms: latency,
             payload_size: payload_size,
             redelivery_count: redel,
+            outcome: outcome,
             exchange: String.new(ex_buf),
             routing_key: String.new(rk_buf),
             consumer_tag: String.new(ct_buf),
+            headers: headers,
           )
         end
       end

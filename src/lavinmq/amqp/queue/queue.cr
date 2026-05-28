@@ -216,12 +216,16 @@ module LavinMQ::AMQP
     end
 
     # Read API used by the HTTP controller.
-    def processed_query(from_ts : Int64, to_ts : Int64, offset : Int32, limit : Int32) : Array(ProcessedLog::Record)
-      @processed_log.try(&.query(from_ts, to_ts, offset, limit)) || [] of ProcessedLog::Record
+    def processed_query(from_ts : Int64, to_ts : Int64, offset : Int32, limit : Int32,
+                        outcome : ProcessedLog::Outcome? = nil,
+                        header_match : Hash(String, String) = {} of String => String) : Array(ProcessedLog::Record)
+      @processed_log.try(&.query(from_ts, to_ts, offset, limit, outcome, header_match)) || [] of ProcessedLog::Record
     end
 
-    def processed_summary(from_ts : Int64, to_ts : Int64) : ProcessedLog::Summary?
-      @processed_log.try &.summary(from_ts, to_ts)
+    def processed_summary(from_ts : Int64, to_ts : Int64,
+                          outcome : ProcessedLog::Outcome? = nil,
+                          header_match : Hash(String, String) = {} of String => String) : ProcessedLog::Summary?
+      @processed_log.try &.summary(from_ts, to_ts, outcome, header_match)
     end
 
     private def start : Bool
@@ -738,11 +742,14 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      if sp.has_dlx? || @dead_letter.dlx
+      if sp.has_dlx? || @dead_letter.dlx || record_terminal_event?(reason)
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason, dlx_tasks)
       else
+        # No DLX configured and the reason is one we don't record
+        # separately (e.g. :rejected, already recorded by Channel#do_reject);
+        # skip the envelope load and just delete.
         delete_message sp
       end
     end
@@ -751,10 +758,48 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-
+      record_terminal_event(env, reason) if record_terminal_event?(reason)
       @dead_letter.route(msg, reason, dlx_tasks) do
         delete_message sp
       end
+    end
+
+    # Channel#do_reject records the Reject outcome itself, so we skip
+    # :rejected here to avoid double-counting.
+    private def record_terminal_event?(reason : Symbol) : Bool
+      case reason
+      when :expired, :delivery_limit, :maxlen, :maxlenbytes
+        true
+      else
+        false
+      end
+    end
+
+    private def record_terminal_event(env : Envelope, reason : Symbol) : Nil
+      outcome = case reason
+                when :expired        then ProcessedLog::Outcome::Expired
+                when :delivery_limit then ProcessedLog::Outcome::DeliveryLimit
+                when :maxlen         then ProcessedLog::Outcome::Maxlen
+                when :maxlenbytes    then ProcessedLog::Outcome::Maxlen
+                else                      return
+                end
+      msg = env.message
+      sp = env.segment_position
+      event_ts = RoughTime.unix_ms
+      latency = msg.timestamp > 0 ? event_ts - msg.timestamp : -1_i64
+      delivery_count = @deliveries.fetch(sp, 0)
+      redelivery_count = delivery_count > 1 ? (delivery_count - 1).to_u32 : 0_u32
+      record_processed(ProcessedLog::Record.new(
+        ack_ts_ms: event_ts,
+        latency_ms: latency,
+        payload_size: msg.bodysize.to_u32,
+        redelivery_count: redelivery_count,
+        outcome: outcome,
+        exchange: msg.exchange_name,
+        routing_key: msg.routing_key,
+        consumer_tag: "",
+        headers: msg.properties.headers,
+      ))
     end
 
     private def expire_queue : Bool

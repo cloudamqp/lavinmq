@@ -70,12 +70,14 @@ module LavinMQ
               bad_request(context, "Processed log not available for this queue type")
             end
             from_ts, to_ts = parse_processed_range(context)
+            outcome = parse_processed_outcome(context)
+            header_match = parse_processed_header_filters(context)
             offset = (context.request.query_params["offset"]?.try &.to_i?) || 0
             limit = (context.request.query_params["limit"]?.try &.to_i?) || 100
             limit = 1000 if limit > 1000
             limit = 1 if limit < 1
             offset = 0 if offset < 0
-            records = q.processed_query(from_ts, to_ts, offset, limit)
+            records = q.processed_query(from_ts, to_ts, offset, limit, outcome, header_match)
             JSON.build(context.response) do |json|
               json.array do
                 records.each { |r| processed_record_to_json(r, json) }
@@ -95,7 +97,9 @@ module LavinMQ
               bad_request(context, "Processed log not available for this queue type")
             end
             from_ts, to_ts = parse_processed_range(context)
-            summary = q.processed_summary(from_ts, to_ts)
+            outcome = parse_processed_outcome(context)
+            header_match = parse_processed_header_filters(context)
+            summary = q.processed_summary(from_ts, to_ts, outcome, header_match)
             JSON.build(context.response) do |json|
               if summary
                 processed_summary_to_json(summary, from_ts, to_ts, json)
@@ -348,15 +352,40 @@ module LavinMQ
         {from_ts, to_ts}
       end
 
+      private def parse_processed_outcome(context) : LavinMQ::ProcessedLog::Outcome?
+        raw = context.request.query_params["outcome"]?
+        return nil if raw.nil? || raw.empty?
+        LavinMQ::ProcessedLog::Outcome.parse?(raw)
+      end
+
+      private def parse_processed_header_filters(context) : Hash(String, String)
+        result = {} of String => String
+        context.request.query_params.each do |key, value|
+          if key.starts_with?("header.")
+            header_key = key.lchop("header.")
+            result[header_key] = value unless header_key.empty?
+          end
+        end
+        result
+      end
+
       private def processed_record_to_json(rec : LavinMQ::ProcessedLog::Record, json : JSON::Builder) : Nil
         json.object do
           json.field "ack_ts", rec.ack_ts_ms
           json.field "latency_ms", rec.latency_ms
           json.field "payload_size", rec.payload_size
           json.field "redelivery_count", rec.redelivery_count
+          json.field "outcome", rec.outcome.to_s.downcase
           json.field "exchange", rec.exchange
           json.field "routing_key", rec.routing_key
           json.field "consumer_tag", rec.consumer_tag
+          json.field "headers" do
+            if h = rec.headers
+              h.to_json(json)
+            else
+              json.object { }
+            end
+          end
         end
       end
 
@@ -365,6 +394,11 @@ module LavinMQ
           json.field "from", from_ts
           json.field "to", to_ts
           json.field "count", s.count
+          json.field "outcomes" do
+            json.object do
+              s.outcomes.each { |name, count| json.field name, count }
+            end
+          end
           json.field "latency" do
             json.object do
               json.field "p50", s.latency_p50

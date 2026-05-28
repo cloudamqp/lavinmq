@@ -127,22 +127,64 @@
           </div>
         </div>
         <p class="card-desc">
-          Successful acks recorded by this queue, persisted to disk per-queue
-          alongside the message store. Latency is measured from the message's
-          publish timestamp to the ack time. Retention is configurable
-          (default 24h), leader-only — not replicated to followers. The ack
-          path is never blocked; under burst the metadata buffer may drop
-          (see <em>Dropped (buffer)</em>).
+          Every terminal event for messages on this queue — acks, rejects
+          (no-requeue), TTL expirations, delivery-limit hits, and max-length
+          drops — recorded to disk per-queue alongside the message store.
+          Latency is measured from the message's publish timestamp to the
+          event time. Retention is configurable (default 24h), leader-only —
+          not replicated. The ack/reject path is never blocked; under burst
+          the metadata buffer may drop (see <em>Metadata buffer drops</em>).
           <span id="processed-updated" class="muted"></span>
         </p>
         <div id="processed-empty" class="processed-empty hide">
-          <p>No acked messages in this window.</p>
-          <small>Try a longer window, or send + ack a message to populate this view.</small>
+          <p>No recorded events in this window.</p>
+          <small>Try a longer window, or send + ack/reject a message to populate this view.</small>
         </div>
         <div id="processed-content">
+          <div class="processed-outcomes" id="processed-outcomes">
+            <div class="outcome-pill outcome-ack" data-outcome="ack" title="Successful acks">
+              <span class="outcome-label">Ack</span>
+              <span class="outcome-value" id="processed-outcome-ack">0</span>
+            </div>
+            <div class="outcome-pill outcome-reject" data-outcome="reject" title="basic.nack / basic.reject with requeue=false">
+              <span class="outcome-label">Reject</span>
+              <span class="outcome-value" id="processed-outcome-reject">0</span>
+            </div>
+            <div class="outcome-pill outcome-expired" data-outcome="expired" title="Message TTL elapsed before consumption">
+              <span class="outcome-label">Expired</span>
+              <span class="outcome-value" id="processed-outcome-expired">0</span>
+            </div>
+            <div class="outcome-pill outcome-deliverylimit" data-outcome="deliverylimit" title="x-delivery-limit reached after retries">
+              <span class="outcome-label">Delivery limit</span>
+              <span class="outcome-value" id="processed-outcome-deliverylimit">0</span>
+            </div>
+            <div class="outcome-pill outcome-maxlen" data-outcome="maxlen" title="Dropped due to queue max-length or max-length-bytes policy">
+              <span class="outcome-label">Maxlen drop</span>
+              <span class="outcome-value" id="processed-outcome-maxlen">0</span>
+            </div>
+          </div>
+          <div class="processed-filters">
+            <label>
+              <span>Outcome</span>
+              <select class="dropdown" id="processed-filter-outcome">
+                <option value="">All</option>
+                <option value="ack">Ack</option>
+                <option value="reject">Reject</option>
+                <option value="expired">Expired</option>
+                <option value="deliverylimit">Delivery limit</option>
+                <option value="maxlen">Maxlen drop</option>
+              </select>
+            </label>
+            <label class="header-filter">
+              <span>Header filter <small class="muted">(format: <code>key=value</code>, comma-separated)</small></span>
+              <input type="text" id="processed-filter-headers" placeholder="x-tenant=acme, x-region=eu">
+            </label>
+            <button type="button" class="btn btn-outlined" id="processed-apply-filter">Apply</button>
+            <button type="button" class="btn btn-link" id="processed-clear-filter">Clear</button>
+          </div>
           <div class="processed-summary">
             <div class="stat stat-primary">
-              <span class="stat-label">Acks in window</span>
+              <span class="stat-label">Events in window</span>
               <span class="stat-value" id="processed-count">–</span>
               <span class="stat-sub" id="processed-throughput">– /s</span>
             </div>
@@ -171,10 +213,10 @@
               <span class="stat-value" id="processed-retries-avg">–</span>
               <span class="stat-sub">max <span id="processed-retries-max">–</span></span>
             </div>
-            <div class="stat" id="processed-dropped-stat" title="Records dropped because the in-memory buffer was full at the moment of the ack. The ack itself was never blocked.">
-              <span class="stat-label">Dropped (buffer)</span>
+            <div class="stat" id="processed-dropped-stat" title="The ack hot path is non-blocking, so when this metadata buffer is full the broker drops the observability record and keeps acking. This counter is just the missed-records tally — no messages are lost.">
+              <span class="stat-label">Metadata buffer drops</span>
               <span class="stat-value" id="processed-dropped">–</span>
-              <span class="stat-sub">cumulative</span>
+              <span class="stat-sub">observability only, no message loss</span>
             </div>
           </div>
           <div class="processed-histogram">
@@ -204,17 +246,20 @@
           </div>
           <div class="table-wrapper">
             <div id="processed-error"></div>
-            <div class="table-subheader"><h4>Recent acks (newest first)</h4></div>
+            <div class="table-subheader"><h4>Recent events (newest first)</h4></div>
             <table id="processed-table" class="table">
               <thead>
                 <tr>
-                  <th class="left">When</th>
+                  <th class="left">Published</th>
+                  <th class="left">Acked / left</th>
+                  <th class="left">Outcome</th>
                   <th class="right">Latency</th>
                   <th class="right">Retries</th>
                   <th class="left">Exchange</th>
                   <th class="left">Routing key</th>
                   <th class="left">Consumer</th>
                   <th class="right">Payload</th>
+                  <th class="left">Headers</th>
                 </tr>
               </thead>
               <tbody></tbody>
