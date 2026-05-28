@@ -178,7 +178,7 @@ module LavinMQ
           store_definition(f) if !loading && f.durable && !f.exclusive
           @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name)
+          if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
             unless @vhost.closed?
               @exchanges.each_value do |ex|
                 ex.bindings_details.each do |binding|
