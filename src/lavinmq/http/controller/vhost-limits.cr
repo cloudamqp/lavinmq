@@ -40,10 +40,10 @@ module LavinMQ
           context
         end
 
-        delete "/api/vhost-limits/:name/:type" do |context, params|
+        delete "/api/vhost-limits/:vhost/:type" do |context, params|
           context.response.status_code = 400
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params, vhost_key: "name") do |vhost|
+          with_vhost(context, params) do |vhost|
             case params["type"]
             when "max-connections"
               context.response.status_code = 204
