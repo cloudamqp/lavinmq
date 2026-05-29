@@ -96,6 +96,7 @@ describe LavinMQ::Config do
           socket_buffer_size = 32768
           tcp_nodelay = true
           segment_size = 16777216
+          sync = false
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
@@ -179,6 +180,7 @@ describe LavinMQ::Config do
       config.socket_buffer_size.should eq 32768
       config.tcp_nodelay?.should be_true
       config.segment_size.should eq 16777216
+      config.sync?.should be_false
       config.tcp_keepalive.should eq({120, 20, 5})
       config.tcp_recv_buffer_size.should eq 65536
       config.tcp_send_buffer_size.should eq 65536
@@ -281,6 +283,7 @@ describe LavinMQ::Config do
       "--default-user=cliuser",
       "--default-user-only-loopback=false",
       "--no-data-dir-lock",
+      "--no-sync",
       "--clustering",
       "--raise-gc-warn",
       "--clustering-advertised-uri=lavinmq://test:5679",
@@ -319,6 +322,7 @@ describe LavinMQ::Config do
     config.default_user.should eq "cliuser"
     config.default_user_only_loopback?.should be_false
     config.data_dir_lock?.should be_false
+    config.sync?.should be_false
     config.clustering?.should be_true
     config.raise_gc_warn?.should be_true
     config.clustering_advertised_uri.should eq "lavinmq://test:5679"

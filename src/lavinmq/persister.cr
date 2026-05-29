@@ -32,6 +32,7 @@ module LavinMQ
     end
 
     def sync : Nil
+      return unless Config.instance.sync?
       {% if flag?(:linux) %}
         ret = LibC.syncfs(@data_dir_fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
