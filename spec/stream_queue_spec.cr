@@ -312,7 +312,8 @@ describe LavinMQ::AMQP::Stream do
           q.message_count.should eq 2
           sleep 1.1.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -328,7 +329,8 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("mlb", "stream-max-length-bytes-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -344,7 +346,8 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("ml", "stream-max-length-policy", "queues",
             {"max-length" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -369,7 +372,8 @@ describe LavinMQ::AMQP::Stream do
           3.times { q.publish_confirm data }
           s.vhosts["/"].add_policy("mlb", "stream-delivery-limit-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
           # Now apply delivery-limit. Pre-fix this spawned drop_redelivered
           # and crashed; post-fix it's skipped entirely.
           s.vhosts["/"].add_policy("dl", "stream-delivery-limit-policy", "queues",
