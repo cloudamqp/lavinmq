@@ -252,3 +252,23 @@ GetQueueMessagesRequestBody:
       type: string
     requeue:
       type: boolean
+StreamQueueMessagesRequestBody:
+  type: object
+  properties:
+    count:
+      type: integer
+      default: 1
+      description: Maximum number of messages to return.
+    offset:
+      type: string
+      default: first
+      description: Where to start reading. Accepts "first", "next", "last", a numeric offset, or a timestamp.
+    encoding:
+      type: string
+      default: auto
+      enum:
+      - auto
+      - base64
+    truncate:
+      type: integer
+      description: Truncate payloads to this number of bytes.
