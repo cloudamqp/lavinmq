@@ -14,6 +14,7 @@ module LavinMQ::Raft
     @stop_signal = ::Channel(Nil).new
     @tick_done = ::Channel(Nil).new
     @stopping = false
+    @actions = ::Channel({-> Bool, ::Channel(Bool)}).new(64)
 
     getter node_id : UInt64
     getter state_machine : ClusterStateMachine
@@ -58,18 +59,26 @@ module LavinMQ::Raft
     end
 
     def bootstrap : Bool
-      @node.bootstrap
+      run_on_tick { @node.bootstrap }
     end
 
     # Adds a node as a learner. raft.cr auto-promotes it to a voter once it has
     # caught up with the leader's log (see Node#maybe_promote_learner), so no
     # explicit promotion call is needed.
     def add_server(node_id : UInt64, address : String) : Bool
-      @node.add_server(node_id, address)
+      run_on_tick { @node.add_server(node_id, address) }
     end
 
     def propose(cmd : ClusterCommand) : Bool
-      @node.propose(cmd)
+      run_on_tick { @node.propose(cmd) }
+    end
+
+    private def run_on_tick(&block : -> Bool) : Bool
+      raise "Raft::Server not started" unless @started
+      raise "Raft::Server stopping" if @stopping
+      reply = ::Channel(Bool).new(1)
+      @actions.send({block, reply})
+      reply.receive
     end
 
     def leader_id : UInt64?
@@ -94,10 +103,20 @@ module LavinMQ::Raft
     end
 
     private def tick_loop : Nil
+      # FIXME: `timeout(50.ms)` in `select` only fires when no other case is
+      # ready. Under sustained inbox/actions load (e.g. a future per-queue
+      # data-plane Node), @node.tick would be starved and the node would miss
+      # heartbeats / election timeouts. For the current low-frequency
+      # metadata inbox this is harmless. When a high-frequency Raft node
+      # lands, replace this with a dedicated tick-timer fiber sending on a
+      # buffered(1) channel that competes fairly with the other select cases.
       loop do
         select
         when msg = @node.inbox.receive
           @node.step(msg)
+        when item = @actions.receive
+          action, reply = item
+          reply.send(action.call)
         when @stop_signal.receive?
           break
         when timeout(50.milliseconds)
@@ -108,7 +127,6 @@ module LavinMQ::Raft
         end
       end
     rescue ::Channel::ClosedError
-      # inbox closed externally — exit cleanly
     ensure
       @node.close
       @tick_done.close
