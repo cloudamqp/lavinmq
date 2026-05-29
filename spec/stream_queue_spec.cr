@@ -688,6 +688,44 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "cleanup_consumer_offsets does not overflow with many consumer offsets" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+
+        # Enough fixed-width entries that the summed size exceeds
+        # Int32::MAX // 1000 (~2.1 MB), which overflowed the old `capacity * 1000`.
+        tag_prefix = "c" * 240
+        entry_size = (tag_prefix.bytesize + 5) + 1 + 8
+        count = Int32::MAX // 1000 // entry_size + 2
+        count.times do |i|
+          msg_store.store_consumer_offset("#{tag_prefix}#{i.to_s.rjust(5, '0')}", i.to_i64)
+        end
+
+        msg_store.cleanup_consumer_offsets # raised OverflowError before the fix
+        msg_store.close
+      end
+    end
+
+    it "ConsumerOffsets.trim_to_size drops the oldest offsets when over the cap" do
+      # {consumer_tag, offset, file_position}; higher position == more recent.
+      # Each entry is 6 + 1 + 8 = 15 bytes.
+      tracked_offsets = [
+        {"oldest", 1_i64, 0_i64},
+        {"middle", 2_i64, 100_i64},
+        {"newest", 3_i64, 200_i64},
+      ]
+      # 30-byte cap fits one entry (`>=` stays strictly below), keeps newest only.
+      kept = LavinMQ::AMQP::ConsumerOffsets.trim_to_size(tracked_offsets, max_size: 30_i64)
+      kept.map(&.first).should eq ["newest"]
+
+      # Larger cap keeps more, oldest-first, still dropping the oldest.
+      kept = LavinMQ::AMQP::ConsumerOffsets.trim_to_size(tracked_offsets, max_size: 45_i64)
+      kept.map(&.first).should eq ["middle", "newest"]
+    end
+
     it "runs cleanup when removing segment" do
       consumer_tag = "ctag-1"
       queue_name = Random::Secure.hex
