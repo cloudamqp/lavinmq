@@ -190,6 +190,9 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property processed_log_buffer_capacity : Int32 = 4096
 
+      @[IniOpt(section: "main")]
+      property? processed_log_default_enabled : Bool = false
+
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 

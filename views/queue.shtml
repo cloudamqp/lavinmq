@@ -114,6 +114,13 @@
             <small class="tiny-badge counter-pill" id="processed-window-label">last 1h</small>
           </h2>
           <div class="table-actions">
+            <label class="processed-toggle">
+              <span>Recording</span>
+              <span class="switch">
+                <input type="checkbox" id="processed-toggle">
+                <span class="slider"></span>
+              </span>
+            </label>
             <label>
               <span>Window</span>
               <select class="dropdown" id="processed-window">
@@ -134,8 +141,13 @@
           event time. Retention is configurable (default 24h), leader-only —
           not replicated. The ack/reject path is never blocked; under burst
           the metadata buffer may drop (see <em>Metadata buffer drops</em>).
+          Recording is off by default — enable it per queue with the toggle above.
           <span id="processed-updated" class="muted"></span>
         </p>
+        <div id="processed-disabled" class="processed-empty hide">
+          <p>Recording is off for this queue.</p>
+          <small>Flip the <strong>Recording</strong> switch above to start capturing ack / reject / expire events. Turning it off again deletes the recorded history.</small>
+        </div>
         <div id="processed-empty" class="processed-empty hide">
           <p>No recorded events in this window.</p>
           <small>Try a longer window, or send + ack/reject a message to populate this view.</small>

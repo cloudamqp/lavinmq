@@ -234,6 +234,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q1")
           server_q = s.vhosts["/"].queue("plog_q1").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           q.publish "hi"
           wait_for { server_q.message_count == 1 }
           q.subscribe(no_ack: false) do |msg|
@@ -255,6 +256,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q2")
           server_q = s.vhosts["/"].queue("plog_q2").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           q.publish "via-get"
           wait_for { server_q.message_count == 1 }
           msg = q.get(no_ack: false)
@@ -273,6 +275,7 @@ describe LavinMQ::ProcessedLog do
           ch.prefetch 1
           q = ch.queue("plog_q3")
           server_q = s.vhosts["/"].queue("plog_q3").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           q.publish "retry-me"
           wait_for { server_q.message_count == 1 }
           attempts = 0
@@ -298,6 +301,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q4")
           server_q = s.vhosts["/"].queue("plog_q4").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           q.publish "drop"
           wait_for { server_q.message_count == 1 }
           q.subscribe(no_ack: false) do |msg|
@@ -317,6 +321,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q_expire")
           server_q = s.vhosts["/"].queue("plog_q_expire").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           props = AMQP::Client::Properties.new(expiration: "1") # 1 ms TTL
           q.publish("expire-me", props: props)
           wait_for(timeout: 3.seconds) {
@@ -334,6 +339,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q_headers")
           server_q = s.vhosts["/"].queue("plog_q_headers").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           headers = AMQP::Client::Arguments.new({"x-tenant" => "acme", "x-region" => "eu"})
           q.publish("hello", props: AMQP::Client::Properties.new(headers: headers))
           wait_for { server_q.message_count == 1 }
@@ -367,6 +373,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q5")
           server_q = s.vhosts["/"].queue("plog_q5").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           q.publish "one"
           wait_for { server_q.message_count == 1 }
           q.subscribe(no_ack: false) do |msg|
@@ -389,6 +396,7 @@ describe LavinMQ::ProcessedLog do
         with_channel(s) do |ch|
           q = ch.queue("plog_q_filter")
           server_q = s.vhosts["/"].queue("plog_q_filter").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
           h1 = AMQP::Client::Arguments.new({"x-tenant" => "acme"})
           h2 = AMQP::Client::Arguments.new({"x-tenant" => "other"})
           q.publish("a", props: AMQP::Client::Properties.new(headers: h1))
@@ -402,6 +410,109 @@ describe LavinMQ::ProcessedLog do
           body = JSON.parse(response.body).as_a
           body.size.should eq 1
           body[0]["headers"]["x-tenant"].as_s.should eq "acme"
+        end
+      end
+    end
+  end
+
+  describe "per-queue opt-in toggle" do
+    it "does not record by default" do
+      with_http_server do |_http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("plog_optin_default")
+          server_q = s.vhosts["/"].queue("plog_optin_default").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enabled?.should be_false
+          q.publish "x"
+          wait_for { server_q.message_count == 1 }
+          q.subscribe(no_ack: false, &.ack)
+          # Give any (non-existent) flusher a beat; nothing should be recorded.
+          sleep 0.2.seconds
+          server_q.processed_query(0_i64, RoughTime.unix_ms + 1_000, 0, 10).size.should eq 0
+          Dir.glob(File.join(server_q.data_dir, "processed.*")).size.should eq 0
+        end
+      end
+    end
+
+    it "records after enable and writes a marker file" do
+      with_http_server do |_http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("plog_optin_enable")
+          server_q = s.vhosts["/"].queue("plog_optin_enable").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
+          server_q.processed_log_enabled?.should be_true
+          File.exists?(File.join(server_q.data_dir, "processed_log.enabled")).should be_true
+          q.publish "x"
+          wait_for { server_q.message_count == 1 }
+          q.subscribe(no_ack: false, &.ack)
+          wait_for { server_q.processed_query(0_i64, RoughTime.unix_ms + 1_000, 0, 10).size == 1 }
+        end
+      end
+    end
+
+    it "deletes history and stops recording on disable" do
+      with_http_server do |_http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("plog_optin_disable")
+          server_q = s.vhosts["/"].queue("plog_optin_disable").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
+          q.publish "x"
+          wait_for { server_q.message_count == 1 }
+          q.subscribe(no_ack: false, &.ack)
+          wait_for { server_q.processed_query(0_i64, RoughTime.unix_ms + 1_000, 0, 10).size == 1 }
+          server_q.processed_log_disable
+          server_q.processed_log_enabled?.should be_false
+          Dir.glob(File.join(server_q.data_dir, "processed.*")).size.should eq 0
+          File.exists?(File.join(server_q.data_dir, "processed_log.enabled")).should be_false
+          server_q.processed_query(0_i64, RoughTime.unix_ms + 1_000, 0, 10).size.should eq 0
+        end
+      end
+    end
+
+    it "honors the marker across a queue restart" do
+      with_http_server do |_http, s|
+        with_channel(s) do |ch|
+          ch.queue("plog_optin_restart", durable: true)
+          server_q = s.vhosts["/"].queue("plog_optin_restart").as(LavinMQ::AMQP::Queue)
+          server_q.processed_log_enable
+          server_q.close
+          server_q.restart!
+          server_q.processed_log_enabled?.should be_true
+        end
+      end
+    end
+
+    it "toggles via the HTTP endpoint" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("plog_optin_http")
+          server_q = s.vhosts["/"].queue("plog_optin_http").as(LavinMQ::AMQP::Queue)
+
+          # Summary reports disabled before enabling.
+          response = http.get("/api/queues/%2f/plog_optin_http/processed/summary")
+          response.status_code.should eq 200
+          JSON.parse(response.body)["enabled"].as_bool.should be_false
+
+          response = http.put("/api/queues/%2f/plog_optin_http/processed-log", body: %({"enabled": true}))
+          response.status_code.should eq 204
+          server_q.processed_log_enabled?.should be_true
+
+          response = http.get("/api/queues/%2f/plog_optin_http/processed/summary")
+          JSON.parse(response.body)["enabled"].as_bool.should be_true
+
+          response = http.put("/api/queues/%2f/plog_optin_http/processed-log", body: %({"enabled": false}))
+          response.status_code.should eq 204
+          server_q.processed_log_enabled?.should be_false
+        end
+      end
+    end
+
+    it "rejects the toggle endpoint for stream queues" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+          ch.queue("plog_optin_stream", args: args)
+          response = http.put("/api/queues/%2f/plog_optin_stream/processed-log", body: %({"enabled": true}))
+          response.status_code.should eq 400
         end
       end
     end

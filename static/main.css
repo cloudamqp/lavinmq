@@ -2830,6 +2830,54 @@ pre.arguments .inactive-argument:before {
   align-items: end;
 }
 
+.processed-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(127, 127, 127, 0.35);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.switch .slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.switch input:checked + .slider {
+  background: #46aa5a;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
 .processed-outcomes {
   display: flex;
   flex-wrap: wrap;

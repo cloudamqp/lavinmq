@@ -104,9 +104,39 @@ module LavinMQ
               if summary
                 processed_summary_to_json(summary, from_ts, to_ts, json)
               else
-                json.object { }
+                # Recording disabled for this queue: report that explicitly so
+                # the UI can render the off-state in a single request.
+                json.object do
+                  json.field "enabled", false
+                  json.field "from", from_ts
+                  json.field "to", to_ts
+                  json.field "count", 0
+                end
               end
             end
+          end
+        end
+
+        put "/api/queues/:vhost/:name/processed-log" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_policymaker(context, user, vhost)
+            q = find_queue(context, params, vhost)
+            if q.is_a?(LavinMQ::AMQP::Stream)
+              bad_request(context, "Stream queues do not record processed messages")
+            end
+            unless q.is_a?(LavinMQ::AMQP::Queue)
+              bad_request(context, "Processed log not available for this queue type")
+            end
+            body = parse_body(context)
+            enabled = body["enabled"]?.try(&.as_bool?)
+            bad_request(context, "Field 'enabled' (boolean) is required") if enabled.nil?
+            if enabled
+              q.processed_log_enable
+            else
+              q.processed_log_disable
+            end
+            context.response.status_code = 204
           end
         end
 
@@ -391,6 +421,7 @@ module LavinMQ
 
       private def processed_summary_to_json(s : LavinMQ::ProcessedLog::Summary, from_ts : Int64, to_ts : Int64, json : JSON::Builder) : Nil
         json.object do
+          json.field "enabled", true
           json.field "from", from_ts
           json.field "to", to_ts
           json.field "count", s.count

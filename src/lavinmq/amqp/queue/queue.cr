@@ -201,13 +201,49 @@ module LavinMQ::AMQP
       start
     end
 
-    # Stream queues override this to disable processed-log recording.
+    private def processed_log_marker : String
+      File.join(@data_dir, "processed_log.enabled")
+    end
+
+    # Recording is opt-in per queue. A queue records only when its marker
+    # file exists, or when the broker default is on. Stream queues override
+    # this to always return nil.
     protected def build_processed_log : ProcessedLog?
       config = Config.instance
+      return nil unless config.processed_log_default_enabled? || File.exists?(processed_log_marker)
       ProcessedLog.new(@data_dir,
         config.processed_log_retention_ms,
         config.processed_log_segment_size,
         config.processed_log_buffer_capacity)
+    end
+
+    def processed_log_enabled? : Bool
+      !@processed_log.nil?
+    end
+
+    # Turn on recording for this queue: drop a durable marker so it survives
+    # restart, then construct the log. Serialized against disable/close.
+    def processed_log_enable : Nil
+      @msg_store_lock.synchronize do
+        return if @processed_log || @closed
+        File.touch(processed_log_marker)
+        @vhost.@replicator.try &.replace_file(processed_log_marker) if durable?
+        @processed_log = build_processed_log
+      end
+    end
+
+    # Turn off recording and delete all recorded history for this queue.
+    # Serialized against enable/close. The hot path reads @processed_log as a
+    # single pointer load, so it sees either the live log or nil.
+    def processed_log_disable : Nil
+      @msg_store_lock.synchronize do
+        log = @processed_log
+        @processed_log = nil
+        log.try &.close
+        log.try &.delete_files
+        File.delete?(processed_log_marker)
+        @vhost.@replicator.try &.delete_file(processed_log_marker) if durable?
+      end
     end
 
     # Used by ack hot path. Drops on full buffer; never blocks.
@@ -526,6 +562,7 @@ module LavinMQ::AMQP
       # released file handles. Files are unlinked alongside other queue
       # files when the directory is cleaned up below.
       Dir.glob(File.join(@data_dir, "processed.*")).each { |p| File.delete?(p) }
+      File.delete?(processed_log_marker)
       if durable?
         @vhost.@replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
@@ -571,6 +608,7 @@ module LavinMQ::AMQP
         effective_arguments:          @effective_args,
         effective_policy_arguments:   effective_policy_args,
         internal:                     internal?,
+        processed_log_enabled:        processed_log_enabled?,
       }
     end
 

@@ -387,6 +387,8 @@ if (processedCard) {
   const headerFilterInput = document.getElementById('processed-filter-headers')
   const applyFilterBtn = document.getElementById('processed-apply-filter')
   const clearFilterBtn = document.getElementById('processed-clear-filter')
+  const toggle = document.getElementById('processed-toggle')
+  const disabledState = document.getElementById('processed-disabled')
 
   const OUTCOME_KEY = {
     ack: 'ack',
@@ -565,6 +567,19 @@ if (processedCard) {
     })
   }
 
+  function showDisabled () {
+    toggle.checked = false
+    disabledState.classList.remove('hide')
+    contentBox.classList.add('hide')
+    emptyState.classList.add('hide')
+    updatedLabel.textContent = ''
+  }
+
+  function showEnabled () {
+    toggle.checked = true
+    disabledState.classList.add('hide')
+  }
+
   function load () {
     errorBox.textContent = ''
     const windowMs = parseInt(windowSel.value, 10)
@@ -586,14 +601,42 @@ if (processedCard) {
     HTTP.request('GET', summaryUrl)
       .then(s => {
         if (!s) return
+        if (s.enabled === false) {
+          showDisabled()
+          return
+        }
+        showEnabled()
         renderSummary(s, windowMs)
         updatedLabel.textContent = ' Updated ' + fmtTsAbsolute(Date.now()) + '.'
+        HTTP.request('GET', rowsUrl)
+          .then(rows => { if (rows) renderRows(rows) })
+          .catch(e => { errorBox.textContent = 'Rows error: ' + (e.message || e) })
       })
       .catch(e => { errorBox.textContent = 'Summary error: ' + (e.message || e) })
-    HTTP.request('GET', rowsUrl)
-      .then(rows => { if (rows) renderRows(rows) })
-      .catch(e => { errorBox.textContent = 'Rows error: ' + (e.message || e) })
   }
+
+  function setRecording (enabled) {
+    const url = HTTP.url`api/queues/${vhost}/${queue}/processed-log`
+    HTTP.request('PUT', url, { body: { enabled: enabled } })
+      .then(() => {
+        DOM.toast(enabled ? 'Recording enabled' : 'Recording disabled — history deleted')
+        load()
+      })
+      .catch(e => {
+        errorBox.textContent = 'Toggle error: ' + (e.message || e)
+        load() // resync the switch with server state
+      })
+  }
+
+  toggle.addEventListener('change', () => {
+    if (toggle.checked) {
+      setRecording(true)
+    } else if (window.confirm('Turn off recording? This deletes all recorded history for this queue.')) {
+      setRecording(false)
+    } else {
+      toggle.checked = true // user cancelled; keep it on
+    }
+  })
 
   refreshBtn.addEventListener('click', load)
   windowSel.addEventListener('change', load)
