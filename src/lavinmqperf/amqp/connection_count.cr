@@ -13,8 +13,8 @@ module LavinMQPerf
       @done = Channel(Int32).new(100)
       @random = Random.new
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-x count", "--count=number", "Number of connections (default 100)") do |v|
           @connections = v.to_i
         end

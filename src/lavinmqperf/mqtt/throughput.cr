@@ -27,8 +27,8 @@ module LavinMQPerf
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
           @publishers = v.to_i
         end

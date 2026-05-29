@@ -1,5 +1,26 @@
 require "./spec_helper"
 
+def fill_segment_with_one_extra_byte(q, queue_name : String, mfile : MFile) : Nil
+  body = "a" * 4096
+  message_size = LavinMQ::Message.new("", queue_name, body).bytesize.to_i64
+  message_overhead = message_size - body.bytesize
+  segment_size = LavinMQ::Config.instance.segment_size.to_i64
+
+  while mfile.size < (segment_size - message_size * 2)
+    q.publish_confirm body
+  end
+  remaining_body_size = segment_size - mfile.size - message_overhead - 1
+  remaining_body_size.should be > 0
+  q.publish_confirm "a" * remaining_body_size.to_i
+
+  # Publish one more message to create a new segment, then pad the first
+  # segment by one byte to emulate a preallocated file after a crash.
+  q.publish_confirm body
+  File.open(mfile.path, "r+") do |f|
+    f.truncate(segment_size)
+  end
+end
+
 describe LavinMQ::AMQP::DurableQueue do
   context "after migration between index version 2 to 3" do
     before_each do
@@ -111,21 +132,7 @@ describe LavinMQ::AMQP::DurableQueue do
         queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
-        # fill up one segment
-        message_size = 41
-        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
-          q.publish_confirm "a"
-        end
-        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
-        q.publish_confirm "a" * remaining_size
-
-        # publish one more message to create a new segment
-        q.publish_confirm "a"
-
-        # resize first segment to LavinMQ::Config.instance.segment_size
-        File.open(mfile.path, "r+") do |f|
-          f.truncate(LavinMQ::Config.instance.segment_size)
-        end
+        fill_segment_with_one_extra_byte(q, queue_name, mfile)
 
         # read messages, should not raise any error
         q.subscribe(tag: "tag", no_ack: false, &.ack)
@@ -143,21 +150,7 @@ describe LavinMQ::AMQP::DurableQueue do
         queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
-        # fill up one segment
-        message_size = 41
-        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
-          q.publish_confirm "a"
-        end
-        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
-        q.publish_confirm "a" * remaining_size
-
-        # publish one more message to create a new segment
-        q.publish_confirm "a"
-
-        # resize first segment to LavinMQ::Config.instance.segment_size
-        File.open(mfile.path, "r+") do |f|
-          f.truncate(LavinMQ::Config.instance.segment_size)
-        end
+        fill_segment_with_one_extra_byte(q, queue_name, mfile)
 
         store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
         mfile = store.@segments.first_value

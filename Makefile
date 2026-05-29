@@ -98,9 +98,12 @@ js: $(JS)
 .PHONY: deps
 deps: js lib views
 
+lib/ameba/bin/ameba:
+	shards install
+
 .PHONY: lint
-lint: lib
-	lib/ameba/bin/ameba src/ spec/
+lint: lib/ameba/bin/ameba
+	$< src/ spec/
 
 .PHONY: lint-js
 lint-js:

@@ -199,6 +199,17 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "DELETE /api/vhost-limits/vhost/type" do
+    it "clears the limit" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_connections = 100
+        response = http.delete("/api/vhost-limits/%2f/max-connections")
+        response.status_code.should eq 204
+        s.vhosts["/"].max_connections.should be_nil
+      end
+    end
+  end
+
   describe "Pagination" do
     it "should page results" do
       with_http_server do |http, _|

@@ -10,8 +10,8 @@ module LavinMQPerf
       @no_wait = false
       @args = ::AMQP::Client::Arguments.new
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-q queues", "--queues=number", "Number of queues (default 100)") do |v|
           @queues = v.to_i
         end

@@ -47,9 +47,9 @@ describe "LavinMQPerf" do
 
     it "should fail with invalid argument" do
       io = IO::Memory.new
-      throughput = LavinMQPerf::AMQP::Throughput.new(io)
+      throughput = LavinMQPerf::AMQP::Throughput.new(io, io)
 
-      # abort writes to STDERR and calls exit, which raises SpecExit in tests
+      # abort writes to err_io and calls exit, which raises SpecExit in tests
       expect_raises(SpecExit) do
         throughput.run(["--invalid-flag"])
       end
@@ -158,9 +158,9 @@ describe "LavinMQPerf" do
 
     it "should fail with invalid argument" do
       io = IO::Memory.new
-      throughput = LavinMQPerf::MQTT::Throughput.new(io)
+      throughput = LavinMQPerf::MQTT::Throughput.new(io, io)
 
-      # abort writes to STDERR and calls exit, which raises SpecExit in tests
+      # abort writes to err_io and calls exit, which raises SpecExit in tests
       expect_raises(SpecExit) do
         throughput.run(["--invalid-flag"])
       end

@@ -369,25 +369,24 @@ describe LavinMQ::Server do
         args["x-max-length"] = 2
         q = ch.queue "", durable: false, exclusive: true, args: args
         mch = Channel(AMQP::Client::DeliverMessage).new(10)
+        ack = Channel(Nil).new
         ch.prefetch 1
         q.subscribe(no_ack: false) do |msg|
           mch.send msg
-          sleep 0.2.seconds
+          ack.receive
           msg.ack
         end
-        10.times do |i|
+        q.publish_confirm "0"
+        mch.receive.body_io.to_s.should eq "0"
+        1.upto(9) do |i|
           q.publish_confirm i.to_s
         end
-        mch.close
-        if m = mch.receive?
-          m.body_io.to_s.should eq "0"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "8"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "9"
-        end
+        wait_for { s.vhosts["/"].queue(q.name).message_count == 2 }
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "8"
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "9"
+        ack.send nil
       end
     end
   end
