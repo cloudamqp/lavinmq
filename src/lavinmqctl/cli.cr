@@ -16,6 +16,7 @@ class LavinMQCtl
   @parser = OptionParser.new
   @http : HTTP::Client?
   @io : IO
+  @err_io : IO
 
   USER_CMDS = {
     {"add_user", "Creates a new user", "<username> <password>"},
@@ -79,7 +80,7 @@ class LavinMQCtl
     {"start_app", "Starts the AMQP broker", ""},
   }
 
-  def initialize(@io : IO = STDOUT)
+  def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
@@ -284,10 +285,10 @@ class LavinMQCtl
     @parser.banner = @banner
   end
 
-  # Override the top-level `abort` so error output goes through `@io`
-  # (STDOUT by default, captured IO in specs) instead of STDERR.
+  # Override the top-level `abort` so error output goes through `@err_io`
+  # (STDERR by default, a captured IO in specs) and can be redirected.
   private def abort(message = nil, status = 1) : NoReturn
-    @io.puts message if message
+    @err_io.puts message if message
     exit status
   end
 
