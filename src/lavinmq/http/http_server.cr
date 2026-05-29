@@ -23,11 +23,15 @@ module LavinMQ
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
       def initialize(@amqp_server : LavinMQ::Server)
+        oauth_authenticator = @amqp_server.authenticator.as?(Auth::Chain)
+          .try(&.backends.select(Auth::OAuthAuthenticator).first?)
         handlers = [
+          (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server),
           ViewsController.new,
           StaticController.new,
+          oauth_authenticator && OAuthController.new(oauth_authenticator),
           AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
@@ -49,8 +53,7 @@ module LavinMQ
           ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
-        ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
+        ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @http = ::HTTP::Server.new(handlers)
       end
 

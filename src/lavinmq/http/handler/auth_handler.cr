@@ -10,11 +10,11 @@ module LavinMQ
       end
 
       def call(context)
+        return call_next(context) if context.user
+
         if internal_unix_socket?(context)
           context.user = @direct_user
-        end
-
-        if auth = cookie_auth(context) || basic_auth(context)
+        elsif auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if user = authenticate(username, password, context.request.remote_address)
             context.user = user
