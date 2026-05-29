@@ -6,47 +6,45 @@ module LavinMQ::Raft
   class ClusterStateMachine < ::Raft::StateMachine(ClusterCommand)
     SNAPSHOT_VERSION = 1_u8
 
-    # The Atomic ClusterState IS the canonical state. There are no local
-    # @secret / @isr fields to keep in sync — apply reads the current snapshot,
-    # constructs a new one, publishes it.
-    @snapshot = Atomic(ClusterState).new(ClusterState::EMPTY)
+    # Mutex-serialized. apply mutates @secret/@isr under the lock; readers
+    # acquire the lock and return references. Apply must REPLACE these fields
+    # (not mutate in place) so previously-returned references stay stable.
+    @mutex = Mutex.new
+    @secret = ""
+    @isr = Set(UInt64).new
 
-    # Cross-thread-safe accessor: atomic load of the latest published snapshot.
-    # Use this when you need multiple fields consistent.
+    # Consistent multi-field snapshot.
     def state : ClusterState
-      @snapshot.get(:acquire)
+      @mutex.synchronize { ClusterState.new(@secret, @isr) }
     end
 
-    # Convenience shortcuts; each is one atomic load through `state`.
     def secret : String
-      state.secret
+      @mutex.synchronize { @secret }
     end
 
     def isr : Set(UInt64)
-      state.isr
+      @mutex.synchronize { @isr }
     end
 
     def apply(entry : ClusterCommand) : Nil
-      current = @snapshot.get
-      new_state = case entry
-                  in ClusterCommand::SetSecret
-                    ClusterState.new(entry.secret, current.isr)
-                  in ClusterCommand::SetIsr
-                    ClusterState.new(current.secret, entry.node_ids.dup)
-                  in ClusterCommand
-                    raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
-                  end
-      @snapshot.set(new_state, :release)
+      @mutex.synchronize do
+        case entry
+        in ClusterCommand::SetSecret then @secret = entry.secret
+        in ClusterCommand::SetIsr    then @isr = entry.node_ids.dup
+        in ClusterCommand            then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
+        end
+      end
     end
 
     def snapshot(io : IO) : Nil
-      s = @snapshot.get
-      fmt = IO::ByteFormat::LittleEndian
-      io.write_bytes(SNAPSHOT_VERSION, fmt)
-      io.write_bytes(s.secret.bytesize.to_u32, fmt)
-      io.write(s.secret.to_slice)
-      io.write_bytes(s.isr.size.to_u32, fmt)
-      s.isr.each { |id| io.write_bytes(id, fmt) }
+      @mutex.synchronize do
+        fmt = IO::ByteFormat::LittleEndian
+        io.write_bytes(SNAPSHOT_VERSION, fmt)
+        io.write_bytes(@secret.bytesize.to_u32, fmt)
+        io.write(@secret.to_slice)
+        io.write_bytes(@isr.size.to_u32, fmt)
+        @isr.each { |id| io.write_bytes(id, fmt) }
+      end
     end
 
     def restore(io : IO) : Nil
@@ -60,7 +58,10 @@ module LavinMQ::Raft
       isr_count = io.read_bytes(UInt32, fmt)
       isr = Set(UInt64).new(initial_capacity: isr_count.to_i32)
       isr_count.times { isr.add(io.read_bytes(UInt64, fmt)) }
-      @snapshot.set(ClusterState.new(secret, isr), :release)
+      @mutex.synchronize do
+        @secret = secret
+        @isr = isr
+      end
     end
 
     class InvalidSnapshotVersion < Exception
