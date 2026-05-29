@@ -207,7 +207,10 @@ module LavinMQ::Raft
         Log.info { "Migrated clustering id: base-36 #{raw} (decimal #{id}) → .raft_node_id" }
         id
       else
-        id = Random::Secure.rand(UInt64)
+        # Cap to Int32::MAX so the id fits the existing Clustering::Client wire
+        # protocol (still Int32-keyed). The full UInt64 range becomes available
+        # once the wire protocol widens — a future slice.
+        id = Random::Secure.rand(Int32::MAX).to_u64
         File.write(raft_path, id.to_s)
         Log.info { "Generated new raft node id #{id}" }
         id
