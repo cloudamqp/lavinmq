@@ -135,7 +135,7 @@ module LavinMQ
             routed = vhost.publish(msg).routed?
             env = nil
             vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = routed && env && String.new(env.message.as(BytesMessage).body) == "test"
+            ok = routed && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end

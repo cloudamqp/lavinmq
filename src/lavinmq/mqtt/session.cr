@@ -165,9 +165,7 @@ module LavinMQ
       end
 
       def build_packet(env, packet_id) : MQTT::Publish
-        # MQTT sessions are backed by regular queues, not stream queues, so
-        # env.message is always a BytesMessage with an in-memory body slice.
-        msg = env.message.as(BytesMessage)
+        msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1

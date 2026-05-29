@@ -75,10 +75,7 @@ module LavinMQ::AMQP
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
         while env = old_store.shift?
-          # The pre-priority store is a regular MessageStore — its envelopes
-          # are always BytesMessage; cast so the union doesn't leak into
-          # MFile#write_bytes (which requires a to_io-capable value).
-          push env.message.as(BytesMessage)
+          push env.message
           Fiber.yield if ((i &+= 1) % 8096).zero?
         end
         if size != msg_count

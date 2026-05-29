@@ -17,12 +17,6 @@ module LavinMQ
       @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
-      # Per-consumer read FD for the current segment. Sequential decoding from
-      # this FD lets `file.pos` track the consumer's logical position, so the
-      # delivery hot path doesn't need pread/read_at and the body bytes never
-      # have to be copied off mmap.
-      @segment_file : File? = nil
-      @segment_file_id : UInt32 = 0_u32
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -107,28 +101,12 @@ module LavinMQ
             @log.debug { "Getting a new message" }
           {% end %}
           stream_queue.consume_get(self) do |env|
-            # If delivery fails (socket closed, IO error, frame encode error),
-            # `Client#deliver` returns false without finishing the body read.
-            # `consumer.pos` has already been advanced past the message in
-            # `shift?`, so the consumer's FD position is now `bodysize` bytes
-            # behind — silently iterating again would decode body bytes as a
-            # message header and close the queue. Exit the loop so the `ensure`
-            # block closes `@segment_file`; the connection cleanup will close
-            # this consumer.
-            raise ClosedError.new unless deliver(env.message, env.segment_position, env.redelivered)
+            deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
-      ensure
-        # @segment_file is owned by this fiber; close it here so a concurrent
-        # `close` from the channel/connection fiber can't yank the FD out from
-        # under a mid-flight read. (Doing so would surface as IO::Error: Closed
-        # stream inside `shift?`, which `Stream#get` treats as unrecoverable
-        # and uses to close the whole queue.)
-        @segment_file.try(&.close)
-        @segment_file = nil
       end
 
       private def wait_for_queue_ready
@@ -175,31 +153,7 @@ module LavinMQ
 
       def close
         @new_message_available.close
-        # @segment_file is closed by `deliver_loop`'s ensure block — it owns
-        # the FD. Closing here would race against an in-flight `from_io`.
         super
-      end
-
-      # Return the consumer's open `File` for `@segment`, lazily opening it and
-      # closing any previously-open segment FD. On segment rollover the caller
-      # (`StreamMessageStore#next_segment`) has already reset `@pos` to 4 (past
-      # the schema-version header); we seek to `@pos` here so the next read
-      # starts at the right offset.
-      def segment_file_for(store : StreamMessageStore) : File
-        if (f = @segment_file) && @segment_file_id == @segment
-          return f
-        end
-        @segment_file.try(&.close)
-        f = File.new(store.segment_path(@segment), "r")
-        # Default `read_buffering = true` would prefetch bytes from beyond the
-        # current write position; later appends via the producer's mmap would
-        # then be masked by stale zeros in our buffer until the buffer
-        # invalidated. Read straight through to the page cache instead.
-        f.read_buffering = false
-        f.pos = @pos.to_i64
-        @segment_file = f
-        @segment_file_id = @segment
-        f
       end
 
       def filter_match?(msg_headers) : Bool

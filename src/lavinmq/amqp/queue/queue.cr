@@ -726,7 +726,7 @@ module LavinMQ::AMQP
     private def time_to_message_expiration : Time::Span?
       env = @msg_store_lock.synchronize { @msg_store.first? } || return
       @log.debug { "Checking if message #{env.message} has to be expired" }
-      if expire_at = expire_at(env.message.as(BytesMessage))
+      if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
           expire_in.milliseconds
@@ -767,7 +767,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         loop do
           env = @msg_store.first? || break
-          msg = env.message.as(BytesMessage)
+          msg = env.message
           break unless has_expired?(msg)
           env = @msg_store.shift? || break
           (victims ||= [] of Envelope) << detach_envelope(env)
@@ -790,10 +790,7 @@ module LavinMQ::AMQP
 
     private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
       sp = env.segment_position
-      # Non-stream queues only ever hold BytesMessage envelopes; the dead-
-      # letter path needs in-memory body bytes to re-encode the message into a
-      # publish.
-      msg = env.message.as(BytesMessage)
+      msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
       @dead_letter.route(msg, reason, dlx_tasks) do
@@ -839,7 +836,7 @@ module LavinMQ::AMQP
       raise ClosedError.new if closed?
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-        if has_expired?(env.message.as(BytesMessage)) # guarantee to not deliver expired messages
+        if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
         end
