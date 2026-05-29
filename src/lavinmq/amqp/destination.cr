@@ -1,5 +1,5 @@
 require "./exchange/exchange"
-require "./queue"
+require "./queue/queue"
 
 module LavinMQ
   module AMQP
