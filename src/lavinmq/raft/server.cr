@@ -1,6 +1,7 @@
 require "raft"
 require "../bool_channel"
 require "./cluster_command"
+require "./cluster_state"
 require "./cluster_state_machine"
 
 module LavinMQ::Raft
@@ -72,6 +73,18 @@ module LavinMQ::Raft
     # The node ids currently in the voting set (learners excluded).
     def voters : Array(UInt64)
       @node.voters.map(&.id)
+    end
+
+    def state : ClusterState
+      @state_machine.state
+    end
+
+    def secret : String
+      @state_machine.secret
+    end
+
+    def isr : Set(UInt64)
+      @state_machine.isr
     end
 
     private def tick_loop : Nil

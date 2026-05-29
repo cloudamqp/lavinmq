@@ -214,4 +214,25 @@ describe LavinMQ::Raft::Server do
       end
     end
   end
+
+  describe "state accessors" do
+    it "exposes the state-machine snapshot via Server#state" do
+      with_single_node do |server|
+        server.bootstrap.should be_true
+        select
+        when server.is_leader.when_true.receive
+        when timeout(2.seconds)
+          fail "timed out"
+        end
+        server.propose(LavinMQ::Raft::ClusterCommand::SetSecret.new("hi")).should be_true
+        deadline = Time.instant + 2.seconds
+        until server.state.secret == "hi"
+          fail "timed out" if Time.instant > deadline
+          Fiber.yield
+        end
+        server.secret.should eq "hi"
+        server.isr.should be_empty
+      end
+    end
+  end
 end
