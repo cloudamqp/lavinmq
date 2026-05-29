@@ -269,7 +269,7 @@ body.login main {
   padding: 1.5rem;
 
   pre {
-    font-family: monospace; 
+    font-family: monospace;
     white-space: pre;
     color: var(--color-text-primary);
   }
