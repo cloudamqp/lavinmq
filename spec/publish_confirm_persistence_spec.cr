@@ -70,6 +70,17 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  it "confirms immediately when sync is disabled" do
+    LavinMQ::Config.instance.sync = false
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("no_sync_confirm")
+        100.times { |i| q.publish_confirm "message #{i}" }
+        s.vhosts["/"].queue(q.name).message_count.should eq 100
+      end
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.
