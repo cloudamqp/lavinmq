@@ -14,6 +14,7 @@ module LavinMQ::Raft
     @stop_signal = ::Channel(Nil).new
     @tick_done = ::Channel(Nil).new
     @stopping = false
+    # Backpressure buffer; run_on_tick callers block when full. Tick fiber drains.
     @actions = ::Channel({-> Bool, ::Channel(Bool)}).new(64)
 
     getter node_id : UInt64
@@ -55,6 +56,7 @@ module LavinMQ::Raft
       @stopping = true
       @stop_signal.close
       @tick_done.receive? if @started
+      @actions.close
       @is_leader.close
     end
 
@@ -73,11 +75,19 @@ module LavinMQ::Raft
       run_on_tick { @node.propose(cmd) }
     end
 
+    # Marshal a mutating Node call onto the tick fiber's thread.
+    # NOTE: callbacks fired by the tick fiber (on_role_change,
+    # on_configuration_applied) MUST NOT call back into this method — the tick
+    # fiber would be blocked waiting on its own actions channel. Deadlock.
     private def run_on_tick(&block : -> Bool) : Bool
       raise "Raft::Server not started" unless @started
       raise "Raft::Server stopping" if @stopping
       reply = ::Channel(Bool).new(1)
-      @actions.send({block, reply})
+      begin
+        @actions.send({block, reply})
+      rescue ::Channel::ClosedError
+        raise "Raft::Server stopping"
+      end
       reply.receive
     end
 
@@ -116,7 +126,14 @@ module LavinMQ::Raft
           @node.step(msg)
         when item = @actions.receive
           action, reply = item
-          reply.send(action.call)
+          begin
+            reply.send(action.call)
+          rescue ex
+            # Don't crash the tick fiber on an action's exception; surface false
+            # to the caller (semantically "didn't happen") and log.
+            reply.send(false)
+            Log.error(exception: ex) { "action raised in tick loop: #{ex.message}" }
+          end
         when @stop_signal.receive?
           break
         when timeout(50.milliseconds)
