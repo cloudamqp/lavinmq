@@ -5,10 +5,11 @@ module LavinMQPerf
   class Perf
     @uri = URI.parse "amqp://guest:guest@localhost"
     @io : IO
+    @err_io : IO
     getter mqtt_banner
     getter amqp_banner
 
-    def initialize(@io : IO = STDOUT)
+    def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
       @parser = OptionParser.new
       @amqp_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
       @mqtt_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput]"
@@ -25,6 +26,13 @@ module LavinMQPerf
 
     def run(args = ARGV)
       @parser.parse(args)
+    end
+
+    # Override the top-level `abort` so error output goes through `@err_io`
+    # (STDERR by default, a captured IO in specs) and can be redirected.
+    private def abort(message = nil, status = 1) : NoReturn
+      @err_io.puts message if message
+      exit status
     end
 
     macro build_flags

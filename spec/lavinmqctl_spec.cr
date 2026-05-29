@@ -4,6 +4,7 @@ require "../src/lavinmqctl/cli"
 # Helper to run lavinmqctl commands against test server
 def run_lavinmqctl(http_addr : String, argv : Array(String))
   stdout_capture = IO::Memory.new
+  stderr_capture = IO::Memory.new
   stderr = ""
   exit_code = 0
 
@@ -12,7 +13,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
     ARGV.clear
     ARGV.concat(["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"]).concat(argv)
 
-    cli = LavinMQCtl.new(stdout_capture)
+    cli = LavinMQCtl.new(stdout_capture, stderr_capture)
     cli.run_cmd
   rescue ex
     stderr = ex.message.to_s
@@ -24,7 +25,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
 
   {
     stdout: stdout_capture.to_s,
-    stderr: stderr,
+    stderr: stderr_capture.to_s + stderr,
     exit:   exit_code,
   }
 end
