@@ -293,6 +293,7 @@ describe LavinMQ::Raft::Server do
           data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
         )
         server.node_id.should be > 0_u64
+        server.node_id.should be <= Int32::MAX.to_u64
         File.exists?(File.join(dir, ".raft_node_id")).should be_true
         server.stop
       ensure
