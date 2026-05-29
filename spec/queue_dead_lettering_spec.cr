@@ -1116,5 +1116,18 @@ module DeadLetteringSpec
         end
       end
     end
+
+    describe "CC header handling" do
+      it "strips CC header from dead-lettered message when x-dead-letter-routing-key is set" do
+        with_dead_lettering_setup do |q, dlq, ch, _|
+          props = AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({"CC" => ["extra-rk"]}))
+          ch.default_exchange.publish_confirm("msg", q.name, props: props)
+          q.get(no_ack: false).try &.reject(requeue: false)
+          msg = wait_for { dlq.get(no_ack: true) }
+          msg.should_not be_nil
+          msg.not_nil!.properties.headers.try(&.[]?("CC")).should be_nil
+        end
+      end
+    end
   end
 end
