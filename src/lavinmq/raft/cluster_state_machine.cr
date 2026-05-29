@@ -1,32 +1,52 @@
 require "raft"
 require "./cluster_command"
+require "./cluster_state"
 
 module LavinMQ::Raft
   class ClusterStateMachine < ::Raft::StateMachine(ClusterCommand)
     SNAPSHOT_VERSION = 1_u8
 
-    getter secret : String = ""
-    getter isr : Set(UInt64) = Set(UInt64).new
+    # The Atomic ClusterState IS the canonical state. There are no local
+    # @secret / @isr fields to keep in sync — apply reads the current snapshot,
+    # constructs a new one, publishes it.
+    @snapshot = Atomic(ClusterState).new(ClusterState::EMPTY)
+
+    # Cross-thread-safe accessor: atomic load of the latest published snapshot.
+    # Use this when you need multiple fields consistent.
+    def state : ClusterState
+      @snapshot.get(:acquire)
+    end
+
+    # Convenience shortcuts; each is one atomic load through `state`.
+    def secret : String
+      state.secret
+    end
+
+    def isr : Set(UInt64)
+      state.isr
+    end
 
     def apply(entry : ClusterCommand) : Nil
-      case entry
-      in ClusterCommand::SetSecret then @secret = entry.secret
-      in ClusterCommand::SetIsr    then @isr = entry.node_ids.dup
-        # The abstract base is unreachable (never instantiated), but Crystal requires
-        # it in the exhaustive `case` when ClusterCommand is a generic type argument
-        # (Raft::StateMachine(ClusterCommand)). Raise loudly so a future concrete
-        # variant added without its own branch fails here rather than being ignored.
-      in ClusterCommand then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
-      end
+      current = @snapshot.get
+      new_state = case entry
+                  in ClusterCommand::SetSecret
+                    ClusterState.new(entry.secret, current.isr)
+                  in ClusterCommand::SetIsr
+                    ClusterState.new(current.secret, entry.node_ids.dup)
+                  in ClusterCommand
+                    raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
+                  end
+      @snapshot.set(new_state, :release)
     end
 
     def snapshot(io : IO) : Nil
+      s = @snapshot.get
       fmt = IO::ByteFormat::LittleEndian
       io.write_bytes(SNAPSHOT_VERSION, fmt)
-      io.write_bytes(@secret.bytesize.to_u32, fmt)
-      io.write(@secret.to_slice)
-      io.write_bytes(@isr.size.to_u32, fmt)
-      @isr.each { |id| io.write_bytes(id, fmt) }
+      io.write_bytes(s.secret.bytesize.to_u32, fmt)
+      io.write(s.secret.to_slice)
+      io.write_bytes(s.isr.size.to_u32, fmt)
+      s.isr.each { |id| io.write_bytes(id, fmt) }
     end
 
     def restore(io : IO) : Nil
@@ -36,10 +56,11 @@ module LavinMQ::Raft
       secret_len = io.read_bytes(UInt32, fmt)
       buf = Bytes.new(secret_len)
       io.read_fully(buf)
-      @secret = String.new(buf)
+      secret = String.new(buf)
       isr_count = io.read_bytes(UInt32, fmt)
-      @isr.clear
-      isr_count.times { @isr.add(io.read_bytes(UInt64, fmt)) }
+      isr = Set(UInt64).new(initial_capacity: isr_count.to_i32)
+      isr_count.times { isr.add(io.read_bytes(UInt64, fmt)) }
+      @snapshot.set(ClusterState.new(secret, isr), :release)
     end
 
     class InvalidSnapshotVersion < Exception
