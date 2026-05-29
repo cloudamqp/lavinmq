@@ -24,15 +24,20 @@ module LavinMQ
     end
 
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      @pending_acks.lock do |acks|
-        acks[channel] = msgid
+      if Config.instance.sync?
+        @pending_acks.lock do |acks|
+          acks[channel] = msgid
+        end
+        @publish_confirm_requested.try_send true
+      else
+        # If sync is disabled, we can confirm immediately without waiting for
+        # the publish confirm loop to flush to disk.
+        channel.enqueue_confirm_ack(msgid)
       end
-      @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
     end
 
     def sync : Nil
-      return unless Config.instance.sync?
       {% if flag?(:linux) %}
         ret = LibC.syncfs(@data_dir_fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
