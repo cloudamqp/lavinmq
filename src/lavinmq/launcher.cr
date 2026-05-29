@@ -10,6 +10,8 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./clustering/etcd_coordinator"
+require "./raft/coordinator"
+require "./raft/runner"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -40,10 +42,18 @@ module LavinMQ
       end
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        @runner = controller = Clustering::Controller.new(@config, etcd)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        case @config.clustering_backend
+        when "etcd"
+          etcd = Etcd.new(@config.clustering_etcd_endpoints)
+          coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
+          @runner = controller = Clustering::Controller.new(@config, etcd)
+          @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        when "raft"
+          @runner = runner = LavinMQ::Raft::Runner.new(@config)
+          @replicator = Clustering::Server.new(@config, runner.coordinator, runner.node_id)
+        else
+          raise LavinMQ::Error.new("Invalid clustering_backend: #{@config.clustering_backend.inspect}")
+        end
       else
         @runner = StandaloneRunner.new
       end
@@ -63,7 +73,7 @@ module LavinMQ
       started_at = Time.instant
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server, @runner)
       load_definitions(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)

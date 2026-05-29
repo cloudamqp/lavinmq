@@ -1,10 +1,12 @@
 require "http/server"
 require "json"
+require "raft"
 require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
 require "../auth/user"
+require "../raft/runner"
 
 class HTTP::Server::Context
   property user : LavinMQ::Auth::BaseUser? = nil
@@ -22,7 +24,7 @@ module LavinMQ
       # different from the one we actually bound.
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
-      def initialize(@amqp_server : LavinMQ::Server)
+      def initialize(@amqp_server : LavinMQ::Server, runner = nil)
         oauth_authenticator =
           case auth = @amqp_server.authenticator
           when Auth::Chain
@@ -59,6 +61,13 @@ module LavinMQ
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
+        if raft_runner = runner.as?(LavinMQ::Raft::Runner)
+          handlers << ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand).new(
+            raft_runner.server.node,
+            raft_runner.transport,
+            raft_runner.advertised_address,
+          )
+        end
         @http = ::HTTP::Server.new(handlers)
       end
 
