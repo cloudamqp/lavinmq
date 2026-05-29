@@ -89,7 +89,7 @@ describe LavinMQ::Config, "deprecated options" do
       config_file = File.tempfile do |file|
         file.print "[#{section}]\n#{key} = #{forward[:value]}"
       end
-      config = LavinMQ::Config.new
+      config = LavinMQ::Config.new(IO::Memory.new)
       config.parse(["-c", config_file.path])
       actual = config.get_value(forward[:target])
       unless actual == forward[:value]
@@ -106,7 +106,7 @@ describe LavinMQ::Config, "deprecated options" do
     cli_info.each do |deprecated, flag|
       next unless forward = DEPRECATED_FORWARDS[deprecated]?
       clean_flag = flag.split("=").first
-      config = LavinMQ::Config.new
+      config = LavinMQ::Config.new(IO::Memory.new)
       config.parse([clean_flag, forward[:value]])
       actual = config.get_value(forward[:target])
       unless actual == forward[:value]

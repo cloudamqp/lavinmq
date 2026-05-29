@@ -27,6 +27,13 @@ module LavinMQPerf
       @parser.parse(args)
     end
 
+    # Override the top-level `abort` so error output goes through `@io`
+    # (STDOUT by default, captured IO in specs) instead of STDERR.
+    private def abort(message = nil, status = 1) : NoReturn
+      @io.puts message if message
+      exit status
+    end
+
     macro build_flags
       {%
         flags = [] of String

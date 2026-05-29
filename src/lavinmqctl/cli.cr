@@ -284,6 +284,13 @@ class LavinMQCtl
     @parser.banner = @banner
   end
 
+  # Override the top-level `abort` so error output goes through `@io`
+  # (STDOUT by default, captured IO in specs) instead of STDERR.
+  private def abort(message = nil, status = 1) : NoReturn
+    @io.puts message if message
+    exit status
+  end
+
   # ameba:disable Metrics/CyclomaticComplexity
   def run_cmd
     @parser.parse
