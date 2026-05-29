@@ -56,7 +56,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         resource_server_id = my-service
         CONFIG
       end
@@ -70,7 +70,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         preferred_username_claims = email, preferred_username, sub
         CONFIG
       end
@@ -84,7 +84,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         additional_scopes_keys = custom_permissions
         CONFIG
       end
@@ -98,7 +98,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         additional_scopes_keys = roles, permissions
         CONFIG
       end
@@ -112,7 +112,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         scope_prefix = mq.
         CONFIG
       end
@@ -126,7 +126,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         verify_aud = false
         CONFIG
       end
@@ -140,7 +140,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         audience = lavinmq-api
         CONFIG
       end
@@ -154,7 +154,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         jwks_cache_ttl = 7200
         CONFIG
       end
