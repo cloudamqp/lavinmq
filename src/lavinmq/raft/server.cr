@@ -16,6 +16,8 @@ module LavinMQ::Raft
     @stopping = false
     # Backpressure buffer; run_on_tick callers block when full. Tick fiber drains.
     @actions = ::Channel({-> Bool, ::Channel(Bool)}).new(64)
+    @on_leader_change : Proc(UInt64?, Nil)?
+    @last_observed_leader_id : UInt64? = nil
 
     getter node_id : UInt64
     getter state_machine : ClusterStateMachine
@@ -95,6 +97,10 @@ module LavinMQ::Raft
       @node.leader_id
     end
 
+    def on_leader_change(&block : UInt64? ->) : Nil
+      @on_leader_change = block
+    end
+
     # The node ids currently in the voting set (learners excluded).
     def voters : Array(UInt64)
       @node.voters.map(&.id)
@@ -141,6 +147,11 @@ module LavinMQ::Raft
         end
         @node.take_messages.each do |target_id, outbound|
           @transport.outbox.send({target_id, outbound})
+        end
+        current_leader = @node.leader_id
+        unless current_leader == @last_observed_leader_id
+          @last_observed_leader_id = current_leader
+          @on_leader_change.try &.call(current_leader)
         end
       end
     rescue ::Channel::ClosedError
