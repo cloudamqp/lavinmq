@@ -10,7 +10,7 @@ end
 
 private def with_single_node(&)
   dir = tmp_data_dir
-  File.write(File.join(dir, ".clustering_id"), "1")
+  File.write(File.join(dir, ".raft_node_id"), "1")
   transport = ::Raft::MemoryTransport.new(1_u64)
   server = LavinMQ::Raft::Server.new(
     data_dir: dir,
@@ -36,7 +36,7 @@ private def with_cluster(node_count : Int32 = 3, &)
   servers = ids.map do |id|
     dir = tmp_data_dir
     dirs << dir
-    File.write(File.join(dir, ".clustering_id"), id.to_s)
+    File.write(File.join(dir, ".raft_node_id"), id.to_s)
     LavinMQ::Raft::Server.new(
       data_dir: dir,
       advertised_address: "node#{id}:5680,node#{id}:5679",
@@ -247,6 +247,56 @@ describe LavinMQ::Raft::Server do
           fail "timed out waiting for leader-change callback" if Time.instant > deadline
           Fiber.yield
         end
+      end
+    end
+  end
+
+  describe "node_id sources" do
+    it "reads .raft_node_id when present (decimal)" do
+      dir = tmp_data_dir
+      begin
+        File.write(File.join(dir, ".raft_node_id"), "12345")
+        transport = ::Raft::MemoryTransport.new(12345_u64)
+        server = LavinMQ::Raft::Server.new(
+          data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
+        )
+        server.node_id.should eq 12345_u64
+        server.stop
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "migrates legacy base-36 .clustering_id to decimal .raft_node_id" do
+      dir = tmp_data_dir
+      begin
+        # "1f7a" base-36 == 66358 decimal
+        File.write(File.join(dir, ".clustering_id"), "1f7a")
+        transport = ::Raft::MemoryTransport.new(66358_u64)
+        server = LavinMQ::Raft::Server.new(
+          data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
+        )
+        server.node_id.should eq 66358_u64
+        File.read(File.join(dir, ".raft_node_id")).strip.should eq "66358"
+        File.exists?(File.join(dir, ".clustering_id")).should be_true # legacy preserved
+        server.stop
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "generates a fresh id when neither file exists" do
+      dir = tmp_data_dir
+      begin
+        transport = ::Raft::MemoryTransport.new(0_u64)
+        server = LavinMQ::Raft::Server.new(
+          data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
+        )
+        server.node_id.should be > 0_u64
+        File.exists?(File.join(dir, ".raft_node_id")).should be_true
+        server.stop
+      ensure
+        FileUtils.rm_rf(dir)
       end
     end
   end
