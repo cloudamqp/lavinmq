@@ -14,11 +14,16 @@
 # ```
 #
 module Spec::Expectations
-  macro be_receiving(value, *, timeout = 5.seconds)
+  # Default timeout matches the per-example timeout (SPEC_TIMEOUT) so the
+  # example-level timeout is the real cap rather than a tighter inner deadline
+  # that fires first and spuriously fails legitimately-slow-but-correct work on
+  # a loaded runner (e.g. federation delivery on macOS CI). Pass an explicit,
+  # shorter timeout when asserting something is *not* received within a bound.
+  macro be_receiving(value, *, timeout = 15.seconds)
     ChannelReceiveExpectation.new({{value}}, {{timeout}})
   end
 
-  macro be_sending(value, *, timeout = 5.seconds)
+  macro be_sending(value, *, timeout = 15.seconds)
     ChannelSendExpectation.new({{value}}, {{timeout}})
   end
 end

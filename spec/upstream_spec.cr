@@ -316,7 +316,10 @@ describe LavinMQ::Federation::Upstream do
         ds_queue = ds_vhost.queue(ds_queue_name).as(LavinMQ::AMQP::Queue)
 
         link = wait_for { upstream.links.first? }
-        loop { link.@state_changed.receive.try &.running? && break }
+        # Poll the state rather than waiting on @state_changed.receive: the link
+        # may already have transitioned to running before we start receiving, in
+        # which case that change is gone and the bare receive blocks forever.
+        wait_for { link.state.running? }
 
         us_queue = us_vhost.queue(us_queue_name).as(LavinMQ::AMQP::Queue)
 
@@ -479,7 +482,13 @@ describe LavinMQ::Federation::Upstream do
             wait_for { link.state.running? }
 
             us_queue = upstream_vhost.queue(link.@upstream_q).should be_a LavinMQ::AMQP::Queue
-            us_queue.consumers_empty.when_true.receive
+            # Wait until the federation link is actually consuming from the
+            # upstream queue (consumers_empty == false) before publishing, so
+            # msg1 is federated. consumers_empty is true when there are no
+            # consumers, so we wait on when_false. (Waiting on when_true here
+            # only ever returned immediately by racing the consumer attach —
+            # which hung indefinitely when the consumer attached first.)
+            us_queue.consumers_empty.when_false.should be_receiving nil
 
             upstream_ex.publish_confirm "msg1", "rk1"
             msgs.should be_receiving "msg1"

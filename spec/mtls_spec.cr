@@ -231,7 +231,5 @@ def with_mtls_amqp_server(file = __FILE__, line = __LINE__, &)
     yield port, s
   ensure
     s.close
-    FileUtils.rm_rf(config.data_dir)
-    LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
   end
 end

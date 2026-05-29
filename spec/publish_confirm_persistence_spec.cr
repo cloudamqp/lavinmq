@@ -77,9 +77,11 @@ describe "Publish Confirm Persistence" do
       with_channel(s) do |ch|
         q = ch.queue("multi_confirm_test")
         msgs = (1..100).map { |i| "msg #{i}" }
+        ch.confirm_select
         msgs.each do |m|
-          q.publish_confirm m
+          q.publish m
         end
+        ch.wait_for_confirms
       end
     end
   end
