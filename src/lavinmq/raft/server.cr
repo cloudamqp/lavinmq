@@ -177,16 +177,22 @@ module LavinMQ::Raft
 
     private def load_or_generate_node_id : UInt64
       Dir.mkdir_p(@data_dir)
-      path = File.join(@data_dir, ".clustering_id")
-      begin
-        # A non-decimal file (e.g. the legacy base-36 Int32 written by the etcd
-        # controller) raises ArgumentError here — intentional fail-loud. The
-        # launcher-integration slice must migrate existing ids before this runs.
-        File.read(path).strip.to_u64
-      rescue File::NotFoundError
+      raft_path = File.join(@data_dir, ".raft_node_id")
+      legacy_path = File.join(@data_dir, ".clustering_id")
+
+      if File.exists?(raft_path)
+        File.read(raft_path).strip.to_u64
+      elsif File.exists?(legacy_path)
+        raw = File.read(legacy_path).strip
+        legacy_int32 = raw.to_i32(36)
+        id = legacy_int32.to_u64
+        File.write(raft_path, id.to_s)
+        Log.info { "Migrated clustering id: base-36 #{raw} (decimal #{id}) → .raft_node_id" }
+        id
+      else
         id = Random::Secure.rand(UInt64)
-        File.write(path, id.to_s)
-        Log.info { "Generated new clustering id #{id}" }
+        File.write(raft_path, id.to_s)
+        Log.info { "Generated new raft node id #{id}" }
         id
       end
     end
