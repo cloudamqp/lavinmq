@@ -3,6 +3,6 @@ require "./queue/queue"
 
 module LavinMQ
   module AMQP
-    alias Destination = AMQP::Queue | AMQP::Exchange
+    alias Destination = Queue | Exchange
   end
 end
