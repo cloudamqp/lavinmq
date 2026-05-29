@@ -18,7 +18,7 @@ module LavinMQ::AMQP
         # mmap, but the lookup of @segments[segment] itself races with
         # drop_segments_while — hold @msg_store_lock for the duration of
         # the read so the segment can't be unmapped under us.
-        env = stream.@msg_store_lock.synchronize { store.read(segment, position) }
+        env = stream.@msg_store_lock.read { store.read(segment, position) }
         if env
           if headers = env.message.properties.headers
             headers["x-stream-offset"] = offset

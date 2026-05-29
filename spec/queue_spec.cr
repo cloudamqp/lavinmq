@@ -287,7 +287,7 @@ describe LavinMQ::AMQP::Queue do
         queue = vhost.queue("close-race").as(LavinMQ::AMQP::Queue)
 
         # Hold the lock so the publisher fiber blocks after the top check.
-        queue.@msg_store_lock.lock
+        queue.@msg_store_lock.lock_write
 
         publish_result = nil
         publish_error = nil
@@ -308,7 +308,7 @@ describe LavinMQ::AMQP::Queue do
         # underlying msg_store while we held the lock.
         queue.@closed.set(true, :release)
         queue.@msg_store.close
-        queue.@msg_store_lock.unlock
+        queue.@msg_store_lock.unlock_write
 
         done.receive
         publish_error.should be_nil

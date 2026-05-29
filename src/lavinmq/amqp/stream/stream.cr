@@ -62,7 +62,7 @@ module LavinMQ::AMQP
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
-          @msg_store_lock.synchronize do
+          @msg_store_lock.write do
             if current_max = stream_msg_store.max_age
               return false unless current_max > max_age_policy
             end
@@ -76,7 +76,7 @@ module LavinMQ::AMQP
       when "max-length"
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
-          @msg_store_lock.synchronize do
+          @msg_store_lock.write do
             stream_msg_store.max_length = @max_length
             @effective_args.delete("x-max-length")
             stream_msg_store.drop_overflow
@@ -87,7 +87,7 @@ module LavinMQ::AMQP
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
-          @msg_store_lock.synchronize do
+          @msg_store_lock.write do
             stream_msg_store.max_length_bytes = @max_length_bytes
             @effective_args.delete("x-max-length-bytes")
             stream_msg_store.drop_overflow
@@ -103,7 +103,7 @@ module LavinMQ::AMQP
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
     def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
-      @msg_store_lock.synchronize do
+      @msg_store_lock.read do
         stream_msg_store.find_offset(offset, tag, track_offset)
       end
     end
@@ -142,7 +142,7 @@ module LavinMQ::AMQP
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
       return PublishResult::Dropped if closed?
-      @msg_store_lock.synchronize do
+      @msg_store_lock.write do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
@@ -177,7 +177,7 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      @msg_store_lock.synchronize do
+      @msg_store_lock.write do
         stream_msg_store.store_consumer_offset(consumer_tag, offset)
       end
     end
@@ -187,7 +187,7 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
+      env = @msg_store_lock.read { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message
       true
     rescue ex : MessageStore::Error
@@ -219,7 +219,7 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      @msg_store_lock.synchronize do
+      @msg_store_lock.write do
         if max_age = parse_max_age(@arguments["x-max-age"]?)
           stream_msg_store.max_age = max_age
           @effective_args << "x-max-age"
@@ -254,7 +254,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store_lock.write { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
@@ -279,7 +279,7 @@ module LavinMQ::AMQP
           used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end
-      @msg_store_lock.synchronize do
+      @msg_store_lock.write do
         stream_msg_store.drop_overflow
         stream_msg_store.unmap_segments(except: used_segments)
       end

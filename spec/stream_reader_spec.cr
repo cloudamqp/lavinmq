@@ -86,7 +86,7 @@ describe LavinMQ::AMQP::StreamReader do
       # Drop every segment but the last while we still hold an env from the
       # first segment — without the fix, mmap is gone and the next body
       # access SIGSEGVs.
-      stream.@msg_store_lock.synchronize do
+      stream.@msg_store_lock.write do
         store = stream.stream_msg_store
         store.max_length_bytes = 1_i64
         store.drop_overflow
