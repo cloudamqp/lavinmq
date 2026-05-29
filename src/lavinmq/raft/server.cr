@@ -19,7 +19,7 @@ module LavinMQ::Raft
     @on_leader_change : Proc(UInt64?, Nil)?
     @last_observed_leader_id : UInt64? = nil
 
-    getter node_id : UInt64
+    getter node_id : Int32
     getter state_machine : ClusterStateMachine
     getter is_leader : BoolChannel
 
@@ -30,14 +30,14 @@ module LavinMQ::Raft
       @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext::Concurrent.new("raft"),
     )
       @node_id = load_or_generate_node_id
-      metrics = ::Raft::Metrics.new(node_id: @node_id, group_id: GROUP_ID)
+      metrics = ::Raft::Metrics.new(node_id: @node_id.to_u64, group_id: GROUP_ID)
       @state_machine = ClusterStateMachine.new
       @is_leader = BoolChannel.new(false)
       config = ::Raft::Config.new
       config.data_dir = File.join(@data_dir, "raft")
       Dir.mkdir_p(config.data_dir)
       @node = ::Raft::Node(ClusterCommand).new(
-        id: @node_id,
+        id: @node_id.to_u64,
         peers: [] of ::Raft::NodeID,
         config: config,
         state_machine: @state_machine,
@@ -71,8 +71,8 @@ module LavinMQ::Raft
     # Adds a node as a learner. raft.cr auto-promotes it to a voter once it has
     # caught up with the leader's log (see Node#maybe_promote_learner), so no
     # explicit promotion call is needed.
-    def add_server(node_id : UInt64, address : String) : Bool
-      run_on_tick { @node.add_server(node_id, address) }
+    def add_server(node_id : Int32, address : String) : Bool
+      run_on_tick { @node.add_server(node_id.to_u64, address) }
     end
 
     def propose(cmd : ClusterCommand) : Bool
@@ -131,7 +131,7 @@ module LavinMQ::Raft
       @state_machine.secret
     end
 
-    def isr : Set(UInt64)
+    def isr : Set(Int32)
       @state_machine.isr
     end
 
@@ -192,27 +192,15 @@ module LavinMQ::Raft
       end
     end
 
-    private def load_or_generate_node_id : UInt64
+    private def load_or_generate_node_id : Int32
       Dir.mkdir_p(@data_dir)
-      raft_path = File.join(@data_dir, ".raft_node_id")
-      legacy_path = File.join(@data_dir, ".clustering_id")
-
-      if File.exists?(raft_path)
-        File.read(raft_path).strip.to_u64
-      elsif File.exists?(legacy_path)
-        raw = File.read(legacy_path).strip
-        legacy_int32 = raw.to_i32(36)
-        id = legacy_int32.to_u64
-        File.write(raft_path, id.to_s)
-        Log.info { "Migrated clustering id: base-36 #{raw} (decimal #{id}) → .raft_node_id" }
-        id
-      else
-        # Cap to Int32::MAX so the id fits the existing Clustering::Client wire
-        # protocol (still Int32-keyed). The full UInt64 range becomes available
-        # once the wire protocol widens — a future slice.
-        id = Random::Secure.rand(Int32::MAX).to_u64
-        File.write(raft_path, id.to_s)
-        Log.info { "Generated new raft node id #{id}" }
+      path = File.join(@data_dir, ".clustering_id")
+      begin
+        File.read(path).strip.to_i32(36)
+      rescue File::NotFoundError
+        id = Random::Secure.rand(Int32::MAX)
+        File.write(path, id.to_s(36))
+        Log.info { "Generated new clustering id #{id}" }
         id
       end
     end

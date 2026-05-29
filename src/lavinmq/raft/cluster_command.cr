@@ -66,9 +66,9 @@ module LavinMQ::Raft
     end
 
     struct SetIsr < ClusterCommand
-      getter node_ids : Set(UInt64)
+      getter node_ids : Set(Int32)
 
-      def initialize(@node_ids : Set(UInt64))
+      def initialize(@node_ids : Set(Int32))
       end
 
       def tag : Tag
@@ -81,13 +81,13 @@ module LavinMQ::Raft
       end
 
       def body_bytesize : Int32
-        4 + @node_ids.size * 8
+        4 + @node_ids.size * 4
       end
 
       protected def self.read_body(io : IO, format : IO::ByteFormat) : SetIsr
         count = io.read_bytes(UInt32, format)
-        ids = Set(UInt64).new(initial_capacity: count.to_i32)
-        count.times { ids.add(io.read_bytes(UInt64, format)) }
+        ids = Set(Int32).new(initial_capacity: count.to_i32)
+        count.times { ids.add(io.read_bytes(Int32, format)) }
         new(ids)
       end
     end

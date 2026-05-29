@@ -41,7 +41,7 @@ describe LavinMQ::Raft::ClusterCommand do
 
   describe "SetIsr" do
     it "round-trips an empty set" do
-      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set(UInt64).new)
+      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set(Int32).new)
       io = IO::Memory.new
       original.to_io(io, IO::ByteFormat::LittleEndian)
       io.rewind
@@ -51,16 +51,16 @@ describe LavinMQ::Raft::ClusterCommand do
     end
 
     it "round-trips a populated set" do
-      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64, 99_u64})
+      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1, 2, 99})
       io = IO::Memory.new
       original.to_io(io, IO::ByteFormat::LittleEndian)
       io.rewind
       decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.as(LavinMQ::Raft::ClusterCommand::SetIsr).node_ids.should eq Set{1_u64, 2_u64, 99_u64}
+      decoded.as(LavinMQ::Raft::ClusterCommand::SetIsr).node_ids.should eq Set{1, 2, 99}
     end
 
     it "reports bytesize equal to bytes actually written" do
-      cmd = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64})
+      cmd = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1, 2})
       io = IO::Memory.new
       cmd.to_io(io, IO::ByteFormat::LittleEndian)
       io.pos.should eq cmd.bytesize

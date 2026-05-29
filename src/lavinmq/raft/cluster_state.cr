@@ -5,11 +5,11 @@ module LavinMQ::Raft
   # holding a previously-returned snapshot is safe.
   struct ClusterState
     getter secret : String
-    getter isr : Set(UInt64)
+    getter isr : Set(Int32)
 
-    def initialize(@secret : String, @isr : Set(UInt64))
+    def initialize(@secret : String, @isr : Set(Int32))
     end
 
-    EMPTY = ClusterState.new("", Set(UInt64).new)
+    EMPTY = ClusterState.new("", Set(Int32).new)
   end
 end

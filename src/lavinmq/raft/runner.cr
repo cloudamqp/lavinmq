@@ -29,7 +29,7 @@ module LavinMQ::Raft
       @coordinator = Coordinator.new(@server)
     end
 
-    def node_id : UInt64
+    def node_id : Int32
       @server.node_id
     end
 
@@ -94,11 +94,11 @@ module LavinMQ::Raft
       @repli_client.try &.close
       @repli_client = nil
       return if new_leader_id.nil?
-      return if new_leader_id == @server.node_id
+      return if new_leader_id == @server.node_id.to_u64
       data_uri = lookup_data_uri(new_leader_id)
       return unless data_uri
       @repli_client = client = ::LavinMQ::Clustering::Client.new(
-        @config, @server.node_id.to_i32, @coordinator.password,
+        @config, @server.node_id, @coordinator.password,
       )
       spawn(name: "Clustering client #{data_uri}") { client.follow(data_uri) }
     end

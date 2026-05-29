@@ -12,7 +12,7 @@ describe LavinMQ::Raft::Runner do
   it "constructs and stops without crashing" do
     dir = tmp_data_dir
     begin
-      File.write(File.join(dir, ".raft_node_id"), "1")
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
       config = LavinMQ::Config.new
       config.data_dir = dir
       config.clustering_bind = "127.0.0.1"
@@ -20,7 +20,7 @@ describe LavinMQ::Raft::Runner do
       config.clustering_port = 5679
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       runner = LavinMQ::Raft::Runner.new(config)
-      runner.node_id.should eq 1_u64
+      runner.node_id.should eq 1
       runner.stop
     ensure
       FileUtils.rm_rf(dir)

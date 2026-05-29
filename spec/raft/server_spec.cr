@@ -10,7 +10,7 @@ end
 
 private def with_single_node(&)
   dir = tmp_data_dir
-  File.write(File.join(dir, ".raft_node_id"), "1")
+  File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
   transport = ::Raft::MemoryTransport.new(1_u64)
   server = LavinMQ::Raft::Server.new(
     data_dir: dir,
@@ -36,7 +36,7 @@ private def with_cluster(node_count : Int32 = 3, &)
   servers = ids.map do |id|
     dir = tmp_data_dir
     dirs << dir
-    File.write(File.join(dir, ".raft_node_id"), id.to_s)
+    File.write(File.join(dir, ".clustering_id"), id.to_s(36))
     LavinMQ::Raft::Server.new(
       data_dir: dir,
       advertised_address: "node#{id}:5680,node#{id}:5679",
@@ -74,7 +74,7 @@ private def form_cluster(servers) : LavinMQ::Raft::Server
     addr = "node#{s.node_id}:5680,node#{s.node_id}:5679"
     retry_until(5.seconds) { leader.add_server(s.node_id, addr) }
   end
-  retry_until(5.seconds) { servers.all? { |s| leader.voters.includes?(s.node_id) } }
+  retry_until(5.seconds) { servers.all? { |s| leader.voters.includes?(s.node_id.to_u64) } }
   result = nil
   deadline = Time.instant + 5.seconds
   until result
@@ -145,10 +145,10 @@ describe LavinMQ::Raft::Server do
           fail "timed out waiting for leadership"
         end
 
-        server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{7_u64})).should be_true
+        server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{7})).should be_true
 
         deadline = Time.instant + 2.seconds
-        until server.state_machine.isr.includes?(7_u64)
+        until server.state_machine.isr.includes?(7)
           fail "timed out waiting for apply" if Time.instant > deadline
           Fiber.yield
         end
@@ -167,15 +167,15 @@ describe LavinMQ::Raft::Server do
     it "agrees on leader_id across all nodes" do
       with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
-        retry_until { servers.all? { |s| s.leader_id == leader.node_id } }
+        retry_until { servers.all? { |s| s.leader_id == leader.node_id.to_u64 } }
       end
     end
 
     it "replicates a proposed command to all state machines" do
       with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
-        leader.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{42_u64})).should be_true
-        retry_until(5.seconds) { servers.all?(&.state_machine.isr.includes?(42_u64)) }
+        leader.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{42})).should be_true
+        retry_until(5.seconds) { servers.all?(&.state_machine.isr.includes?(42)) }
       end
     end
 
@@ -183,7 +183,7 @@ describe LavinMQ::Raft::Server do
       with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
         follower = servers.find! { |s| s != leader }
-        follower.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99_u64})).should be_false
+        follower.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99})).should be_false
       end
     end
   end
@@ -194,7 +194,7 @@ describe LavinMQ::Raft::Server do
         old_leader = form_cluster(servers)
 
         # Isolate the leader; the other two should elect a new one.
-        transports[old_leader.node_id].isolated = true
+        transports[old_leader.node_id.to_u64].isolated = true
         new_leader = nil
         retry_until(5.seconds) do
           candidates = servers.select { |s| s != old_leader && s.is_leader.value }
@@ -203,7 +203,7 @@ describe LavinMQ::Raft::Server do
         end
 
         # Heal the partition; the old leader sees a higher term and steps down.
-        transports[old_leader.node_id].isolated = false
+        transports[old_leader.node_id.to_u64].isolated = false
         select
         when old_leader.is_leader.when_false.receive
           # expected: stepped down on seeing the new leader's higher term
@@ -243,7 +243,7 @@ describe LavinMQ::Raft::Server do
         server.on_leader_change { |id| observed << id }
         server.bootstrap.should be_true
         deadline = Time.instant + 2.seconds
-        until observed.includes?(server.node_id)
+        until observed.includes?(server.node_id.to_u64)
           fail "timed out waiting for leader-change callback" if Time.instant > deadline
           Fiber.yield
         end
@@ -252,49 +252,31 @@ describe LavinMQ::Raft::Server do
   end
 
   describe "node_id sources" do
-    it "reads .raft_node_id when present (decimal)" do
+    it "reads .clustering_id when present (base-36)" do
       dir = tmp_data_dir
       begin
-        File.write(File.join(dir, ".raft_node_id"), "12345")
+        # "9ix" base-36 == 12345 decimal
+        File.write(File.join(dir, ".clustering_id"), "9ix")
         transport = ::Raft::MemoryTransport.new(12345_u64)
         server = LavinMQ::Raft::Server.new(
           data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
         )
-        server.node_id.should eq 12345_u64
+        server.node_id.should eq 12345
         server.stop
       ensure
         FileUtils.rm_rf(dir)
       end
     end
 
-    it "migrates legacy base-36 .clustering_id to decimal .raft_node_id" do
-      dir = tmp_data_dir
-      begin
-        # "1f7a" base-36 == 66358 decimal
-        File.write(File.join(dir, ".clustering_id"), "1f7a")
-        transport = ::Raft::MemoryTransport.new(66358_u64)
-        server = LavinMQ::Raft::Server.new(
-          data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
-        )
-        server.node_id.should eq 66358_u64
-        File.read(File.join(dir, ".raft_node_id")).strip.should eq "66358"
-        File.exists?(File.join(dir, ".clustering_id")).should be_true # legacy preserved
-        server.stop
-      ensure
-        FileUtils.rm_rf(dir)
-      end
-    end
-
-    it "generates a fresh id when neither file exists" do
+    it "generates a fresh id when no file exists" do
       dir = tmp_data_dir
       begin
         transport = ::Raft::MemoryTransport.new(0_u64)
         server = LavinMQ::Raft::Server.new(
           data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
         )
-        server.node_id.should be > 0_u64
-        server.node_id.should be <= Int32::MAX.to_u64
-        File.exists?(File.join(dir, ".raft_node_id")).should be_true
+        server.node_id.should be > 0
+        File.exists?(File.join(dir, ".clustering_id")).should be_true
         server.stop
       ensure
         FileUtils.rm_rf(dir)
