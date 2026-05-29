@@ -552,6 +552,26 @@ index d39893273..94e6b445f 100644
              public Frame confuse(Frame frame) {
 -- 
 
+diff --git a/src/test/java/com/rabbitmq/client/test/functional/QosTests.java b/src/test/java/com/rabbitmq/client/test/functional/QosTests.java
+index 88a0438..c89744f 100644
+--- a/src/test/java/com/rabbitmq/client/test/functional/QosTests.java
++++ b/src/test/java/com/rabbitmq/client/test/functional/QosTests.java
+@@ -31,6 +31,7 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.concurrent.TimeoutException;
+
++import org.junit.jupiter.api.Disabled;
+ import org.junit.jupiter.api.Test;
+
+ import com.rabbitmq.client.AMQP;
+@@ -159,6 +160,7 @@ public class QosTests extends BrokerTestCase
+         }
+     }
+
++    @Disabled("LavinMQ does not implement round-robin consumer dispatch")
+     @Test public void fairness()
+         throws IOException
+     {
 diff --git a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
 index 245163d3b..57fbfefd9 100644
 --- a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
