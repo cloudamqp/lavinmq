@@ -10,9 +10,8 @@ module LavinMQ::Raft
 
     def apply(entry : ClusterCommand) : Nil
       case entry
-      in ClusterCommand::SetSecret     then @secret = entry.secret
-      in ClusterCommand::AddToIsr      then @isr.add(entry.node_id)
-      in ClusterCommand::RemoveFromIsr then @isr.delete(entry.node_id)
+      in ClusterCommand::SetSecret then @secret = entry.secret
+      in ClusterCommand::SetIsr    then @isr = entry.node_ids.dup
         # The abstract base is unreachable (never instantiated), but Crystal requires
         # it in the exhaustive `case` when ClusterCommand is a generic type argument
         # (Raft::StateMachine(ClusterCommand)). Raise loudly so a future concrete

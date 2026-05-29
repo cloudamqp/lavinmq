@@ -4,10 +4,8 @@ module LavinMQ::Raft
     HEADER_BYTESIZE =    2 # version + tag
 
     enum Tag : UInt8
-      SetSecret     = 0
-      AddToIsr      = 1
-      RemoveFromIsr = 2
-      # 3 reserved for Cutover (phase 3)
+      SetSecret = 0
+      SetIsr    = 1
     end
 
     abstract def tag : Tag
@@ -29,9 +27,8 @@ module LavinMQ::Raft
       raise InvalidSchemaVersion.new(version) unless version == SCHEMA_VERSION
       tag = Tag.new(io.read_bytes(UInt8, format))
       case tag
-      in .set_secret?      then SetSecret.read_body(io, format)
-      in .add_to_isr?      then AddToIsr.read_body(io, format)
-      in .remove_from_isr? then RemoveFromIsr.read_body(io, format)
+      in .set_secret? then SetSecret.read_body(io, format)
+      in .set_isr?    then SetIsr.read_body(io, format)
       end
     end
 
@@ -68,49 +65,30 @@ module LavinMQ::Raft
       end
     end
 
-    struct AddToIsr < ClusterCommand
-      getter node_id : UInt64
+    struct SetIsr < ClusterCommand
+      getter node_ids : Set(UInt64)
 
-      def initialize(@node_id : UInt64)
+      def initialize(@node_ids : Set(UInt64))
       end
 
       def tag : Tag
-        Tag::AddToIsr
+        Tag::SetIsr
       end
 
       def body_to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(@node_id, format)
+        io.write_bytes(@node_ids.size.to_u32, format)
+        @node_ids.each { |id| io.write_bytes(id, format) }
       end
 
       def body_bytesize : Int32
-        8
+        4 + @node_ids.size * 8
       end
 
-      protected def self.read_body(io : IO, format : IO::ByteFormat) : AddToIsr
-        new(io.read_bytes(UInt64, format))
-      end
-    end
-
-    struct RemoveFromIsr < ClusterCommand
-      getter node_id : UInt64
-
-      def initialize(@node_id : UInt64)
-      end
-
-      def tag : Tag
-        Tag::RemoveFromIsr
-      end
-
-      def body_to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(@node_id, format)
-      end
-
-      def body_bytesize : Int32
-        8
-      end
-
-      protected def self.read_body(io : IO, format : IO::ByteFormat) : RemoveFromIsr
-        new(io.read_bytes(UInt64, format))
+      protected def self.read_body(io : IO, format : IO::ByteFormat) : SetIsr
+        count = io.read_bytes(UInt32, format)
+        ids = Set(UInt64).new(initial_capacity: count.to_i32)
+        count.times { ids.add(io.read_bytes(UInt64, format)) }
+        new(ids)
       end
     end
   end
