@@ -61,10 +61,6 @@ module LavinMQ
         @msg_store.size.to_u32
       end
 
-      def immediate_delivery? : Bool
-        !@client.nil?
-      end
-
       def exclusive? : Bool
         false
       end
@@ -305,10 +301,6 @@ module LavinMQ
           raise ::IO::Error.new("No message inflight for id '#{id}'")
         end
       end
-
-      private def message_expire_loop; end
-
-      private def queue_expire_loop; end
 
       private def next_id : UInt16?
         return if @unacked.size == Config.instance.max_inflight_messages
