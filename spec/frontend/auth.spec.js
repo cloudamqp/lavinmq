@@ -29,16 +29,12 @@ test.describe('login', _ => {
     expect(cookies.some(c => c.name === 'm')).toBe(true)
   })
 
-  test('failed login shows "Authentication failure" alert', async ({ page }) => {
+  test('failed login shows "Authentication failure" error', async ({ page }) => {
     await page.goto('/login')
     await page.getByLabel('Username').fill('guest')
     await page.getByLabel('Password').fill('wrongpassword')
-    const [d] = await Promise.all([
-      page.waitForEvent('dialog'),
-      page.getByRole('button').click()
-    ])
-    expect(d.message()).toBe('Authentication failure')
-    await d.dismiss()
+    await page.getByRole('button', { name: 'Log in', exact: true }).click()
+    await expect(page.locator('#login-error')).toHaveText('Authentication failure')
   })
 })
 
@@ -96,6 +92,17 @@ test.describe('logout', _ => {
     ])
     const cookies = await context.cookies()
     expect(cookies.some(c => c.name === 'm')).toBe(false)
+  })
+
+  test('oauth session sign-out goes through oauth/logout', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => { document.cookie = `m=|oauth:${window.btoa('alice:')}; path=/` })
+    await page.route(url => url.pathname.endsWith('/oauth/logout'),
+      route => route.fulfill({ status: 200, body: 'ok' }))
+    await Promise.all([
+      page.waitForRequest('**/oauth/logout'),
+      page.locator('#signoutLink').click()
+    ])
   })
 })
 

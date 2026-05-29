@@ -31,9 +31,7 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
   window.location.reload()
 })
 
-document.getElementById('signoutLink').addEventListener('click', () => {
-  Auth.logout()
-})
+document.getElementById('signoutLink').addEventListener('click', () => Auth.logout())
 
 const usermenuButton = document.getElementById('usermenu-button')
 const usermenuContent = document.getElementById('user-menu')
