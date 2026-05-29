@@ -16,29 +16,23 @@ describe LavinMQ::Raft::ClusterStateMachine do
       sm.secret.should eq "second"
     end
 
-    it "adds a node id on AddToIsr" do
+    it "replaces ISR on SetIsr" do
       sm = LavinMQ::Raft::ClusterStateMachine.new
-      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64))
-      sm.isr.should eq Set{7_u64}
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64}))
+      sm.isr.should eq Set{1_u64, 2_u64}
     end
 
-    it "is a no-op when AddToIsr is applied for a node already present" do
+    it "replaces ISR wholesale on subsequent SetIsr" do
       sm = LavinMQ::Raft::ClusterStateMachine.new
-      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64))
-      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64))
-      sm.isr.should eq Set{7_u64}
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64}))
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{3_u64}))
+      sm.isr.should eq Set{3_u64}
     end
 
-    it "removes a node id on RemoveFromIsr" do
+    it "clears ISR on SetIsr with empty set" do
       sm = LavinMQ::Raft::ClusterStateMachine.new
-      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64))
-      sm.apply(LavinMQ::Raft::ClusterCommand::RemoveFromIsr.new(7_u64))
-      sm.isr.should be_empty
-    end
-
-    it "is a no-op when RemoveFromIsr is applied for an absent node" do
-      sm = LavinMQ::Raft::ClusterStateMachine.new
-      sm.apply(LavinMQ::Raft::ClusterCommand::RemoveFromIsr.new(7_u64))
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{7_u64}))
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set(UInt64).new))
       sm.isr.should be_empty
     end
   end
@@ -47,8 +41,7 @@ describe LavinMQ::Raft::ClusterStateMachine do
     it "round-trips state through snapshot and restore" do
       original = LavinMQ::Raft::ClusterStateMachine.new
       original.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("hunter2"))
-      original.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(1_u64))
-      original.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(2_u64))
+      original.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64}))
 
       io = IO::Memory.new
       original.snapshot(io)
@@ -87,11 +80,11 @@ describe LavinMQ::Raft::ClusterStateMachine do
     it "replaces existing state on restore" do
       sm = LavinMQ::Raft::ClusterStateMachine.new
       sm.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("old"))
-      sm.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(99_u64))
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99_u64}))
 
       source = LavinMQ::Raft::ClusterStateMachine.new
       source.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("new"))
-      source.apply(LavinMQ::Raft::ClusterCommand::AddToIsr.new(1_u64))
+      source.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64}))
 
       io = IO::Memory.new
       source.snapshot(io)
@@ -99,7 +92,7 @@ describe LavinMQ::Raft::ClusterStateMachine do
       sm.restore(io)
 
       sm.secret.should eq "new"
-      sm.isr.should eq Set{1_u64}
+      sm.isr.should eq Set{1_u64, 2_u64}
     end
   end
 end

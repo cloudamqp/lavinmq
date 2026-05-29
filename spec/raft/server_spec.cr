@@ -145,7 +145,7 @@ describe LavinMQ::Raft::Server do
           fail "timed out waiting for leadership"
         end
 
-        server.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(7_u64)).should be_true
+        server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{7_u64})).should be_true
 
         deadline = Time.instant + 2.seconds
         until server.state_machine.isr.includes?(7_u64)
@@ -174,7 +174,7 @@ describe LavinMQ::Raft::Server do
     it "replicates a proposed command to all state machines" do
       with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
-        leader.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(42_u64)).should be_true
+        leader.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{42_u64})).should be_true
         retry_until(5.seconds) { servers.all?(&.state_machine.isr.includes?(42_u64)) }
       end
     end
@@ -183,7 +183,7 @@ describe LavinMQ::Raft::Server do
       with_cluster(3) do |_transports, servers|
         leader = form_cluster(servers)
         follower = servers.find! { |s| s != leader }
-        follower.propose(LavinMQ::Raft::ClusterCommand::AddToIsr.new(99_u64)).should be_false
+        follower.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99_u64})).should be_false
       end
     end
   end

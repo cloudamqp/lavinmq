@@ -39,38 +39,28 @@ describe LavinMQ::Raft::ClusterCommand do
     end
   end
 
-  describe "AddToIsr" do
-    it "round-trips through to_io / from_io" do
-      original = LavinMQ::Raft::ClusterCommand::AddToIsr.new(42_u64)
+  describe "SetIsr" do
+    it "round-trips an empty set" do
+      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set(UInt64).new)
       io = IO::Memory.new
       original.to_io(io, IO::ByteFormat::LittleEndian)
       io.rewind
       decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.should be_a(LavinMQ::Raft::ClusterCommand::AddToIsr)
-      decoded.as(LavinMQ::Raft::ClusterCommand::AddToIsr).node_id.should eq 42_u64
+      decoded.should be_a(LavinMQ::Raft::ClusterCommand::SetIsr)
+      decoded.as(LavinMQ::Raft::ClusterCommand::SetIsr).node_ids.should be_empty
     end
 
-    it "reports bytesize equal to bytes actually written" do
-      cmd = LavinMQ::Raft::ClusterCommand::AddToIsr.new(42_u64)
-      io = IO::Memory.new
-      cmd.to_io(io, IO::ByteFormat::LittleEndian)
-      io.pos.should eq cmd.bytesize
-    end
-  end
-
-  describe "RemoveFromIsr" do
-    it "round-trips through to_io / from_io" do
-      original = LavinMQ::Raft::ClusterCommand::RemoveFromIsr.new(99_u64)
+    it "round-trips a populated set" do
+      original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64, 99_u64})
       io = IO::Memory.new
       original.to_io(io, IO::ByteFormat::LittleEndian)
       io.rewind
       decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.should be_a(LavinMQ::Raft::ClusterCommand::RemoveFromIsr)
-      decoded.as(LavinMQ::Raft::ClusterCommand::RemoveFromIsr).node_id.should eq 99_u64
+      decoded.as(LavinMQ::Raft::ClusterCommand::SetIsr).node_ids.should eq Set{1_u64, 2_u64, 99_u64}
     end
 
     it "reports bytesize equal to bytes actually written" do
-      cmd = LavinMQ::Raft::ClusterCommand::RemoveFromIsr.new(99_u64)
+      cmd = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64})
       io = IO::Memory.new
       cmd.to_io(io, IO::ByteFormat::LittleEndian)
       io.pos.should eq cmd.bytesize
