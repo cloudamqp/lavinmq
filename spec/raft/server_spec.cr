@@ -235,4 +235,19 @@ describe LavinMQ::Raft::Server do
       end
     end
   end
+
+  describe "on_leader_change" do
+    it "fires the callback when a single node bootstraps to leader" do
+      observed = [] of UInt64?
+      with_single_node do |server|
+        server.on_leader_change { |id| observed << id }
+        server.bootstrap.should be_true
+        deadline = Time.instant + 2.seconds
+        until observed.includes?(server.node_id)
+          fail "timed out waiting for leader-change callback" if Time.instant > deadline
+          Fiber.yield
+        end
+      end
+    end
+  end
 end
