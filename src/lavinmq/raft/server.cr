@@ -30,6 +30,7 @@ module LavinMQ::Raft
       @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext::Concurrent.new("raft"),
     )
       @node_id = load_or_generate_node_id
+      metrics = ::Raft::Metrics.new(node_id: @node_id, group_id: GROUP_ID)
       @state_machine = ClusterStateMachine.new
       @is_leader = BoolChannel.new(false)
       config = ::Raft::Config.new
@@ -40,6 +41,7 @@ module LavinMQ::Raft
         peers: [] of ::Raft::NodeID,
         config: config,
         state_machine: @state_machine,
+        metrics: metrics,
         group_id: GROUP_ID,
         address: @advertised_address,
       )
