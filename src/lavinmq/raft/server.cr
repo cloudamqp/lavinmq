@@ -101,6 +101,21 @@ module LavinMQ::Raft
       @on_leader_change = block
     end
 
+    # The underlying Raft node. Exposed so the HTTP admin handler can
+    # interact with it directly. Not stable public API; treat as developer
+    # surface only.
+    def node : ::Raft::Node(ClusterCommand)
+      @node
+    end
+
+    # Peers as seen by the local Node. Reading from outside the tick fiber is
+    # an inconsistency-prone race — only the tick fiber mutates @node.peers,
+    # but readers may observe a stale snapshot. Used by the Runner for
+    # best-effort follow-leader lookups; not authoritative.
+    def peers : Array(::Raft::Peer)
+      @node.peers
+    end
+
     # The node ids currently in the voting set (learners excluded).
     def voters : Array(UInt64)
       @node.voters.map(&.id)
