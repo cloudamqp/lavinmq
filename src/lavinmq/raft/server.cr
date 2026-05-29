@@ -11,6 +11,9 @@ module LavinMQ::Raft
     GROUP_ID = 0_u64
 
     @started = false
+    @stop_signal = ::Channel(Nil).new
+    @tick_done = ::Channel(Nil).new
+    @stopping = false
 
     getter node_id : UInt64
     getter state_machine : ClusterStateMachine
@@ -47,7 +50,10 @@ module LavinMQ::Raft
     end
 
     def stop : Nil
-      @node.close
+      return if @stopping
+      @stopping = true
+      @stop_signal.close
+      @tick_done.receive? if @started
       @is_leader.close
     end
 
@@ -92,6 +98,8 @@ module LavinMQ::Raft
         select
         when msg = @node.inbox.receive
           @node.step(msg)
+        when @stop_signal.receive?
+          break
         when timeout(50.milliseconds)
           @node.tick
         end
@@ -100,7 +108,10 @@ module LavinMQ::Raft
         end
       end
     rescue ::Channel::ClosedError
-      # inbox closed by stop — exit cleanly
+      # inbox closed externally — exit cleanly
+    ensure
+      @node.close
+      @tick_done.close
     end
 
     private def wire_callbacks : Nil
