@@ -11,7 +11,7 @@ module LavinMQ::Raft
     # (not mutate in place) so previously-returned references stay stable.
     @mutex = Mutex.new
     @secret = ""
-    @isr = Set(UInt64).new
+    @isr = Set(Int32).new
 
     # Consistent multi-field snapshot.
     def state : ClusterState
@@ -22,7 +22,7 @@ module LavinMQ::Raft
       @mutex.synchronize { @secret }
     end
 
-    def isr : Set(UInt64)
+    def isr : Set(Int32)
       @mutex.synchronize { @isr }
     end
 
@@ -56,8 +56,8 @@ module LavinMQ::Raft
       io.read_fully(buf)
       secret = String.new(buf)
       isr_count = io.read_bytes(UInt32, fmt)
-      isr = Set(UInt64).new(initial_capacity: isr_count.to_i32)
-      isr_count.times { isr.add(io.read_bytes(UInt64, fmt)) }
+      isr = Set(Int32).new(initial_capacity: isr_count.to_i32)
+      isr_count.times { isr.add(io.read_bytes(Int32, fmt)) }
       @mutex.synchronize do
         @secret = secret
         @isr = isr

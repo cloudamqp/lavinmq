@@ -13,7 +13,7 @@ describe LavinMQ::Raft::Coordinator do
   it "proposes SetIsr on update_isr" do
     dir = tmp_data_dir
     begin
-      File.write(File.join(dir, ".raft_node_id"), "1")
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
       transport = ::Raft::MemoryTransport.new(1_u64)
       server = LavinMQ::Raft::Server.new(
         data_dir: dir, advertised_address: "n:5680,n:5679",
@@ -28,9 +28,9 @@ describe LavinMQ::Raft::Coordinator do
       end
 
       coord = LavinMQ::Raft::Coordinator.new(server)
-      coord.update_isr(Set{1_u64, 2_u64})
+      coord.update_isr(Set{1, 2})
       deadline = Time.instant + 2.seconds
-      until server.isr == Set{1_u64, 2_u64}
+      until server.isr == Set{1, 2}
         fail "timed out" if Time.instant > deadline
         Fiber.yield
       end
@@ -45,7 +45,7 @@ describe LavinMQ::Raft::Coordinator do
   it "proposes SetSecret on first password() call and returns it" do
     dir = tmp_data_dir
     begin
-      File.write(File.join(dir, ".raft_node_id"), "1")
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
       transport = ::Raft::MemoryTransport.new(1_u64)
       server = LavinMQ::Raft::Server.new(
         data_dir: dir, advertised_address: "n:5680,n:5679",

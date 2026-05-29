@@ -8,7 +8,7 @@ module LavinMQ::Raft
     def initialize(@server : Server)
     end
 
-    def update_isr(synced_node_ids : Set(UInt64)) : Nil
+    def update_isr(synced_node_ids : Set(Int32)) : Nil
       @server.propose(ClusterCommand::SetIsr.new(synced_node_ids))
     end
 
