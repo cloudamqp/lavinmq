@@ -117,6 +117,8 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | INI Key | Type | Default | Description |
 |---------|------|---------|-------------|
 | `issuer` | URI | (none) | OAuth2/OIDC issuer URL |
+| `client_id` | String | (none) | OAuth2 client ID. Required to enable management UI SSO login |
+| `mgmt_base_url` | URI | (none) | Public base URL of the management UI. Setting it together with `issuer` and `client_id` enables the SSO login button. Must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host. When `verify_aud` is true, SSO tokens must match `audience` or `resource_server_id` |
 | `resource_server_id` | String | (none) | Resource server identifier |
 | `preferred_username_claims` | Array | `["sub", "client_id"]` | JWT claims for username extraction |
 | `additional_scopes_keys` | Array | `[]` | Additional JWT claims to check for scopes |
