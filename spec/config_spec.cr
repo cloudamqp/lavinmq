@@ -366,7 +366,7 @@ describe LavinMQ::Config do
       ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
       ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
       ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
-
+      ENV["LAVINMQ_SYNC"] = "false"
       config = LavinMQ::Config.new
       config.parse([] of String)
 
