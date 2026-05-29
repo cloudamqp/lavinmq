@@ -8,6 +8,8 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
+      getter token_verifier : JWT::TokenVerifier
+
       def initialize(@token_verifier : JWT::TokenVerifier)
       end
 
