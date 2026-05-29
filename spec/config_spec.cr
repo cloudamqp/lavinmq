@@ -525,7 +525,7 @@ describe LavinMQ::Config do
         invalid_option = value
       CONFIG
     end
-    config = LavinMQ::Config.new
+    config = LavinMQ::Config.new(IO::Memory.new)
     argv = ["-c", config_file.path]
     config.parse(argv)
   end
