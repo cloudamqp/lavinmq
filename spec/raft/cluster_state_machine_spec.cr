@@ -95,4 +95,41 @@ describe LavinMQ::Raft::ClusterStateMachine do
       sm.isr.should eq Set{1_u64, 2_u64}
     end
   end
+
+  describe "state snapshot" do
+    it "publishes an immutable snapshot after each apply" do
+      sm = LavinMQ::Raft::ClusterStateMachine.new
+      sm.state.should eq LavinMQ::Raft::ClusterState::EMPTY
+
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("s1"))
+      first = sm.state
+      first.secret.should eq "s1"
+      first.isr.should be_empty
+
+      sm.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{42_u64}))
+      second = sm.state
+      second.secret.should eq "s1"
+      second.isr.should eq Set{42_u64}
+
+      # The earlier captured snapshot is unchanged — proves immutability of the publish.
+      first.secret.should eq "s1"
+      first.isr.should be_empty
+    end
+
+    it "publishes a snapshot on restore" do
+      original = LavinMQ::Raft::ClusterStateMachine.new
+      original.apply(LavinMQ::Raft::ClusterCommand::SetSecret.new("hunter2"))
+      original.apply(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1_u64, 2_u64}))
+
+      io = IO::Memory.new
+      original.snapshot(io)
+      io.rewind
+
+      restored = LavinMQ::Raft::ClusterStateMachine.new
+      restored.state.should eq LavinMQ::Raft::ClusterState::EMPTY
+      restored.restore(io)
+      restored.state.secret.should eq "hunter2"
+      restored.state.isr.should eq Set{1_u64, 2_u64}
+    end
+  end
 end
