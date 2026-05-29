@@ -387,7 +387,12 @@ module LavinMQ
       end
 
       private def with_channel(frame, &)
-        if ch = @channels.shared(&.[frame.channel]?)
+        # Hot path: runs on every inbound frame. The read_loop fiber is the sole
+        # mutator of @channels (open_channel / Channel::Close are handled in
+        # process_frame) AND the sole caller of with_channel, so this read can
+        # never race a write — skip the RWLock. Cross-fiber readers (HTTP API)
+        # still go through the locked #channels / #each_channel accessors.
+        if ch = @channels.unsafe_get[frame.channel]?
           if ch.running?
             yield ch
           else

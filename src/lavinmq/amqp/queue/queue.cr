@@ -89,6 +89,14 @@ module LavinMQ::AMQP
     end
 
     def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
+      # Hot path: called on every ack/reject (Channel#do_ack / do_reject). The
+      # deque only holds messages handed out via basic_get (consumer-less pull);
+      # for a pure basic_consume workload it's always empty. Skip the exclusive
+      # lock (and the O(n) reject! scan) entirely in that case so N consumers
+      # acking the same queue don't all serialize on this per-queue mutex.
+      # Unsynchronized empty? read is fine here (see Sync::Shared protection
+      # scope): a stale "non-empty" just falls through to the locked path.
+      return if @basic_get_unacked.unsafe_get.empty?
       @basic_get_unacked.lock do |d|
         d.reject! { |u| yield u }
       end
