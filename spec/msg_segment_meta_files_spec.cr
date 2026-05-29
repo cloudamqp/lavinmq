@@ -14,9 +14,11 @@ describe "Message segment metadata files" do
           large_message = "x" * (segment_size // 4) # message is 1/4 of segment size
 
           # Publish enough messages to create multiple segments
+          ch.confirm_select
           10.times do |i|
-            q.publish_confirm "#{large_message}_#{i}"
+            q.publish "#{large_message}_#{i}"
           end
+          ch.wait_for_confirms
           queue.@msg_store.@segments.size.should be > 1
 
           # Check that meta files exist for completed segments
@@ -50,9 +52,11 @@ describe "Message segment metadata files" do
           message_size = 42
           messages_needed = (segment_size / message_size).to_i + 10
 
+          ch.confirm_select
           messages_needed.times do |i|
-            q.publish_confirm "message #{i}"
+            q.publish "message #{i}"
           end
+          ch.wait_for_confirms
 
           # Should have created new segments
           queue.@msg_store.@segments.size.should be > 1
@@ -88,7 +92,9 @@ describe "Message segment metadata files" do
           queue = vhost.queue("metadata_load_test").as(LavinMQ::AMQP::DurableQueue)
 
           large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size
-          5.times { q.publish_confirm large_message }
+          ch.confirm_select
+          5.times { q.publish large_message }
+          ch.wait_for_confirms
 
           # delete all meta files
           Dir.glob(File.join(queue.@msg_store.@msg_dir, "meta.*")).each { |path| File.delete(path) }
@@ -120,7 +126,9 @@ describe "Message segment metadata files" do
           q = ch.queue("fallback_test")
           queue = vhost.queue("fallback_test").as(LavinMQ::AMQP::DurableQueue)
 
-          25.times { |i| q.publish_confirm "message #{i}" }
+          ch.confirm_select
+          25.times { |i| q.publish "message #{i}" }
+          ch.wait_for_confirms
           msg_dir = queue.@msg_store.@msg_dir
 
           # Remove any meta files to simulate missing metadata
@@ -148,7 +156,9 @@ describe "Message segment metadata files" do
           message_size = 50
           messages_needed = (segment_size * 2 / message_size).to_i + 20
 
-          messages_needed.times { |i| q.publish_confirm "message #{i}" }
+          ch.confirm_select
+          messages_needed.times { |i| q.publish "message #{i}" }
+          ch.wait_for_confirms
 
           # Should have multiple segments now
           queue.@msg_store.@segments.size.should be > 1
@@ -186,7 +196,9 @@ describe "Message segment metadata files" do
           message_size = 50
           messages_needed = (segment_size * 2 / message_size).to_i + 20
 
-          messages_needed.times { |i| q.publish_confirm "message #{i}" }
+          ch.confirm_select
+          messages_needed.times { |i| q.publish "message #{i}" }
+          ch.wait_for_confirms
 
           # Collect existing meta file paths
           existing_meta_paths = [] of String
@@ -219,7 +231,9 @@ describe "Message segment metadata files" do
           message_size = 50
           messages_needed = (segment_size * 2 / message_size).to_i + 20
 
-          messages_needed.times { |i| q.publish_confirm "message #{i}" }
+          ch.confirm_select
+          messages_needed.times { |i| q.publish "message #{i}" }
+          ch.wait_for_confirms
 
           initial_segments = queue.@msg_store.@segments.size
           initial_segments.should be > 1
@@ -262,7 +276,9 @@ describe "Message segment metadata files" do
           message_size = 50
           messages_needed = (segment_size * 2 / message_size).to_i + 20
 
-          messages_needed.times { |i| q.publish_confirm "message #{i}" }
+          ch.confirm_select
+          messages_needed.times { |i| q.publish "message #{i}" }
+          ch.wait_for_confirms
           queue.@msg_store.@segments.size.should be > 1
 
           # Verify meta files contain message counts for completed segments
@@ -291,7 +307,9 @@ describe "Message segment metadata files" do
           # Publish messages
           large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size
           message_count = 5
-          message_count.times { q.publish_confirm large_message }
+          ch.confirm_select
+          message_count.times { q.publish large_message }
+          ch.wait_for_confirms
           queue.@msg_store.@segments.size.should be > 1
           Dir.glob(File.join(queue.@msg_store.@msg_dir, "meta.*")).should_not be_empty
 

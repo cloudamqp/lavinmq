@@ -218,11 +218,16 @@ module DeadLetteringSpec
 
       it "should dead letter when ttl expires while unacked and reject(requeue=true)" do
         with_dead_lettering_setup do |q, dlq, ch, _|
-          props = AMQP::Client::Properties.new(expiration: "200")
+          # Generous TTL so the message is still alive when we get it: the gap
+          # between publish_confirm and q.get is two AMQP round-trips, which can
+          # exceed a tight TTL on a loaded runner and expire the message in the
+          # queue before we receive it (q.get would then return nil). The sleep
+          # below still outlasts the TTL, so it expires while unacked.
+          props = AMQP::Client::Properties.new(expiration: "1000")
           ch.default_exchange.publish_confirm("ttl-msg", q.name, props: props)
 
           msg = q.get(no_ack: false).not_nil!
-          sleep 300.milliseconds
+          sleep 1100.milliseconds
           msg.reject(requeue: true)
 
           dlq_msg = wait_for { dlq.get }.should_not be_nil

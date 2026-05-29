@@ -94,7 +94,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will lose lease when loosing quorum" do
+  it "will lose lease when loosing quorum", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -108,7 +108,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "signals expired channel with the underlying error" do
+  it "signals expired channel with the underlying error", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -125,7 +125,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "signals expired channel when all lease is revoked" do
+  it "signals expired channel when all lease is revoked", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)

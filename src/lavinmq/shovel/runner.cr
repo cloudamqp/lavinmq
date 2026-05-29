@@ -11,6 +11,7 @@ module LavinMQ
       @error : String?
       @message_count : UInt64 = 0
       @retries : Int64 = 0
+      @stop_generation = Atomic(UInt64).new(0_u64)
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
 
@@ -31,13 +32,14 @@ module LavinMQ
 
       def run
         Log.context.set(name: @name, vhost: @vhost.name)
+        run_generation = @stop_generation.get(:acquire)
         loop do
-          break if should_stop_loop?
+          break if should_stop_loop?(run_generation)
           @state = State::Starting
           @source.start
           @destination.start
 
-          break if should_stop_loop?
+          break if should_stop_loop?(run_generation)
           Log.info { "started" }
           @state = State::Running
           @retries = 0
@@ -45,11 +47,11 @@ module LavinMQ
             @message_count += 1
             @destination.push(msg, @source)
           end
-          break if should_stop_loop? # Don't delete shovel if paused/terminated
+          break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          break if should_stop_loop?
+          break if should_stop_loop?(run_generation)
           @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
@@ -59,17 +61,18 @@ module LavinMQ
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
-          break if should_stop_loop?
+          break if should_stop_loop?(run_generation)
           @state = State::Error
           Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end
       ensure
-        terminate_if_needed
+        terminate_if_needed(run_generation)
       end
 
-      private def terminate_if_needed
+      private def terminate_if_needed(run_generation)
+        return if stopped_by_newer_generation?(run_generation)
         terminate if !paused?
       end
 
@@ -105,6 +108,7 @@ module LavinMQ
         File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
+        @stop_generation.add(1_u64, :release)
         @source.stop
         @destination.stop
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
@@ -118,6 +122,7 @@ module LavinMQ
       # Does not trigger reconnect, but a graceful close
       def terminate
         @state = State::Terminated
+        @stop_generation.add(1_u64, :release)
         @source.stop
         @destination.stop
         return if terminated?
@@ -128,8 +133,12 @@ module LavinMQ
         FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
       end
 
-      def should_stop_loop?
-        terminated? || paused?
+      def should_stop_loop?(run_generation)
+        stopped_by_newer_generation?(run_generation) || terminated? || paused?
+      end
+
+      private def stopped_by_newer_generation?(run_generation) : Bool
+        run_generation != @stop_generation.get(:acquire)
       end
 
       def paused?
