@@ -164,6 +164,25 @@ module LavinMQ::AMQP
       StreamReader.new(self, offset)
     end
 
+    def read(segment : UInt32, position : UInt32, & : Envelope -> Nil) : Bool
+      raise ClosedError.new if closed?
+      env = @msg_store_lock.read do
+        protected_env = stream_msg_store.read(segment, position)
+        stream_msg_store.protect_segment(protected_env.segment_position.segment) if protected_env
+        protected_env
+      end || return false
+      begin
+        yield env
+      ensure
+        unprotect_segment(env.segment_position.segment)
+      end
+      true
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ClosedError.new(cause: ex)
+    end
+
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
@@ -187,8 +206,16 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
-      env = @msg_store_lock.read { @msg_store.shift?(consumer) } || return false
-      yield env # deliver the message
+      env = @msg_store_lock.read do
+        protected_env = @msg_store.shift?(consumer)
+        stream_msg_store.protect_segment(protected_env.segment_position.segment) if protected_env
+        protected_env
+      end || return false
+      begin
+        yield env # deliver the message
+      ensure
+        unprotect_segment(env.segment_position.segment)
+      end
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -204,6 +231,12 @@ module LavinMQ::AMQP
 
     private def drop_overflow : Nil
       # Overflow handling is done in StreamMessageStore
+    end
+
+    private def unprotect_segment(segment : UInt32) : Nil
+      @msg_store_lock.write do
+        stream_msg_store.unprotect_segment(segment)
+      end
     end
 
     private def notify_all_stream_consumers
@@ -264,24 +297,31 @@ module LavinMQ::AMQP
     end
 
     private def unmap_and_remove_segments_loop
-      sleep rand(60).seconds
+      sleep rand(10).seconds
       until closed?
-        sleep 60.seconds
+        sleep 10.seconds
         break if closed?
         unmap_and_remove_segments
       end
     end
 
     private def unmap_and_remove_segments
-      used_segments = Set(UInt32).new
-      @consumers.shared do |consumers|
-        consumers.each do |consumer|
-          used_segments << consumer.as(AMQP::StreamConsumer).segment
-        end
-      end
       @msg_store_lock.write do
-        stream_msg_store.drop_overflow
+        used_segments = used_stream_consumer_segments
+        stream_msg_store.drop_overflow(except: used_segments)
         stream_msg_store.unmap_segments(except: used_segments)
+      end
+    end
+
+    private def used_stream_consumer_segments : Set(UInt32)
+      Set(UInt32).new.tap do |used_segments|
+        @consumers.shared do |consumers|
+          consumers.each do |consumer|
+            if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+              used_segments << stream_consumer.segment
+            end
+          end
+        end
       end
     end
   end

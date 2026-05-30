@@ -33,6 +33,12 @@ module StreamSpecHelpers
   end
 end
 
+class LavinMQ::AMQP::Stream
+  def unmap_and_remove_segments_for_spec
+    unmap_and_remove_segments
+  end
+end
+
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
@@ -258,6 +264,67 @@ describe LavinMQ::AMQP::Stream do
           3.times { q.publish_confirm data }
           q.message_count.should eq 1
         end
+      end
+    end
+
+    it "does not remove a segment currently used by a stream consumer during cleanup" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+        end
+
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue(queue_name, args: stream_queue_args)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msgs.send msg
+          end
+          msg = msgs.receive
+          consumer = wait_for { stream.consumers.first?.try &.as?(LavinMQ::AMQP::StreamConsumer) }
+          protected_segment = consumer.segment
+          protected_segment.should_not eq store.@segments.last_key
+
+          store.max_length = 1_i64
+          stream.unmap_and_remove_segments_for_spec
+
+          protected_file = store.@segments[protected_segment]?
+          protected_file.should_not be_nil
+          protected_file.not_nil!.closed?.should be_false
+          msg.ack
+        end
+      end
+    end
+
+    it "does not remove a segment backing an in-flight stream read" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+        end
+
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+        protected_segment = store.@segments.find! { |seg_id, mfile| seg_id != store.@segments.last_key && mfile.size > 4 }[0]
+        protected_segment.should_not eq store.@segments.last_key
+        store.max_length = 1_i64
+
+        stream.read(protected_segment, 4u32) do |env|
+          stream.unmap_and_remove_segments_for_spec
+          protected_file = store.@segments[env.segment_position.segment]?
+          protected_file.should_not be_nil
+          protected_file.not_nil!.closed?.should be_false
+        end.should be_true
       end
     end
 

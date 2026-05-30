@@ -13,6 +13,8 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : MFile
     @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
+    @protected_segments = Hash(UInt32, UInt32).new
+    @protected_segments_lock = Mutex.new(:checked)
 
     def initialize(*args, **kwargs)
       super
@@ -77,7 +79,33 @@ module LavinMQ::AMQP
       @segments.each do |seg_id, mfile|
         next if mfile == @wfile
         next if except.includes? seg_id
+        next if protected_segment?(seg_id)
         mfile.dontneed
+      end
+    end
+
+    def protect_segment(segment : UInt32) : Nil
+      @protected_segments_lock.synchronize do
+        @protected_segments[segment] = (@protected_segments[segment]? || 0u32) + 1
+      end
+    end
+
+    def unprotect_segment(segment : UInt32) : Nil
+      @protected_segments_lock.synchronize do
+        case refs = @protected_segments[segment]?
+        when Nil
+          nil
+        when 1u32
+          @protected_segments.delete(segment)
+        else
+          @protected_segments[segment] = refs - 1
+        end
+      end
+    end
+
+    private def protected_segment?(segment : UInt32) : Bool
+      @protected_segments_lock.synchronize do
+        @protected_segments.has_key?(segment)
       end
     end
 
@@ -332,21 +360,21 @@ module LavinMQ::AMQP
       io.write_bytes(@segment_last_ts[seg]? || 0_i64)
     end
 
-    def drop_overflow
+    def drop_overflow(*, except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
       return if @closed
       if max_length = @max_length
-        drop_segments_while do
+        drop_segments_while(except: except) do
           @size >= max_length
         end
       end
       if max_bytes = @max_length_bytes
-        drop_segments_while do
+        drop_segments_while(except: except) do
           @bytesize >= max_bytes
         end
       end
       if max_age = @max_age
         min_ts = RoughTime.utc - max_age
-        drop_segments_while do |seg_id|
+        drop_segments_while(except: except) do |seg_id|
           last_ts = @segment_last_ts[seg_id]
           Time.unix_ms(last_ts) < min_ts
         end
@@ -354,10 +382,12 @@ module LavinMQ::AMQP
       cleanup_consumer_offsets
     end
 
-    private def drop_segments_while(& : UInt32 -> Bool)
+    private def drop_segments_while(*, except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32), & : UInt32 -> Bool)
       @segments.reject! do |seg_id, mfile|
         should_drop = yield seg_id
         break unless should_drop
+        break if except.includes?(seg_id)
+        break if protected_segment?(seg_id)
         next if mfile == @wfile # never delete the last active segment
         msg_count = @segment_msg_count.delete(seg_id)
         @size -= msg_count if msg_count
