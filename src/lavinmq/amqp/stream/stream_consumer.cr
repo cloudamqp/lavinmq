@@ -13,6 +13,12 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued : Sync::Exclusive(Deque(SegmentPosition)) = Sync::Exclusive.new(Deque(SegmentPosition).new, :checked)
+      # Segment whose mmap-backed body this consumer is currently delivering
+      # (0 = none). Set under @msg_store_lock.read in StreamMessageStore#shift?,
+      # cleared after delivery in Stream#get. The @msg_store_lock is released
+      # during delivery, so a dropped segment must not be munmapped while this
+      # still points at it — the unmap sweep keeps such segments mapped.
+      @reading_segment = Atomic(UInt32).new(0u32)
       @filters = Array(StreamFilter).new
       @filter_match_all = true
       @match_unfiltered = false
@@ -129,6 +135,20 @@ module LavinMQ
 
       private def stream_queue : Stream
         @queue.as(Stream)
+      end
+
+      # Segment whose body is currently being delivered, or nil if idle.
+      def reading_segment : UInt32?
+        seg = @reading_segment.get(:acquire)
+        seg.zero? ? nil : seg
+      end
+
+      def reading_segment=(segment : UInt32) : Nil
+        @reading_segment.set(segment, :release)
+      end
+
+      def release_reading_segment : Nil
+        @reading_segment.set(0u32, :release)
       end
 
       def waiting_for_messages?

@@ -14,7 +14,10 @@ module LavinMQ::AMQP
       offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
-        env = store.read(segment, position)
+        # read detaches the body off mmap, but the @segments[segment] lookup
+        # inside it still races with drop_segments_while — hold the lock for
+        # the lookup so the segment can't be dropped under us.
+        env = stream.@msg_store_lock.read { store.read(segment, position) }
         if env
           if headers = env.message.properties.headers
             headers["x-stream-offset"] = offset

@@ -13,6 +13,10 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : MFile
     @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
+    # Segments that have been dropped (unlinked + metadata removed) but kept
+    # mapped because a consumer may still be copying a body slice out of them.
+    # Munmapped by unmap_pending once no consumer references the segment.
+    @pending_unmap = Hash(UInt32, MFile).new
 
     def initialize(*args, **kwargs)
       super
@@ -25,11 +29,15 @@ module LavinMQ::AMQP
 
     def close : Nil
       super
+      @pending_unmap.each_value &.close(truncate_to_size: false)
+      @pending_unmap.clear
       @consumer_offsets.close
     end
 
     def delete
       super
+      @pending_unmap.each_value &.close(truncate_to_size: false)
+      @pending_unmap.clear
       delete_file(@consumer_offsets)
     end
 
@@ -233,17 +241,31 @@ module LavinMQ::AMQP
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false)
+        # `read` only serves StreamReader (HTTP message preview), which uses
+        # the body outside @msg_store_lock — detach it off mmap so a concurrent
+        # segment drop can't munmap it mid-use. Consumers go through #shift?,
+        # which keeps the body in mmap and relies on deferred unmapping instead.
+        Envelope.new(sp, detach_from_mmap(msg), redelivered: false)
       rescue ex
         puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
       end
     end
 
+    # Returns a BytesMessage whose body lives on the GC heap rather than in the
+    # segment's mmap, so it survives a concurrent munmap of that segment.
+    private def detach_from_mmap(msg : BytesMessage) : BytesMessage
+      body = Bytes.new(msg.bodysize)
+      msg.body.copy_to(body)
+      BytesMessage.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, body)
+    end
+
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
 
       if env = shift_requeued(consumer.requeued)
+        consumer.reading_segment = env.segment_position.segment
         return env
       end
 
@@ -260,6 +282,7 @@ module LavinMQ::AMQP
         consumer.pos += sp.bytesize
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
+        consumer.reading_segment = consumer.segment
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
         raise Error.new(rfile, cause: ex)
@@ -365,7 +388,36 @@ module LavinMQ::AMQP
         @segment_first_offset.delete(seg_id)
         @segment_first_ts.delete(seg_id)
         @bytesize -= mfile.size - 4
-        delete_file(mfile, including_meta: true)
+        unlink_defer_unmap(seg_id, mfile)
+        true
+      end
+    end
+
+    # Unlink the segment and drop its metadata now, but keep the MFile mapped
+    # and parked in @pending_unmap. A stream consumer may still be copying a
+    # body slice that points into this segment's mmap — the @msg_store_lock is
+    # released during delivery — and munmap there would be a use-after-unmap
+    # SIGSEGV. Unlinking an mmap'd file keeps its pages valid on Linux, so the
+    # in-flight body survives; unmap_pending munmaps it once no consumer
+    # references the segment.
+    private def unlink_defer_unmap(seg_id : UInt32, mfile : MFile) : Nil
+      mfile.delete(raise_on_missing: false)
+      if replicator = @replicator
+        replicator.delete_file(meta_file_name(mfile))
+        replicator.delete_file(mfile.path)
+      end
+      File.delete?(meta_file_name(mfile))
+      @pending_unmap[seg_id] = mfile
+    end
+
+    # Munmap segments dropped by drop_segments_while but kept mapped for
+    # in-flight readers. Skips any segment still referenced by a consumer
+    # (its next-read position or the body it's currently delivering); those
+    # are retried on the next sweep. Called under @msg_store_lock.write.
+    def unmap_pending(in_use : Set(UInt32)) : Nil
+      @pending_unmap.reject! do |seg_id, mfile|
+        next false if in_use.includes?(seg_id)
+        mfile.close(truncate_to_size: false)
         true
       end
     end
