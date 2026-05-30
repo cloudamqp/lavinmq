@@ -3,53 +3,6 @@ require "./../src/lavinmq/amqp/stream/stream_reader"
 require "./../src/lavinmq/amqp/stream/stream_message_store"
 
 describe LavinMQ::AMQP::StreamReader do
-  it "envelope body survives a concurrent segment unmap" do
-    # Regression: #read returned a BytesMessage whose body pointed into the
-    # segment's mmap. The reader uses the body outside @msg_store_lock, so a
-    # concurrent retention drop that munmaps the segment left the body slice
-    # dangling — a use-after-unmap SIGSEGV. #read now detaches the body off
-    # mmap before returning, so it survives the unmap.
-    with_amqp_server do |s|
-      queue_name = ""
-      with_channel(s) do |ch|
-        q = ch.queue("", args: AMQP::Client::Arguments.new({
-          "x-queue-type" => "stream",
-        }))
-        queue_name = q.name
-        # Each message fills a segment so the next publish rolls a new one.
-        data = Bytes.new(LavinMQ::Config.instance.segment_size)
-        data[0] = 0xAA_u8
-        data[-1] = 0xBB_u8
-        3.times { q.publish_confirm data }
-      end
-
-      stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-      reader = stream.reader "first"
-
-      saved_env : LavinMQ::Envelope? = nil
-      reader.each do |env|
-        saved_env = env
-        break
-      end
-
-      # Drop the segments the env came from and force the deferred munmap —
-      # without the detach the saved body would now point into freed memory.
-      stream.@msg_store_lock.write do
-        store = stream.stream_msg_store
-        store.max_length_bytes = 1_i64
-        store.drop_overflow
-        store.unmap_pending(Set(UInt32).new)
-      end
-
-      saved_env.should_not be_nil
-      env = saved_env.not_nil!
-      env.message.bodysize.should eq LavinMQ::Config.instance.segment_size
-      env.message.body.size.should eq LavinMQ::Config.instance.segment_size
-      env.message.body[0].should eq 0xAA_u8
-      env.message.body[-1].should eq 0xBB_u8
-    end
-  end
-
   it "should handle offset (where to start the reader)" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

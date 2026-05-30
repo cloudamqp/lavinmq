@@ -188,13 +188,7 @@ module LavinMQ::AMQP
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
       env = @msg_store_lock.read { @msg_store.shift?(consumer) } || return false
-      begin
-        yield env # deliver the message — body slice still points into the
-        # segment's mmap, and @msg_store_lock is released here, so the segment
-        # must stay mapped (see StreamMessageStore#unlink_defer_unmap).
-      ensure
-        consumer.release_reading_segment
-      end
+      yield env # deliver the message
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -282,18 +276,11 @@ module LavinMQ::AMQP
       used_segments = Set(UInt32).new
       @consumers.shared do |consumers|
         consumers.each do |consumer|
-          sc = consumer.as(AMQP::StreamConsumer)
-          used_segments << sc.segment
-          if reading = sc.reading_segment
-            used_segments << reading
-          end
+          used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end
       @msg_store_lock.write do
         stream_msg_store.drop_overflow
-        # Munmap segments dropped here or on the publish/policy path that no
-        # consumer references anymore; dontneed the rest of the live segments.
-        stream_msg_store.unmap_pending(used_segments)
         stream_msg_store.unmap_segments(except: used_segments)
       end
     end

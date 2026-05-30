@@ -273,41 +273,6 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "defers unmapping a dropped segment until no consumer references it" do
-      # A stream consumer copies a body slice that points into the segment's
-      # mmap *after* releasing @msg_store_lock, so retention must not munmap a
-      # dropped segment while a consumer is still reading it. drop_overflow
-      # unlinks + parks the segment (still mapped); unmap_pending munmaps only
-      # the ones no consumer references.
-      queue_name = Random::Secure.hex
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = {"x-queue-type": "stream", "x-max-length-bytes": 1}
-          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          3.times { q.publish_confirm data }
-        end
-
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        store = stream.stream_msg_store
-
-        # Dropped segments are parked, still mapped (not munmapped).
-        store.@pending_unmap.should_not be_empty
-        dropped_seg, dropped_mfile = store.@pending_unmap.first
-        dropped_mfile.closed?.should be_false
-
-        # While a consumer references the segment, the sweep keeps it mapped.
-        stream.@msg_store_lock.write { store.unmap_pending(Set{dropped_seg}) }
-        dropped_mfile.closed?.should be_false
-        store.@pending_unmap.has_key?(dropped_seg).should be_true
-
-        # Once nothing references it, the sweep munmaps and forgets it.
-        stream.@msg_store_lock.write { store.unmap_pending(Set(UInt32).new) }
-        dropped_mfile.closed?.should be_true
-        store.@pending_unmap.has_key?(dropped_seg).should be_false
-      end
-    end
-
     it "segments should be removed if max-age set" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
