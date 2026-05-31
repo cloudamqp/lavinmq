@@ -51,7 +51,7 @@ module LavinMQ::Raft
       end
       spawn(name: "raft.runner follow_leader") { follow_leader_loop }
 
-      maybe_bootstrap
+      maybe_bootstrap_or_join
 
       wait_to_be_insync
       @server.is_leader.when_true.receive
@@ -74,12 +74,25 @@ module LavinMQ::Raft
       @transport.stop
     end
 
-    private def maybe_bootstrap : Nil
+    private def maybe_bootstrap_or_join : Nil
+      join_target_path = File.join(@config.data_dir, ".join_target")
+      if File.exists?(join_target_path)
+        leader_uri = File.read(join_target_path).strip
+        Log.info { "Found .join_target — joining cluster at #{leader_uri}" }
+        perform_join(leader_uri)
+        File.delete(join_target_path)
+        return
+      end
       return unless @server.peers.empty?
       Log.info { "Fresh node with no peers — bootstrapping single-node cluster" }
       unless @server.bootstrap
         Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
       end
+    end
+
+    # Stub: filled in by Task 3.
+    private def perform_join(leader_uri : String) : Nil
+      raise "perform_join not implemented yet"
     end
 
     private def wait_to_be_insync : Nil

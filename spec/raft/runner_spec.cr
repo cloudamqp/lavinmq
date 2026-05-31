@@ -52,4 +52,32 @@ describe LavinMQ::Raft::Runner do
       FileUtils.rm_rf(dir)
     end
   end
+
+  it "skips auto-bootstrap when .join_target exists" do
+    dir = tmp_data_dir
+    runner = nil.as(LavinMQ::Raft::Runner?)
+    begin
+      File.write(File.join(dir, ".join_target"), "http://unreachable.invalid:99999")
+      config = LavinMQ::Config.new
+      config.data_dir = dir
+      config.clustering_bind = "127.0.0.1"
+      config.clustering_raft_port = 0
+      config.clustering_port = 0
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      runner = LavinMQ::Raft::Runner.new(config)
+      spawn(name: "runner-skipbootstrap-test") do
+        begin
+          runner.not_nil!.run { Fiber.yield }
+        rescue
+          # perform_join stub will raise since not implemented; that's fine
+        end
+      end
+      sleep 200.milliseconds
+      runner.not_nil!.server.is_leader.value.should be_false
+      File.exists?(File.join(dir, ".join_target")).should be_true
+    ensure
+      runner.try &.stop rescue nil
+      FileUtils.rm_rf(dir)
+    end
+  end
 end
