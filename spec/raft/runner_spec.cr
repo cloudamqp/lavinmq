@@ -84,6 +84,43 @@ describe LavinMQ::Raft::Runner do
   end
 
   describe "perform_join" do
+    it "retries on 5xx until success" do
+      attempts = 0
+      stub = HTTP::Server.new do |context|
+        attempts += 1
+        if attempts < 3
+          context.response.status_code = 503
+          context.response.print "busy"
+        else
+          context.response.status_code = 200
+          context.response.print({"status" => "added"}.to_json)
+        end
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-flaky-leader") { stub.listen }
+      runner = nil.as(LavinMQ::Raft::Runner?)
+      begin
+        dir = tmp_data_dir
+        begin
+          File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+          config = LavinMQ::Config.new
+          config.data_dir = dir
+          config.clustering_bind = "127.0.0.1"
+          config.clustering_raft_port = 0
+          config.clustering_port = 0
+          config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+          runner = LavinMQ::Raft::Runner.new(config)
+          runner.not_nil!.perform_join("http://#{addr}")
+          attempts.should eq 3
+        ensure
+          FileUtils.rm_rf(dir)
+        end
+      ensure
+        runner.try &.stop rescue nil
+        stub.close
+      end
+    end
+
     it "POSTs to leader's /raft/admin/add_server/<id> with own address as JSON body" do
       received_path = nil.as(String?)
       received_body = nil.as(String?)

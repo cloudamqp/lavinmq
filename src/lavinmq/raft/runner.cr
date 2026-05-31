@@ -93,23 +93,35 @@ module LavinMQ::Raft
       end
     end
 
+    JOIN_MAX_ATTEMPTS   = 30
+    JOIN_RETRY_INTERVAL = 1.second
+
     def perform_join(leader_uri : String) : Nil
       uri = URI.parse(leader_uri)
       raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
       path = "/raft/admin/add_server/#{@server.node_id}"
       body = {"address" => build_advertised_address}.to_json
       headers = ::HTTP::Headers{"Content-Type" => "application/json"}
-      client = ::HTTP::Client.new(uri)
-      begin
-        response = client.post(path, headers: headers, body: body)
-        if response.status_code == 200
-          Log.info { "Joined cluster via #{leader_uri} (response: #{response.body})" }
-        else
-          raise "join refused by #{leader_uri}: HTTP #{response.status_code} #{response.body}"
+      last_error = "unknown error"
+      JOIN_MAX_ATTEMPTS.times do |attempt|
+        client = ::HTTP::Client.new(uri)
+        begin
+          response = client.post(path, headers: headers, body: body)
+          if response.status_code == 200
+            Log.info { "Joined cluster via #{leader_uri} on attempt #{attempt + 1}" }
+            return
+          end
+          last_error = "HTTP #{response.status_code} #{response.body}"
+          Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} got #{last_error}" }
+        rescue ex
+          last_error = ex.message.to_s
+          Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} failed: #{ex.message}" }
+        ensure
+          client.close rescue nil
         end
-      ensure
-        client.close
+        sleep JOIN_RETRY_INTERVAL unless attempt == JOIN_MAX_ATTEMPTS - 1
       end
+      raise "join exhausted #{JOIN_MAX_ATTEMPTS} attempts: #{last_error}"
     end
 
     private def wait_to_be_insync : Nil
