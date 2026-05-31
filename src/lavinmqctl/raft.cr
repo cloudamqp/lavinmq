@@ -4,6 +4,14 @@ require "uri"
 require "file_utils"
 
 class LavinMQCtl
+  class CtlExit < Exception
+    getter code : Int32
+
+    def initialize(@code : Int32, message : String = "")
+      super(message)
+    end
+  end
+
   RAFT_STATE_DIRS  = %w[raft raft-transport]
   RAFT_STATE_FILES = %w[.clustering_id]
 
@@ -12,7 +20,7 @@ class LavinMQCtl
     if response.status_code != 200
       @io.puts "raft_status: HTTP #{response.status_code}"
       @io.puts response.body
-      exit 1
+      raise CtlExit.new(1)
     end
     data = JSON.parse(response.body)
     @io.puts "Role:         #{data["role"]?}"
@@ -29,7 +37,7 @@ class LavinMQCtl
     end
   rescue ex : IO::Error | Socket::Error
     @io.puts "raft_status: cannot reach local node: #{ex.message}"
-    exit 1
+    raise CtlExit.new(1)
   end
 
   # Implemented in Task 9 (file wipe) and Task 10 (running-node detection).
@@ -57,9 +65,39 @@ class LavinMQCtl
     @io.puts "raft_reset: removed #{deleted.empty? ? "(nothing to remove)" : deleted.join(", ")} from #{data_dir}"
   end
 
-  # Task 10 implements: SIGTERM the running node, refuse multi-peer reset without --force.
   private def maybe_signal_running_node(pidfile : String, data_dir : String) : Nil
-    # Stub for Task 9; filled in by Task 10.
+    return unless File.exists?(pidfile)
+    pid_str = File.read(pidfile).strip
+    pid = pid_str.to_i64? || return
+    return unless Process.exists?(pid)
+    unless @options["force"]?
+      # Refuse if the node is part of a real cluster.
+      # If /raft/status is unreachable assume safe (single-node or already wedged).
+      begin
+        response = http.get("/raft/status", @headers)
+        if response.status_code == 200
+          data = JSON.parse(response.body)
+          if peers = data["peers"]?
+            if peers.as_a.size > 1
+              @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers.as_a.size}). Use --force to override."
+              raise CtlExit.new(1)
+            end
+          end
+        end
+      rescue ex : IO::Error | Socket::Error
+        # /raft/status unreachable: skip the safety check.
+      end
+    end
+    @io.puts "raft_reset: sending SIGTERM to pid #{pid}"
+    Process.signal(Signal::TERM, pid)
+    deadline = Time.instant + 30.seconds
+    while Process.exists?(pid)
+      if Time.instant > deadline
+        @io.puts "raft_reset: timed out waiting for pid #{pid} to exit"
+        raise CtlExit.new(1)
+      end
+      sleep 100.milliseconds
+    end
   end
 
   # Implemented in Task 11.
