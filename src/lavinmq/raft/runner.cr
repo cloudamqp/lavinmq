@@ -1,5 +1,8 @@
 require "raft"
 require "uri"
+require "http/client"
+require "http/headers"
+require "json"
 require "../clustering/client"
 require "./server"
 require "./coordinator"
@@ -90,9 +93,23 @@ module LavinMQ::Raft
       end
     end
 
-    # Stub: filled in by Task 3.
-    private def perform_join(leader_uri : String) : Nil
-      raise "perform_join not implemented yet"
+    def perform_join(leader_uri : String) : Nil
+      uri = URI.parse(leader_uri)
+      raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
+      path = "/raft/admin/add_server/#{@server.node_id}"
+      body = {"address" => build_advertised_address}.to_json
+      headers = ::HTTP::Headers{"Content-Type" => "application/json"}
+      client = ::HTTP::Client.new(uri)
+      begin
+        response = client.post(path, headers: headers, body: body)
+        if response.status_code == 200
+          Log.info { "Joined cluster via #{leader_uri} (response: #{response.body})" }
+        else
+          raise "join refused by #{leader_uri}: HTTP #{response.status_code} #{response.body}"
+        end
+      ensure
+        client.close
+      end
     end
 
     private def wait_to_be_insync : Nil
