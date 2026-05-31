@@ -83,6 +83,29 @@ describe LavinMQ::Raft::Runner do
     end
   end
 
+  it "preserves .join_target when perform_join raises" do
+    dir = tmp_data_dir
+    runner = nil.as(LavinMQ::Raft::Runner?)
+    begin
+      File.write(File.join(dir, ".join_target"), "http://127.0.0.1:1")
+      config = LavinMQ::Config.new
+      config.data_dir = dir
+      config.clustering_bind = "127.0.0.1"
+      config.clustering_raft_port = 0
+      config.clustering_port = 0
+      config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+      runner = LavinMQ::Raft::Runner.new(config)
+      # Use an invalid scheme so perform_join raises IMMEDIATELY without the 30-attempt retry loop.
+      expect_raises(Exception, /invalid leader URI scheme/) do
+        runner.not_nil!.perform_join("garbage://target")
+      end
+      File.exists?(File.join(dir, ".join_target")).should be_true
+    ensure
+      runner.try &.stop rescue nil
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   describe "perform_join" do
     it "retries on 5xx until success" do
       attempts = 0
