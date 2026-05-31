@@ -100,8 +100,28 @@ class LavinMQCtl
     end
   end
 
-  # Implemented in Task 11.
   def raft_join
-    raise "raft_join not implemented"
+    leader_uri = ARGV.shift? || ""
+    if leader_uri.empty?
+      @io.puts "raft_join: missing <leader-http-uri>"
+      raise CtlExit.new(1)
+    end
+    parsed = URI.parse(leader_uri)
+    unless parsed.scheme == "http" || parsed.scheme == "https"
+      @io.puts "raft_join: invalid URI scheme: #{leader_uri}"
+      raise CtlExit.new(1)
+    end
+    data_dir = @options["data_dir"]?
+    if data_dir.nil? || data_dir.empty?
+      @io.puts "raft_join: --data-dir not specified"
+      raise CtlExit.new(1)
+    end
+    # Reset raft state (file wipe + optional SIGTERM)
+    raft_reset
+    # Write the join marker
+    Dir.mkdir_p(data_dir)
+    marker = File.join(data_dir, ".join_target")
+    File.write(marker, leader_uri)
+    @io.puts "raft_join: wrote #{marker} → #{leader_uri}; restart lavinmq to join the cluster"
   end
 end

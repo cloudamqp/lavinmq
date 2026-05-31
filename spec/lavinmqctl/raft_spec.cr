@@ -137,19 +137,57 @@ describe "LavinMQCtl raft_*" do
     end
   end
 
-  it "recognizes raft_join as a valid command" do
-    stdout_capture = IO::Memory.new
-    original_argv = ARGV.dup
-    begin
-      ARGV.clear
-      ARGV.concat(["raft_join", "http://leader:15672"])
-      cli = LavinMQCtl.new(stdout_capture)
-      expect_raises(Exception, "raft_join not implemented") do
-        cli.run_cmd
+  describe "raft_join" do
+    it "wipes raft state and writes .join_target with leader URI" do
+      data_dir = File.tempname("raft-join-spec")
+      begin
+        Dir.mkdir_p(File.join(data_dir, "raft"))
+        File.write(File.join(data_dir, "raft", "snapshot"), "fake")
+        File.write(File.join(data_dir, ".clustering_id"), "1")
+
+        stdout = IO::Memory.new
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          ARGV.concat(["raft_join", "http://leader.example:15672", "--data-dir=#{data_dir}"])
+          cli = LavinMQCtl.new(stdout)
+          cli.run_cmd
+        ensure
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        Dir.exists?(File.join(data_dir, "raft")).should be_false
+        File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+        marker = File.join(data_dir, ".join_target")
+        File.exists?(marker).should be_true
+        File.read(marker).strip.should eq "http://leader.example:15672"
+      ensure
+        FileUtils.rm_rf(data_dir)
       end
-    ensure
-      ARGV.clear
-      ARGV.concat(original_argv)
+    end
+
+    it "rejects invalid URIs" do
+      data_dir = File.tempname("raft-join-bad-spec")
+      begin
+        Dir.mkdir_p(data_dir)
+        stdout = IO::Memory.new
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          ARGV.concat(["raft_join", "ftp://wrong", "--data-dir=#{data_dir}"])
+          cli = LavinMQCtl.new(stdout)
+          expect_raises(LavinMQCtl::CtlExit) do
+            cli.run_cmd
+          end
+        ensure
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+        File.exists?(File.join(data_dir, ".join_target")).should be_false
+      ensure
+        FileUtils.rm_rf(data_dir)
+      end
     end
   end
 end
