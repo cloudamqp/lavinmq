@@ -40,6 +40,11 @@ module LavinMQ::Raft
       build_advertised_address
     end
 
+    def post_election_in_isr? : Bool
+      isr = @server.isr
+      isr.empty? || isr.includes?(@server.node_id)
+    end
+
     def run(&)
       @transport.start
       @server.start
@@ -58,6 +63,10 @@ module LavinMQ::Raft
 
       wait_to_be_insync
       @server.is_leader.when_true.receive
+      unless post_election_in_isr?
+        Log.fatal { "Won raft election but not in ISR (#{@server.isr.to_a}); refusing to serve" }
+        exit 3
+      end
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
       @repli_client.try &.close
       yield
