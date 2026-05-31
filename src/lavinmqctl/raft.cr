@@ -34,7 +34,32 @@ class LavinMQCtl
 
   # Implemented in Task 9 (file wipe) and Task 10 (running-node detection).
   def raft_reset
-    raise "raft_reset not implemented"
+    data_dir = @options["data_dir"]? || raise "data_dir not specified (use --data-dir=PATH)"
+    # Running-node detection: Task 10 implements maybe_signal_running_node. For now, no-op when no pidfile.
+    if pidfile = @options["pidfile"]?
+      maybe_signal_running_node(pidfile, data_dir)
+    end
+    deleted = [] of String
+    RAFT_STATE_DIRS.each do |d|
+      path = File.join(data_dir, d)
+      if Dir.exists?(path)
+        FileUtils.rm_rf(path)
+        deleted << "#{d}/"
+      end
+    end
+    RAFT_STATE_FILES.each do |f|
+      path = File.join(data_dir, f)
+      if File.exists?(path)
+        File.delete(path)
+        deleted << f
+      end
+    end
+    @io.puts "raft_reset: removed #{deleted.empty? ? "(nothing to remove)" : deleted.join(", ")} from #{data_dir}"
+  end
+
+  # Task 10 implements: SIGTERM the running node, refuse multi-peer reset without --force.
+  private def maybe_signal_running_node(pidfile : String, data_dir : String) : Nil
+    # Stub for Task 9; filled in by Task 10.
   end
 
   # Implemented in Task 11.

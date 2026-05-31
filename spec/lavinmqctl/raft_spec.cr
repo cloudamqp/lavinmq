@@ -46,19 +46,38 @@ describe "LavinMQCtl raft_*" do
     end
   end
 
-  it "recognizes raft_reset as a valid command" do
-    stdout_capture = IO::Memory.new
-    original_argv = ARGV.dup
-    begin
-      ARGV.clear
-      ARGV.concat(["raft_reset"])
-      cli = LavinMQCtl.new(stdout_capture)
-      expect_raises(Exception, "raft_reset not implemented") do
-        cli.run_cmd
+  describe "raft_reset" do
+    it "wipes raft state directories and .clustering_id; leaves other files" do
+      data_dir = File.tempname("raft-reset-spec")
+      begin
+        Dir.mkdir_p(File.join(data_dir, "raft"))
+        File.write(File.join(data_dir, "raft", "snapshot"), "fake snapshot")
+        File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+        Dir.mkdir_p(File.join(data_dir, "raft-transport"))
+        File.write(File.join(data_dir, "raft-transport", "transport_peers"), "fake peers")
+        File.write(File.join(data_dir, ".clustering_id"), "1")
+        sentinel = File.join(data_dir, "queue-data.bin")
+        File.write(sentinel, "amqp messages")
+
+        stdout = IO::Memory.new
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          ARGV.concat(["raft_reset", "--data-dir=#{data_dir}"])
+          cli = LavinMQCtl.new(stdout)
+          cli.run_cmd
+        ensure
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        Dir.exists?(File.join(data_dir, "raft")).should be_false
+        Dir.exists?(File.join(data_dir, "raft-transport")).should be_false
+        File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+        File.exists?(sentinel).should be_true
+      ensure
+        FileUtils.rm_rf(data_dir)
       end
-    ensure
-      ARGV.clear
-      ARGV.concat(original_argv)
     end
   end
 
