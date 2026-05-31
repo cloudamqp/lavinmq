@@ -42,7 +42,11 @@ class LavinMQCtl
 
   # Implemented in Task 9 (file wipe) and Task 10 (running-node detection).
   def raft_reset
-    data_dir = @options["data_dir"]? || raise "data_dir not specified (use --data-dir=PATH)"
+    data_dir = @options["data_dir"]?
+    if data_dir.nil? || data_dir.empty?
+      @io.puts "raft_reset: --data-dir not specified"
+      raise CtlExit.new(1)
+    end
     # Running-node detection: Task 10 implements maybe_signal_running_node. For now, no-op when no pidfile.
     if pidfile = @options["pidfile"]?
       maybe_signal_running_node(pidfile, data_dir)
