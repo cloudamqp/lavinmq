@@ -106,6 +106,93 @@ describe LavinMQ::Raft::Runner do
     end
   end
 
+  describe "post-election ISR check" do
+    it "returns true when ISR is empty (fresh bootstrap)" do
+      dir = tmp_data_dir
+      runner = nil.as(LavinMQ::Raft::Runner?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        config = LavinMQ::Config.new
+        config.data_dir = dir
+        config.clustering_bind = "127.0.0.1"
+        config.clustering_raft_port = 0
+        config.clustering_port = 0
+        config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+        runner = LavinMQ::Raft::Runner.new(config)
+        runner.not_nil!.post_election_in_isr?.should be_true
+      ensure
+        runner.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "returns true when ISR includes our node_id" do
+      dir = tmp_data_dir
+      runner = nil.as(LavinMQ::Raft::Runner?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        config = LavinMQ::Config.new
+        config.data_dir = dir
+        config.clustering_bind = "127.0.0.1"
+        config.clustering_raft_port = 0
+        config.clustering_port = 0
+        config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+        runner = LavinMQ::Raft::Runner.new(config)
+        r = runner.not_nil!
+        r.server.start
+        r.server.bootstrap
+        select
+        when r.server.is_leader.when_true.receive
+        when timeout(2.seconds)
+          fail "did not become leader"
+        end
+        r.server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1})).should be_true
+        deadline = Time.instant + 2.seconds
+        until r.server.isr.includes?(1)
+          fail "apply timed out" if Time.instant > deadline
+          Fiber.yield
+        end
+        r.post_election_in_isr?.should be_true
+      ensure
+        runner.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "returns false when ISR is non-empty and excludes our node_id" do
+      dir = tmp_data_dir
+      runner = nil.as(LavinMQ::Raft::Runner?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        config = LavinMQ::Config.new
+        config.data_dir = dir
+        config.clustering_bind = "127.0.0.1"
+        config.clustering_raft_port = 0
+        config.clustering_port = 0
+        config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+        runner = LavinMQ::Raft::Runner.new(config)
+        r = runner.not_nil!
+        r.server.start
+        r.server.bootstrap
+        select
+        when r.server.is_leader.when_true.receive
+        when timeout(2.seconds)
+          fail "did not become leader"
+        end
+        r.server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99})).should be_true
+        deadline = Time.instant + 2.seconds
+        until r.server.isr.includes?(99)
+          fail "apply timed out" if Time.instant > deadline
+          Fiber.yield
+        end
+        r.post_election_in_isr?.should be_false
+      ensure
+        runner.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "perform_join" do
     it "retries on 5xx until success" do
       attempts = 0
