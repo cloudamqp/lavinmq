@@ -63,7 +63,7 @@ describe LavinMQ::Raft::Runner do
       config.clustering_bind = "127.0.0.1"
       config.clustering_raft_port = 0
       config.clustering_port = 0
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      config.clustering_advertised_uri = "tcp://127.0.0.1:0"
       runner = LavinMQ::Raft::Runner.new(config)
       spawn(name: "runner-skipbootstrap-test") do
         begin
