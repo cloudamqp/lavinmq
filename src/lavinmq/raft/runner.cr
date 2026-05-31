@@ -51,6 +51,8 @@ module LavinMQ::Raft
       end
       spawn(name: "raft.runner follow_leader") { follow_leader_loop }
 
+      maybe_bootstrap
+
       wait_to_be_insync
       @server.is_leader.when_true.receive
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
@@ -70,6 +72,14 @@ module LavinMQ::Raft
       @repli_client.try &.close
       @server.stop
       @transport.stop
+    end
+
+    private def maybe_bootstrap : Nil
+      return unless @server.peers.empty?
+      Log.info { "Fresh node with no peers — bootstrapping single-node cluster" }
+      unless @server.bootstrap
+        Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
+      end
     end
 
     private def wait_to_be_insync : Nil
