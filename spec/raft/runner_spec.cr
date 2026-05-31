@@ -1,5 +1,7 @@
 require "../spec_helper"
 require "file_utils"
+require "http/server"
+require "json"
 require "../../src/lavinmq/raft/runner"
 
 private def tmp_data_dir : String
@@ -69,7 +71,7 @@ describe LavinMQ::Raft::Runner do
         begin
           runner.not_nil!.run { Fiber.yield }
         rescue
-          # perform_join stub will raise since not implemented; that's fine
+          # perform_join will fail to connect; that's fine
         end
       end
       sleep 200.milliseconds
@@ -78,6 +80,46 @@ describe LavinMQ::Raft::Runner do
     ensure
       runner.try &.stop rescue nil
       FileUtils.rm_rf(dir)
+    end
+  end
+
+  describe "perform_join" do
+    it "POSTs to leader's /raft/admin/add_server/<id> with own address as JSON body" do
+      received_path = nil.as(String?)
+      received_body = nil.as(String?)
+      stub = HTTP::Server.new do |context|
+        received_path = context.request.path
+        received_body = context.request.body.try(&.gets_to_end)
+        context.response.status_code = 200
+        context.response.content_type = "application/json"
+        context.response.print({"status" => "added"}.to_json)
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-leader") { stub.listen }
+      runner = nil.as(LavinMQ::Raft::Runner?)
+      begin
+        dir = tmp_data_dir
+        begin
+          File.write(File.join(dir, ".clustering_id"), 42.to_s(36))
+          config = LavinMQ::Config.new
+          config.data_dir = dir
+          config.clustering_bind = "127.0.0.1"
+          config.clustering_raft_port = 0
+          config.clustering_port = 0
+          config.clustering_advertised_uri = "tcp://127.0.0.1:0"
+          runner = LavinMQ::Raft::Runner.new(config)
+          runner.not_nil!.perform_join("http://#{addr}")
+          received_path.should eq "/raft/admin/add_server/42"
+          received_body.should_not be_nil
+          parsed = JSON.parse(received_body.not_nil!)
+          parsed["address"].as_s.should_not be_empty
+        ensure
+          FileUtils.rm_rf(dir)
+        end
+      ensure
+        runner.try &.stop rescue nil
+        stub.close
+      end
     end
   end
 end
