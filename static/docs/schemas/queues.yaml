@@ -249,7 +249,7 @@ GetQueueMessagesRequestBody:
       - auto
       - base64
     truncate:
-      type: string
+      type: integer
     requeue:
       type: boolean
 StreamQueueMessagesRequestBody:
