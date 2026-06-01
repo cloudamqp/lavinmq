@@ -43,7 +43,11 @@ module LavinMQ
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         @runner = controller = Clustering::Controller.new(@config, etcd)
         coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        @replicator = replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        # In DR (relay) mode the controller drives this server itself (it listens
+        # for the region's followers and is fed by the upstream region) instead
+        # of the local message store, and never yields to start the amqp server.
+        controller.replicator = replicator
       else
         @runner = StandaloneRunner.new
       end

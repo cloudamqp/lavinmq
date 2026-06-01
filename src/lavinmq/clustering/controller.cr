@@ -6,6 +6,11 @@ class LavinMQ::Clustering::Controller
 
   getter id : Int32
 
+  # The downstream replication server. Set by the Launcher. In DR (relay) mode
+  # the controller feeds this server from the upstream region instead of a local
+  # message store.
+  property replicator : Clustering::Server? = nil
+
   @repli_client : Client? = nil
 
   def self.new(config : Config)
@@ -28,16 +33,23 @@ class LavinMQ::Clustering::Controller
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
+    spawn(watch_upstream, name: "Upstream region watcher")
     wait_to_be_insync(lease)
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
     @is_leader.set(true)
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
-    # TODO: make sure we still are in the ISR set
-    yield
-    loop do
-      lease.wait(30.seconds)
-      GC.collect
+    if upstream = effective_upstream.presence
+      # DR (relay) mode: don't serve clients, replicate from the foreign region
+      # and re-serve the stream to our own region's followers.
+      run_relay(lease, upstream)
+    else
+      execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+      # TODO: make sure we still are in the ISR set
+      yield
+      loop do
+        lease.wait(30.seconds)
+        GC.collect
+      end
     end
   rescue Etcd::Lease::Expired
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
@@ -120,6 +132,111 @@ class LavinMQ::Clustering::Controller
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
+  end
+
+  # Sentinel value for {prefix}/upstream_etcd that explicitly marks this region
+  # as the primary, overriding the config fallback. Used to promote a DR region
+  # durably (survives restart) — etcd's JSON omits empty values, so an empty
+  # string is indistinguishable from an absent key and can't serve this purpose.
+  UPSTREAM_PRIMARY = "primary"
+
+  # The foreign region's etcd endpoints to replicate from, or "" when this
+  # region is the primary. The {prefix}/upstream_etcd key in this region's own
+  # etcd is authoritative; the config option is only a fallback for bootstrap.
+  # Set the key to the foreign etcd endpoints to make this region a DR follower,
+  # or to "primary" to promote it (failover).
+  def effective_upstream : String
+    upstream_from(@etcd.get(upstream_etcd_key))
+  end
+
+  private def upstream_from(value : String?) : String
+    value ||= @config.clustering_upstream_etcd_endpoints
+    value == UPSTREAM_PRIMARY ? "" : value
+  end
+
+  private def upstream_etcd_key : String
+    "#{@config.clustering_etcd_prefix}/upstream_etcd"
+  end
+
+  # This node won its region's election while the region is a DR follower, so it
+  # becomes the relay: it serves its own region's followers (downstream) and
+  # replicates from the foreign region's leader (upstream), teeing the stream.
+  private def run_relay(lease, upstream : String)
+    replicator = @replicator
+    unless replicator
+      Log.fatal { "DR relay mode requires a clustering replicator" }
+      exit 1
+    end
+    Log.info { "Region is a DR follower of #{upstream}" }
+    start_downstream_listener(replicator)
+    execute_shell_command(@config.clustering_on_demoted, "demoted")
+    spawn(follow_foreign_leader(upstream, replicator), name: "Foreign leader monitor")
+    SystemD.notify_ready
+    loop do
+      lease.wait(30.seconds)
+      GC.collect
+    end
+  end
+
+  private def start_downstream_listener(replicator : Clustering::Server)
+    server = TCPServer.new(@config.clustering_bind, @config.clustering_port)
+    spawn(replicator.listen(server), name: "Clustering listener")
+  end
+
+  # Watch the foreign region's etcd for its current leader and replicate from it,
+  # forwarding the stream to our own region's followers via the replicator.
+  private def follow_foreign_leader(upstream : String, replicator : Clustering::Server)
+    prefix = @config.clustering_upstream_etcd_prefix.presence || @config.clustering_etcd_prefix
+    foreign = Etcd.new(upstream)
+    foreign.elect_listen("#{prefix}/leader") do |uri|
+      if client = @repli_client
+        if client.follows? uri
+          next
+        else
+          client.close
+        end
+      end
+      if uri.nil?
+        Log.warn { "No upstream leader available" }
+        next
+      end
+      Log.info { "Upstream leader: #{uri}" }
+      key = "#{prefix}/clustering_secret"
+      secret = foreign.get(key)
+      until secret
+        Log.debug { "Upstream clustering secret is missing, watching for it" }
+        foreign.watch(key) do |value|
+          secret = value
+          break
+        end
+      end
+      @repli_client = c = Clustering::Client.new(@config, @id, secret, proxy: false, relay: replicator)
+      spawn c.follow(uri), name: "Relay client #{uri}"
+    end
+  rescue ex
+    Log.fatal(exception: ex) { "Unhandled exception while following upstream leader" }
+    exit 36
+  end
+
+  # Restart (via the supervisor) when this region's role flips, so the node
+  # re-derives whether it's a primary or a DR relay on the next boot. Failover =
+  # clear {prefix}/upstream_etcd; reversal = set it to the new primary's etcd.
+  private def watch_upstream
+    dr_now = !effective_upstream.empty?
+    @etcd.watch(upstream_etcd_key) do |value|
+      dr_after = !upstream_from(value).empty?
+      next if dr_after == dr_now
+      if dr_after
+        Log.fatal { "Region demoted to DR follower (upstream_etcd=#{value}); restarting to switch role" }
+        execute_shell_command(@config.clustering_on_demoted, "demoted")
+      else
+        Log.fatal { "Region promoted to primary; restarting to switch role" }
+        execute_shell_command(@config.clustering_on_promoted, "promoted")
+      end
+      exit 38 # 38 for region role change; supervisor restarts into the new role
+    end
+  rescue ex
+    Log.error(exception: ex) { "Unhandled exception while watching upstream region" } unless @stopped
   end
 
   def wait_to_be_insync(lease)

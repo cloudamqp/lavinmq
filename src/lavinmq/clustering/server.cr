@@ -127,6 +127,40 @@ module LavinMQ
         each_follower &.delete(path)
       end
 
+      # Used by a relay (a node fed by an upstream Clustering::Client rather than
+      # a local message store) to forward an append it received from the upstream
+      # leader to its own downstream followers. Unlike `append`, it registers the
+      # path if it's new so that a later downstream full-sync includes the file.
+      def relay_append(path : String, bytes : Bytes)
+        path = strip_datadir path
+        @file_index.lock do |files, checksums|
+          files[path] = nil unless files.has_key?(path)
+          checksums.delete(path)
+        end
+        each_follower &.append(path, bytes)
+      end
+
+      # Register every existing file in the data dir into the file index. A relay
+      # populates its index this way after its own initial sync from the upstream
+      # leader, so it can serve full-syncs (files_with_hash/with_file read from
+      # disk) to its downstream followers for files that predate any streamed
+      # change.
+      def register_data_dir
+        register_dir(@data_dir)
+      end
+
+      private def register_dir(dir : String)
+        Dir.each_child(dir) do |child|
+          path = File.join(dir, child)
+          if File.directory?(path)
+            register_dir(path)
+          else
+            next if child.in?(".lock", ".clustering_id")
+            register_file(path)
+          end
+        end
+      end
+
       def nr_of_files
         @file_index.shared { |files, _checksums| files.size }
       end

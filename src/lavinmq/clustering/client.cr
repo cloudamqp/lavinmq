@@ -3,6 +3,7 @@ require "../clustering"
 require "../rate_limiter"
 require "./checksums"
 require "./proxy"
+require "./server"
 require "lz4"
 
 module LavinMQ
@@ -22,7 +23,10 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      # When `relay` is set this client acts as a relay: every change it applies
+      # locally is also forwarded to the relay's downstream followers. Used by a
+      # DR-region leader to re-serve the cross-region stream within its region.
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @relay : Clustering::Server? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -95,6 +99,10 @@ module LavinMQ
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
+          # A relay must be able to serve downstream full-syncs for files that
+          # existed before any streamed change, so register them now that the
+          # initial sync has written them to disk.
+          @relay.try &.register_data_dir
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
@@ -311,7 +319,16 @@ module LavinMQ
       private def append(filename, len, lz4)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        stream_with_checksum(filename, lz4, f, len.abs)
+        if relay = @relay
+          # Buffer the appended bytes so they can also be forwarded downstream.
+          bytes = Bytes.new(len.abs.to_i32)
+          lz4.read_fully(bytes)
+          f.write(bytes)
+          (@file_digests[filename] ||= Digest::SHA1.new).update(bytes)
+          relay.relay_append(File.join(@data_dir, filename), bytes)
+        else
+          stream_with_checksum(filename, lz4, f, len.abs)
+        end
       end
 
       private def delete(filename)
@@ -324,6 +341,7 @@ module LavinMQ
         end
         @checksums.delete(filename)
         @file_digests.delete(filename)
+        @relay.try &.delete_file(File.join(@data_dir, filename))
       end
 
       private def replace(filename, len, lz4)
@@ -340,6 +358,9 @@ module LavinMQ
           stream_with_checksum(filename, lz4, f, len)
           f.rename f.path[0..-5]
         end
+        # Forward the freshly written file to downstream followers; replace_file
+        # re-reads it from the relay's local disk.
+        @relay.try &.replace_file(File.join(@data_dir, filename))
       end
 
       # Read from lz4, update SHA1, and write to file incrementally
