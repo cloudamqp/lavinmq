@@ -168,6 +168,7 @@ class LavinMQ::Clustering::Controller
       exit 1
     end
     Log.info { "Region is a DR follower of #{upstream}" }
+    replicator.relay_mode! # gate downstream full-syncs until the upstream sync completes
     start_downstream_listener(replicator)
     execute_shell_command(@config.clustering_on_demoted, "demoted")
     spawn(follow_foreign_leader(upstream, replicator), name: "Foreign leader monitor")

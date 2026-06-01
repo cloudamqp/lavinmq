@@ -99,10 +99,16 @@ module LavinMQ
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
-          # A relay must be able to serve downstream full-syncs for files that
-          # existed before any streamed change, so register them now that the
-          # initial sync has written them to disk.
-          @relay.try &.register_data_dir
+          if relay = @relay
+            # A relay must be able to serve downstream full-syncs for files that
+            # existed before any streamed change, so register them now that the
+            # sync has written them to disk...
+            relay.register_data_dir
+            # ...then signal readiness (first sync, opens the downstream gate) or
+            # force a downstream resync (reconnect/failover, where this sync may
+            # have replaced/deleted files never streamed to connected followers).
+            relay.upstream_synced
+          end
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
