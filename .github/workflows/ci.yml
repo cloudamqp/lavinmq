@@ -180,7 +180,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build lavinmq
-        run: make -j bin/lavinmq bin/lavinmqctl bin/stress DOCS= CRYSTAL_FLAGS="--release --error-on-warnings -Dbake_static"
+        run: make -j bin/lavinmq bin/lavinmqctl bin/stress DOCS= CRYSTAL_FLAGS="--release --error-on-warnings"
 
       - name: Print build info
         run: bin/lavinmq --build-info
