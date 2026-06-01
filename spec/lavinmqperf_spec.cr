@@ -150,6 +150,15 @@ describe "LavinMQPerf" do
   end
 
   describe "MQTT::Throughput" do
+    it "wraps packet ids without overflowing" do
+      generator = LavinMQPerf::MQTT::Throughput::PacketIdGenerator.new
+
+      (UInt16::MAX - 1).times { generator.next }
+
+      generator.next.should eq(UInt16::MAX)
+      generator.next.should eq(1_u16)
+    end
+
     it "should accept IO parameter" do
       io = IO::Memory.new
       throughput = LavinMQPerf::MQTT::Throughput.new(io)
