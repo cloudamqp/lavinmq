@@ -11,51 +11,8 @@ private def read_data_size(io) : Int64
 end
 
 module FollowerSpec
-  class FakeFileIndex
-    include LavinMQ::Clustering::FileIndex
-
-    alias FileType = MFile | File
-
-    def initialize(@data_dir : String)
-      @files_with_hash = {
-        "file1" => Digest::SHA1.digest("hash1"),
-        "file2" => Digest::SHA1.digest("hash2"),
-        "file3" => Digest::SHA1.digest("hash3"),
-      }
-    end
-
-    def files_with_hash(& : Tuple(String, Bytes) -> _)
-      @files_with_hash.each do |values|
-        yield values
-      end
-    end
-
-    def with_file(filename : String, &)
-      yield nil, 0i64
-    end
-
-    def nr_of_files
-      @files_with_hash.size
-    end
-  end
-
-  class FakeSocket < TCPSocket
-    def self.pair
-      left, right = UNIXSocket.pair
-      {FakeSocket.new(left), right}
-    end
-
-    def initialize(@io : UNIXSocket)
-      super(Family::INET, Type::STREAM, Protocol::TCP)
-    end
-
-    delegate read, write, to: @io
-    delegate close, closed?, to: @io
-
-    def remote_address : Socket::IPAddress
-      IPAddress.parse("tcp://127.0.0.1:1234")
-    end
-  end
+  # FakeFileIndex and FakeSocket live in spec/support/fake_follower.cr so the
+  # clustering server spec can reuse them.
 
   describe LavinMQ::Clustering::Follower do
     describe "#negotiate!" do
@@ -387,6 +344,36 @@ module FollowerSpec
         end
 
         follower.lag_in_bytes.should eq 0
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "returns false when a connected follower stops acking (bounded wait)" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Drain the client side so the flush doesn't block, but never send an ack
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for_confirm(50.milliseconds) }
+
+        select
+        when result = confirmed.receive
+          result.should be_false # timed out waiting for ack
+        when timeout(2.seconds)
+          fail "wait_for_confirm did not time out"
+        end
       ensure
         follower_socket.try &.close
         client_socket.try &.close

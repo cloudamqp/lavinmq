@@ -13,6 +13,12 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
+      # Max time to wait for a connected follower to ack replicated bytes before
+      # giving up on it and letting the publish-confirm path fall back to syncfs.
+      # Mirrors the @socket.write_timeout used for the flush path so a slow but
+      # still-connected follower can't stall confirms indefinitely.
+      ACK_TIMEOUT = 3.seconds
+
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
       @ack_notify = ::Channel(Nil).new(1)
@@ -75,13 +81,23 @@ module LavinMQ
       # Block until the follower has acked at least the bytes already sent at
       # call time. Flushes the LZ4 buffer first so the pending bytes reach the
       # follower without waiting for the ack_loop's 100ms flush timeout.
-      # Returns true if the bytes were acked, false if the follower
-      # disconnected before acking (caller should then fall back to syncfs).
-      def wait_for_confirm : Bool
+      # Returns true if the bytes were acked, false if the follower disconnected
+      # or didn't ack within `timeout` (caller should then fall back to syncfs).
+      # The timeout bounds confirm latency even when a follower stays connected
+      # but stops acking (blocked on its own sync, GC pause, half-open socket).
+      def wait_for_confirm(timeout : Time::Span = ACK_TIMEOUT) : Bool
         target = @sent_bytes.get
         @write_lock.synchronize { @lz4.flush }
+        deadline = Time.instant + timeout
         until @acked_bytes.get >= target
-          @ack_notify.receive
+          remaining = deadline - Time.instant
+          return false if remaining <= Time::Span.zero
+          select
+          when @ack_notify.receive
+            # woken by a new ack, re-check the counter
+          when timeout(remaining)
+            return false # connected but not acking; fall back to syncfs
+          end
         end
         true
       rescue ::Channel::ClosedError | IO::Error | Socket::Error
