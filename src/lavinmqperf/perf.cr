@@ -10,7 +10,7 @@ module LavinMQPerf
 
     def initialize(@io : IO = STDOUT)
       @parser = OptionParser.new
-      @amqp_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
+      @amqp_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput | retry-bench | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
       @mqtt_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput]"
       @parser.banner = @amqp_banner
       @parser.on("-h", "--help", "Show this help") { @io.puts @parser; exit 0 }

@@ -63,7 +63,7 @@ module LavinMQ::AMQP
     @delivery_limit : Int64?
     @reject_on_overflow = false
     @retry_delay : Int64?
-    @retry_delay_multiplier : Float64 = 2.0
+    @retry_delay_multiplier : Float64 = 1.0
     @retry_max_delay : Int64 = 60000i64
     @retry_queue : RetryQueue?
     @exclusive_consumer = false
@@ -390,7 +390,7 @@ module LavinMQ::AMQP
       @retry_delay = parse_header("x-retry-delay", Int).try(&.to_i64)
       if @retry_delay
         @effective_args << "x-retry-delay"
-        @retry_delay_multiplier = parse_header("x-retry-delay-multiplier", Int).try(&.to_f64) || 2.0
+        @retry_delay_multiplier = parse_header("x-retry-delay-multiplier", Int).try(&.to_f64) || 1.0
         @effective_args << "x-retry-delay-multiplier" if @arguments["x-retry-delay-multiplier"]?
         @retry_max_delay = parse_header("x-retry-max-delay", Int).try(&.to_i64) || 60000i64
         @effective_args << "x-retry-max-delay" if @arguments["x-retry-max-delay"]?
@@ -858,32 +858,14 @@ module LavinMQ::AMQP
       end
     end
 
-    def reject(sp : SegmentPosition, requeue : Bool)
+    def reject(sp : SegmentPosition, requeue : Bool, failure : Bool = false)
       return if @deleted || @closed
-      @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
+      @log.debug { "Rejecting #{sp}, requeue: #{requeue}, failure: #{failure}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
-        if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
-          expire_msg(sp, :expired)
-        else
-          if delivery_limit = @delivery_limit
-            if @deliveries.fetch(sp, 0) > delivery_limit
-              return expire_msg(sp, :delivery_limit)
-            end
-          end
-          if (retry_queue = @retry_queue) && (retry_delay = @retry_delay)
-            unless route_to_retry_queue(sp, retry_queue, retry_delay)
-              expire_msg(sp, :delivery_limit)
-            end
-          else
-            @msg_store_lock.synchronize do
-              @msg_store.requeue(sp)
-            end
-            drop_overflow
-          end
-        end
+        requeue_message(sp, failure)
       else
         expire_msg(sp, :rejected)
       end
@@ -891,6 +873,25 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    private def requeue_message(sp : SegmentPosition, failure : Bool)
+      if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
+        return expire_msg(sp, :expired)
+      end
+      if delivery_limit = @delivery_limit
+        if @deliveries.fetch(sp, 0) > delivery_limit
+          return expire_msg(sp, :delivery_limit)
+        end
+      end
+      if failure && (retry_queue = @retry_queue) && (retry_delay = @retry_delay)
+        unless route_to_retry_queue(sp, retry_queue, retry_delay)
+          expire_msg(sp, :delivery_limit)
+        end
+      else
+        @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+        drop_overflow
+      end
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)

@@ -136,7 +136,7 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
     end
 
-    def reject(sp : SegmentPosition, requeue : Bool)
+    def reject(sp : SegmentPosition, requeue : Bool, failure : Bool = false)
     end
   end
 
