@@ -28,11 +28,10 @@ private def with_two_synced_followers(&)
     rescue IO::Error
     end
   end
-  # Replicate some bytes to both followers and start their ack loops.
+  # Replicate some bytes to both followers (so they have outstanding lag).
+  # Each test starts the ack loops itself, so it controls the ack deadline.
   a.append("#{data_dir}/wf", "hello".to_slice)
   b.append("#{data_dir}/wf", "hello".to_slice)
-  spawn { a.ack_loop }
-  spawn { b.ack_loop }
   yield server, a, b, client_a, client_b
 ensure
   sock_a.try &.close
@@ -92,17 +91,22 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
   describe "#wait_for_followers_ack" do
     it "returns true when every synced follower acks" do
       with_two_synced_followers do |server, a, b, client_a, client_b|
+        spawn { a.ack_loop }
+        spawn { b.ack_loop }
         client_a.write_bytes a.lag_in_bytes, IO::ByteFormat::LittleEndian
         client_b.write_bytes b.lag_in_bytes, IO::ByteFormat::LittleEndian
-        server.wait_for_followers_ack(2.seconds).should be_true
+        server.wait_for_followers_ack.should be_true
       end
     end
 
     it "returns false (leader falls back to syncfs) when one follower fails to ack" do
-      with_two_synced_followers do |server, a, _, client_a, _client_b|
-        # Only follower A acks; B stays connected but never acks.
+      with_two_synced_followers do |server, a, b, client_a, _client_b|
+        # Follower A acks; B stays connected but never acks and is dropped by
+        # ack_loop after its short ack deadline.
+        spawn { a.ack_loop }
+        spawn { b.ack_loop(50.milliseconds) }
         client_a.write_bytes a.lag_in_bytes, IO::ByteFormat::LittleEndian
-        server.wait_for_followers_ack(100.milliseconds).should be_false
+        server.wait_for_followers_ack.should be_false
       end
     end
   end

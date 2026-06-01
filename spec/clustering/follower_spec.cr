@@ -350,7 +350,7 @@ module FollowerSpec
       end
     end
 
-    it "returns false when a connected follower stops acking (bounded wait)" do
+    it "disconnects a connected follower that stops acking, unblocking the waiter" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
@@ -364,15 +364,18 @@ module FollowerSpec
         end
 
         follower.append("#{data_dir}/file", "hello world".to_slice)
+        # Short ack deadline: the follower stays connected but never acks, so
+        # ack_loop should give up and disconnect, closing @ack_notify.
+        spawn { follower.ack_loop(50.milliseconds) }
 
         confirmed = Channel(Bool).new
-        spawn { confirmed.send follower.wait_for_confirm(50.milliseconds) }
+        spawn { confirmed.send follower.wait_for_confirm }
 
         select
         when result = confirmed.receive
-          result.should be_false # timed out waiting for ack
+          result.should be_false # follower was disconnected before acking
         when timeout(2.seconds)
-          fail "wait_for_confirm did not time out"
+          fail "wait_for_confirm did not return after follower was dropped"
         end
       ensure
         follower_socket.try &.close

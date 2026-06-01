@@ -47,6 +47,12 @@ class FakeSocket < TCPSocket
   delegate read, write, to: @io
   delegate close, closed?, to: @io
 
+  # ack_loop sets read_timeout to drive its flush/ack-deadline cadence; route it
+  # to the backing UNIXSocket so reads actually time out in specs.
+  def read_timeout=(timeout)
+    @io.read_timeout = timeout
+  end
+
   def remote_address : Socket::IPAddress
     Socket::IPAddress.parse("tcp://127.0.0.1:1234")
   end

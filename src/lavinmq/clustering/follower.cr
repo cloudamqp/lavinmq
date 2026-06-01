@@ -13,10 +13,10 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
-      # Max time to wait for a connected follower to ack replicated bytes before
-      # giving up on it and letting the publish-confirm path fall back to syncfs.
-      # Mirrors the @socket.write_timeout used for the flush path so a slow but
-      # still-connected follower can't stall confirms indefinitely.
+      # Max time a connected follower may go without acking outstanding data
+      # before it's disconnected from the replica set. Mirrors the
+      # @socket.write_timeout used for the flush path so a slow but
+      # still-connected follower can't stall publish confirms indefinitely.
       ACK_TIMEOUT = 3.seconds
 
       @acked_bytes = Atomic(Int64).new(0)
@@ -57,17 +57,29 @@ module LavinMQ
         send_requested_files
       end
 
-      def ack_loop
+      def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
+        last_ack = Time.instant
         loop do
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes.add(len)
+            last_ack = Time.instant
             @ack_notify.try_send(nil) # wake any publish-confirm waiter
           rescue IO::TimeoutError
             @write_lock.synchronize do
               @lz4.flush
+            end
+            # A connected follower that stops acking while data is outstanding
+            # (blocked on its own sync, GC pause, half-open socket) would
+            # otherwise stall publish confirms indefinitely. Drop it from the
+            # replica set like the write_timeout path does for blocked writes;
+            # it will re-sync on reconnect. Healthy-but-behind followers keep
+            # acking, so last_ack advances and they're never dropped.
+            if lag_in_bytes > 0 && Time.instant - last_ack > ack_timeout
+              Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
+              break
             end
           end
         end
@@ -82,22 +94,13 @@ module LavinMQ
       # call time. Flushes the LZ4 buffer first so the pending bytes reach the
       # follower without waiting for the ack_loop's 100ms flush timeout.
       # Returns true if the bytes were acked, false if the follower disconnected
-      # or didn't ack within `timeout` (caller should then fall back to syncfs).
-      # The timeout bounds confirm latency even when a follower stays connected
-      # but stops acking (blocked on its own sync, GC pause, half-open socket).
-      def wait_for_confirm(timeout : Time::Span = ACK_TIMEOUT) : Bool
+      # (caller should then fall back to syncfs). A follower that stops acking is
+      # disconnected by ack_loop, which closes @ack_notify and unblocks us here.
+      def wait_for_confirm : Bool
         target = @sent_bytes.get
         @write_lock.synchronize { @lz4.flush }
-        deadline = Time.instant + timeout
         until @acked_bytes.get >= target
-          remaining = deadline - Time.instant
-          return false if remaining <= Time::Span.zero
-          select
-          when @ack_notify.receive
-            # woken by a new ack, re-check the counter
-          when timeout(remaining)
-            return false # connected but not acking; fall back to syncfs
-          end
+          @ack_notify.receive
         end
         true
       rescue ::Channel::ClosedError | IO::Error | Socket::Error
