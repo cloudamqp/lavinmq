@@ -973,7 +973,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("empty_q", durable: false, auto_delete: false)
-        queue = vhost.queues["empty_q"]
+        queue = vhost.queue("empty_q")
         queue.message_expire_fiber_active?.should be_false
       end
     end
@@ -982,7 +982,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("no_ttl_test")
-          queue = s.vhosts["/"].queues["no_ttl_test"]
+          queue = s.vhosts["/"].queue("no_ttl_test")
 
           # Publish message without TTL
           q.publish_confirm("test message")
@@ -997,7 +997,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("ttl_test", args: AMQP::Client::Arguments.new({"x-message-ttl" => 10}))
-          queue = s.vhosts["/"].queues["ttl_test"]
+          queue = s.vhosts["/"].queue("ttl_test")
 
           # Should not have fiber initially (empty queue)
           queue.message_expire_fiber_active?.should be_false
@@ -1018,7 +1018,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("per_msg_ttl_test")
-          queue = s.vhosts["/"].queues["per_msg_ttl_test"]
+          queue = s.vhosts["/"].queue("per_msg_ttl_test")
 
           # Should not have fiber initially
           queue.message_expire_fiber_active?.should be_false
@@ -1040,7 +1040,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("ttl_with_consumer", args: AMQP::Client::Arguments.new({"x-message-ttl" => 60_000}))
-          queue = s.vhosts["/"].queues["ttl_with_consumer"]
+          queue = s.vhosts["/"].queue("ttl_with_consumer")
           q.subscribe(no_ack: true) { }
           should_eventually(eq 1) { queue.consumers.size }
           q.publish_confirm("msg")
