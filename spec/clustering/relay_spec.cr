@@ -165,9 +165,10 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
 
   # When the relay loses its upstream link and later reconnects, its catch-up
   # full-sync can replace/delete files that were never streamed to already
-  # connected downstream followers. The relay must force those followers to
-  # re-sync so the DR copy doesn't silently diverge.
-  it "re-syncs connected downstream followers after the relay reconnects to upstream" do
+  # connected downstream followers. The relay streams those catch-up deltas to
+  # them over their existing connection, so the DR copy converges without a
+  # disconnect/full resync.
+  it "streams reconnect catch-up deltas to connected downstream followers" do
     etcd = LavinMQ::Etcd.new("localhost:12379")
     base = LavinMQ::Config.instance.dup
     base.metrics_http_port = -1
@@ -187,6 +188,8 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     spawn(leader.listen(leader_tcp), name: "leader listen spec")
     File.write(File.join(leader_dir, "definitions.json"), "hello")
     leader.replace_file(File.join(leader_dir, "definitions.json"))
+    File.write(File.join(leader_dir, "messages.dat"), "ABC")
+    leader.replace_file(File.join(leader_dir, "messages.dat"))
 
     relay_config = base.dup
     relay_config.data_dir = relay_dir
@@ -209,22 +212,33 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     spawn(downstream_client.follow("localhost", relay_tcp.local_address.port), name: "downstream follow spec")
     wait_for { relay_server.followers.size == 1 }
     wait_for { (File.read(File.join(downstream_dir, "definitions.json")) == "hello") rescue false }
+    wait_for { (File.read(File.join(downstream_dir, "messages.dat")) == "ABC") rescue false }
 
-    # Simulate an upstream outage during which a change is missed: drop the
+    # The live downstream follower; it must survive the reconnect (no disconnect).
+    follower = relay_server.followers.first
+
+    # Simulate an upstream outage during which changes are missed: drop the
     # relay's upstream link while the downstream stays connected to the relay,
-    # then mutate the leader. This change is never streamed to the relay.
+    # then both replace and delete files on the leader. These never reach the
+    # relay as streamed changes.
     relay_client.close
     File.write(File.join(leader_dir, "definitions.json"), "world")
     leader.replace_file(File.join(leader_dir, "definitions.json"))
+    leader.delete_file(File.join(leader_dir, "messages.dat"))
 
-    # The relay reconnects with the same downstream Server. Its catch-up
-    # full-sync pulls "world" and, being a reconnect, forces the downstream to
-    # re-sync rather than leaving it stale on "hello".
+    # The relay reconnects with the same downstream Server. Its catch-up sync
+    # pulls "world" and drops messages.dat, streaming both deltas to the still
+    # connected downstream follower.
     relay_client2 = LavinMQ::Clustering::Client.new(
       relay_config, 1, leader.password, proxy: false, relay: relay_server)
     spawn(relay_client2.follow("localhost", leader_tcp.local_address.port), name: "relay follow spec 2")
 
     wait_for { (File.read(File.join(downstream_dir, "definitions.json")) == "world") rescue false }
+    wait_for { !File.exists?(File.join(downstream_dir, "messages.dat")) }
+
+    # The same follower received the deltas over its existing connection — it was
+    # never disconnected and forced to full-resync.
+    relay_server.followers.first.should be(follower)
   ensure
     downstream_client.try &.close
     relay_client2.try &.close

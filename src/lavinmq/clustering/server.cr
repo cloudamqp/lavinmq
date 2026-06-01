@@ -164,23 +164,21 @@ module LavinMQ
         @relay_mode = true
       end
 
-      # Called by the relay client after every completed upstream (re)sync.
-      # First sync: open the gate so downstream full-syncs may proceed.
-      # Later syncs (reconnect/failover): force connected downstream followers
-      # to re-sync, since the catch-up full-sync replaced/deleted files on disk
-      # that were never streamed to them.
-      def upstream_synced
-        if @upstream_synced.value
-          disconnect_followers
-        else
-          @upstream_synced.set(true)
-        end
+      # Held by the relay client for the duration of its upstream (re)sync so a
+      # downstream follower can't full_sync against half-applied state. A
+      # connecting follower blocks in handle_socket (after the readiness gate,
+      # before full_sync) until this is released. Reuses the same lock that
+      # already serializes downstream full-syncs (one at a time).
+      def syncing_from_upstream(&)
+        @sync_lock.synchronize { yield }
       end
 
-      private def disconnect_followers
-        # Each follower's handle_socket ensure removes it from @followers; the
-        # downstream Client.follow loop then reconnects and full-syncs.
-        all_followers.each &.close
+      # Called by the relay client after its first completed upstream sync to
+      # open the gate so downstream full-syncs may proceed. Idempotent across
+      # reconnects; reconnect catch-up deltas are streamed to connected
+      # followers from the relay client's sync_files, so no resync is forced.
+      def upstream_synced
+        @upstream_synced.set(true)
       end
 
       private def register_dir(dir : String)

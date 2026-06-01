@@ -98,16 +98,19 @@ module LavinMQ
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
-          sync(socket, lz4)
           if relay = @relay
-            # A relay must be able to serve downstream full-syncs for files that
-            # existed before any streamed change, so register them now that the
-            # sync has written them to disk...
-            relay.register_data_dir
-            # ...then signal readiness (first sync, opens the downstream gate) or
-            # force a downstream resync (reconnect/failover, where this sync may
-            # have replaced/deleted files never streamed to connected followers).
-            relay.upstream_synced
+            # Hold the relay's sync lock for the whole upstream sync so no
+            # downstream follower full-syncs against our half-applied state, and
+            # register the synced files so later downstream full-syncs can serve
+            # them. The deltas applied during the sync are streamed to already
+            # connected followers from within sync_files.
+            relay.syncing_from_upstream do
+              sync(socket, lz4)
+              relay.register_data_dir
+            end
+            relay.upstream_synced # open the downstream gate (first sync; idempotent)
+          else
+            sync(socket, lz4)
           end
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
@@ -212,6 +215,8 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
+          # A relay cascades the delete to its already-connected downstream followers.
+          @relay.try &.delete_file(path)
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
@@ -232,6 +237,9 @@ module LavinMQ
         log_limiter = RateLimiter.new(2.seconds)
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
+          # A relay cascades the freshly written file to its already-connected
+          # downstream followers (replace_file re-reads it from local disk).
+          @relay.try &.replace_file(File.join(@data_dir, filename))
           received_count &+= 1
           log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
