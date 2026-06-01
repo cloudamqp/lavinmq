@@ -141,6 +141,8 @@ components:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
       "$ref": "./schemas/vhosts.yaml#/vhosts"
+    vhosts-PutVhostRequestBody:
+      "$ref": "./schemas/vhosts.yaml#/PutVhostRequestBody"
     auth-PutHashPasswordRequestBody:
       "$ref": "./schemas/auth.yaml#/PutHashPasswordRequestBody"
     auth-PasswordHash:
