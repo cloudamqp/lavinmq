@@ -230,6 +230,11 @@ module LavinMQ
       end
 
       private def send_heartbeat
+        # heartbeat=0: client declined heartbeats, but read_timeout still fires
+        # via tcp_read_timeout. Treat the heartbeat as a liveness probe — if
+        # the peer is dead the write hangs and tcp_write_timeout kills it.
+        return send AMQP::Frame::Heartbeat.new if @heartbeat_timeout.zero?
+
         now = RoughTime.instant
         if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
           @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }

@@ -201,6 +201,24 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property tcp_send_buffer_size : Int32? = nil
 
+      # Bounds the time a single socket write may block. Without it, a slow or
+      # half-dead peer can wedge `Client#deliver` indefinitely while holding
+      # `@write_lock`, which in turn blocks the read loop, HTTP DELETE-on-
+      # connection, and `cleanup` — leaking the connection until the kernel
+      # TCP retransmit timer fires (minutes to hours). Set to 0 / negative to
+      # disable.
+      @[IniOpt(section: "main")]
+      property tcp_write_timeout : Int32 = 15 # seconds, 0 disables
+
+      # Fallback read_timeout for AMQP connections that negotiated heartbeat=0.
+      # When it fires, the read loop sends a Heartbeat frame as a liveness
+      # probe; if the write times out (`tcp_write_timeout`), the connection is
+      # torn down. Idle-but-alive clients are unaffected because heartbeats
+      # round-trip silently. Set to 0 / negative to keep the legacy behavior of
+      # never timing out reads when heartbeat=0.
+      @[IniOpt(section: "main")]
+      property tcp_read_timeout : Int32 = 60 # seconds, 0 disables
+
       @[IniOpt(section: "amqp")]
       property max_message_size = 128 * 1024**2
 
