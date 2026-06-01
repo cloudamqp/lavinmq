@@ -4,16 +4,17 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/prometheus"
+require "../raft/runner"
 
 module LavinMQ
   module HTTP
     class MetricsServer
       Log = LavinMQ::Log.for "metrics.server"
 
-      def initialize(amqp_server : LavinMQ::Server? = nil)
+      def initialize(amqp_server : LavinMQ::Server? = nil, raft_runner : LavinMQ::Raft::Runner? = nil)
         @closed = false
         controller = if s = amqp_server
-                       PrometheusController.new(s, require_authentication: false)
+                       PrometheusController.new(s, require_authentication: false, raft_runner: raft_runner)
                      else
                        FollowerPrometheusController.new
                      end

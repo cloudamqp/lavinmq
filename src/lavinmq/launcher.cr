@@ -174,7 +174,8 @@ module LavinMQ
     end
 
     private def start_metrics_server(amqp_server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server)
+      raft_runner = @runner.as?(LavinMQ::Raft::Runner)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server, raft_runner)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
