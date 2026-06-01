@@ -52,8 +52,12 @@ class SpyReplicator
     Array(LavinMQ::Clustering::Follower).new
   end
 
-  def wait_for_followers_ack : Bool
-    false
+  def in_sync_followers : Tuple(Array(LavinMQ::Clustering::Follower), Int64)
+    {Array(LavinMQ::Clustering::Follower).new, 0_i64}
+  end
+
+  def synced_generation : Int64
+    0_i64
   end
 
   def close

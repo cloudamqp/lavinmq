@@ -14,7 +14,10 @@ module LavinMQ
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       abstract def all_followers : Array(Follower)
-      abstract def wait_for_followers_ack : Bool
+      # Atomic snapshot of the synced followers and the current sync generation.
+      abstract def in_sync_followers : Tuple(Array(Follower), Int64)
+      # Increments whenever a follower joins the in-sync set.
+      abstract def synced_generation : Int64
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear

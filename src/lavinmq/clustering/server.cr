@@ -30,6 +30,7 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
+      @synced_generation = Atomic(Int64).new(0)
       @followers = Array(Follower).new(4)
       @password : String
       @dirty_isr = true
@@ -202,17 +203,17 @@ module LavinMQ
         end
       end
 
-      # Block until all synced followers have acked the bytes replicated so far.
-      # Returns true only if there were synced followers and every one of them
-      # acked (so the caller can safely skip the local syncfs). Returns false if
-      # there were no synced followers, or if any disconnected before acking, in
-      # which case the caller should fall back to syncfs.
-      def wait_for_followers_ack : Bool
-        fs = followers # synced followers, snapshot dup
-        return false if fs.empty?
-        all_acked = true
-        fs.each { |f| all_acked = false unless f.wait_for_confirm }
-        all_acked
+      # Atomic snapshot of the currently-synced followers together with the sync
+      # generation, so the persister can bind a confirm batch to the in-sync set
+      # that existed when the batch started and detect later joins.
+      def in_sync_followers : Tuple(Array(Follower), Int64)
+        @lock.synchronize do
+          {@followers.select(&.synced?).dup, @synced_generation.get}
+        end
+      end
+
+      def synced_generation : Int64
+        @synced_generation.get
       end
 
       def password : String
@@ -257,8 +258,9 @@ module LavinMQ
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
           @lock.synchronize do
-            follower.full_sync    # sync the last
-            follower.mark_synced! # Change state to Synced
+            follower.full_sync        # sync the last
+            follower.mark_synced!     # Change state to Synced
+            @synced_generation.add(1) # a follower joined the in-sync set
             update_isr
           end
         end

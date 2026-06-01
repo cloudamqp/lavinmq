@@ -60,12 +60,16 @@ module LavinMQ
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
-        last_ack = Time.instant
+        # When data is outstanding and unacked, the time we first noticed it.
+        # Reset to nil on any ack (progress) or when fully caught up, so the
+        # deadline measures time-since-data-became-outstanding, not since the
+        # last ack (which would be stale after an idle period).
+        unacked_since : Time::Instant? = nil
         loop do
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes.add(len)
-            last_ack = Time.instant
+            unacked_since = nil       # progress; restart the deadline
             @ack_notify.try_send(nil) # wake any publish-confirm waiter
           rescue IO::TimeoutError
             @write_lock.synchronize do
@@ -76,10 +80,16 @@ module LavinMQ
             # otherwise stall publish confirms indefinitely. Drop it from the
             # replica set like the write_timeout path does for blocked writes;
             # it will re-sync on reconnect. Healthy-but-behind followers keep
-            # acking, so last_ack advances and they're never dropped.
-            if lag_in_bytes > 0 && Time.instant - last_ack > ack_timeout
-              Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
-              break
+            # acking, so unacked_since keeps resetting and they're never dropped.
+            if lag_in_bytes > 0
+              now = Time.instant
+              unacked_since ||= now
+              if now - unacked_since > ack_timeout
+                Log.warn { "No ack for #{ack_timeout}, disconnecting follower id=#{@id.to_s(36)}" }
+                break
+              end
+            else
+              unacked_since = nil
             end
           end
         end

@@ -383,6 +383,42 @@ module FollowerSpec
       end
     end
 
+    it "does not disconnect a follower that was idle longer than the ack deadline" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        # Stay idle (no outstanding data) for well over the ack deadline: the
+        # deadline must not start ticking until data is actually outstanding.
+        spawn { follower.ack_loop(50.milliseconds) }
+        sleep 200.milliseconds
+
+        # Now publish; a healthy follower acking promptly must NOT be dropped.
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+        target = follower.lag_in_bytes
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for_confirm }
+        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+
+        select
+        when result = confirmed.receive
+          result.should be_true # follower stayed connected and acked
+        when timeout(2.seconds)
+          fail "wait_for_confirm did not return"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "returns when the follower disconnects before acking" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair

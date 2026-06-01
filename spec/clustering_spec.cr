@@ -96,6 +96,58 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "confirms via syncfs while the only follower is still syncing" do
+    # Regression: a publish written while all followers are syncing isn't streamed
+    # to them. The confirm must fall back to local syncfs and not be credited to a
+    # follower that flips to synced before the persister drains.
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator = LavinMQ::Clustering::Server.new(
+      LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+    # Fake follower: handshake, read the file list, then hang without finishing
+    # the file-request phase, so it stays in the Syncing state on the leader.
+    client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+    client_io.write LavinMQ::Clustering::Start
+    client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    client_io.write replicator.password.to_slice
+    client_io.read_byte
+    client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
+    client_io.flush
+    client_lz4 = Compress::LZ4::Reader.new(client_io)
+    sha1_size = Digest::SHA1.new.digest_size
+    spawn(name: "syncing follower spec") do
+      loop do
+        filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+        break if filename_len.zero?
+        client_lz4.skip filename_len
+        client_lz4.skip sha1_size
+      end
+      # Intentionally never send the "0 files requested" reply: stay syncing.
+    rescue IO::Error
+    end
+
+    wait_for { replicator.syncing_followers.size == 1 }
+    replicator.followers.should be_empty # none synced
+
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        q = ch.queue("syncing_confirm", durable: true)
+        10.times { q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+        # Confirmed via syncfs (no synced follower); must not stall or be skipped.
+        ch.wait_for_confirms.should be_true
+      end
+      s.vhosts["/"].queue("syncing_confirm").message_count.should eq 10
+    end
+  ensure
+    client_io.try &.close
+    replicator.try &.close
+    tcp_server.try &.close
+    FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+  end
+
   # Opens a message store, publishes some messages, then saves replicator.@files
   # Then opens a new message store in the same directory and verifies that the same
   # files are registered in the new replicator (verifies that meta files are registered and replicated).

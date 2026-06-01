@@ -2,45 +2,6 @@ require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
 require "../../src/lavinmq/clustering/etcd_coordinator"
 
-# Build a Server with two synced followers backed by FakeSocket pairs and drive
-# their acks directly, exercising wait_for_followers_ack aggregation.
-private def with_two_synced_followers(&)
-  data_dir = LavinMQ::Config.instance.data_dir
-  Dir.mkdir_p(data_dir)
-  server = LavinMQ::Clustering::Server.new(
-    LavinMQ::Config.instance,
-    LavinMQ::Etcd.new("localhost:12379"),
-    0)
-  fi = FakeFileIndex.new(data_dir)
-  sock_a, client_a = FakeSocket.pair
-  sock_b, client_b = FakeSocket.pair
-  a = LavinMQ::Clustering::Follower.new(sock_a, data_dir, fi)
-  b = LavinMQ::Clustering::Follower.new(sock_b, data_dir, fi)
-  a.mark_synced!
-  b.mark_synced!
-  server.@followers << a << b
-  # Drain both client sides so the synchronous flush in wait_for_confirm
-  # doesn't block on socket writes.
-  {client_a, client_b}.each do |c|
-    spawn do
-      buf = uninitialized UInt8[4096]
-      loop { c.read(buf.to_slice) }
-    rescue IO::Error
-    end
-  end
-  # Replicate some bytes to both followers (so they have outstanding lag).
-  # Each test starts the ack loops itself, so it controls the ack deadline.
-  a.append("#{data_dir}/wf", "hello".to_slice)
-  b.append("#{data_dir}/wf", "hello".to_slice)
-  yield server, a, b, client_a, client_b
-ensure
-  sock_a.try &.close
-  client_a.try &.close
-  sock_b.try &.close
-  client_b.try &.close
-  FileUtils.rm_rf LavinMQ::Config.instance.data_dir
-end
-
 describe LavinMQ::Clustering::Server, tags: "etcd" do
   add_etcd_around_each
 
@@ -88,26 +49,31 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 
-  describe "#wait_for_followers_ack" do
-    it "returns true when every synced follower acks" do
-      with_two_synced_followers do |server, a, b, client_a, client_b|
-        spawn { a.ack_loop }
-        spawn { b.ack_loop }
-        client_a.write_bytes a.lag_in_bytes, IO::ByteFormat::LittleEndian
-        client_b.write_bytes b.lag_in_bytes, IO::ByteFormat::LittleEndian
-        server.wait_for_followers_ack.should be_true
-      end
-    end
+  describe "#in_sync_followers" do
+    it "returns only synced followers and the current sync generation" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+      fi = FakeFileIndex.new(data_dir)
+      sock_a, client_a = FakeSocket.pair
+      sock_b, client_b = FakeSocket.pair
+      synced = LavinMQ::Clustering::Follower.new(sock_a, data_dir, fi)
+      syncing = LavinMQ::Clustering::Follower.new(sock_b, data_dir, fi)
+      synced.mark_synced!
+      server.@followers << synced << syncing # syncing left in Syncing state
 
-    it "returns false (leader falls back to syncfs) when one follower fails to ack" do
-      with_two_synced_followers do |server, a, b, client_a, _client_b|
-        # Follower A acks; B stays connected but never acks and is dropped by
-        # ack_loop after its short ack deadline.
-        spawn { a.ack_loop }
-        spawn { b.ack_loop(50.milliseconds) }
-        client_a.write_bytes a.lag_in_bytes, IO::ByteFormat::LittleEndian
-        server.wait_for_followers_ack.should be_false
-      end
+      fs, generation = server.in_sync_followers
+      fs.should eq [synced] # excludes the still-syncing follower
+      generation.should eq server.synced_generation
+    ensure
+      sock_a.try &.close
+      client_a.try &.close
+      sock_b.try &.close
+      client_b.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end
 
