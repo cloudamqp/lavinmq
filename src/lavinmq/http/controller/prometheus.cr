@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../../raft/runner"
 
 module LavinMQ
   module HTTP
@@ -204,7 +205,11 @@ module LavinMQ
     class PrometheusController < Controller
       include Prometheus
 
-      def initialize(amqp_server : LavinMQ::Server, @require_authentication : Bool)
+      def initialize(
+        amqp_server : LavinMQ::Server,
+        @require_authentication : Bool,
+        @raft_runner : LavinMQ::Raft::Runner? = nil,
+      )
         super(amqp_server)
       end
 
@@ -235,6 +240,7 @@ module LavinMQ
             custom_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
+            raft_metrics(writer)
           end
           context
         end
@@ -444,6 +450,22 @@ module LavinMQ
                       value: MFile.mmap_count,
                       type:  "gauge",
                       help:  "Number of MFile memory-mapped files"})
+      end
+
+      private def raft_metrics(writer : PrometheusWriter) : Nil
+        runner = @raft_runner
+        return if runner.nil?
+        server = runner.server
+        isr = server.isr
+        in_isr = (isr.empty? || isr.includes?(server.node_id)) ? 1_i64 : 0_i64
+        writer.write({name:  "raft_isr_size",
+                      type:  "gauge",
+                      value: isr.size.to_i64,
+                      help:  "Number of nodes in the in-sync replica set"})
+        writer.write({name:  "raft_in_isr",
+                      type:  "gauge",
+                      value: in_isr,
+                      help:  "Whether this node is currently a member of the ISR (1) or not (0)"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
