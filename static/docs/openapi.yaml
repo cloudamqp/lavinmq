@@ -174,7 +174,7 @@ paths:
     "$ref": "./paths/connections.yaml#/~1connections~1{name}"
   "/connections/{name}/channels":
     "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
-  "/api/connections/username/{username}":
+  "/connections/username/{username}":
     "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
   "/consumers":
     "$ref": "./paths/consumers.yaml#/~1consumers"
@@ -208,16 +208,16 @@ paths:
     "$ref": "./paths/main.yaml#/~1whoami"
   "/aliveness-test/{vhost}":
     "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
-  "/api/shovels":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels"
-  "/api/shovels/{vhost}":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}"
-  "/api/shovels/{vhost}/{name}":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}"
-  "/api/shovels/{vhost}/{name}/pause":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1pause"
-  "/api/shovels/{vhost}/{name}/resume":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1resume"
+  "/shovels":
+    "$ref": "./paths/shovels.yaml#/~1shovels"
+  "/shovels/{vhost}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}"
+  "/shovels/{vhost}/{name}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}"
+  "/shovels/{vhost}/{name}/pause":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1pause"
+  "/shovels/{vhost}/{name}/resume":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1resume"
   "/federation-links":
     "$ref": "./paths/main.yaml#/~1federation-links"
   "/federation-links/{vhost}":
