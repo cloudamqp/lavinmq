@@ -35,6 +35,8 @@ components:
       "$ref": "./schemas/channels.yaml#/channel-with-consumer-details"
     channels:
       "$ref": "./schemas/channels.yaml#/channels"
+    channels-PutChannelRequestBody:
+      "$ref": "./schemas/channels.yaml#/PutChannelRequestBody"
     connection:
       "$ref": "./schemas/connections.yaml#/connection"
     connections:
