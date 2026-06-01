@@ -43,7 +43,7 @@ module LavinMQ::AMQP
 
     def delay(msg : Message) : Bool
       return false if closed?
-      @msg_store_lock.write do
+      @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
@@ -89,7 +89,7 @@ module LavinMQ::AMQP
     end
 
     def expire_messages
-      @msg_store_lock.write do
+      @msg_store_lock.synchronize do
         loop do
           env = delayed_msg_store.first_delayed? || break
           if has_expired?(env)

@@ -1079,7 +1079,7 @@ module DeadLetteringSpec
             ch.queue("q")
             ch.default_exchange.publish_confirm("msg", "q")
             queue = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue)
-            env = queue.@msg_store_lock.read { queue.@msg_store.first? }
+            env = queue.@msg_store_lock.synchronize { queue.@msg_store.first? }
               .should_not be_nil
             queue.close
             queue.closed?.should be_true
