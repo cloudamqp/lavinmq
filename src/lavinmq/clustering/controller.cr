@@ -11,7 +11,14 @@ class LavinMQ::Clustering::Controller
   # message store.
   property replicator : Clustering::Server? = nil
 
+  # The client replicating from this region's own leader, managed solely by
+  # the `follow_leader` monitor.
   @repli_client : Client? = nil
+  # The client replicating from the foreign region's leader in DR/relay mode,
+  # managed solely by `follow_foreign_leader`. Kept separate from
+  # `@repli_client` so the local leader monitor (which closes `@repli_client`
+  # on a local leader change) can never tear down the upstream relay link.
+  @relay_client : Client? = nil
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -70,6 +77,7 @@ class LavinMQ::Clustering::Controller
   def stop
     @stopped = true
     @repli_client.try &.close
+    @relay_client.try &.close
     @lease.try &.release
   end
 
@@ -190,7 +198,7 @@ class LavinMQ::Clustering::Controller
     prefix = @config.clustering_upstream_etcd_prefix.presence || @config.clustering_etcd_prefix
     foreign = Etcd.new(upstream)
     foreign.elect_listen("#{prefix}/leader") do |uri|
-      if client = @repli_client
+      if client = @relay_client
         if client.follows? uri
           next
         else
@@ -211,10 +219,11 @@ class LavinMQ::Clustering::Controller
           break
         end
       end
-      @repli_client = c = Clustering::Client.new(@config, @id, secret, proxy: false, relay: replicator)
+      @relay_client = c = Clustering::Client.new(@config, @id, secret, proxy: false, relay: replicator)
       spawn c.follow(uri), name: "Relay client #{uri}"
     end
   rescue ex
+    return if @stopped # don't crash the foreign monitor during graceful shutdown
     Log.fatal(exception: ex) { "Unhandled exception while following upstream leader" }
     exit 36
   end
