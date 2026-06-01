@@ -52,6 +52,10 @@ class SpyReplicator
     Array(LavinMQ::Clustering::Follower).new
   end
 
+  def wait_for_followers_ack : Bool
+    false
+  end
+
   def close
   end
 

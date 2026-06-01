@@ -202,6 +202,19 @@ module LavinMQ
         end
       end
 
+      # Block until all synced followers have acked the bytes replicated so far.
+      # Returns true only if there were synced followers and every one of them
+      # acked (so the caller can safely skip the local syncfs). Returns false if
+      # there were no synced followers, or if any disconnected before acking, in
+      # which case the caller should fall back to syncfs.
+      def wait_for_followers_ack : Bool
+        fs = followers # synced followers, snapshot dup
+        return false if fs.empty?
+        all_acked = true
+        fs.each { |f| all_acked = false unless f.wait_for_confirm }
+        all_acked
+      end
+
       def password : String
         @coordinator.password
       end

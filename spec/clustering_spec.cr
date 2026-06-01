@@ -78,6 +78,24 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "confirms publishes once replicated to followers (without local syncfs)" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("repli_confirm", durable: true)
+          100.times { q.publish "msg", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+          # Confirms only arrive once all synced followers have acked the
+          # replicated bytes; this would block forever if it never returned.
+          ch.wait_for_confirms.should be_true
+        end
+        s.vhosts["/"].queue("repli_confirm").message_count.should eq 100
+        cluster.replicator.followers.first?.try &.lag_in_bytes.should eq 0
+      end
+    end
+  end
+
   # Opens a message store, publishes some messages, then saves replicator.@files
   # Then opens a new message store in the same directory and verifies that the same
   # files are registered in the new replicator (verifies that meta files are registered and replicated).

@@ -1,6 +1,8 @@
 require "./config"
 require "./logger"
 require "./amqp/channel"
+require "./clustering/replicator"
+require "./clustering/follower"
 require "sync/exclusive"
 
 module LavinMQ
@@ -15,7 +17,7 @@ module LavinMQ
     @publish_confirm_requested = ::Channel(Bool).new(1)
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
 
-    def initialize(data_dir : String)
+    def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
       # Run on a dedicated thread so the blocking syncfs(2) syscall only stalls
@@ -78,7 +80,10 @@ module LavinMQ
       return unless acks
 
       begin
-        sync
+        # When synced followers exist, the message is durable once they've
+        # acked the replicated bytes, so we can skip the (slow) local syncfs.
+        # Otherwise (standalone, or no synced followers) fall back to syncfs.
+        sync unless @replicator.try(&.wait_for_followers_ack)
       rescue ex
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
         exit 1

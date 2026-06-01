@@ -346,6 +346,88 @@ module FollowerSpec
     end
   end
 
+  describe "#wait_for_confirm" do
+    it "blocks until the follower has acked the bytes sent so far" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Drain the client side so synchronous appends don't block on LZ4 writes
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_lz4.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+        target = follower.lag_in_bytes
+        spawn { follower.ack_loop }
+
+        confirmed = Channel(Nil).new
+        spawn do
+          follower.wait_for_confirm
+          confirmed.send nil
+        end
+
+        # Should not return before the follower has acked the target bytes
+        select
+        when confirmed.receive
+          fail "wait_for_confirm returned before follower acked"
+        when timeout(50.milliseconds)
+        end
+
+        # Ack the bytes; wait_for_confirm should now return
+        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        select
+        when confirmed.receive
+        when timeout(2.seconds)
+          fail "wait_for_confirm did not return after ack"
+        end
+
+        follower.lag_in_bytes.should eq 0
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "returns when the follower disconnects before acking" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+        spawn { follower.ack_loop }
+
+        confirmed = Channel(Nil).new
+        spawn do
+          follower.wait_for_confirm # never acked
+          confirmed.send nil
+        end
+
+        # Closing the socket ends ack_loop, which must unblock the waiter
+        client_socket.close
+        select
+        when confirmed.receive
+        when timeout(2.seconds)
+          fail "wait_for_confirm did not return after follower disconnected"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
   describe "#delete" do
     it "writes filename and a zero size marker" do
       with_datadir do |data_dir|

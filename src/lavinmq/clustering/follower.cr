@@ -13,8 +13,9 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
-      @acked_bytes = 0_i64
-      @sent_bytes = 0_i64
+      @acked_bytes = Atomic(Int64).new(0)
+      @sent_bytes = Atomic(Int64).new(0)
+      @ack_notify = ::Channel(Nil).new(1)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -56,7 +57,8 @@ module LavinMQ
         loop do
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-            @acked_bytes += len
+            @acked_bytes.add(len)
+            @ack_notify.try_send(nil) # wake any publish-confirm waiter
           rescue IO::TimeoutError
             @write_lock.synchronize do
               @lz4.flush
@@ -66,7 +68,25 @@ module LavinMQ
       rescue IO::EOFError | Socket::Error | IO::Error
         # socket closed
       ensure
+        @ack_notify.close # unblock any waiter; this follower is gone
         @running.done
+      end
+
+      # Block until the follower has acked at least the bytes already sent at
+      # call time. Flushes the LZ4 buffer first so the pending bytes reach the
+      # follower without waiting for the ack_loop's 100ms flush timeout.
+      # Returns true if the bytes were acked, false if the follower
+      # disconnected before acking (caller should then fall back to syncfs).
+      def wait_for_confirm : Bool
+        target = @sent_bytes.get
+        @write_lock.synchronize { @lz4.flush }
+        until @acked_bytes.get >= target
+          @ack_notify.receive
+        end
+        true
+      rescue ::Channel::ClosedError | IO::Error | Socket::Error
+        # follower disconnected; stop waiting for it
+        false
       end
 
       private def validate_header! : Nil
@@ -159,7 +179,7 @@ module LavinMQ
           File.open(File.join(@data_dir, path)) do |file|
             file_size = file.size
             lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
-            @sent_bytes += lag_size
+            @sent_bytes.add(lag_size)
             send_filename(path)
             @lz4.write_bytes file_size.to_i64, IO::ByteFormat::LittleEndian
             IO.copy(file, @lz4, file_size) == file_size || raise IO::EOFError.new
@@ -171,7 +191,7 @@ module LavinMQ
       def append(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
-          @sent_bytes += lag_size
+          @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes -bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
           @lz4.write bytes
@@ -182,7 +202,7 @@ module LavinMQ
       def append(path : String, value : UInt32 | Int32) : Int64
         @write_lock.synchronize do
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
-          @sent_bytes += lag_size
+          @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes -4i64, IO::ByteFormat::LittleEndian
           @lz4.write_bytes value, IO::ByteFormat::LittleEndian
@@ -193,7 +213,7 @@ module LavinMQ
       def delete(path) : Int64
         @write_lock.synchronize do
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
-          @sent_bytes += lag_size
+          @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
           lag_size
@@ -220,8 +240,8 @@ module LavinMQ
       def to_json(json : JSON::Builder)
         {
           remote_address:     @remote_address.to_s,
-          sent_bytes:         @sent_bytes,
-          acked_bytes:        @acked_bytes,
+          sent_bytes:         @sent_bytes.get,
+          acked_bytes:        @acked_bytes.get,
           lag_in_bytes:       lag_in_bytes,
           compression_ratio:  @lz4.compression_ratio,
           uncompressed_bytes: @lz4.uncompressed_bytes,
@@ -231,7 +251,7 @@ module LavinMQ
       end
 
       def lag_in_bytes : Int64
-        @sent_bytes - @acked_bytes
+        @sent_bytes.get - @acked_bytes.get
       end
 
       def syncing?

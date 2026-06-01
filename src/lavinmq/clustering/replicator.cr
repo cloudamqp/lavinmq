@@ -14,6 +14,7 @@ module LavinMQ
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       abstract def all_followers : Array(Follower)
+      abstract def wait_for_followers_ack : Bool
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear
