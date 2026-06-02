@@ -1049,5 +1049,32 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    it "should start fiber when a partial purge exposes a TTL message behind a no-TTL head" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("purge_expose_ttl", args: AMQP::Client::Arguments.new(
+            {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "purge_expose_dlq"}
+          ))
+          dlq = ch.queue("purge_expose_dlq")
+          queue = s.vhosts["/"].queue("purge_expose_ttl")
+
+          # Head message has no TTL, so the expire fiber never starts
+          q.publish_confirm("no ttl")
+          q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+          queue.message_expire_fiber_active?.should be_false
+
+          # Partial purge removes the no-TTL head, exposing the short-TTL message.
+          # The fiber must restart so the now-head message gets expired.
+          queue.purge(1).should eq 1
+          queue.message_expire_fiber_active?.should be_true
+
+          msg = wait_for { dlq.get(no_ack: true) }
+          msg.should_not be_nil
+          msg.not_nil!.body_io.to_s.should eq "short ttl"
+          q.get(no_ack: true).should be_nil
+        end
+      end
+    end
   end
 end

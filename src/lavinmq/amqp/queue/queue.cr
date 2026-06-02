@@ -1016,9 +1016,11 @@ module LavinMQ::AMQP
         delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       end
       @log.info { "Purged #{delete_count} messages" }
-      # Signal expire loop to recalculate wait time for next message
+      # Signal expire loop to recalculate wait time for next message, and
+      # restart it if it had stopped while the (now purged) head message had no TTL
       if delete_count > 0
         @message_ttl_change.try_send? nil
+        ensure_expire_fiber
       end
       delete_count
     rescue ex : MessageStore::Error
