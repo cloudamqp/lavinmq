@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `proxy_protocol_trusted_sources` config option supporting individual IPs and CIDR notation [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Startup warning when PROXY protocol is enabled without `proxy_protocol_trusted_sources` configured [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
+### Changed
+
+- `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
+### Removed
+
+- `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
 ## [2.8.1] - 2026-05-18
 
 ### Changed
