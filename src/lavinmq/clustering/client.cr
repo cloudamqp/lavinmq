@@ -324,6 +324,27 @@ module LavinMQ
         end
         @checksums.delete(filename)
         @file_digests.delete(filename)
+        delete_empty_dirs File.dirname(filename)
+      end
+
+      # Removes now-empty parent directories (e.g. an emptied queue dir) after a
+      # file delete. The leader only streams file deletes, not directory deletes,
+      # so without this empty queue dirs would linger until the next full sync.
+      #
+      # We walk up one level per iteration until a non-empty dir, stopping when
+      # File.dirname reaches ".". A non-force Dir.delete and the rescue stop the
+      # walk safely if a dir still has files or is already gone. Both append and
+      # replace file re-create the full path if needed.
+      private def delete_empty_dirs(dir)
+        while dir != "."
+          path = File.join(@data_dir, dir)
+          break unless Dir.empty?(path)
+          Dir.delete(path)
+          Log.debug { "Deleted empty dir #{dir}" }
+          dir = File.dirname(dir)
+        end
+      rescue ex : File::Error
+        Log.debug { "Stopped deleting empty dirs at #{dir}: #{ex.message}" }
       end
 
       private def replace(filename, len, lz4)
