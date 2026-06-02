@@ -236,7 +236,8 @@ describe LavinMQ::HTTP::PrometheusController do
             parsed = PrometheusSpecHelper.parse_prometheus(raw)
             delivered = parsed.find { |m|
               m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
-                m[:attrs]["queue"] == "test_detailed_counters"
+                m[:attrs]["queue"] == "test_detailed_counters" &&
+                m[:attrs]["vhost"] == "/"
             }
             delivered.not_nil![:value]
           end
@@ -246,7 +247,8 @@ describe LavinMQ::HTTP::PrometheusController do
             parsed = PrometheusSpecHelper.parse_prometheus(raw)
             acked = parsed.find { |m|
               m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
-                m[:attrs]["queue"] == "test_detailed_counters"
+                m[:attrs]["queue"] == "test_detailed_counters" &&
+                m[:attrs]["vhost"] == "/"
             }
             acked.not_nil![:value]
           end
