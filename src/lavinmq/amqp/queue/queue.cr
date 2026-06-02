@@ -419,7 +419,6 @@ module LavinMQ::AMQP
           args["x-message-ttl"] = delay_ms
           args["x-dead-letter-exchange"] = ""
           args["x-dead-letter-routing-key"] = @name
-          args["x-expires"] = delay_ms * 10
           q = durable? ? DurableQueue.create(@vhost, qname, false, false, args) : Queue.create(@vhost, qname, false, false, args)
           @vhost.queues[qname] = q
           q
