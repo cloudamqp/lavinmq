@@ -83,12 +83,13 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   # files are registered in the new replicator (verifies that meta files are registered and replicated).
   it "registers meta files on startup" do
     etcd = LavinMQ::Etcd.new("localhost:12379")
+    coordinator = LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, etcd)
     msg_dir = File.join(LavinMQ::Config.instance.data_dir, "meta_test_queue")
     FileUtils.mkdir_p(msg_dir)
     node_id = 0
 
     begin
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       segment_size = LavinMQ::Config.instance.segment_size
       msg_size = 1000_u64
@@ -103,7 +104,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       replicator.close
 
       # Re-open the message store and verify the same files are registered
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id + 1)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id + 1)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       msg_store.close
       files_after = replicator.@file_index.shared { |files, _| files.keys }.sort!
@@ -269,7 +270,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
 
   it "won't deadlock under high load when a follower disconnects [#926]" do
     LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
@@ -443,7 +444,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "succeeds when message store is already closed before sync" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -463,7 +464,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "is not aborted when message store is closed concurrently" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
