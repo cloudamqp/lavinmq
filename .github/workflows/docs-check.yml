@@ -47,7 +47,6 @@ jobs:
         id: claude
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_bots: "84bot"
           prompt: |
             REPO: ${{ github.repository }}
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
