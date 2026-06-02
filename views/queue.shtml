@@ -11,6 +11,12 @@
       <div id="breadcrumbs" class="cols-12">
           <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
+      <div class="tab-bar cols-12">
+        <div class="tab active">Overview</div>
+        <div class="tab">Consumers <span class="badge">12</span></div>
+        <div class="tab">Bindings <span class="badge">1</span></div>
+        <div class="tab">Messages</div>
+      </div>
       <section class="card cols-4">
         <h3>Details</h3>
         <table class="details-table">

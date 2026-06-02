@@ -1126,6 +1126,52 @@ footer .logo {
   border-radius: 4px;
 }
 
+.tab-bar {
+  border-bottom: 1px solid var(--color-border-primary);
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 1rem;
+  gap: 1.5rem;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  cursor: pointer;
+  position: relative;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  user-select: none;
+
+  &:hover {
+    color: var(--color-text-primary);
+  }
+
+  &.active {
+    color: var(--color-text-primary);
+    border-bottom: 1px solid var(--color-success);
+  }
+}
+
+.tab .badge {
+  background: var(--color-border-primary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 20px;
+  padding: 1px 7px;
+  min-width: 20px;
+  text-align: center;
+  line-height: 18px;
+}
+
 @media (min-width: 1000px) {
   .menu-collapsed {
     .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
@@ -2677,5 +2723,19 @@ pre.arguments .inactive-argument:before {
     &:has(.col-toggle) {
       padding: .5rem 1rem;
     }
+  }
+
+  .tab-bar {
+    overflow-x: auto;
+    scrollbar-width: none;        /* Firefox */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;                /* Chrome/Safari */
+  }
+
+  .tab {
+    flex-shrink: 0;               /* prevent tabs from squishing */
   }
 }
