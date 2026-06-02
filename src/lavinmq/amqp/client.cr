@@ -1,5 +1,6 @@
 require "openssl"
 require "socket"
+require "sync/shared"
 require "./channel"
 require "../client"
 require "../error"
@@ -34,11 +35,11 @@ module LavinMQ
       getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
+      @channels : Sync::Shared(Hash(UInt16, Client::Channel)) = Sync::Shared.new(Hash(UInt16, Client::Channel).new, :checked)
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
-      @running = true
+      @running = Atomic(Bool).new(true)
       @last_recv_frame = RoughTime.instant
       @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
@@ -48,19 +49,21 @@ module LavinMQ
       # Channel accessors
 
       def channel_count : Int32
-        @channels.size
+        @channels.unsafe_get.size
       end
 
       def each_channel(& : Client::Channel ->) : Nil
-        @channels.each_value { |ch| yield ch }
+        @channels.shared do |chs|
+          chs.each_value { |ch| yield ch }
+        end
       end
 
       def channels : Array(Client::Channel)
-        @channels.values
+        @channels.shared(&.values)
       end
 
       def channel?(id : UInt16) : Client::Channel?
-        @channels[id]?
+        @channels.shared(&.[id]?)
       end
 
       def initialize(@socket : IO,
@@ -111,7 +114,7 @@ module LavinMQ
 
       def details_tuple
         {
-          channels:          @channels.size,
+          channels:          @channels.unsafe_get.size,
           connected_at:      @connected_at,
           type:              "network",
           channel_max:       @channel_max,
@@ -164,17 +167,17 @@ module LavinMQ
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
               send AMQP::Frame::Connection::CloseOk.new
-              @running = false
+              @running.set(false, :release)
               next
             when AMQP::Frame::Connection::CloseOk
               @log.debug { "Confirmed disconnect" }
-              @running = false
+              @running.set(false, :release)
               return
             when AMQP::Frame::Connection::UpdateSecret
               handle_update_secret(frame)
               next
             end
-            if @running
+            if @running.get(:acquire)
               process_frame(frame)
             else
               case frame
@@ -256,7 +259,7 @@ module LavinMQ
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
         return false if closed?
         if channel_is_open.nil?
-          channel_is_open = frame.channel.zero? || @channels[frame.channel]?.try &.running?
+          channel_is_open = frame.channel.zero? || @channels.shared(&.[frame.channel]?).try &.running?
         end
         unless channel_is_open
           @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
@@ -300,6 +303,16 @@ module LavinMQ
       end
 
       @write_lock = Mutex.new(:checked)
+
+      # SIGUSR1 debug dump helper: returns the fiber currently holding the
+      # `@write_lock`, or nil if free.
+      def write_lock_holder : Fiber?
+        @write_lock.locked_by_fiber
+      end
+
+      def channels_lock_holder : Fiber?
+        @channels.locked_by_fiber
+      end
 
       def deliver(frame, msg, flush = true)
         return false if closed?
@@ -370,11 +383,16 @@ module LavinMQ
       end
 
       def state
-        !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
+        !@running.get(:acquire) ? "closed" : (@vhost.flow? ? "running" : "flow")
       end
 
       private def with_channel(frame, &)
-        if ch = @channels[frame.channel]?
+        # Hot path: runs on every inbound frame. The read_loop fiber is the sole
+        # mutator of @channels (open_channel / Channel::Close are handled in
+        # process_frame) AND the sole caller of with_channel, so this read can
+        # never race a write — skip the RWLock. Cross-fiber readers (HTTP API)
+        # still go through the locked #channels / #each_channel accessors.
+        if ch = @channels.unsafe_get[frame.channel]?
           if ch.running?
             yield ch
           else
@@ -403,14 +421,25 @@ module LavinMQ
       end
 
       private def open_channel(frame)
-        if @channels.has_key? frame.channel
+        ch = AMQP::Channel.new(self, frame.channel)
+        added = @channels.lock do |chs|
+          if chs.has_key? frame.channel
+            :exists
+          elsif chs.size >= @actual_channel_max
+            :limit
+          else
+            chs[frame.channel] = ch
+            :ok
+          end
+        end
+        case added
+        when :exists
           close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
-        elsif @channels.size >= @actual_channel_max
-          reply_text = "number of channels opened (#{@channels.size})" \
+        when :limit
+          reply_text = "number of channels opened (#{@channels.unsafe_get.size})" \
                        " has reached the negotiated channel_max (#{@actual_channel_max})"
           close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
         else
-          @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
           @vhost.event_tick(EventType::ChannelCreated)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
         end
@@ -425,10 +454,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          @channels.delete(frame.channel).try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          @channels.delete(frame.channel).try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -497,13 +526,20 @@ module LavinMQ
       end
 
       private def cleanup
-        @running = false
+        @running.set(false, :release)
         i = 0u32
-        @channels.each_value do |ch|
+        # Snapshot then clear under the lock so HTTP readers don't iterate a
+        # half-torn-down hash while we close channels (Channel#close can take
+        # time and yields fibers).
+        chs = @channels.lock do |h|
+          snap = h.values
+          h.clear
+          snap
+        end
+        chs.each do |ch|
           ch.close
           Fiber.yield if (i &+= 1) % 512 == 0
         end
-        @channels.clear
         # Iterate a snapshot because Queue#close fires QueueEvent::Deleted,
         # whose observer mutates @exclusive_queues.
         @exclusive_queues.dup.each(&.close)
@@ -516,7 +552,7 @@ module LavinMQ
       end
 
       private def close_socket
-        @running = false
+        @running.set(false, :release)
         @socket.close
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
@@ -534,7 +570,7 @@ module LavinMQ
 
         code = ConnectionReplyCode::CONNECTION_FORCED
         send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
-        @running = false
+        @running.set(false, :release)
       end
 
       def force_close
@@ -542,7 +578,7 @@ module LavinMQ
       end
 
       def closed?
-        !@running
+        !@running.get(:acquire)
       end
 
       def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
@@ -556,7 +592,10 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels[frame.channel]?.try &.close
+        # Mark the channel closed (running=false, drains consumers/unacked) but
+        # keep it in @channels until the client's CloseOk arrives, so in-flight
+        # frames land in the "not running" branch and are discarded gracefully.
+        @channels.shared(&.[frame.channel]?).try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -570,7 +609,7 @@ module LavinMQ
         end
         @log.info { "Connection=#{@name} disconnected" }
       ensure
-        @running = false
+        @running.set(false, :release)
       end
 
       def send_access_refused(frame, text)
@@ -607,10 +646,10 @@ module LavinMQ
         code = ConnectionReplyCode::NOT_IMPLEMENTED
         if ex.channel.zero?
           send AMQP::Frame::Connection::Close.new(code.value, code.to_s, ex.class_id, ex.method_id)
-          @running = false
+          @running.set(false, :release)
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels[ex.channel]?.try &.close
+          @channels.shared(&.[ex.channel]?).try &.close
         end
       end
 

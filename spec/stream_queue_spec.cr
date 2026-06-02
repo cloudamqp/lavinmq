@@ -33,6 +33,12 @@ module StreamSpecHelpers
   end
 end
 
+class LavinMQ::AMQP::Stream
+  def unmap_and_remove_segments_for_spec
+    unmap_and_remove_segments
+  end
+end
+
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
@@ -261,6 +267,67 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "does not remove a segment currently used by a stream consumer during cleanup" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+        end
+
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue(queue_name, args: stream_queue_args)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msgs.send msg
+          end
+          msg = msgs.receive
+          consumer = wait_for { stream.consumers.first?.try &.as?(LavinMQ::AMQP::StreamConsumer) }
+          protected_segment = consumer.segment
+          protected_segment.should_not eq store.@segments.last_key
+
+          store.max_length = 1_i64
+          stream.unmap_and_remove_segments_for_spec
+
+          protected_file = store.@segments[protected_segment]?
+          protected_file.should_not be_nil
+          protected_file.not_nil!.closed?.should be_false
+          msg.ack
+        end
+      end
+    end
+
+    it "does not remove a segment backing an in-flight stream read" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+        end
+
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        store = stream.stream_msg_store
+        protected_segment = store.@segments.find! { |seg_id, mfile| seg_id != store.@segments.last_key && mfile.size > 4 }[0]
+        protected_segment.should_not eq store.@segments.last_key
+        store.max_length = 1_i64
+
+        stream.read(protected_segment, 4u32) do |env|
+          stream.unmap_and_remove_segments_for_spec
+          protected_file = store.@segments[env.segment_position.segment]?
+          protected_file.should_not be_nil
+          protected_file.not_nil!.closed?.should be_false
+        end.should be_true
+      end
+    end
+
     it "segments should be removed if max-length-bytes set" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -312,7 +379,8 @@ describe LavinMQ::AMQP::Stream do
           q.message_count.should eq 2
           sleep 1.1.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -328,7 +396,8 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("mlb", "stream-max-length-bytes-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -344,7 +413,8 @@ describe LavinMQ::AMQP::Stream do
           # Apply policy - should immediately trigger cleanup
           s.vhosts["/"].add_policy("ml", "stream-max-length-policy", "queues",
             {"max-length" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
         end
       end
     end
@@ -369,7 +439,8 @@ describe LavinMQ::AMQP::Stream do
           3.times { q.publish_confirm data }
           s.vhosts["/"].add_policy("mlb", "stream-delivery-limit-policy", "queues",
             {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
-          q.message_count.should eq 1
+          # add_policy applies the policy on a spawned fiber, so poll
+          should_eventually(eq 1) { q.message_count }
           # Now apply delivery-limit. Pre-fix this spawned drop_redelivered
           # and crashed; post-fix it's skipped entirely.
           s.vhosts["/"].add_policy("dl", "stream-delivery-limit-policy", "queues",
@@ -770,6 +841,80 @@ describe LavinMQ::AMQP::Stream do
         msg_store.@consumer_offsets.size.should be > LavinMQ::Config.instance.segment_size
         offsets.times do |i|
           msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i + 1000}").should eq i + 1000
+        end
+      end
+    end
+  end
+
+  describe "Abrupt consumer disconnect" do
+    # Regression: an abrupt TCP close while the server was mid-body-write made
+    # `Client#deliver` rescue the IO::Error and return false silently. The
+    # stream `deliver_loop` ignored that return value, so `consumer.pos` had
+    # advanced past the message even though `file.pos` was still inside the
+    # body. If the loop then ran another `shift?` before the connection-close
+    # cleanup closed the consumer, it decoded body bytes as a message header
+    # and the queue was closed with "Invalid property flags". The fix is to
+    # propagate the Bool from `Client#deliver` through `Channel#deliver` and
+    # `Consumer#deliver`, then have `StreamConsumer#deliver_loop` raise
+    # ClosedError on a `false` return so its `ensure` block closes the FD.
+    #
+    # This test exercises the IO::Error path with multi-frame bodies; whether
+    # the drifted `shift?` actually runs depends on a small scheduler race
+    # between cleanup and the deliver_loop's next iteration. Either way, the
+    # post-fix queue must stay open and continue serving consumers.
+    it "stream queue survives an abrupt TCP close mid-delivery" do
+      with_amqp_server do |s|
+        # Body spans multiple AMQP body frames (default frame_max ~128 KiB) so
+        # that an IO::Error mid-write leaves `file.pos` short of `consumer.pos`
+        # — the precondition for the drift. With single-frame bodies,
+        # `read_fully` completes before the failing flush and the positions
+        # stay in sync.
+        body = Bytes.new(512 * 1024)
+        with_channel(s) do |ch|
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          200.times { q.publish body }
+        end
+
+        20.times do
+          conn = AMQP::Client.new(port: amqp_port(s), name: "abrupt-close-spec").connect
+          ch = conn.channel
+          ch.prefetch 50
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          delivered = Atomic(Int32).new(0)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msg.ack rescue nil
+            delivered.add(1, :relaxed)
+          end
+          wait_for { delivered.get(:relaxed) >= 5 }
+          # SO_LINGER=0 turns close() into a TCP RST so the server's pending
+          # body write fails immediately with IO::Error rather than letting
+          # the kernel drain its send buffer first.
+          if tcp = conn.@io.as?(TCPSocket)
+            tcp.linger = 0
+          end
+          conn.@io.close rescue nil
+        end
+
+        # Let the server's reader fibers observe the dropped sockets.
+        sleep 0.2.seconds
+
+        stream = s.vhosts["/"].queue("stream-abrupt-close").as(LavinMQ::AMQP::Stream)
+        stream.closed?.should be_false
+
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream-abrupt-close", args: stream_queue_args)
+          msgs = ::Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, tag: "verifier",
+            args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msgs.send(msg) rescue nil
+            msg.ack
+          end
+          select
+          when msgs.receive
+          when timeout(5.seconds)
+            fail "stream queue stopped delivering after abrupt consumer disconnects"
+          end
         end
       end
     end

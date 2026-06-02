@@ -19,8 +19,13 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
+      @closed = Atomic(Bool).new(false)
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
+
+      def closed?
+        @closed.get(:acquire)
+      end
 
       def vhost
         @broker.vhost
@@ -98,7 +103,7 @@ module LavinMQ
         @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
         publish_will
       rescue ex : ::IO::Error
-        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
+        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless closed?
         publish_will
       rescue ex
         @log.error(exception: ex) { "Read Loop error" }
@@ -246,15 +251,14 @@ module LavinMQ
 
       # should only be used when server needs to froce close client
       def close(reason = "")
-        return if @closed
+        return if @closed.swap(true, :acquire_release)
         @log.info { "Closing connection: #{reason}" }
-        @closed = true
         close_socket
         @waitgroup.wait
       end
 
       def state
-        @closed ? "closed" : (@broker.vhost.flow? ? "running" : "flow")
+        closed? ? "closed" : (@broker.vhost.flow? ? "running" : "flow")
       end
 
       def force_close

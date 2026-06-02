@@ -99,6 +99,32 @@ module LavinMQ
         @password = parse_password(password_hash, hash_algorithm)
       end
 
+      # Atomically replace `@permissions` rather than mutating it in place, so
+      # readers (`find_permission`, `can_*?`) can't observe a torn Hash while a
+      # writer is updating it. Must be called with the `UserStore` write lock
+      # held to serialize concurrent writers.
+      def set_permission(vhost : String, perm : Permissions) : Bool
+        return false if @permissions[vhost]? == perm
+        @permissions = @permissions.merge({vhost => perm})
+        clear_permissions_cache
+        true
+      end
+
+      def delete_permission(vhost : String) : Permissions?
+        return nil unless old = @permissions[vhost]?
+        new_perms = @permissions.dup
+        new_perms.delete(vhost)
+        @permissions = new_perms
+        clear_permissions_cache
+        old
+      end
+
+      def clear_permissions : Nil
+        return if @permissions.empty?
+        @permissions = Hash(String, Permissions).new
+        clear_permissions_cache
+      end
+
       def update_password(password, hash_algorithm = "sha256")
         return if @password.try &.verify(password)
         @password = self.class.hash_password(password, hash_algorithm)

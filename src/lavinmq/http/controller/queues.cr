@@ -174,7 +174,7 @@ module LavinMQ
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
-            if q.state != QueueState::Running && q.state != QueueState::Paused
+            if q.closed?
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
@@ -240,7 +240,7 @@ module LavinMQ
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read stream '#{q.name}'")
             end
-            if q.state != QueueState::Running && q.state != QueueState::Paused
+            if q.closed?
               forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)

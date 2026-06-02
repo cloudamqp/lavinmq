@@ -35,20 +35,19 @@ module LavinMQ
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @flow = true
+    @flow = Atomic(Bool).new(true)
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
 
-    # Bool accessors (later become Atomic)
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     def flow=(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
     end
 
     def closed? : Bool
@@ -107,6 +106,11 @@ module LavinMQ
       definitions.each_queue { |v| yield v }
     end
 
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each_queue(& : Queue ->) : Nil
+      definitions.unsafe_each_queue { |v| yield v }
+    end
+
     def queues : Array(Queue)
       definitions.queues
     end
@@ -127,6 +131,11 @@ module LavinMQ
 
     def each_connection(& : Client ->) : Nil
       @connections.each { |c| yield c }
+    end
+
+    # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
+    def unsafe_each_connection(& : Client ->) : Nil
+      @connections.unsafe_each { |c| yield c }
     end
 
     def connections : Array(Client)
@@ -448,12 +457,16 @@ module LavinMQ
         @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
+      @log.debug { "Force closing remaining connections if any" }
       # then force close the remaining (close tcp socket)
       each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      each_queue &.close
-      each_exchange &.close
+      @log.debug { "Closing queues" }
+      queues.each &.close
+      @log.debug { "Closing exchanges" }
+      exchanges.each &.close
       Fiber.yield
+      @log.debug { "Closing definitions" }
       definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
     end

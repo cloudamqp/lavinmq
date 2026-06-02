@@ -14,8 +14,7 @@ module LavinMQ::AMQP
       offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
-        env = store.read(segment, position)
-        if env
+        delivered = stream.read(segment, position) do |env|
           if headers = env.message.properties.headers
             headers["x-stream-offset"] = offset
           else
@@ -23,15 +22,16 @@ module LavinMQ::AMQP
           end
           position += env.segment_position.bytesize
           offset += 1
-        else
+          yield env
+          stream.@deliver_get_count.add(1, :relaxed)
+        end
+        unless delivered
           # try read from new segment
           s = store.next_segment_id(segment) || break
           position = 4u32
           segment = s
           next
         end
-        yield env
-        stream.@deliver_get_count.add(1, :relaxed)
       end
     end
   end

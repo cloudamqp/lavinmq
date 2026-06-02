@@ -1,4 +1,5 @@
 require "json"
+require "sync/shared"
 require "./vhost"
 require "./auth/base_user"
 require "./observable"
@@ -15,62 +16,85 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost_store"
 
+    @vhosts : Sync::Shared(Hash(String, VHost))
+    # Serializes save! so concurrent admin operations don't both
+    # truncate-and-rewrite vhosts.json.tmp from offset zero.
+    @save_lock = Mutex.new
+
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
-      @vhosts = Hash(String, VHost).new
+      @vhosts = Sync::Shared.new(Hash(String, VHost).new, :checked)
     end
 
     def []?(name : String) : VHost?
-      @vhosts[name]?
+      @vhosts.shared { |v| v[name]? }
     end
 
     def [](name : String) : VHost
-      @vhosts[name]
+      @vhosts.shared { |v| v[name] }
     end
 
     def each_value(& : VHost ->) : Nil
-      @vhosts.each_value { |v| yield v }
+      @vhosts.shared do |vhosts|
+        vhosts.each_value { |v| yield v }
+      end
+    end
+
+    # Iterate without taking the RWLock. ONLY for SIGUSR1 debug dumps — if a
+    # concurrent writer is mutating the hash this can observe a torn state.
+    def unsafe_each(& : VHost ->) : Nil
+      @vhosts.unsafe_get.each_value { |v| yield v }
     end
 
     def has_key?(name : String) : Bool
-      @vhosts.has_key?(name)
+      @vhosts.shared(&.has_key?(name))
     end
 
     def size : Int32
-      @vhosts.size
+      @vhosts.unsafe_get.size
     end
 
     def values : Array(VHost)
-      @vhosts.values
+      @vhosts.shared(&.values)
     end
 
     def first_value? : VHost?
-      @vhosts.first_value?
+      @vhosts.shared(&.first_value?)
     end
 
     def each(&)
-      @vhosts.each do |kv|
-        yield kv
+      @vhosts.shared do |vhosts|
+        vhosts.each do |kv|
+          yield kv
+        end
       end
     end
 
     def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
-      if v = @vhosts[name]?
-        return v
+      created = false
+      vhost = @vhosts.lock do |vh|
+        if v = vh[name]?
+          next v
+        end
+        new_vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
+        Log.info { "Created vhost #{name}" }
+        unless @users[user.name]?.try &.permissions[name]?
+          @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: false)
+        end
+        @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: false)
+        vh[name] = new_vhost
+        created = true
+        new_vhost
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
-      Log.info { "Created vhost #{name}" }
-      unless @users[user.name]?.try &.permissions[name]?
-        @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+      if created
+        @users.save!
+        save! if save
+        notify_observers(Event::Added, name)
       end
-      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
-      @vhosts[name] = vhost
-      save! if save
-      notify_observers(Event::Added, name)
       vhost
     end
 
     def delete(name) : VHost?
-      if vhost = @vhosts.delete name
+      if vhost = @vhosts.lock(&.delete(name))
         Log.info { "Deleting vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
@@ -83,7 +107,7 @@ module LavinMQ
 
     def close
       WaitGroup.wait do |wg|
-        @vhosts.each_value do |vhost|
+        @vhosts.shared(&.values).each do |vhost|
           wg.spawn do
             vhost.close
             notify_observers(Event::Closed, vhost.name)
@@ -94,7 +118,7 @@ module LavinMQ
 
     def to_json(json : JSON::Builder)
       json.array do
-        @vhosts.each_value do |vhost|
+        each_value do |vhost|
           vhost.to_json(json)
         end
       end
@@ -102,24 +126,28 @@ module LavinMQ
 
     def load!
       path = File.join(@data_dir, "vhosts.json")
-      if File.exists? path
-        Log.debug { "Loading vhosts from file" }
+      begin
         File.open(path) do |f|
-          JSON.parse(f).as_a.each do |vhost|
-            name = vhost["name"].as_s
-            tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
-            description = vhost["description"]?.try &.as_s || ""
-            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
-            @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
+          Log.debug { "Loading vhosts.json" }
+          @vhosts.lock do |vhosts|
+            JSON.parse(f).as_a.each do |vhost|
+              name = vhost["name"].as_s
+              tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
+              description = vhost["description"]?.try &.as_s || ""
+              vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
+              @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
+            end
           end
           @replicator.try &.register_file(f)
         end
-      elsif Config.instance.load_definitions.empty?
-        Log.debug { "Loading default vhosts" }
-        create("/")
+      rescue File::NotFoundError
+        if Config.instance.load_definitions.empty?
+          Log.debug { "Loading default vhosts" }
+          create("/")
+        end
       end
       # Wait for vhosts to be loaded ("not closed")
-      @vhosts.each_value &.closed.when_false.receive
+      @vhosts.shared(&.values).each &.closed.when_false.receive
       Log.debug { "#{size} vhosts loaded" }
     rescue ex
       Log.error(exception: ex) { "Failed to load vhosts" }
@@ -127,11 +155,13 @@ module LavinMQ
     end
 
     private def save!
-      Log.debug { "Saving vhosts to file" }
-      path = File.join(@data_dir, "vhosts.json")
-      File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename "#{path}.tmp", path
-      @replicator.try &.replace_file path
+      @save_lock.synchronize do
+        Log.debug { "Saving vhosts to file" }
+        path = File.join(@data_dir, "vhosts.json")
+        File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
+        File.rename "#{path}.tmp", path
+        @replicator.try &.replace_file path
+      end
     end
   end
 end
