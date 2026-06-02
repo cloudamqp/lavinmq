@@ -234,6 +234,78 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "imports passwordless user (password_hash empty string)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":"","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports passwordless user (password_hash null)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":null,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports user with valid MD5 hash and null hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"legacy","password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        u = s.users["legacy"]?
+        u.should_not be_nil
+        u.not_nil!.password.should_not be_nil
+        u.not_nil!.password.not_nil!.verify("hej").should be_true
+      end
+    end
+
+    it "round-trips passwordless user through export and import" do
+      with_http_server do |http, s|
+        http.put("/api/users/nopass", body: %({"password_hash": ""}))
+        export = http.get("/api/definitions")
+        export.status_code.should eq 200
+
+        s.users.delete("nopass")
+        s.users["nopass"]?.should be_nil
+
+        response = http.post("/api/definitions", body: export.body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "returns 400 when importing a user with missing password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"nopass","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":123,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":"","hashing_algorithm":42,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
     it "imports vhosts" do
       with_http_server do |http, s|
         s.vhosts.delete("def")

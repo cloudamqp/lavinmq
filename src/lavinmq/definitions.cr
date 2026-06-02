@@ -154,21 +154,35 @@ module LavinMQ
         users.as_a.each do |u|
           name = u["name"].as_s
           next if skip_existing && @amqp_server.users[name]?
-          pass_hash = u["password_hash"].as_s
-          hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-
-          # Support both array and comma-separated string formats for tags
-          if tags = u["tags"]?.try &.as_s?
-            parsed_tags = tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
-          elsif tags = u["tags"]?.try &.as_a?
-            parsed_tags = tags.compact_map { |t| Tag.parse?(t.as_s) }
-          else
-            parsed_tags = [] of LavinMQ::Tag
-          end
-
+          pass_hash = parse_user_password_hash(u)
+          hash_algo = parse_user_hash_algo(u)
+          parsed_tags = parse_user_tags(u)
           @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false)
         end
         @amqp_server.users.save!
+      end
+    end
+
+    private def parse_user_password_hash(u : JSON::Any) : String
+      raise ArgumentError.new("Field 'password_hash' is required for each user") unless u["password_hash"]?
+      raw = u["password_hash"]
+      raise ArgumentError.new("Field 'password_hash' must be a string or null") unless raw.raw.nil? || raw.raw.is_a?(String)
+      raw.as_s? || ""
+    end
+
+    private def parse_user_hash_algo(u : JSON::Any) : String?
+      raw = u["hashing_algorithm"]?
+      raise ArgumentError.new("Field 'hashing_algorithm' must be a string or null") if raw && !raw.raw.nil? && !raw.raw.is_a?(String)
+      raw.try(&.as_s?)
+    end
+
+    private def parse_user_tags(u : JSON::Any) : Array(Tag)
+      if tags = u["tags"]?.try &.as_s?
+        tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
+      elsif tags = u["tags"]?.try &.as_a?
+        tags.compact_map { |t| Tag.parse?(t.as_s) }
+      else
+        [] of Tag
       end
     end
 
