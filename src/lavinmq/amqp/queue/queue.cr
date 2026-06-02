@@ -65,7 +65,7 @@ module LavinMQ::AMQP
     @retry_delay : Int64?
     @retry_delay_multiplier : Float64 = 1.0
     @retry_max_delay : Int64 = 60000i64
-    @retry_queue : RetryQueue?
+    @retry_ttl_queues : Hash(Int32, Queue)?
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -405,13 +405,29 @@ module LavinMQ::AMQP
     end
 
     private def init_retry_queue
-      return if @retry_queue
-      queue = RetryQueue.create(@vhost, self)
-      @retry_queue = queue
-      @vhost.queues[queue.name] = queue
+      @retry_ttl_queues ||= Hash(Int32, Queue).new
     end
 
-    private def route_to_retry_queue(sp : SegmentPosition, retry_queue : RetryQueue, base_delay : Int64) : Bool
+    private def ensure_retry_ttl_queue(delay_ms : Int64) : Queue
+      queues = @retry_ttl_queues.not_nil!
+      queues[delay_ms.to_i32] ||= begin
+        qname = "amq.retry-#{@name}-#{delay_ms}ms"
+        if existing = @vhost.queues[qname]?
+          existing
+        else
+          args = AMQP::Table.new
+          args["x-message-ttl"] = delay_ms
+          args["x-dead-letter-exchange"] = ""
+          args["x-dead-letter-routing-key"] = @name
+          args["x-expires"] = delay_ms * 10
+          q = durable? ? DurableQueue.create(@vhost, qname, false, false, args) : Queue.create(@vhost, qname, false, false, args)
+          @vhost.queues[qname] = q
+          q
+        end
+      end
+    end
+
+    private def route_to_retry_queue(sp : SegmentPosition, _unused : Hash(Int32, Queue)?, base_delay : Int64) : Bool
       delivery_count = @deliveries.fetch(sp, 1)
       if delivery_count > 1
         prev_delay = (base_delay * (@retry_delay_multiplier ** (delivery_count - 2))).to_i64
@@ -424,13 +440,13 @@ module LavinMQ::AMQP
       )
       props = msg.properties
       h = props.headers || AMQP::Table.new
-      h["x-delay"] = delay_ms.to_u32
       h["x-delivery-count"] = delivery_count
       h["x-original-timestamp"] = msg.timestamp unless h.has_key?("x-original-timestamp")
       props.headers = h
-      retry_msg = Message.new(RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
+      retry_msg = Message.new(RoughTime.unix_ms, msg.exchange_name, @name,
         props, msg.bodysize, IO::Memory.new(msg.body))
-      retry_queue.delay(retry_msg)
+      retry_q = ensure_retry_ttl_queue(delay_ms)
+      retry_q.publish(retry_msg)
       delete_message(sp)
       true
     end
@@ -500,9 +516,9 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      if retry_queue = @retry_queue
-        @retry_queue = nil
-        retry_queue.delete
+      if queues = @retry_ttl_queues
+        @retry_ttl_queues = nil
+        queues.each_value(&.delete)
       end
       close
       @state = QueueState::Deleted
@@ -884,8 +900,8 @@ module LavinMQ::AMQP
           return expire_msg(sp, :delivery_limit)
         end
       end
-      if failure && (retry_queue = @retry_queue) && (retry_delay = @retry_delay)
-        unless route_to_retry_queue(sp, retry_queue, retry_delay)
+      if failure && (queues = @retry_ttl_queues) && (retry_delay = @retry_delay)
+        unless route_to_retry_queue(sp, queues, retry_delay)
           expire_msg(sp, :delivery_limit)
         end
       else
