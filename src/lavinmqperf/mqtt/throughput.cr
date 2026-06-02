@@ -8,16 +8,6 @@ require "openssl"
 module LavinMQPerf
   module MQTT
     class Throughput < Perf
-      class PacketIdGenerator
-        @next = 1_u16
-
-        def next : UInt16
-          id = @next
-          @next = id == UInt16::MAX ? 1_u16 : id + 1_u16
-          id
-        end
-      end
-
       @publishers = 1
       @consumers = 1
       @size = 16
@@ -243,11 +233,11 @@ module LavinMQPerf
 
         start = Time.instant
         pubs_this_second = 0
-        packet_id_generator = PacketIdGenerator.new
+        packet_id_generator = (1_u16..UInt16::MAX).cycle
         wait_until_all_are_connected(connected)
         until @stopped
           @random.random_bytes(data) if @random_bodies
-          packet_id = @qos > 0 ? packet_id_generator.next : nil
+          packet_id = @qos > 0 ? packet_id_generator.next.as(UInt16) : nil
 
           publish = LavinMQ::MQTT::Publish.new(
             topic: @topic,
