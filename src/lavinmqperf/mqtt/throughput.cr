@@ -233,7 +233,7 @@ module LavinMQPerf
 
         start = Time.instant
         pubs_this_second = 0
-        packet_id_generator = (1_u16..).each
+        packet_id_generator = (1_u16..UInt16::MAX).cycle
         wait_until_all_are_connected(connected)
         until @stopped
           @random.random_bytes(data) if @random_bodies
