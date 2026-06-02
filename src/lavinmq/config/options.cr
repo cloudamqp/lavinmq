@@ -387,6 +387,9 @@ module LavinMQ
       property oauth_audience : String? = nil
       @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
       property oauth_jwks_cache_ttl : Time::Span = 1.hours
+
+      # Internal: not exposed as configurable, only used for testing
+      property deliver_loop_idle_timeout : Time::Span = 30.seconds
     end
   end
 end

@@ -21,6 +21,7 @@ module LavinMQ
       @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
+      @deliver_loop_running = Atomic(Bool).new(false)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -31,8 +32,6 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
-        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
       end
@@ -43,6 +42,13 @@ module LavinMQ
         @has_capacity.close
         @flow_change.close
         @queue.rm_consumer(self)
+      end
+
+      def ensure_deliver_loop
+        return if @closed
+        return if @deliver_loop_running.swap(true, :acquire_release)
+        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
+        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
       end
 
       @notify_closed = ::Channel(Nil).new
@@ -71,7 +77,15 @@ module LavinMQ
             raise ClosedError.new if @closed
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
-            next if wait_for_queue_ready
+            case wait_for_queue_ready
+            when :timeout
+              @log.debug { "deliver loop idle, exiting fiber" }
+              @deliver_loop_running.set(false, :release)
+              ensure_deliver_loop unless @queue.empty?
+              return
+            when :ready
+              next
+            end
             next if wait_for_paused_queue
             next if wait_for_flow
             break
@@ -91,6 +105,11 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+        @deliver_loop_running.set(false, :release)
+      rescue ex
+        @log.debug { "deliver loop exiting unexpectedly: #{ex.inspect}" }
+        @deliver_loop_running.set(false, :release)
+        raise ex
       end
 
       private def wait_for_global_capacity
@@ -151,14 +170,17 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @queue.empty?
-          @log.debug { "Waiting for queue not to be empty" }
-          flush
-          select
-          when @queue.empty.when_false.receive
-          when @notify_closed.receive
-          end
-          return true
+        return unless @queue.empty?
+        @log.debug { "Waiting for queue not to be empty" }
+        flush
+        select
+        when @queue.empty.when_false.receive
+          :ready
+        when @notify_closed.receive
+          raise ClosedError.new
+        when timeout Config.instance.deliver_loop_idle_timeout
+          @log.debug { "Deliver loop idle timeout" }
+          :timeout
         end
       end
 
