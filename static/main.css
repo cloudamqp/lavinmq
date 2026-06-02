@@ -2727,15 +2727,16 @@ pre.arguments .inactive-argument:before {
 
   .tab-bar {
     overflow-x: auto;
-    scrollbar-width: none;        /* Firefox */
+    scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
+    width: 100%;
   }
 
   .tab-bar::-webkit-scrollbar {
-    display: none;                /* Chrome/Safari */
+    display: none;
   }
 
   .tab {
-    flex-shrink: 0;               /* prevent tabs from squishing */
+    flex-shrink: 0;
   }
 }
