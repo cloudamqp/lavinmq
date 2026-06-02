@@ -29,7 +29,7 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 | `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on TCP, applies to AMQP and MQTT. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
 | `proxy_protocol_trusted_sources` | `[amqp]` | (empty) | Comma-separated list of IPs and CIDR blocks (IPv4/IPv6) allowed to send PROXY headers, e.g. `10.0.0.1, 192.168.0.0/24, 2001:db8::/32`. |
 
-PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources (and cluster followers) may send PROXY headers; headers from untrusted sources are rejected as a protocol mismatch. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
+PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
 
 ## Low Disk Space
 
