@@ -604,7 +604,7 @@ module LavinMQ
           "Number of queues on a vhost")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_vhost_queues", vhost.queues_size, labels)
+          writer.write_value("detailed_vhost_queues", vhost.queues_size + vhost.sessions_size, labels)
         end
       end
 
