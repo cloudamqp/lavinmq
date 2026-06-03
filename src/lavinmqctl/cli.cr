@@ -278,6 +278,19 @@ class LavinMQCtl
       @cmd = "cluster_status"
     end
 
+    @parser.separator("\nDisaster recovery")
+    @parser.on("dr_status", "Show this region's DR role (primary or follower)") do
+      @cmd = "dr_status"
+    end
+    @parser.on("promote_region", "Promote this region to primary (DR failover)") do
+      @cmd = "promote_region"
+      self.banner = "Usage: #{PROGRAM_NAME} promote_region"
+    end
+    @parser.on("demote_region", "Demote this region to a DR follower of the given foreign etcd endpoints") do
+      @cmd = "demote_region"
+      self.banner = "Usage: #{PROGRAM_NAME} demote_region <upstream-etcd-endpoints>"
+    end
+
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
 
@@ -324,6 +337,9 @@ class LavinMQCtl
     when "delete_exchange"       then delete_exchange
     when "status"                then status
     when "cluster_status"        then cluster_status
+    when "dr_status"             then dr_status
+    when "promote_region"        then promote_region
+    when "demote_region"         then demote_region
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
@@ -860,6 +876,27 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
+  end
+
+  private def dr_status
+    resp = http.get "/api/cluster/dr", @headers
+    handle_response(resp, 200)
+    output JSON.parse(resp.body).as_h
+  end
+
+  private def promote_region
+    # "primary" is the {prefix}/upstream_etcd sentinel (Clustering::Controller::UPSTREAM_PRIMARY)
+    resp = http.put "/api/cluster/dr", @headers, {upstream_etcd: "primary"}.to_json
+    handle_response(resp, 204)
+    @io.puts "Region promoted to primary." unless quiet?
+  end
+
+  private def demote_region
+    upstream = ARGV.shift?
+    abort @banner unless upstream
+    resp = http.put "/api/cluster/dr", @headers, {upstream_etcd: upstream}.to_json
+    handle_response(resp, 204)
+    @io.puts "Region demoted to DR follower of #{upstream}." unless quiet?
   end
 
   private def set_vhost_limits
