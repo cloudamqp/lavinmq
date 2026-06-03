@@ -29,7 +29,7 @@ module LavinMQ
       @msg_store_lock = Mutex.new(:reentrant)
       @msg_store : MessageStore
       @metadata : ::Log::Metadata
-      @closed = false
+      @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
       @has_client = BoolChannel.new(false)
@@ -55,6 +55,10 @@ module LavinMQ
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
+      def closed?
+        @closed.get(:acquire)
+      end
+
       def consumer_count : UInt32
         @client.nil? ? 0u32 : 1u32
       end
@@ -72,8 +76,7 @@ module LavinMQ
       end
 
       def close : Bool
-        return false if @closed
-        @closed = true
+        return false if @closed.swap(true)
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -98,7 +101,7 @@ module LavinMQ
       private def deliver_loop
         delivered_bytes = 0_i32
         loop do
-          break if @closed
+          break if closed?
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           client = @client
           next @has_client.when_true.receive? if client.nil?
@@ -123,7 +126,7 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
-        return if @closed
+        return if closed?
         @last_get_time = RoughTime.instant
 
         unless clean_session?
@@ -167,7 +170,7 @@ module LavinMQ
 
       def publish(msg : Message) : Bool
         return true if msg.properties.delivery_mode == 0 && @client.nil?
-        return false if @deleted || @closed
+        return false if @deleted || closed?
         @msg_store_lock.synchronize do
           @msg_store.push(msg)
           drop_overflow
@@ -189,7 +192,7 @@ module LavinMQ
       end
 
       private def get_packet(& : MQTT::Publish, UInt32 -> Nil) : Bool
-        raise AMQP::Queue::ClosedError.new if @closed
+        raise AMQP::Queue::ClosedError.new if closed?
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
