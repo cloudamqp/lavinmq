@@ -70,8 +70,13 @@ module LavinMQ
     end
 
     private def start : self
+      Log.info { "Starting LavinMQ version #{LavinMQ::VERSION}" }
       started_at = Time.instant
       @data_dir_lock.try &.acquire
+      # Force-init the cluster secret before clustering listener starts. For
+      # the raft backend, this requires being leader (we are — runner yielded
+      # to us). For etcd, this writes the key so follower watches fire.
+      @replicator.try &.password
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server, @runner)
       load_definitions(amqp_server)

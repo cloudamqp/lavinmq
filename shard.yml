@@ -35,7 +35,8 @@ dependencies:
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
   raft:
-    path: ../random/raft
+    github: 84codes/raft.cr
+    branch: main
 
 development_dependencies:
   ameba:
