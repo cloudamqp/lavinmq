@@ -16,6 +16,8 @@ module LavinMQ
       include AMQP::QueueStats
       Log = ::LavinMQ::Log.for "mqtt.session"
 
+      ARGUMENTS = AMQP::Table.new({"x-queue-type" => "mqtt"})
+
       getter name : String
       getter vhost : VHost
       getter? auto_delete
@@ -66,7 +68,7 @@ module LavinMQ
       end
 
       def arguments : AMQP::Table
-        AMQP::Table.new
+        ARGUMENTS
       end
 
       def close : Bool
