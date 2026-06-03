@@ -106,7 +106,6 @@ module LavinMQ
           user = tbl["LOGIN"]?.as(String?) || ""
           password = tbl["PASSWORD"]?.as(String?) || ""
           {user, password, false}
-        # TODO handle "EXTERNAL"
         when "EXTERNAL"
           Log.debug { "EXTERNAL method #{connection_info.ssl_cn}"}
           {connection_info.ssl_cn.not_nil!, "", true}
@@ -121,7 +120,7 @@ module LavinMQ
         context = Auth::Context.new(
           username,
           password.to_slice,
-          is_ssl_login: is_external_mechanism,
+          external_authentication: is_external_mechanism,
           loopback: remote_address.loopback?
         )
         user = @authenticator.authenticate(context)
