@@ -519,6 +519,14 @@ module LavinMQ
 
       # Internal: not exposed as configurable, only used for testing
       property deliver_loop_idle_timeout : Time::Span = 30.seconds
+
+      @[IniOpt(section: "external_auth", ini_name: login_from)]
+      property external_auth_login_from : Bool = true
+      @[IniOpt(section: "external_auth", ini_name: san_type)]
+      property external_auth_san_type : String? = nil
+      @[IniOpt(section: "external_auth", ini_name: san_index)]
+      property external_auth_san_index : Int32?
+
     end
   end
 end
