@@ -22,7 +22,7 @@ shards:
 
   raft:
     git: https://github.com/84codes/raft.cr.git
-    version: 0.1.0+git.commit.b5f00c88bf1660c3befe561d29f3161c09610589
+    version: 0.1.0+git.commit.6e04270524bc1eec912704139ebaa5786b4f9ae1
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
