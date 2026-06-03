@@ -5,6 +5,25 @@ require "http/client"
 require "./spec_helper"
 
 describe LavinMQ::Etcd, tags: "etcd" do
+  describe "connection failure" do
+    it "raises instead of exiting when fail_fast is false and no endpoint responds" do
+      etcd = LavinMQ::Etcd.new("127.0.0.1:1", fail_fast: false)
+      expect_raises(LavinMQ::Etcd::Error, "No etcd endpoint responded") do
+        etcd.get("foo")
+      end
+    end
+
+    it "still works against a live etcd when fail_fast is false" do
+      cluster = EtcdCluster.new(1)
+      cluster.run do
+        etcd = LavinMQ::Etcd.new(cluster.endpoints, fail_fast: false)
+        etcd.del("foo")
+        etcd.put("foo", "bar").should eq nil
+        etcd.get("foo").should eq "bar"
+      end
+    end
+  end
+
   it "can put and get" do
     cluster = EtcdCluster.new(1)
     cluster.run do

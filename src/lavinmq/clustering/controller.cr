@@ -196,31 +196,42 @@ class LavinMQ::Clustering::Controller
   # forwarding the stream to our own region's followers via the replicator.
   private def follow_foreign_leader(upstream : String, replicator : Clustering::Server)
     prefix = @config.clustering_upstream_etcd_prefix.presence || @config.clustering_etcd_prefix
-    foreign = Etcd.new(upstream)
-    foreign.elect_listen("#{prefix}/leader") do |uri|
-      if client = @relay_client
-        if client.follows? uri
+    # fail_fast: false so an unreachable foreign etcd raises (and we retry below)
+    # instead of taking this DR region's relay process down with it.
+    foreign = Etcd.new(upstream, fail_fast: false)
+    loop do
+      foreign.elect_listen("#{prefix}/leader") do |uri|
+        if client = @relay_client
+          if client.follows? uri
+            next
+          else
+            client.close
+          end
+        end
+        if uri.nil?
+          Log.warn { "No upstream leader available" }
           next
-        else
-          client.close
         end
-      end
-      if uri.nil?
-        Log.warn { "No upstream leader available" }
-        next
-      end
-      Log.info { "Upstream leader: #{uri}" }
-      key = "#{prefix}/clustering_secret"
-      secret = foreign.get(key)
-      until secret
-        Log.debug { "Upstream clustering secret is missing, watching for it" }
-        foreign.watch(key) do |value|
-          secret = value
-          break
+        Log.info { "Upstream leader: #{uri}" }
+        key = "#{prefix}/clustering_secret"
+        secret = foreign.get(key)
+        until secret
+          Log.debug { "Upstream clustering secret is missing, watching for it" }
+          foreign.watch(key) do |value|
+            secret = value
+            break
+          end
         end
+        @relay_client = c = Clustering::Client.new(@config, @id, secret, proxy: false, relay: replicator)
+        spawn c.follow(uri), name: "Relay client #{uri}"
       end
-      @relay_client = c = Clustering::Client.new(@config, @id, secret, proxy: false, relay: replicator)
-      spawn c.follow(uri), name: "Relay client #{uri}"
+    rescue ex : Etcd::Error
+      break if @stopped
+      # The upstream region's etcd is unreachable. Keep the relay alive — its
+      # existing @relay_client keeps streaming from the upstream leader over its
+      # own TCP link — and retry watching for leader changes.
+      Log.warn(exception: ex) { "Upstream etcd unreachable, retrying in 5s" }
+      sleep 5.seconds
     end
   rescue ex
     return if @stopped # don't crash the foreign monitor during graceful shutdown

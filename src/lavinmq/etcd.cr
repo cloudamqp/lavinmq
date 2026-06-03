@@ -13,7 +13,12 @@ module LavinMQ
     record Connection, socket : IO, address : String, auth : String?
     @endpoints : Array(Endpoint)
 
-    def initialize(endpoints = "localhost:2379")
+    # When `fail_fast` is true (the default) a connection failure to all
+    # endpoints exits the process — correct for a node's own etcd, which it
+    # can't run without. A foreign etcd (e.g. a DR relay watching the upstream
+    # region) sets it false so connection failures raise instead, letting the
+    # caller retry without taking the whole process down.
+    def initialize(endpoints = "localhost:2379", @fail_fast = true)
       @endpoints = endpoints.split(',').map { |ep| parse_endpoint(ep) }
     end
 
@@ -307,7 +312,9 @@ module LavinMQ
         next
       end
       Log.fatal { "No etcd endpoint responded" }
-      exit 5 # 5th character in the alphabet is E(etcd)
+      exit 5 if @fail_fast # 5th character in the alphabet is E(etcd)
+      # Non-fail-fast (foreign) etcd: let the caller retry instead of exiting.
+      raise Error.new("No etcd endpoint responded")
     end
 
     private def create_tcp_socket(host, port)
