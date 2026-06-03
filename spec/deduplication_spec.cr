@@ -189,10 +189,7 @@ describe LavinMQ::Deduplication::Deduper do
           # Publish a message and verify it has been delayed and not thrown away
           x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
 
-          select
-          when delay_q.empty.when_false.receive
-          end
-
+          wait_for { !delay_q.empty? }
           exchange.dedup_count.should eq 0
 
           # Publish a second message, verify that it's thrown away
@@ -202,9 +199,7 @@ describe LavinMQ::Deduplication::Deduper do
 
           # wait for the delayed message to be delivered
           # the expire time in the deduplication cache should not be affected
-          select
-          when delay_q.empty.when_true.receive
-          end
+          wait_for { delay_q.empty? }
           # by sleeping 20 milliseconds time should have moved at least cache_ttl
           # + 10 milliseconds (we did - 10 in the hdrs) and therefore the cache
           # should not be empty.
@@ -214,12 +209,7 @@ describe LavinMQ::Deduplication::Deduper do
           # Publish a third message and verify it's not thrown away
           x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
 
-          select
-          when delay_q.empty.when_false.receive
-          when timeout 1.second
-            fail "no message in delay_q?!"
-          end
-
+          wait_for { !delay_q.empty? }
           exchange.dedup_count.should eq 1
         end
       end
