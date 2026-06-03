@@ -10,6 +10,7 @@ module LavinMQ
       def authenticate(context : Context) : User?
         return unless user = @users[context.username]?
         return unless default_user_only_loopback?(context)
+        return user unless !context.external_authentication
         return unless passwd = user.password
         return unless passwd.verify(context.password)
         user
