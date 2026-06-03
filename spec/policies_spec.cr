@@ -204,6 +204,39 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "repeated policy applies do not spawn duplicate Queue loops" do
+    # Regression for the stress driver finding 15+ zombie
+    # Queue#queue_expire_loop / drop_overflow fibers for the same queue.
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("repeat")
+        s.vhosts["/"].queue("repeat").as(LavinMQ::AMQP::Queue)
+        defs = {
+          "expires"          => JSON::Any.new(60_000_i64),
+          "max-length"       => JSON::Any.new(100_i64),
+          "max-length-bytes" => JSON::Any.new(1_000_000_i64),
+          "delivery-limit"   => JSON::Any.new(10_i64),
+        } of String => JSON::Any
+        20.times do |i|
+          s.vhosts["/"].add_policy("p#{i}", "^repeat$", "queues", defs, i.to_i8)
+        end
+        Fiber.yield
+        loop_count = ->(needle : String) do
+          c = 0
+          Fiber.list do |f|
+            n = f.@name
+            c += 1 if n && n.includes?(needle) && n.includes?("/repeat")
+          end
+          c
+        end
+        loop_count.call("queue_expire_loop").should eq 1
+        loop_count.call("drop_overflow").should be <= 1
+        loop_count.call("drop_redelivered").should be <= 1
+        20.times { |i| s.vhosts["/"].delete_policy("p#{i}") }
+      end
+    end
+  end
+
   it "should drop messages if above delivery-limit" do
     with_amqp_server do |s|
       defs = {"delivery-limit" => JSON::Any.new(0_i64)} of String => JSON::Any
