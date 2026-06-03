@@ -9,6 +9,7 @@ require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
+require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -41,7 +42,8 @@ module LavinMQ
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         @runner = controller = Clustering::Controller.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, etcd, controller.id)
+        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
+        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
       end

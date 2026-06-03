@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
+require "../../src/lavinmq/clustering/etcd_coordinator"
 
 describe LavinMQ::Clustering::Server, tags: "etcd" do
   add_etcd_around_each
@@ -11,7 +12,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(
           LavinMQ::Config.instance,
-          LavinMQ::Etcd.new("localhost:12379"),
+          LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
           0)
         file = MFile.new(File.join(data_dir, "mfile_hash_test"), 1024)
         file.print "foo"
@@ -31,7 +32,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(
           LavinMQ::Config.instance,
-          LavinMQ::Etcd.new("localhost:12379"),
+          LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
           0)
         path = File.join(data_dir, "file_hash_test")
         file = File.open(path, "w")
@@ -54,7 +55,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
-        LavinMQ::Etcd.new("localhost:12379"),
+        LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
         0)
       path = File.join(data_dir, "path_only_file")
       File.write(path, "data")
@@ -74,7 +75,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
-        LavinMQ::Etcd.new("localhost:12379"),
+        LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
         0)
 
       mfiles = Array(MFile).new
@@ -124,7 +125,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
-        LavinMQ::Etcd.new("localhost:12379"),
+        LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
         0)
 
       mfiles = Array(MFile).new

@@ -3,13 +3,13 @@ require "./file_index"
 require "./replicator"
 require "./follower"
 require "./checksums"
+require "./coordinator"
 require "../config"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
 require "lz4"
 require "sync/shared"
-require "../etcd"
 
 module LavinMQ
   module Clustering
@@ -43,7 +43,7 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      def initialize(config : Config, @etcd : Etcd, @id : Int32)
+      def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
@@ -203,13 +203,7 @@ module LavinMQ
       end
 
       def password : String
-        key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        secret = Random::Secure.base64(32)
-        stored_secret = @etcd.put_or_get(key, secret)
-        if stored_secret == secret
-          Log.info { "Generated new clustering secret" }
-        end
-        stored_secret
+        @coordinator.password
       end
 
       @listeners = Array(TCPServer).new(1)
@@ -277,17 +271,13 @@ module LavinMQ
       end
 
       private def update_isr
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
-          @followers.each do |f|
-            next unless f.synced?
-            f.id.to_s(str, 36)
-            str << ","
-          end
-          @id.to_s(str, 36)
+        ids = Set(Int32).new
+        @followers.each do |f|
+          ids.add(f.id) if f.synced?
         end
-        Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
+        ids.add(@id)
+        Log.info { "In-sync replicas: #{ids.to_a}" }
+        @coordinator.update_isr(ids)
         @dirty_isr = false
       end
 
