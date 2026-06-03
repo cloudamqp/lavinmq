@@ -18,30 +18,29 @@ module LavinMQ
       @remote_address = IPAddress.new(remote_address)
       @local_address = IPAddress.new(local_address)
     end
-
-    def self.local
+ 
+   def self.local
       src = Socket::IPAddress.new("127.0.0.1", 0)
       dst = Socket::IPAddress.new("127.0.0.1", 0)
       new(src, dst)
     end
 
-    def with_ssl(ssl_client : OpenSSL::SSL::NativeSocket::Server)
-      conn_info = self.new(@remote_address, @local_address)
-      conn_info.ssl = true
-      conn_info.ssl_version = ssl_client.tls_version
-      conn_info.ssl_cipher = ssl_client.cipher
-      conn_info.ssl_san_entries = extract_subject_alternative_name_entries(ssl_client.peer_certificate) 
-      conn_info.ssl_cn = extract_common_name(ssl_client.peer_certificate) 
-      conn_info
+    def with_ssl(ssl_client)
+      self.ssl = true
+      self.ssl_version = ssl_client.tls_version
+      self.ssl_cipher = ssl_client.cipher
+      self.ssl_san_entries = extract_subject_alternative_name_entries(ssl_client.peer_certificate) 
+      self.ssl_cn = extract_common_name(ssl_client.peer_certificate) 
+      self
     end
 
-    def extract_subject_alternative_name_entries(peer_certificate) : String?
+    def extract_subject_alternative_name_entries(peer_certificate) : Array(SubjectAlternativeName)?
       return nil unless peer_certificate
       san = peer_certificate.extensions.reject do |ext|
         ext.oid != "subjectAltName" || ext.oid != "subjectAlternativeName"
       end
       san.map_with_index do |entry, index|
-        san_entry = entry.split(':', 2)
+        san_entry = entry.value.split(':', 2)
         SubjectAlternativeName.new(index, san_entry[0], san_entry[1])
       end
     end
@@ -59,7 +58,7 @@ module LavinMQ
 
     struct SubjectAlternativeName
       getter index, type, value
-      def initialize(@index, @type, @value)
+      def initialize(@index : Int32, @type : String, @value : String)
       end
     end
 

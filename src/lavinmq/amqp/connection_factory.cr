@@ -90,7 +90,7 @@ module LavinMQ
         start_ok
       end
 
-      def credentials(start_ok, connection_info)
+      def credentials(start_ok, connection_info) : Tuple(String, String, Bool)
         Log.debug { "credentials start_ok.mechanism=#{start_ok.mechanism}"}
         case start_ok.mechanism
         when "PLAIN"
@@ -108,7 +108,28 @@ module LavinMQ
           {user, password, false}
         when "EXTERNAL"
           Log.debug { "EXTERNAL method #{connection_info.ssl_cn}"}
-          {connection_info.ssl_cn.not_nil!, "", true}
+          external_auth_login_from = Config.instance.external_auth_login_from
+          if external_auth_login_from == "subject_alternative_name"
+            san_entries = connection_info.ssl_san_entries || raise "EXTERNAL authentication method but no SAN found"
+            external_auth_san_type = Config.instance.external_auth_san_type
+            external_auth_san_index = Config.instance.external_auth_san_index
+            if ssl_san_in_index = san_entries.find { |san| san.index == external_auth_san_index }
+              if ssl_san = ssl_san_in_index.value
+                return {ssl_san, "", true}
+              else
+                raise "EXTERNAL authentication method SAN is missing it's value"
+              end
+            else
+              raise "EXTERNAL authentication method is missing SAN"
+            end
+          end
+
+          if external_auth_login_from == "common_name"
+            ssl_cn = connection_info.ssl_cn
+            return {ssl_cn, "", true} unless ssl_cn.nil?
+            raise "EXTERNAL authentication method but no SSL Common Name present"
+          end
+          raise "EXTERNAL is not configured on the server"
         else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
         end
       end

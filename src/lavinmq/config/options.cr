@@ -375,6 +375,14 @@ module LavinMQ
       property oauth_audience : String? = nil
       @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
       property oauth_jwks_cache_ttl : Time::Span = 1.hours
+
+      @[IniOpt(section: "external_auth", ini_name: login_from)]
+      property external_auth_login_from : Bool = true
+      @[IniOpt(section: "external_auth", ini_name: san_type)]
+      property external_auth_san_type : String? = nil
+      @[IniOpt(section: "external_auth", ini_name: san_index)]
+      property external_auth_san_index : Int32?
+
     end
   end
 end
