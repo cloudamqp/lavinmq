@@ -258,16 +258,17 @@ describe LavinMQ::VHost do
           3.times do
             q.publish_confirm "body"
           end
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          queue.message_count.should eq 2
           s.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
+          wait_for { queue.message_count == 1 }
 
           # deleting operator policy should make normal policy active again
           s.vhosts["/"].delete_operator_policy("ml1")
           3.times do
             q.publish_confirm "body"
           end
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+          queue.message_count.should eq 2
         end
       end
     end
