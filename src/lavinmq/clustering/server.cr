@@ -164,6 +164,10 @@ module LavinMQ
         @relay_mode = true
       end
 
+      def relay_mode?
+        @relay_mode
+      end
+
       # Held by the relay client for the duration of its upstream (re)sync so a
       # downstream follower can't full_sync against half-applied state. A
       # connecting follower blocks in handle_socket (after the readiness gate,

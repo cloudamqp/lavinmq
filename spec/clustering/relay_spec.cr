@@ -335,4 +335,63 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     FileUtils.rm_rf relay_dir if relay_dir
     FileUtils.rm_rf downstream_dir if downstream_dir
   end
+
+  # A role flip (here: relay -> primary, by setting upstream_etcd to the
+  # "primary" sentinel) invokes the on_role_change callback the Launcher
+  # installs to gracefully restart, rather than an abrupt exit 38.
+  it "invokes on_role_change when the region's role flips" do
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    base = LavinMQ::Config.instance.dup
+    base.metrics_http_port = -1
+
+    relay_dir = File.tempname("lavinmq", "relay")
+    Dir.mkdir_p relay_dir
+
+    relay_port = TCPServer.open("localhost", 0, &.local_address.port)
+    config = base.dup
+    config.data_dir = relay_dir
+    config.clustering_etcd_prefix = "regionB"
+    config.clustering_upstream_etcd_endpoints = "localhost:12379" # makes this a DR follower
+    config.clustering_upstream_etcd_prefix = "regionA"
+    config.clustering_bind = "localhost"
+    config.clustering_port = relay_port
+    config.clustering_advertised_uri = "tcp://localhost:#{relay_port}"
+
+    etcd.del("regionB/upstream_etcd")
+    controller = LavinMQ::Clustering::Controller.new(config, etcd)
+    relay_server = LavinMQ::Clustering::Server.new(config, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd), controller.id)
+    controller.replicator = relay_server
+
+    flipped = Channel(Nil).new(1)
+    # The real callback gracefully stops and exits 38; the spec just records it.
+    controller.on_role_change = -> { flipped.try_send?(nil); nil }
+
+    spawn(name: "role change controller spec") do
+      controller.run { }
+    rescue SpecExit
+    end
+
+    # Wait until the controller has won its election and entered relay mode, so
+    # watch_upstream has already captured dr_now = true (key unset -> config
+    # fallback). Only then flip to primary.
+    wait_for { relay_server.relay_mode? }
+
+    # Flip the role to primary. Re-put so we don't race watch_upstream's etcd
+    # watch stream being established (it only delivers changes after it starts).
+    got = false
+    20.times do
+      etcd.put("regionB/upstream_etcd", LavinMQ::Clustering::Controller::UPSTREAM_PRIMARY)
+      select
+      when flipped.receive
+        got = true
+      when timeout(0.5.seconds)
+      end
+      break if got
+    end
+    got.should be_true
+  ensure
+    controller.try &.stop
+    relay_server.try &.close
+    FileUtils.rm_rf relay_dir if relay_dir
+  end
 end

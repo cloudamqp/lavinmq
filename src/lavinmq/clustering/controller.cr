@@ -11,6 +11,11 @@ class LavinMQ::Clustering::Controller
   # message store.
   property replicator : Clustering::Server? = nil
 
+  # Invoked when this region's role flips (primary <-> DR follower). The Launcher
+  # sets it to gracefully stop the node's subsystems and then exit 38, so the
+  # supervisor restarts into the re-derived role. Unset = a bare exit 38.
+  property on_role_change : (-> Nil)? = nil
+
   # The client replicating from this region's own leader, managed solely by
   # the `follow_leader` monitor.
   @repli_client : Client? = nil
@@ -254,7 +259,14 @@ class LavinMQ::Clustering::Controller
         Log.fatal { "Region promoted to primary; restarting to switch role" }
         execute_shell_command(@config.clustering_on_promoted, "promoted")
       end
-      exit 38 # 38 for region role change; supervisor restarts into the new role
+      # The Launcher installs a callback that gracefully stops the node's
+      # subsystems before exiting 38; the supervisor restarts into the
+      # re-derived role. Fall back to a bare exit when unset (e.g. specs).
+      if cb = @on_role_change
+        cb.call
+      else
+        exit 38 # 38 for region role change; supervisor restarts into the new role
+      end
     end
   rescue ex
     Log.error(exception: ex) { "Unhandled exception while watching upstream region" } unless @stopped

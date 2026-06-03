@@ -48,6 +48,9 @@ module LavinMQ
         # for the region's followers and is fed by the upstream region) instead
         # of the local message store, and never yields to start the amqp server.
         controller.replicator = replicator
+        # On a role flip, gracefully stop before the supervisor restarts us into
+        # the re-derived role (instead of an abrupt exit 38).
+        controller.on_role_change = -> { graceful_restart_for_role_change }
       else
         @runner = StandaloneRunner.new
       end
@@ -97,6 +100,16 @@ module LavinMQ
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+    end
+
+    # The region's DR role flipped. Gracefully tear down this node's subsystems
+    # (drains AMQP clients in primary mode; just closes the relay client in DR
+    # mode) and exit 38 so the supervisor restarts into the re-derived role.
+    private def graceful_restart_for_role_change : Nil
+      Log.warn { "Region role changed; gracefully restarting to switch role" }
+      stop
+      Fiber.yield
+      exit 38 # 38 for region role change; supervisor restarts into the new role
     end
 
     private def print_environment_info
