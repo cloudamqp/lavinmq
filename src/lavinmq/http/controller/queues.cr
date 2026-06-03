@@ -172,6 +172,9 @@ module LavinMQ
             user = user(context)
             refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless q.is_a?(AMQP::Queue)
+              forbidden(context, "Only supported by AMQP queues")
+            end
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
