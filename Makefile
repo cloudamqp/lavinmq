@@ -101,9 +101,18 @@ deps: js lib views
 lib/ameba/bin/ameba:
 	shards install
 
+LLVM_CONFIG ?= $(shell brew --prefix llvm 2>/dev/null)/bin/llvm-config
+
+bin/spawn-in-init-checker: src/spawn_in_init_checker.cr $(SOURCES) lib | bin
+	LLVM_CONFIG=$(LLVM_CONFIG) crystal build $< -o $@ -Di_know_what_im_doing
+
 .PHONY: lint
 lint: lib/ameba/bin/ameba
 	$< src/ spec/
+
+.PHONY: check-spawn-in-init
+check-spawn-in-init: bin/spawn-in-init-checker
+	bin/spawn-in-init-checker
 
 .PHONY: lint-js
 lint-js:
