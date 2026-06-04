@@ -151,7 +151,7 @@ LavinMQ delivers exceptional throughput performance on commodity hardware. On a 
 **Memory Efficiency:**
 
 - **25 MB RAM** - For 100 million enqueued messages
-- **45 MB RAM** - For 1,000 declared queues
+- **35 MB RAM** - For 1,000 declared queues
 - **70 MB RAM** - For 1,000 concurrent connections
 
 **Binding Performance:**
