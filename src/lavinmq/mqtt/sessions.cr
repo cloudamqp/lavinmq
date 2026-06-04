@@ -24,7 +24,7 @@ module LavinMQ
       end
 
       def delete(client_id : String)
-        @vhost.delete_queue("mqtt.#{client_id}")
+        self["mqtt.#{client_id}"]?.try &.delete
       end
 
       def delete(session : Session)
