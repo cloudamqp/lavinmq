@@ -75,7 +75,7 @@ module LavinMQ
         ARGUMENTS
       end
 
-      def close : Bool
+      protected def close : Bool
         return false if @closed.swap(true)
         @msg_store_lock.synchronize do
           @msg_store.close
