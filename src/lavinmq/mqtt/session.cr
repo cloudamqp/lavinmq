@@ -33,6 +33,7 @@ module LavinMQ
       @deleted = false
       @client : MQTT::Client? = nil
       @has_client = BoolChannel.new(false)
+      @has_capacity = BoolChannel.new(true)
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -40,7 +41,6 @@ module LavinMQ
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
-        @has_capacity = BoolChannel.new(true)
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
         data_dir = File.join(
@@ -77,6 +77,8 @@ module LavinMQ
 
       protected def close : Bool
         return false if @closed.swap(true)
+        @has_capacity.close
+        @has_client.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
