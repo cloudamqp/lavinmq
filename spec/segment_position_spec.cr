@@ -14,6 +14,15 @@ describe LavinMQ::SegmentPosition do
       sp.delay.should eq 15
       sp.priority.should eq 0
     end
+
+    it "should handle x-delay exceeding UInt32 max" do
+      delay = 31_536_000_000_i64 # 365 days in ms
+      headers = LavinMQ::AMQP::Table.new({"x-delay" => delay})
+      props = LavinMQ::AMQP::Properties.new(headers: headers)
+      msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+      sp = subject.make(1u32, 1u32, msg)
+      sp.delay.should eq delay
+    end
   end
 
   it "should create a SP with priority" do
