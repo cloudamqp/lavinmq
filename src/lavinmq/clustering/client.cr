@@ -20,7 +20,7 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
-      @file_digests = Hash(String, Digest::SHA1).new
+      @file_digests = Hash(String, Digest::SHA1).new { |h, filename| h[filename] = Digest::SHA1.new }
       @follower_done = Channel(Nil).new
 
       # When `relay` is set this client acts as a relay: every change it applies
@@ -338,7 +338,7 @@ module LavinMQ
           bytes = Bytes.new(len.abs.to_i32)
           lz4.read_fully(bytes)
           f.write(bytes)
-          (@file_digests[filename] ||= Digest::SHA1.new).update(bytes)
+          @file_digests[filename].update(bytes)
           relay.relay_append(File.join(@data_dir, filename), bytes)
         else
           stream_with_checksum(filename, lz4, f, len.abs)
@@ -380,7 +380,7 @@ module LavinMQ
       # Read from lz4, update SHA1, and write to file incrementally
       private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
         # Get or create SHA1 digest for this file
-        sha1 = @file_digests[filename] ||= Digest::SHA1.new
+        sha1 = @file_digests[filename]
 
         # Read, hash, and write incrementally
         buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]
