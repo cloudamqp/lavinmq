@@ -176,6 +176,7 @@ module LavinMQ
             end
             socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
             socket.flush
+            log.info { "Authenticated user=\"#{user.name}\" vhost=\"#{vhost_name}\"" }
             return vhost
           else
             log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }

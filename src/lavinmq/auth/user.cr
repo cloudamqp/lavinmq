@@ -114,9 +114,10 @@ module LavinMQ
         @password = parse_password(password_hash, hash_algorithm || "MD5")
       end
 
-      def update_password(password, hash_algorithm = "sha256")
-        return if @password.try &.verify(password)
+      def update_password(password, hash_algorithm = "sha256") : Bool
+        return false if @password.try &.verify(password)
         @password = self.class.hash_password(password, hash_algorithm)
+        true
       end
 
       def user_details
