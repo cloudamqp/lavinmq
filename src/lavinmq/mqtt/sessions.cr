@@ -22,14 +22,6 @@ module LavinMQ
           self[client.client_id]
         end
       end
-
-      def delete(client_id : String)
-        self["mqtt.#{client_id}"]?.try &.delete
-      end
-
-      def delete(session : Session)
-        session.delete
-      end
     end
   end
 end

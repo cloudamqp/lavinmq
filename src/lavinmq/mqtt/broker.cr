@@ -52,12 +52,12 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will)
-        if session = sessions[client.client_id]?
-          if client.clean_session?
-            sessions.delete session
-          else
-            session.client = client
-          end
+        if client.clean_session?
+          sessions[client.client_id]?.try &.delete
+        else
+          # If an existing session exists, reuse it. If no session exists
+          # it will be created on first subscribe
+          sessions[client.client_id]?.try &.client = client
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
