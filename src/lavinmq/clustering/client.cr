@@ -12,6 +12,9 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
+      # True while connected to the leader and actively streaming changes, i.e.
+      # past the initial sync. Used by a DR relay's readiness probe.
+      @streaming = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -113,6 +116,7 @@ module LavinMQ
             sync(socket, lz4)
           end
           Log.info { "Streaming changes" }
+          @streaming = true
           stream_changes(socket, lz4)
         rescue ex : IO::Error
           lz4.try &.close
@@ -120,9 +124,16 @@ module LavinMQ
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
+        ensure
+          @streaming = false
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      # True when connected to the leader and past the initial sync (streaming).
+      def connected? : Bool
+        @streaming
       end
 
       def follows?(_nil : Nil) : Bool

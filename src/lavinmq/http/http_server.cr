@@ -87,6 +87,25 @@ module LavinMQ
         File.delete?(INTERNAL_UNIX_SOCKET)
       end
 
+      # A barebones HTTP API for a DR relay node, which doesn't run the full
+      # management server. Exposes follower Prometheus metrics (/metrics), a
+      # readiness probe (/health), and the DR control routes (/api/cluster/dr).
+      # `ready` reports whether the relay is synced with its upstream leader.
+      def self.relay_api(ready : -> Bool) : ::HTTP::Server
+        handlers = [
+          ApiErrorHandler.new,
+          ApiDefaultsHandler.new,
+          FollowerPrometheusController.new,
+          RelayHealthController.new(ready),
+          FollowerDRHandler.new,
+        ] of ::HTTP::Handler
+        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
+        ::HTTP::Server.new(handlers) do |context|
+          context.response.status_code = 404
+          context.response.print "Not found. Relay node serves only /metrics, /health and /api/cluster/dr.\n"
+        end
+      end
+
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
       # DR control routes (/api/cluster/dr) are handled locally so a region can be
       # promoted during a failover even when the primary is down; everything else

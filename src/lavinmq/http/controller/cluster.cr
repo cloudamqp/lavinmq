@@ -114,5 +114,29 @@ module LavinMQ
         {error: "etcd_unavailable", reason: ex.message}.to_json(context.response)
       end
     end
+
+    # Readiness probe for a DR relay's barebones HTTP API. `ready` reports whether
+    # the relay is connected to its upstream leader and past the initial sync.
+    # 200 when ready, 503 otherwise — for load balancers / orchestrators.
+    class RelayHealthController
+      include Router
+
+      def initialize(@ready : -> Bool)
+        register_routes
+      end
+
+      private def register_routes
+        get "/health" do |context, _params|
+          context.response.content_type = "text/plain"
+          if @ready.call
+            context.response.print "ok\n"
+          else
+            context.response.status_code = 503
+            context.response.print "not ready: relay not synced with upstream\n"
+          end
+          context
+        end
+      end
+    end
   end
 end

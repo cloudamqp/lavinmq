@@ -10,6 +10,8 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./clustering/etcd_coordinator"
+require "./amqp/relay_rejecter"
+require "./mqtt/relay_rejecter"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -24,6 +26,10 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    # DR relay services (AMQP/MQTT reject listeners + barebones HTTP API),
+    # started lazily when the node enters relay mode.
+    @relay_servers = Array(TCPServer).new
+    @relay_http_server : ::HTTP::Server?
 
     def initialize(@config : Config)
       print_environment_info
@@ -51,6 +57,9 @@ module LavinMQ
         # On a role flip, gracefully stop before the supervisor restarts us into
         # the re-derived role (instead of an abrupt exit 38).
         controller.on_role_change = -> { graceful_restart_for_role_change }
+        # In relay mode the node serves no clients: reject AMQP/MQTT connections
+        # and run only a barebones HTTP API (metrics + health + DR control).
+        controller.on_relay_start = -> { start_relay_services(controller) }
       else
         @runner = StandaloneRunner.new
       end
@@ -99,6 +108,8 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
+      @relay_http_server.try &.close rescue nil
+      @relay_servers.each &.close rescue nil
       @runner.stop
     end
 
@@ -110,6 +121,56 @@ module LavinMQ
       stop
       Fiber.yield
       exit 38 # 38 for region role change; supervisor restarts into the new role
+    end
+
+    # A DR relay serves no application clients. Reject AMQP/MQTT connections with
+    # a clear protocol-level signal, and expose a barebones HTTP API (Prometheus
+    # metrics, a readiness /health, and the DR control routes) on the management
+    # port instead of the full management server.
+    private def start_relay_services(controller : Clustering::Controller) : Nil
+      if @config.amqp_port > 0
+        spawn_relay_reject_listener(@config.amqp_bind, @config.amqp_port, nil, "Relay AMQP rejecter") { |io| AMQP.reject_relay(io) }
+      end
+      if @config.amqps_port > 0 && (ctx = @amqp_tls_context)
+        spawn_relay_reject_listener(@config.amqp_bind, @config.amqps_port, ctx, "Relay AMQPS rejecter") { |io| AMQP.reject_relay(io) }
+      end
+      if @config.mqtt_port > 0
+        spawn_relay_reject_listener(@config.mqtt_bind, @config.mqtt_port, nil, "Relay MQTT rejecter") { |io| MQTT.reject_relay(io, @config.mqtt_max_packet_size) }
+      end
+      if @config.mqtts_port > 0 && (ctx = @mqtt_tls_context)
+        spawn_relay_reject_listener(@config.mqtt_bind, @config.mqtts_port, ctx, "Relay MQTTS rejecter") { |io| MQTT.reject_relay(io, @config.mqtt_max_packet_size) }
+      end
+
+      http = @relay_http_server = LavinMQ::HTTP::Server.relay_api(-> { controller.relay_ready? })
+      if @config.http_port > 0
+        addr = http.bind_tcp(@config.http_bind, @config.http_port)
+        Log.info { "Relay HTTP API listening on #{addr}" }
+      end
+      if @config.https_port > 0 && (ctx = @http_tls_context)
+        http.bind_tls(@config.http_bind, @config.https_port, ctx)
+      end
+      spawn(name: "Relay HTTP API listener") { http.listen }
+    end
+
+    private def spawn_relay_reject_listener(bind : String, port : Int32,
+                                            tls_ctx : OpenSSL::SSL::Context::Server?,
+                                            name : String, &reject : ::IO -> Nil) : Nil
+      server = TCPServer.new(bind, port)
+      @relay_servers << server
+      Log.info { "Relay #{name} listening on #{server.local_address}" }
+      spawn(name: name) do
+        while socket = server.accept?
+          spawn do
+            io = tls_ctx ? OpenSSL::SSL::Socket::Server.new(socket, tls_ctx, sync_close: true).as(::IO) : socket.as(::IO)
+            reject.call(io)
+          rescue ex
+            Log.warn(exception: ex) { "#{name} failed to reject connection" }
+            socket.close rescue nil
+          end
+        end
+      rescue IO::Error
+        # listener closed during shutdown
+      end
     end
 
     private def print_environment_info

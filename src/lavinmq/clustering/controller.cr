@@ -16,6 +16,11 @@ class LavinMQ::Clustering::Controller
   # supervisor restarts into the re-derived role. Unset = a bare exit 38.
   property on_role_change : (-> Nil)? = nil
 
+  # Invoked once when this node enters DR/relay mode (run_relay). The Launcher
+  # sets it to start the relay's barebones services: AMQP/MQTT connection
+  # rejecters and a minimal HTTP API (metrics + health + DR control).
+  property on_relay_start : (-> Nil)? = nil
+
   # The client replicating from this region's own leader, managed solely by
   # the `follow_leader` monitor.
   @repli_client : Client? = nil
@@ -24,6 +29,12 @@ class LavinMQ::Clustering::Controller
   # `@repli_client` so the local leader monitor (which closes `@repli_client`
   # on a local leader change) can never tear down the upstream relay link.
   @relay_client : Client? = nil
+
+  # Readiness for a DR relay: true when the upstream relay client is connected
+  # and past its initial sync (so the relay can serve its downstream followers).
+  def relay_ready? : Bool
+    @relay_client.try(&.connected?) || false
+  end
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -183,6 +194,7 @@ class LavinMQ::Clustering::Controller
     Log.info { "Region is a DR follower of #{upstream}" }
     replicator.relay_mode! # gate downstream full-syncs until the upstream sync completes
     start_downstream_listener(replicator)
+    @on_relay_start.try &.call # start the relay's reject listeners + barebones HTTP API
     execute_shell_command(@config.clustering_on_demoted, "demoted")
     spawn(follow_foreign_leader(upstream, replicator), name: "Foreign leader monitor")
     SystemD.notify_ready

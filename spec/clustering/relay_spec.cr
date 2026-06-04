@@ -365,6 +365,9 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     flipped = Channel(Nil).new(1)
     # The real callback gracefully stops and exits 38; the spec just records it.
     controller.on_role_change = -> { flipped.try_send?(nil); nil }
+    # The real callback starts the relay's reject listeners + barebones HTTP API.
+    relay_started = Channel(Nil).new(1)
+    controller.on_relay_start = -> { relay_started.try_send?(nil); nil }
 
     spawn(name: "role change controller spec") do
       controller.run { }
@@ -375,6 +378,14 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     # watch_upstream has already captured dr_now = true (key unset -> config
     # fallback). Only then flip to primary.
     wait_for { relay_server.relay_mode? }
+
+    # Entering relay mode invokes on_relay_start (where the launcher starts the
+    # relay's barebones services).
+    select
+    when relay_started.receive
+    when timeout(5.seconds)
+      fail "on_relay_start was not invoked when entering relay mode"
+    end
 
     # Flip the role to primary. Re-put so we don't race watch_upstream's etcd
     # watch stream being established (it only delivers changes after it starts).

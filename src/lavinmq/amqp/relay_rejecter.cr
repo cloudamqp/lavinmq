@@ -9,7 +9,7 @@ module LavinMQ
     # Connection.Start -> Connection.Close(320) — so the client gets a clean,
     # explainable rejection ("server in relay mode") and disconnects.
     def self.reject_relay(socket) : Nil
-      socket.read_timeout = 15.seconds
+      socket.read_timeout = 15.seconds if socket.responds_to?(:read_timeout=)
       proto = uninitialized UInt8[8]
       return if socket.read(proto.to_slice).zero? # EOF, client went away
       return unless proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
