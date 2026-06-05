@@ -43,7 +43,7 @@ module LavinMQ
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_runner : ::LavinMQ::Raft::Runner? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -72,7 +72,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_runner: @raft_runner)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
@@ -291,6 +291,13 @@ module LavinMQ
         Dir.each_child(dir) do |child|
           path = File.join(dir, child)
           if File.directory? path
+            # raft/ and raft-transport/ hold raft.cr's persistent state
+            # (log segments, raft_meta, transport_peers). They live in the
+            # same data_dir as AMQP files but aren't part of the leader's
+            # AMQP file manifest. Without skipping, the follower's
+            # "delete files not on leader" pass deletes them mid-flight,
+            # which crashes the raft tick fiber on the next persist_state.
+            next if child.in?("raft", "raft-transport")
             yield path
             ls_r(path, &blk)
           else
