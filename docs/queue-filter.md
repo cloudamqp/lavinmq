@@ -166,6 +166,7 @@ Headers exchange picks routes at bind time; live filter mutates flow at publish 
 The initial PR intentionally ships the smallest useful surface. The following items are designed-for but not implemented:
 
 * **Multiple rules per queue.** Single-rule today; planned as `Array(Rule)` evaluated in order with early short-circuit on `drop`.
+* **Self-expiring / one-shot filter.** A debug filter set to catch a single message has to be removed by hand afterwards. Planned: a rule option to auto-remove itself after the first match (one-shot), after N matches, or after a TTL — so a "pluck this one message by id" rule cleans itself up once it has fired. Pairs naturally with the hunt-by-`x-msg_id` use case.
 * **Regex / JMESPath predicate operators.** Today only `eq` / `not_eq` / `exists`.
 * **Property matching.** Read AMQP properties (`correlation_id`, `message_id`, `app_id`) in addition to headers.
 * **Body matching at filter time.** Decompress payload + content-type gating to allow rules over the body.
