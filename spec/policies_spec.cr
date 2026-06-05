@@ -91,14 +91,17 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "should accept quorum_queues apply-to without applying to any queue" do
+  it "should apply quorum_queues policy to non-stream queues" do
     PoliciesSpec.with_vhost do |vhost|
-      defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+      defs = {"delivery-limit" => JSON::Any.new(3_i64)} of String => JSON::Any
       vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
       vhost.add_policy("qq", "^.*$", "quorum_queues", defs, 11_i8)
       sleep 10.milliseconds
       vhost.policies["qq"].apply_to.should eq LavinMQ::Policy::Target::QuorumQueues
-      vhost.queue("classic").policy.should be_nil
+      vhost.queue("classic").policy.try(&.name).should eq "qq"
+      vhost.queue("stream").policy.should be_nil
     end
   end
 

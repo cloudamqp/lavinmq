@@ -85,14 +85,15 @@ module LavinMQ
       case @apply_to
       in .all?, .queues?
         @pattern.matches?(resource.name)
-      in .classic_queues?
+      in .classic_queues?, .quorum_queues?
+        # LavinMQ has no quorum queues; its regular queues support the same
+        # policies RabbitMQ allows for quorum queues (delivery-limit), so
+        # both targets apply to non-stream queues.
         return false if resource.is_a?(AMQP::Stream)
         @pattern.matches?(resource.name)
       in .streams?
         return false unless resource.is_a?(AMQP::Stream)
         @pattern.matches?(resource.name)
-      in .quorum_queues? # LavinMQ has no quorum queues
-        false
       in .exchanges?
         false
       end
