@@ -12,8 +12,13 @@ class LavinMQCtl
     end
   end
 
-  RAFT_STATE_DIRS  = %w[raft raft-transport]
-  RAFT_STATE_FILES = %w[.clustering_id]
+  RAFT_STATE_DIRS = %w[raft raft-transport]
+  # `.clustering_id` is intentionally NOT wiped: it's the container's
+  # stable identity, not part of the membership state. Re-joining a
+  # cluster with the same id avoids polluting Prometheus TSDB with new
+  # series on every reset/rejoin cycle. To get a truly fresh identity,
+  # delete the data volume.
+  RAFT_STATE_FILES = [] of String
 
   def raft_status
     response = http.get("/raft/status", @headers)
