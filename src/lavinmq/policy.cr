@@ -57,9 +57,12 @@ module LavinMQ
       All
       Queues
       Exchanges
+      ClassicQueues
+      QuorumQueues
+      Streams
 
       def to_json(json : JSON::Builder)
-        to_s.downcase.to_json(json)
+        to_s.underscore.to_json(json)
       end
     end
 
@@ -79,12 +82,24 @@ module LavinMQ
     end
 
     def match?(resource : Queue)
-      return false if @apply_to.exchanges?
-      @pattern.matches?(resource.name)
+      case @apply_to
+      in .all?, .queues?
+        @pattern.matches?(resource.name)
+      in .classic_queues?
+        return false if resource.is_a?(AMQP::Stream)
+        @pattern.matches?(resource.name)
+      in .streams?
+        return false unless resource.is_a?(AMQP::Stream)
+        @pattern.matches?(resource.name)
+      in .quorum_queues? # LavinMQ has no quorum queues
+        false
+      in .exchanges?
+        false
+      end
     end
 
     def match?(resource : Exchange)
-      return false if @apply_to.queues?
+      return false unless @apply_to.all? || @apply_to.exchanges?
       @pattern.matches?(resource.name)
     end
 
