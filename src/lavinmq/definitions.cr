@@ -67,10 +67,14 @@ module LavinMQ
 
     private def import_vhosts(body)
       if vhosts = body["vhosts"]?
+        # Create with save: false so each vhost doesn't rewrite+fsync vhosts.json
+        # (and users.json, via the permissions create adds); save both once at the end.
         vhosts.as_a.each do |v|
           name = v["name"].as_s
-          @amqp_server.vhosts.create name
+          @amqp_server.vhosts.create name, save: false
         end
+        @amqp_server.vhosts.save!
+        @amqp_server.users.save!
       end
     end
 
