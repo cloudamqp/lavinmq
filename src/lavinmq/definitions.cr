@@ -216,13 +216,14 @@ module LavinMQ
               touched_operator_policies << v if import_operator_policy(v, name, value, skip_existing)
             else
               next if skip_existing && v.parameters[{component, name}]?
-              v.add_parameter(Parameter.new(component, name, p["value"]), save: false)
+              v.add_parameter(Parameter.new(component, name, p["value"]), save: false, apply: false)
               touched_parameters << v
             end
           end
         end
         touched_parameters.each(&.save_parameters!)
         touched_operator_policies.each(&.save_operator_policies!)
+        apply_policies(touched_parameters | touched_operator_policies)
       end
     end
 
@@ -244,7 +245,8 @@ module LavinMQ
         value["apply-to"].as_s,
         value["definition"].as_h,
         value["priority"].as_i.to_i8,
-        save: false)
+        save: false,
+        apply: false)
       true
     end
 
@@ -275,11 +277,20 @@ module LavinMQ
               p["apply-to"].as_s,
               p["definition"].as_h,
               p["priority"].as_i.to_i8,
-              save: false)
+              save: false,
+              apply: false)
             touched << v
           end
         end
         touched.each(&.save_policies!)
+        apply_policies(touched)
+      end
+    end
+
+    # Apply policies once per vhost after a bulk import, instead of per entry.
+    private def apply_policies(vhosts : Set(VHost))
+      vhosts.each do |v|
+        spawn v.apply_policies, name: "ApplyPolicies (import) #{v.name}"
       end
     end
 
