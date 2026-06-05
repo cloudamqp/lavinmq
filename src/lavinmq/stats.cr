@@ -72,7 +72,8 @@ module LavinMQ
 
         {% for name, i in stats_keys %}
           new_count_{{ i }} = @{{ name.id }}_count.get(:relaxed)
-          new_rate_{{ i }} = ((new_count_{{ i }} - @{{ name.id }}_count_prev) / interval).round(1)
+          delta_{{ i }} = new_count_{{ i }} - @{{ name.id }}_count_prev
+          new_rate_{{ i }} = delta_{{ i }}.zero? ? 0.0 : (delta_{{ i }} / interval).round(1)
         {% end %}
         {% for name, j in log_keys %}
           new_log_{{ j }} = {{ name.id }}
