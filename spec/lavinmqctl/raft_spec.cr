@@ -103,7 +103,7 @@ describe "LavinMQCtl raft_*" do
       end
     end
 
-    it "wipes raft state directories and .clustering_id; leaves other files" do
+    it "wipes raft state directories but preserves .clustering_id and other files" do
       data_dir = File.tempname("raft-reset-spec")
       begin
         Dir.mkdir_p(File.join(data_dir, "raft"))
@@ -129,7 +129,7 @@ describe "LavinMQCtl raft_*" do
 
         Dir.exists?(File.join(data_dir, "raft")).should be_false
         Dir.exists?(File.join(data_dir, "raft-transport")).should be_false
-        File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+        File.exists?(File.join(data_dir, ".clustering_id")).should be_true
         File.exists?(sentinel).should be_true
       ensure
         FileUtils.rm_rf(data_dir)
@@ -158,7 +158,7 @@ describe "LavinMQCtl raft_*" do
         end
 
         Dir.exists?(File.join(data_dir, "raft")).should be_false
-        File.exists?(File.join(data_dir, ".clustering_id")).should be_false
+        File.exists?(File.join(data_dir, ".clustering_id")).should be_true
         marker = File.join(data_dir, ".join_target")
         File.exists?(marker).should be_true
         File.read(marker).strip.should eq "http://leader.example:15672"
