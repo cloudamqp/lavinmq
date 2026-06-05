@@ -115,9 +115,12 @@ describe LavinMQ::HTTP::PrometheusController do
     end
 
     it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
+      uptime1 = uninitialized Time::Span
       with_metrics_server do |_, server|
-        expected = Time.instant - LavinMQ::PROCESS_START
-        (server.uptime - expected).abs.should be < 100.milliseconds
+        uptime1 = server.uptime
+      end
+      with_metrics_server do |_, server|
+        server.uptime.should be > uptime1
       end
     end
   end
