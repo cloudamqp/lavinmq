@@ -310,9 +310,9 @@ module LavinMQ
       }
     end
 
-    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
+    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-        auto_delete, false, arguments)
+        auto_delete, false, arguments), fsync: fsync
       @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -322,9 +322,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new)
+                         arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments)
+        auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -333,14 +333,14 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -353,8 +353,13 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false) : Bool
-      definitions.apply(f, loading)
+    def apply(f, loading = false, fsync = true) : Bool
+      definitions.apply(f, loading, fsync)
+    end
+
+    # Flush definitions written with fsync: false (e.g. during bulk import).
+    def fsync_definitions
+      definitions.fsync
     end
 
     def queue_bindings(queue : Queue) : Array(BindingDetails)
