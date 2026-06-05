@@ -112,8 +112,11 @@ module LavinMQ::Raft
       body = {"address" => build_advertised_address}.to_json
       headers = ::HTTP::Headers{"Content-Type" => "application/json"}
       last_error = "unknown error"
+      user = uri.user
+      password = uri.password
       JOIN_MAX_ATTEMPTS.times do |attempt|
         client = ::HTTP::Client.new(uri)
+        client.basic_auth(user, password) if user
         begin
           response = client.post(path, headers: headers, body: body)
           if response.status_code == 200
