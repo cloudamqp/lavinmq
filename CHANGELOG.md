@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 
+### Fixed
+
+- `GET /api/channels` and `GET /api/connections` no longer include the per-metric rate-history `log` arrays in every list row, matching `GET /api/queues`. The logs are only needed by the per-object detail pages, so they are now returned solely by `GET /api/channels/:name` and `GET /api/connections/:name`, greatly reducing list response size and latency on large deployments
+
 ## [2.8.1] - 2026-05-18
 
 ### Changed

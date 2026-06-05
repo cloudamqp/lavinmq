@@ -90,8 +90,15 @@ module LavinMQ
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
-          message_stats:           stats_details,
+          message_stats:           current_stats_details,
         }
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge({
+          message_stats:    stats_details,
+          consumer_details: consumers,
+        }).to_json(json)
       end
 
       def flow(active : Bool)
