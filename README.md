@@ -1,8 +1,3 @@
-[![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg)](https://github.com/cloudamqp/lavinmq/actions)
-[![Build Status](https://api.cirrus-ci.com/github/cloudamqp/lavinmq.svg)](https://cirrus-ci.com/github/cloudamqp/lavinmq)
-[![License](https://img.shields.io/github/license/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/blob/master/LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/releases)
-
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
 LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0, 3.1.1 protocols.
