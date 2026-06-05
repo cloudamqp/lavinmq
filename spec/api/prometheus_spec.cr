@@ -113,6 +113,13 @@ describe LavinMQ::HTTP::PrometheusController do
         mfile_metric.not_nil![:value].should be >= 0
       end
     end
+
+    it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
+      with_metrics_server do |_, server|
+        expected = Time.instant - LavinMQ::PROCESS_START
+        (server.uptime - expected).abs.should be < 100.milliseconds
+      end
+    end
   end
 
   describe "vhost access control" do
