@@ -162,8 +162,7 @@ module LavinMQ::Raft
       data_uri = lookup_data_uri(new_leader_id)
       return unless data_uri
       @repli_client = client = ::LavinMQ::Clustering::Client.new(
-        @config, @server.node_id, @coordinator.password,
-      )
+        @config, @server.node_id, @coordinator.password, raft_runner: self)
       spawn(name: "Clustering client #{data_uri}") { client.follow(data_uri) }
     end
 
