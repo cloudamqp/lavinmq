@@ -199,6 +199,11 @@ module LavinMQ
 
     private def import_parameters(body, skip_existing = false)
       if parameters = body["parameters"]?
+        # add with save: false and save each touched store once at the end, so a
+        # large import doesn't rewrite the whole parameters/operator_policies
+        # JSON file per entry.
+        touched_parameters = Set(VHost).new
+        touched_operator_policies = Set(VHost).new
         parameters.as_a.each do |p|
           if v = fetch_vhost?(p)
             name = p["name"].as_s
@@ -208,13 +213,16 @@ module LavinMQ
             when "vhost-limits"
               import_vhost_limits(v, value, skip_existing)
             when "operator_policy"
-              import_operator_policy(v, name, value, skip_existing)
+              touched_operator_policies << v if import_operator_policy(v, name, value, skip_existing)
             else
               next if skip_existing && v.parameters[{component, name}]?
-              v.add_parameter(Parameter.new(component, name, p["value"]))
+              v.add_parameter(Parameter.new(component, name, p["value"]), save: false)
+              touched_parameters << v
             end
           end
         end
+        touched_parameters.each(&.save_parameters!)
+        touched_operator_policies.each(&.save_operator_policies!)
       end
     end
 
@@ -228,28 +236,35 @@ module LavinMQ
       end
     end
 
-    private def import_operator_policy(v, name, value, skip_existing)
-      return if skip_existing && v.operator_policies[name]?
+    # Returns true if the operator policy was added (false when skipped).
+    private def import_operator_policy(v, name, value, skip_existing) : Bool
+      return false if skip_existing && v.operator_policies[name]?
       v.add_operator_policy(name,
         value["pattern"].as_s,
         value["apply-to"].as_s,
         value["definition"].as_h,
-        value["priority"].as_i.to_i8)
+        value["priority"].as_i.to_i8,
+        save: false)
+      true
     end
 
     private def import_global_parameters(body, skip_existing = false)
       if parameters = body["global_parameters"]?
+        added = false
         parameters.as_a.each do |p|
           name = p["name"].as_s
           next if skip_existing && @amqp_server.parameters[{nil, name}]?
           param = Parameter.new(nil, name, p["value"])
-          @amqp_server.add_parameter(param)
+          @amqp_server.add_parameter(param, save: false)
+          added = true
         end
+        @amqp_server.save_parameters! if added
       end
     end
 
     private def import_policies(body, skip_existing = false)
       if policies = body["policies"]?
+        touched = Set(VHost).new
         policies.as_a.each do |p|
           if v = fetch_vhost?(p)
             name = p["name"].as_s
@@ -259,9 +274,12 @@ module LavinMQ
               p["pattern"].as_s,
               p["apply-to"].as_s,
               p["definition"].as_h,
-              p["priority"].as_i.to_i8)
+              p["priority"].as_i.to_i8,
+              save: false)
+            touched << v
           end
         end
+        touched.each(&.save_policies!)
       end
     end
 

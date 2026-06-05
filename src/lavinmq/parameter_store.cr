@@ -84,7 +84,7 @@ module LavinMQ
       end
     end
 
-    private def save!
+    def save!
       @log.debug { "Saving #{@file_name}" }
       path = File.join(@data_dir, @file_name)
       tmpfile = "#{path}.tmp"

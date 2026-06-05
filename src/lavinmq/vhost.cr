@@ -367,23 +367,37 @@ module LavinMQ
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
-                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+                            definition : Hash(String, JSON::Any), priority : Int8, save = true) : OperatorPolicy
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
-      @operator_policies.create(op)
+      @operator_policies.create(op, save: save)
       spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
 
     def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+                   definition : Hash(String, JSON::Any), priority : Int8, save = true) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
-      @policies.create(p)
+      @policies.create(p, save: save)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
       @log.info { "Policy=#{name} Created" }
       p
+    end
+
+    # Persist the policy/operator-policy/parameter stores; used to flush after a
+    # bulk import that created entries with save: false.
+    def save_policies!
+      @policies.save!
+    end
+
+    def save_operator_policies!
+      @operator_policies.save!
+    end
+
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_operator_policy(name)
@@ -402,9 +416,9 @@ module LavinMQ
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
-    def add_parameter(p : Parameter)
+    def add_parameter(p : Parameter, save = true)
       @log.debug { "Add parameter #{p.name}" }
-      @parameters.create(p)
+      @parameters.create(p, save: save)
       apply_parameters(p)
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
     end
