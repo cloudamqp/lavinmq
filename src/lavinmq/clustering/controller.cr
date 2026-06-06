@@ -36,8 +36,7 @@ class LavinMQ::Clustering::Controller
     # TODO: make sure we still are in the ISR set
     yield
     loop do
-      lease.wait(30.seconds)
-      GC.collect
+      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
     end
   rescue Etcd::Lease::Expired
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")

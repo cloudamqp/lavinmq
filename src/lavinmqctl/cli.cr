@@ -78,6 +78,7 @@ class LavinMQCtl
   SERVER_CMDS = {
     {"stop_app", "Stop the AMQP broker", ""},
     {"start_app", "Starts the AMQP broker", ""},
+    {"gc_collect", "Trigger a garbage collection cycle and print GC stats", ""},
   }
 
   def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
@@ -324,6 +325,7 @@ class LavinMQCtl
     when "delete_exchange"       then delete_exchange
     when "status"                then status
     when "cluster_status"        then cluster_status
+    when "gc_collect"            then gc_collect
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
@@ -860,6 +862,14 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
+  end
+
+  private def gc_collect
+    resp = http.post "/api/nodes/gc_collect", @headers
+    handle_response(resp, 204)
+    resp = http.get "/api/nodes/gc_stats"
+    handle_response(resp, 200)
+    output JSON.parse(resp.body).as_h
   end
 
   private def set_vhost_limits
