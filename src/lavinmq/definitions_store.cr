@@ -114,8 +114,7 @@ module LavinMQ
           if x = @exchanges.delete f.exchange_name
             unless @vhost.closed?
               @exchanges.each_value do |ex|
-                ex.bindings_details.each do |binding|
-                  next unless binding.destination == x
+                ex.bindings_details_for(x).each do |binding|
                   ex.unbind(x, binding.routing_key, binding.arguments)
                 end
               end
@@ -145,8 +144,7 @@ module LavinMQ
           if q = @queues.delete(f.queue_name)
             unless @vhost.closed?
               @exchanges.each_value do |ex|
-                ex.bindings_details.each do |binding|
-                  next unless binding.destination == q
+                ex.bindings_details_for(q).each do |binding|
                   ex.unbind(q, binding.routing_key, binding.arguments)
                 end
               end

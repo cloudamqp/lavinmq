@@ -158,5 +158,23 @@ module MqttSpecs
         end
       end
     end
+
+    it "Exchange#bindings_details_for matches a full scan (used by delete unbinding)" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "bdf", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"bdf/a", 0}, {"bdf/b", 1}))
+
+          vhost = server.vhosts["/"]
+          ex = vhost.exchange?(LavinMQ::MQTT::EXCHANGE).not_nil!
+          session = vhost.queue?("mqtt.bdf").not_nil!
+
+          optimized = ex.bindings_details_for(session).map(&.routing_key).sort!
+          full_scan = ex.bindings_details.select { |b| b.destination == session }.map(&.routing_key).sort!
+          optimized.should eq(["bdf/a", "bdf/b"])
+          optimized.should eq(full_scan)
+        end
+      end
+    end
   end
 end

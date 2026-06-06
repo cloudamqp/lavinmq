@@ -197,6 +197,11 @@ module LavinMQ
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def bindings_details : Array(BindingDetails)
+
+      def bindings_details_for(destination) : Array(BindingDetails)
+        bindings_details.select { |b| b.destination == destination }
+      end
+
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       # Result of routing a message through an exchange.

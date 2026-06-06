@@ -87,6 +87,16 @@ module LavinMQ
         {false, nil}
       end
 
+      def bindings_details_for(destination) : Array(BindingDetails)
+        session = destination.as?(MQTT::Session)
+        return [] of BindingDetails unless session
+        rks = @session_bindings[session]?
+        return [] of BindingDetails unless rks
+        rks.map do |rk, args|
+          BindingDetails.new(name, vhost.name, BindingKey.new(rk, args).inner, session)
+        end
+      end
+
       # Only here to make superclass happy
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
