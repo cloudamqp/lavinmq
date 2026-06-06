@@ -30,6 +30,9 @@ module LavinMQ
         h[k] = Set(MQTT::Session).new
       end
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      @session_bindings = Hash(MQTT::Session, Hash(String, AMQP::Table?)).new do |h, k|
+        h[k] = Hash(String, AMQP::Table?).new
+      end
 
       def type : String
         "mqtt"
@@ -75,6 +78,15 @@ module LavinMQ
         end
       end
 
+      def subscription(session : MQTT::Session, routing_key : String) : {Bool, AMQP::Table?}
+        if rks = @session_bindings[session]?
+          if rks.has_key?(routing_key)
+            return {true, rks[routing_key]}
+          end
+        end
+        {false, nil}
+      end
+
       # Only here to make superclass happy
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
@@ -84,6 +96,7 @@ module LavinMQ
         binding_key = BindingKey.new(routing_key, arguments)
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
+        @session_bindings[destination][routing_key] = arguments
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Bind, data)
@@ -95,6 +108,11 @@ module LavinMQ
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
+
+        if rks = @session_bindings[destination]?
+          rks.delete routing_key
+          @session_bindings.delete destination if rks.empty?
+        end
 
         @tree.unsubscribe(routing_key, destination)
 

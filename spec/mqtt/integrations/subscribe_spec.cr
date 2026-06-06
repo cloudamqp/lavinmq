@@ -131,5 +131,32 @@ module MqttSpecs
         end
       end
     end
+
+    it "keeps multiple subscriptions independent across resubscribe/unsubscribe" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"m/1", 0}, {"m/2", 0}, {"m/3", 0}))
+          # resubscribe only m/2 at qos1, and unsubscribe m/1
+          subscribe(io, topic_filters: mk_topic_filters({"m/2", 1}))
+          unsubscribe(io, topics: ["m/1"])
+
+          # m/1 is gone: publishing to it delivers nothing
+          publish(io, topic: "m/1", payload: "x".to_slice, qos: 1u8)
+          # m/2 still bound, now at qos1
+          publish(io, topic: "m/2", payload: "x".to_slice, qos: 1u8)
+          p2 = read_packet(io).as(MQTT::Protocol::Publish)
+          p2.topic.should eq("m/2")
+          p2.qos.should eq(1u8)
+          # m/3 untouched, still qos0
+          publish(io, topic: "m/3", payload: "x".to_slice, qos: 1u8)
+          p3 = read_packet(io).as(MQTT::Protocol::Publish)
+          p3.topic.should eq("m/3")
+          p3.qos.should eq(0u8)
+
+          io.should be_drained
+        end
+      end
+    end
   end
 end

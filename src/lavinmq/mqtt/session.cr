@@ -11,6 +11,7 @@ module LavinMQ
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       @client : MQTT::Client? = nil
+      @mqtt_exchange : MQTT::Exchange? = nil
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -93,17 +94,17 @@ module LavinMQ
       def subscribe(tf, qos)
         arguments = AMQP::Table.new
         arguments[QOS_HEADER] = qos
-        if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+        bound, existing = mqtt_exchange.subscription(self, tf)
+        if bound
+          return if existing == arguments
+          unbind(tf, existing)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
       end
 
       def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
-        end
+        bound, existing = mqtt_exchange.subscription(self, tf)
+        unbind(tf, existing) if bound
       end
 
       def publish(msg : Message) : PublishResult
@@ -112,8 +113,8 @@ module LavinMQ
         super
       end
 
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
+      private def mqtt_exchange : MQTT::Exchange
+        @mqtt_exchange ||= @vhost.exchange?(EXCHANGE).as(MQTT::Exchange)
       end
 
       private def unbind(rk, arguments)
