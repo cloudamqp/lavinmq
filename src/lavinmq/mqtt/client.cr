@@ -7,6 +7,9 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "./sparkplug/validator"
+require "./sparkplug/certificate_mapper"
+require "./sparkplug/protobuf_validator"
 
 module LavinMQ
   module MQTT
@@ -168,12 +171,80 @@ module LavinMQ
           close_socket
           return
         end
+
+        # Sparkplug validation if enabled
+        if @broker.vhost.sparkplug_aware?
+          begin
+            packet = sparkplug_validate(packet)
+          rescue ex : Sparkplug::ValidationError
+            Log.warn { "Sparkplug validation error: #{ex.message}" }
+            close_socket
+            return
+          end
+        end
+
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
         end
+      end
+
+      # Validates a publish against the Sparkplug spec, returning the packet
+      # to publish (BIRTH messages are forced to be retained). For BIRTH messages
+      # a retained copy is also republished on the corresponding
+      # `$sparkplug/certificates/...` topic so the broker acts as a Sparkplug
+      # Aware MQTT Server. Raises `Sparkplug::ValidationError` for anything that
+      # violates the spec.
+      private def sparkplug_validate(packet : MQTT::Publish) : MQTT::Publish
+        if packet.topic.starts_with?(Sparkplug::Validator::NAMESPACE_PREFIX)
+          parts = Sparkplug::Validator.parse_topic(packet.topic)
+          unless parts
+            raise Sparkplug::ValidationError.new("Invalid Sparkplug topic: #{packet.topic}")
+          end
+          msg_type = Sparkplug::Validator.validate_topic(parts)
+
+          # Validate protobuf payload
+          result = Sparkplug::ProtobufValidator.validate_payload(packet.payload, msg_type)
+          unless result.valid?
+            raise Sparkplug::ValidationError.new("Payload validation failed: #{result.error}")
+          end
+
+          if msg_type.nbirth? || msg_type.dbirth?
+            # Auto-retain BIRTH messages
+            unless packet.retain?
+              packet = MQTT::Publish.new(
+                topic: packet.topic,
+                payload: packet.payload,
+                packet_id: packet.packet_id,
+                qos: packet.qos,
+                retain: true,
+                dup: packet.dup?
+              )
+            end
+            republish_certificate(parts, packet)
+          end
+        elsif Sparkplug::Validator.certificate_topic?(packet.topic)
+          # Reject publishing to certificate topics
+          raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
+        end
+        packet
+      end
+
+      # Republishes a BIRTH message as a retained copy on its
+      # `$sparkplug/certificates/<namespace>/<group>/<type>/<edge>[/<device>]`
+      # topic, as required of a Sparkplug Aware MQTT Server.
+      private def republish_certificate(parts : Sparkplug::TopicParts, packet : MQTT::Publish) : Nil
+        cert_topic = Sparkplug::CertificateMapper.certificate_topic_for(parts)
+        @broker.publish(MQTT::Publish.new(
+          topic: cert_topic,
+          payload: packet.payload,
+          packet_id: nil,
+          qos: 0u8,
+          retain: true,
+          dup: false,
+        ))
       end
 
       def recieve_puback(packet : MQTT::PubAck)
@@ -189,6 +260,10 @@ module LavinMQ
             return
           end
         end
+
+        # Sparkplug Aware mode exposes BIRTH certificates as ordinary retained
+        # messages under $sparkplug/certificates/... (republished on publish),
+        # so a normal subscription to those topics just works — no rewriting.
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
