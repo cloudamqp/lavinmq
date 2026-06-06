@@ -3,7 +3,6 @@ import * as Chart from './chart.js'
 import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as DOM from './dom.js'
-import * as Auth from './auth.js'
 import { DataSource } from './datasource.js'
 
 const numFormatter = new Intl.NumberFormat()
@@ -105,10 +104,11 @@ if (gcBtn) {
   // Only admins may read GC stats; the gc-btn element is in the DOM for all
   // users (require-administrator only hides it via CSS), so fetching here
   // unconditionally would 403 for non-admins and pop up an error. Gate the
-  // initial load on the resolved user tags; afterwards fetch only on demand.
-  Auth.whoAmI()
-    .then(u => { if (u?.tags?.split(/,\s*/).includes('administrator')) refreshGCStats() })
-    .catch(() => {})
+  // initial load on the (persisted, synchronously applied) admin role class;
+  // afterwards fetch only on demand.
+  if (Helpers.stateClasses.has('user-is-administrator')) {
+    refreshGCStats()
+  }
 }
 
 const updateDetails = (nodeStats) => {
