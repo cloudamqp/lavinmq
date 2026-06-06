@@ -157,7 +157,7 @@ function updateQueue (all) {
     })
 }
 updateQueue(true)
-setInterval(updateQueue, 5000)
+Helpers.pollWhileVisible(updateQueue, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),

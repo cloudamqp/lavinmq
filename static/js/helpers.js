@@ -172,6 +172,44 @@ function addVhostOptions (formId, options) {
   })
 }
 
+// Call `fn` every `interval` ms, but only while the page is visible.
+// When the page is hidden (e.g. the tab is in the background) polling is
+// paused; when it becomes visible again `fn` is called immediately and
+// periodic polling resumes. Uses the Page Visibility API.
+// Returns a handle with a `stop()` method to cancel polling entirely.
+function pollWhileVisible (fn, interval) {
+  let timer = null
+  const start = () => {
+    if (timer === null) {
+      timer = setInterval(fn, interval)
+    }
+  }
+  const stop = () => {
+    if (timer !== null) {
+      clearInterval(timer)
+      timer = null
+    }
+  }
+  const onVisibilityChange = () => {
+    if (document.hidden) {
+      stop()
+    } else {
+      fn()
+      start()
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  if (!document.hidden) {
+    start()
+  }
+  return {
+    stop () {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      stop()
+    }
+  }
+}
+
 function disableUserMenuVhost () {
   const vhostMenu = document.getElementById('userMenuVhost')
   vhostMenu.disabled = true
@@ -250,5 +288,6 @@ export {
   autoCompleteDatalist,
   formatTimestamp,
   disableUserMenuVhost,
+  pollWhileVisible,
   stateClasses
 }
