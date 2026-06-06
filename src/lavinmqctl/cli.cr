@@ -841,6 +841,7 @@ class LavinMQCtl
       Consumers:        body.dig("object_totals", "consumers"),
       Exchanges:        body.dig("object_totals", "exchanges"),
       Queues:           body.dig("object_totals", "queues"),
+      Bindings:         body.dig("object_totals", "bindings"),
       Messages:         body.dig("queue_totals", "messages"),
       Messages_ready:   body.dig("queue_totals", "messages_ready"),
       Messages_unacked: body.dig("queue_totals", "messages_unacknowledged"),

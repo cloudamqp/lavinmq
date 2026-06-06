@@ -22,7 +22,7 @@ module LavinMQ
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
@@ -47,6 +47,7 @@ module LavinMQ
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size
+            vhost.each_exchange { |e| bindings += e.binding_count }
             vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
@@ -79,6 +80,7 @@ module LavinMQ
               consumers:   consumers,
               exchanges:   exchanges,
               queues:      queues,
+              bindings:    bindings,
             },
             queue_totals: {
               messages:                    ready + unacked,

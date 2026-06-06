@@ -37,6 +37,11 @@
           <div class="counter-header"><a href="queues">Queues</a></div>
         </div>
         <div class="overview-divider"></div>
+        <div>
+          <div class="counter" id="bindings">0</div>
+          <div class="counter-header">Bindings</div>
+        </div>
+        <div class="overview-divider"></div>
         <div class="flex-1">
           <div class="counter" id="uptime">0s</div>
           <div class="counter-header">Uptime</div>
