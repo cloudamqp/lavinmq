@@ -90,13 +90,13 @@ module LavinMQ
         start_ok
       end
 
-      def credentials(start_ok, connection_info) : Tuple(String, String, Bool)
+      def credentials(start_ok, connection_info) : Tuple(String, String)
         Log.debug { "credentials start_ok.mechanism=#{start_ok.mechanism}"}
         case start_ok.mechanism
         when "PLAIN"
           resp = start_ok.response
           if i = resp.index('\u0000', 1)
-            {resp[1...i], resp[(i + 1)..-1], false}
+            {resp[1...i], resp[(i + 1)..-1]}
           else
             raise "Invalid authentication response"
           end
@@ -105,7 +105,7 @@ module LavinMQ
           tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
           user = tbl["LOGIN"]?.as(String?) || ""
           password = tbl["PASSWORD"]?.as(String?) || ""
-          {user, password, false}
+          {user, password}
         when "EXTERNAL"
           Log.debug { "EXTERNAL method #{connection_info.ssl_cn}"}
           external_auth_login_from = Config.instance.external_auth_login_from
@@ -115,7 +115,7 @@ module LavinMQ
             external_auth_san_index = Config.instance.external_auth_san_index
             if ssl_san_in_index = san_entries.find { |san| san.index == external_auth_san_index }
               if ssl_san = ssl_san_in_index.value
-                return {ssl_san, "", true}
+                return {ssl_san, ""}
               else
                 raise "EXTERNAL authentication method SAN is missing it's value"
               end
@@ -126,7 +126,7 @@ module LavinMQ
 
           if external_auth_login_from == "common_name"
             ssl_cn = connection_info.ssl_cn
-            return {ssl_cn, "", true} unless ssl_cn.nil?
+            return {ssl_cn, ""} unless ssl_cn.nil?
             raise "EXTERNAL authentication method but no SSL Common Name present"
           end
           raise "EXTERNAL is not configured on the server"
@@ -137,11 +137,11 @@ module LavinMQ
       def authenticate(socket, connection_info, start_ok, log)
         Log.debug { "authenticate#connection_info=#{connection_info}"}
         remote_address = connection_info.remote_address
-        username, password, is_external_mechanism = credentials(start_ok, connection_info)
+        username, password = credentials(start_ok, connection_info)
         context = Auth::Context.new(
           username,
           password.to_slice,
-          external_authentication: is_external_mechanism,
+          mechanism: start_ok.mechanism,
           loopback: remote_address.loopback?
         )
         user = @authenticator.authenticate(context)

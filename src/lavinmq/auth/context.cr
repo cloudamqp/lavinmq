@@ -3,7 +3,7 @@ require "socket/address"
 module LavinMQ
   module Auth
     struct Context
-      getter username, password, external_authentication
+      getter username, password, mechanism
       getter? loopback
 
       def self.new(username : String, password : Bytes, remote : ::IO)
@@ -27,9 +27,13 @@ module LavinMQ
         @username : String,
         @password : Bytes,
         *,
-        @external_authentication : Bool = false,
+        @mechanism : String = "",
         @loopback : Bool = false,
       )
+      end
+
+      def external_authentication?
+        @mechanism === "EXTERNAL"
       end
     end
   end
