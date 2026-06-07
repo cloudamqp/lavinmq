@@ -405,4 +405,69 @@ describe "Clustering relay (DR cascade)", tags: "etcd" do
     relay_server.try &.close
     FileUtils.rm_rf relay_dir if relay_dir
   end
+
+  # The region stays a DR follower, but its upstream_etcd changes from one
+  # foreign etcd to another. The role boolean is unchanged, yet the relay must
+  # restart so follow_foreign_leader rebinds to the new upstream instead of
+  # streaming from the stale region until the next process restart.
+  it "invokes on_role_change when the upstream region changes (still a DR follower)" do
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    base = LavinMQ::Config.instance.dup
+    base.metrics_http_port = -1
+
+    relay_dir = File.tempname("lavinmq", "relay")
+    Dir.mkdir_p relay_dir
+
+    relay_port = TCPServer.open("localhost", 0, &.local_address.port)
+    config = base.dup
+    config.data_dir = relay_dir
+    config.clustering_etcd_prefix = "regionB"
+    config.clustering_upstream_etcd_endpoints = "localhost:12379" # makes this a DR follower
+    config.clustering_upstream_etcd_prefix = "regionA"
+    config.clustering_bind = "localhost"
+    config.clustering_port = relay_port
+    config.clustering_advertised_uri = "tcp://localhost:#{relay_port}"
+
+    etcd.del("regionB/upstream_etcd")
+    controller = LavinMQ::Clustering::Controller.new(config, etcd)
+    relay_server = LavinMQ::Clustering::Server.new(config, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd), controller.id)
+    controller.replicator = relay_server
+
+    flipped = Channel(Nil).new(1)
+    controller.on_role_change = -> { flipped.try_send?(nil); nil }
+    relay_started = Channel(Nil).new(1)
+    controller.on_relay_start = -> { relay_started.try_send?(nil); nil }
+
+    spawn(name: "upstream change controller spec") do
+      controller.run { }
+    rescue SpecExit
+    end
+
+    # Wait until the controller has entered relay mode, so watch_upstream has
+    # captured upstream_now = "localhost:12379" (the config fallback).
+    wait_for { relay_server.relay_mode? }
+    select
+    when relay_started.receive
+    when timeout(5.seconds)
+      fail "on_relay_start was not invoked when entering relay mode"
+    end
+
+    # Point upstream_etcd at a *different* foreign etcd. The region is still a DR
+    # follower (non-empty upstream), but of a new region, so on_role_change fires.
+    got = false
+    20.times do
+      etcd.put("regionB/upstream_etcd", "other-region-etcd:2379")
+      select
+      when flipped.receive
+        got = true
+      when timeout(0.5.seconds)
+      end
+      break if got
+    end
+    got.should be_true
+  ensure
+    controller.try &.stop
+    relay_server.try &.close
+    FileUtils.rm_rf relay_dir if relay_dir
+  end
 end

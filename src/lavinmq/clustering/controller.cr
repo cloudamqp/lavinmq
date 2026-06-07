@@ -256,20 +256,29 @@ class LavinMQ::Clustering::Controller
     exit 36
   end
 
-  # Restart (via the supervisor) when this region's role flips, so the node
-  # re-derives whether it's a primary or a DR relay on the next boot. Failover =
-  # clear {prefix}/upstream_etcd; reversal = set it to the new primary's etcd.
+  # Restart (via the supervisor) when this region's upstream changes, so the node
+  # re-derives its role and which upstream etcd to follow on the next boot.
+  # Failover = clear {prefix}/upstream_etcd (or set it to "primary"); reversal =
+  # set it to the new primary's etcd. A change from one foreign etcd to another
+  # (the region stays a DR follower but of a different upstream) also restarts,
+  # so follow_foreign_leader rebinds to the new region instead of streaming from
+  # the stale one until the next process restart.
   private def watch_upstream
-    dr_now = !effective_upstream.empty?
+    upstream_now = effective_upstream
     @etcd.watch(upstream_etcd_key) do |value|
-      dr_after = !upstream_from(value).empty?
-      next if dr_after == dr_now
-      if dr_after
+      upstream_after = upstream_from(value)
+      next if upstream_after == upstream_now
+      dr_now = !upstream_now.empty?
+      dr_after = !upstream_after.empty?
+      if dr_after && !dr_now
         Log.fatal { "Region demoted to DR follower (upstream_etcd=#{value}); restarting to switch role" }
         execute_shell_command(@config.clustering_on_demoted, "demoted")
-      else
+      elsif dr_now && !dr_after
         Log.fatal { "Region promoted to primary; restarting to switch role" }
         execute_shell_command(@config.clustering_on_promoted, "promoted")
+      else
+        # Still a DR follower, but of a different upstream region.
+        Log.fatal { "Upstream changed to #{upstream_after}; restarting to follow new upstream" }
       end
       # The Launcher installs a callback that gracefully stops the node's
       # subsystems before exiting 38; the supervisor restarts into the
