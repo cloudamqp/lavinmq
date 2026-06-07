@@ -187,13 +187,13 @@ module LavinMQ
 
       def followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.synced?).dup # for thread safety
+          @followers.select(&.synced?) # for thread safety
         end
       end
 
       def syncing_followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.syncing?).dup # for thread safety
+          @followers.select(&.syncing?) # for thread safety
         end
       end
 
@@ -208,7 +208,7 @@ module LavinMQ
       # that existed when the batch started and detect later joins.
       def in_sync_followers : Tuple(Array(Follower), Int64)
         @lock.synchronize do
-          {@followers.select(&.synced?).dup, @synced_generation.get}
+          {@followers.select(&.synced?), @synced_generation.get}
         end
       end
 
