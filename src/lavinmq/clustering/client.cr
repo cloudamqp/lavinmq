@@ -338,12 +338,12 @@ module LavinMQ
       private def delete_empty_dirs(dir)
         while dir != "."
           path = File.join(@data_dir, dir)
-          Dir.delete(path)
+          Dir.delete?(path) || break
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
       rescue ex : File::Error
-        Log.debug { "Stopped deleting empty dirs at #{dir}: #{ex.message}" }
+        Log.error(exception: ex) { "Could not delete #{dir}: #{ex.message}" }
       end
 
       private def replace(filename, len, lz4)
