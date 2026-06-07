@@ -100,23 +100,26 @@ module LavinMQ
         end
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         bytes = mfile.to_slice(pos.to_i64, length.to_i64)
-        each_follower &.append(path, bytes)
+        offset = pos.to_i64
+        each_follower { |f| f.append(path, bytes) unless f.replayed?(path, offset) }
       end
 
       # Replicate a small in-memory integer (e.g. Schema::VERSION, ack
       # position). The follower writes it directly to its LZ4 stream — no
-      # heap allocation.
-      def append(path : String, value : UInt32 | Int32)
+      # heap allocation. `offset` is where the value is written on the leader,
+      # used to skip bytes a just-joined follower already got via full_sync.
+      def append_value(path : String, value : UInt32 | Int32, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower &.append(path, value)
+        each_follower { |f| f.append(path, value) unless f.replayed?(path, offset) }
       end
 
-      # Replicate an in-memory byte buffer. Caller owns the buffer.
-      def append(path : String, bytes : Bytes)
+      # Replicate an in-memory byte buffer. Caller owns the buffer. See
+      # append_value for `offset`.
+      def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower &.append(path, bytes)
+        each_follower { |f| f.append(path, bytes) unless f.replayed?(path, offset) }
       end
 
       def delete_file(path : String)
@@ -125,14 +128,24 @@ module LavinMQ
           files.delete(path)
           checksums.delete(path)
         end
-        each_follower &.delete(path)
+        each_follower do |f|
+          f.delete(path)
+          f.forget_baseline(path) # path may be reused by a future file
+        end
       end
 
       def nr_of_files
         @file_index.shared { |files, _checksums| files.size }
       end
 
-      def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+      # When `caps` is given (the last full_sync of a joining follower), each
+      # file's hash is computed over only the first `caps[path]` bytes — the
+      # cut the follower will be marked synced at. This excludes writes whose
+      # replication dispatch hasn't happened yet (local write at
+      # message_store.cr:339 races full_sync because it doesn't hold @lock), so
+      # they are delivered incrementally instead of duplicated. Files absent
+      # from `caps` are capped at 0 (delivered entirely via the stream).
+      def files_with_hash(caps : Hash(String, Int64)? = nil, & : Tuple(String, Bytes) -> Nil)
         # Snapshot the index to allow safe iteration without holding the lock.
         # Files are read from disk via File handles (no MFile mmap reads), so
         # concurrent close of the MFile is harmless. For sparse MFile-backed
@@ -141,7 +154,8 @@ module LavinMQ
         snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
-          cached_hash = @file_index.shared { |_files, checksums| checksums[path]? }
+          # The cache holds full-size hashes; a capped pass must recompute.
+          cached_hash = caps ? nil : @file_index.shared { |_files, checksums| checksums[path]? }
           if cached_hash
             yield({path, cached_hash})
           else
@@ -149,11 +163,12 @@ module LavinMQ
             begin
               File.open(filename) do |f|
                 size = mfile ? mfile.size : f.size.to_i64
+                size = Math.min(size, caps[path]? || 0i64) if caps
                 sha1.update IO::Sized.new(f, size)
               end
               hash = sha1.final
               sha1.reset
-              @file_index.lock { |_files, checksums| checksums[path] = hash }
+              @file_index.lock { |_files, checksums| checksums[path] = hash } unless caps
               yield({path, hash})
             rescue File::NotFoundError
               next # File disappeared since we took the snapshot, just skip it.
@@ -164,8 +179,9 @@ module LavinMQ
 
       # Yields the file (or nil if missing) along with its real data size in
       # bytes. For MFile-backed sparse files the size comes from mfile.size,
-      # not from File.size which would be the capacity.
-      def with_file(filename, & : File?, Int64 -> _)
+      # not from File.size which would be the capacity. `cap` (see
+      # files_with_hash) limits the yielded size for a capped full_sync.
+      def with_file(filename, cap : Int64? = nil, & : File?, Int64 -> _)
         # has_key? needed because a registered path with a nil MFile is
         # different from a path that's not in the index at all.
         has_key, mfile = @file_index.shared { |files, _checksums| {files.has_key?(filename), files[filename]?} }
@@ -175,6 +191,7 @@ module LavinMQ
             File.open(path) do |f|
               f.read_buffering = false
               size = mfile ? mfile.size : f.size.to_i64
+              size = Math.min(size, cap) if cap
               yield f, size
             end
           rescue File::NotFoundError
@@ -183,6 +200,28 @@ module LavinMQ
         else
           yield nil, 0i64
         end
+      end
+
+      # Snapshot the current logical size of every indexed file, using the same
+      # size rule as full_sync (mfile.size for sparse MFiles, else File.size).
+      # Captured at mark_synced to record the per-file cut a joining follower
+      # received via full_sync. Callers hold @lock.
+      private def snapshot_sizes : Hash(String, Int64)
+        sizes = Hash(String, Int64).new
+        @file_index.shared do |files, _checksums|
+          files.each do |path, mfile|
+            if mfile
+              sizes[path] = mfile.size.to_i64
+            else
+              begin
+                sizes[path] = File.size(File.join(@data_dir, path)).to_i64
+              rescue File::NotFoundError
+                next
+              end
+            end
+          end
+        end
+        sizes
       end
 
       def followers : Array(Follower)
@@ -258,7 +297,14 @@ module LavinMQ
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
           @lock.synchronize do
-            follower.full_sync        # sync the last
+            # Capture the per-file cut BEFORE the last sync and cap the sync to
+            # it, so what full_sync sends equals the baseline exactly. A larger
+            # mfile.size from an in-flight write (local write done, replication
+            # dispatch still pending) is excluded here and delivered via the
+            # stream instead of being duplicated.
+            cut = snapshot_sizes
+            follower.full_sync(cut) # sync the last, capped at the cut
+            follower.capture_synced_baseline(cut)
             follower.mark_synced!     # Change state to Synced
             @synced_generation.add(1) # a follower joined the in-sync set
             update_isr

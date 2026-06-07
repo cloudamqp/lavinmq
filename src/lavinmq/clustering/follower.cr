@@ -25,6 +25,10 @@ module LavinMQ
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
+      # Per-file byte offset that this follower already received via full_sync
+      # when it was marked synced. Incremental appends below this offset are
+      # already in the snapshot and must be skipped to avoid duplicating them.
+      @synced_baseline = Hash(String, Int64).new
       getter id = -1
       getter remote_address
       getter state
@@ -52,9 +56,12 @@ module LavinMQ
         Log.info { "Accepted ID #{@id.to_s(36)}" }
       end
 
-      def full_sync : Nil
-        send_file_list
-        send_requested_files
+      # `caps` (last sync of a joining follower) limits each file to the byte
+      # count recorded as that follower's synced baseline, so the snapshot and
+      # the baseline agree and in-flight writes aren't duplicated.
+      def full_sync(caps : Hash(String, Int64)? = nil) : Nil
+        send_file_list(caps: caps)
+        send_requested_files(caps: caps)
       end
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
@@ -139,11 +146,11 @@ module LavinMQ
         end
       end
 
-      private def send_file_list(lz4 = @lz4)
+      private def send_file_list(lz4 = @lz4, caps : Hash(String, Int64)? = nil)
         Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
         count = 0
         log_limiter = RateLimiter.new(2.seconds)
-        @file_index.files_with_hash do |path, hash|
+        @file_index.files_with_hash(caps) do |path, hash|
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
           lz4.write hash
@@ -156,7 +163,7 @@ module LavinMQ
         count
       end
 
-      private def send_requested_files(socket = @socket)
+      private def send_requested_files(socket = @socket, caps : Hash(String, Int64)? = nil)
         requested_files = Array(String).new
         loop do
           filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -167,14 +174,14 @@ module LavinMQ
         end
         Log.info { "#{requested_files.size} files requested" }
         total_requested_bytes = requested_files.sum(0i64) do |p|
-          @file_index.with_file(p) { |_f, size| size }
+          @file_index.with_file(p, cap_for(caps, p)) { |_f, size| size }
         end
         sent_bytes = 0i64
         uploaded_count = 0
         log_limiter = RateLimiter.new(2.seconds)
         start = Time.instant
         requested_files.each do |filename|
-          file_size = send_requested_file(filename)
+          file_size = send_requested_file(filename, caps)
 
           sent_bytes += file_size
           uploaded_count &+= 1
@@ -190,8 +197,15 @@ module LavinMQ
         @lz4.flush
       end
 
-      private def send_requested_file(filename) : Int
-        @file_index.with_file(filename) do |f, size|
+      # When `caps` is set, a file missing from it is capped at 0 (sent empty,
+      # then filled via the change stream); otherwise the file is uncapped.
+      private def cap_for(caps : Hash(String, Int64)?, path : String) : Int64?
+        return nil unless caps
+        caps[path]? || 0i64
+      end
+
+      private def send_requested_file(filename, caps : Hash(String, Int64)? = nil) : Int
+        @file_index.with_file(filename, cap_for(caps, filename)) do |f, size|
           if f
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
             IO.copy(f, @lz4, size) == size || raise IO::EOFError.new
@@ -293,6 +307,25 @@ module LavinMQ
 
       def mark_synced!
         @state = State::Synced
+      end
+
+      # Record, at the moment of becoming synced, how many bytes of each file
+      # full_sync just delivered. Keyed by the same (data-dir-relative) path the
+      # replication appends use.
+      def capture_synced_baseline(sizes : Hash(String, Int64)) : Nil
+        @synced_baseline = sizes
+      end
+
+      # True if an append starting at `offset` is entirely within what full_sync
+      # already gave this follower (writes are whole-record, so the cut never
+      # lands mid-record). A path absent from the baseline (created after the
+      # join) is never replayed, so it's delivered in full.
+      def replayed?(path : String, offset : Int64) : Bool
+        offset < (@synced_baseline[path]? || 0i64)
+      end
+
+      def forget_baseline(path : String) : Nil
+        @synced_baseline.delete(path)
       end
     end
   end

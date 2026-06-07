@@ -8,8 +8,12 @@ module LavinMQ
       abstract def register_file(mfile : MFile)
       abstract def replace_file(path : String) # only non mfiles are ever replaced
       abstract def append(path : String, pos : Int, length : Int)
-      abstract def append(path : String, value : UInt32 | Int32)
-      abstract def append(path : String, bytes : Bytes)
+      # `offset` is the absolute byte position the value/bytes are written at on
+      # the leader; used to skip appends a just-joined follower already received
+      # via full_sync (see Server#append). Distinct names avoid colliding with
+      # the positional append(path, pos, length) overload.
+      abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+      abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)

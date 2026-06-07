@@ -318,8 +318,9 @@ module LavinMQ
     private def store_definition(frame, dirty = false)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
+      offset = @definitions_file.size.to_i64
       @definitions_file.write bytes
-      @replicator.try &.append @definitions_file_path, bytes
+      @replicator.try &.append_bytes @definitions_file_path, bytes, offset
       @definitions_file.fsync
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

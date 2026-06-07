@@ -7,8 +7,8 @@ require "../src/lavinmq/proxy_protocol"
 # Create a custom slow clustering server for testing
 class SlowClusteringServer < LavinMQ::Clustering::Server
   # Override files_with_hash to add delays during sync to simulate slow network
-  def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-    super do |tuple|
+  def files_with_hash(caps : Hash(String, Int64)? = nil, & : Tuple(String, Bytes) -> Nil)
+    super(caps) do |tuple|
       sleep 0.1.seconds
       yield tuple
     end

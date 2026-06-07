@@ -131,7 +131,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         case i % 5
         when 0 then server.delete_file(mfile.path)
         when 1 then server.replace_file(mfile.path)
-        when 2 then server.append(mfile.path, "data".to_slice)
+        when 2 then server.append_bytes(mfile.path, "data".to_slice, 0i64)
         else        server.register_file(mfile)
         end
       end

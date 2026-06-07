@@ -376,8 +376,10 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     appended = Channel(Bool).new
     spawn do
       # Fill the socket buffer
+      offset = 0i64
       loop do
-        replicator.append(test_path, payload)
+        replicator.append_bytes(test_path, payload, offset)
+        offset += payload.bytesize
         appended.send true
       rescue IO::Error | Socket::Error | Channel::ClosedError
         break

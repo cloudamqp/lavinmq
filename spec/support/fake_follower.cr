@@ -17,13 +17,13 @@ class FakeFileIndex
     }
   end
 
-  def files_with_hash(& : Tuple(String, Bytes) -> _)
+  def files_with_hash(caps : Hash(String, Int64)? = nil, & : Tuple(String, Bytes) -> _)
     @files_with_hash.each do |values|
       yield values
     end
   end
 
-  def with_file(filename : String, &)
+  def with_file(filename : String, cap : Int64? = nil, &)
     yield nil, 0i64
   end
 
