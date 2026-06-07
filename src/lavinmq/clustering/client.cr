@@ -53,7 +53,11 @@ module LavinMQ
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         start_metrics_server unless @config.metrics_http_port == -1
-        HTTP::Server.follower_internal_socket_http_server
+        # A relay's internal unix socket (which serves the DR control routes) is
+        # bound once by the launcher at relay start, not per upstream client, so
+        # promotion stays available even before this client connects and so a new
+        # client on every upstream leader change doesn't re-bind it.
+        HTTP::Server.follower_internal_socket_http_server if @relay.nil?
       end
 
       private def start_metrics_server

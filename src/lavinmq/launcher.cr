@@ -150,6 +150,13 @@ module LavinMQ
         http.bind_tls(@config.http_bind, @config.https_port, ctx)
       end
       spawn(name: "Relay HTTP API listener") { http.listen }
+
+      # Serve the DR control routes (/api/cluster/dr) on the local internal unix
+      # socket so an operator can promote this region during a failover — even at
+      # boot while the upstream region (and its etcd) is down, before any relay
+      # client has connected. The socket is local and access-controlled by its
+      # filesystem permissions (mode 0660), unlike the unauthenticated TCP API.
+      LavinMQ::HTTP::Server.follower_internal_socket_http_server
     end
 
     private def spawn_relay_reject_listener(bind : String, port : Int32,

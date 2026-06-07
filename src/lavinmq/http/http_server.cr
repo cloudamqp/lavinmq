@@ -88,21 +88,27 @@ module LavinMQ
       end
 
       # A barebones HTTP API for a DR relay node, which doesn't run the full
-      # management server. Exposes follower Prometheus metrics (/metrics), a
-      # readiness probe (/health), and the DR control routes (/api/cluster/dr).
-      # `ready` reports whether the relay is synced with its upstream leader.
+      # management server. Exposes only unauthenticated, read-only endpoints on
+      # the externally bound management port: follower Prometheus metrics
+      # (/metrics) and a readiness probe (/health). `ready` reports whether the
+      # relay is synced with its upstream leader.
+      #
+      # The DR control routes (/api/cluster/dr) that promote/demote the region
+      # are deliberately NOT served here — they mutate cluster state and this
+      # port has no authentication. They are served on the local internal unix
+      # socket instead (see `follower_internal_socket_http_server`), where access
+      # is gated by filesystem permissions (mode 0660).
       def self.relay_api(ready : -> Bool) : ::HTTP::Server
         handlers = [
           ApiErrorHandler.new,
           ApiDefaultsHandler.new,
           FollowerPrometheusController.new,
           RelayHealthController.new(ready),
-          FollowerDRHandler.new,
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         ::HTTP::Server.new(handlers) do |context|
           context.response.status_code = 404
-          context.response.print "Not found. Relay node serves only /metrics, /health and /api/cluster/dr.\n"
+          context.response.print "Not found. Relay node serves only /metrics and /health.\n"
         end
       end
 
