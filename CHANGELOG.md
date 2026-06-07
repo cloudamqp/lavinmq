@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A follower joining the replica set while the leader was publishing could duplicate bytes in its segment files (the local write to a segment races the full sync); the join now snapshots a per-file cut, caps the sync to it, and skips already-synced bytes from the change stream
+- A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates
 
 ### Removed
 

@@ -300,8 +300,24 @@ module LavinMQ
           follower.ack_loop
         ensure
           @lock.synchronize do
+            # If the follower was behind (unacked replicated data) when it
+            # dropped, it may be missing data that's about to be confirmed via
+            # the surviving followers, so it must leave the etcd ISR now rather
+            # than on the next replication write — otherwise it could be promoted
+            # on failover lacking already-confirmed data. A caught-up follower
+            # (no lag) still has everything confirmed so far, so we leave it in
+            # the ISR as a valid failover candidate; the next write's each_follower
+            # flush removes it before anything it lacks is confirmed.
+            behind = follower.lag_in_bytes > 0
             @followers.delete(follower)
             @dirty_isr = true
+            if behind
+              begin
+                update_isr # @dirty_isr stays set, so the lazy path retries on failure
+              rescue ex
+                Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
+              end
+            end
           end
         end
       rescue ex : AuthenticationError
