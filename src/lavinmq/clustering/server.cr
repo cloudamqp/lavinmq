@@ -10,6 +10,7 @@ require "../mfile"
 require "crypto/subtle"
 require "lz4"
 require "sync/shared"
+require "../bool_channel"
 
 module LavinMQ
   module Clustering
@@ -42,6 +43,14 @@ module LavinMQ
       # mfile.to_slice to read from the mmap. Full-sync paths always read from
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
+
+      # Relay readiness. A relay Server is fed by an upstream Clustering::Client
+      # rather than a local message store; it must not serve a downstream
+      # full-sync until that client has completed its initial sync and called
+      # register_data_dir, or the follower would sync against an empty index and
+      # delete its local dataset. Primary (non-relay) servers never gate.
+      @relay_mode = false
+      @upstream_synced = BoolChannel.new(false)
 
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
@@ -125,6 +134,67 @@ module LavinMQ
           checksums.delete(path)
         end
         each_follower &.delete(path)
+      end
+
+      # Used by a relay (a node fed by an upstream Clustering::Client rather than
+      # a local message store) to forward an append it received from the upstream
+      # leader to its own downstream followers. Unlike `append`, it registers the
+      # path if it's new so that a later downstream full-sync includes the file.
+      def relay_append(path : String, bytes : Bytes)
+        path = strip_datadir path
+        @file_index.lock do |files, checksums|
+          files[path] = nil unless files.has_key?(path)
+          checksums.delete(path)
+        end
+        each_follower &.append(path, bytes)
+      end
+
+      # Register every existing file in the data dir into the file index. A relay
+      # populates its index this way after its own initial sync from the upstream
+      # leader, so it can serve full-syncs (files_with_hash/with_file read from
+      # disk) to its downstream followers for files that predate any streamed
+      # change.
+      def register_data_dir
+        register_dir(@data_dir)
+      end
+
+      # Marked by the controller in DR/relay mode (run_relay) before the
+      # downstream listener starts accepting followers.
+      def relay_mode!
+        @relay_mode = true
+      end
+
+      def relay_mode?
+        @relay_mode
+      end
+
+      # Held by the relay client for the duration of its upstream (re)sync so a
+      # downstream follower can't full_sync against half-applied state. A
+      # connecting follower blocks in handle_socket (after the readiness gate,
+      # before full_sync) until this is released. Reuses the same lock that
+      # already serializes downstream full-syncs (one at a time).
+      def syncing_from_upstream(&)
+        @sync_lock.synchronize { yield }
+      end
+
+      # Called by the relay client after its first completed upstream sync to
+      # open the gate so downstream full-syncs may proceed. Idempotent across
+      # reconnects; reconnect catch-up deltas are streamed to connected
+      # followers from the relay client's sync_files, so no resync is forced.
+      def upstream_synced
+        @upstream_synced.set(true)
+      end
+
+      private def register_dir(dir : String)
+        Dir.each_child(dir) do |child|
+          path = File.join(dir, child)
+          if File.directory?(path)
+            register_dir(path)
+          else
+            next if child.in?(".lock", ".clustering_id")
+            register_file(path)
+          end
+        end
       end
 
       def nr_of_files
@@ -229,6 +299,13 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
+        if @relay_mode
+          begin
+            @upstream_synced.when_true.receive # wait until the relay has synced upstream
+          rescue Channel::ClosedError
+            return # server is shutting down
+          end
+        end
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
             Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
@@ -282,6 +359,7 @@ module LavinMQ
       end
 
       def close
+        @upstream_synced.close # unblock any follower fiber parked on the relay gate
         @listeners.each &.close
         @lock.synchronize do
           @followers.each &.close

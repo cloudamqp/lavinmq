@@ -315,6 +315,28 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      # Disaster recovery: when set (here or via the {prefix}/upstream_etcd key in
+      # this region's own etcd), this cluster acts as a DR follower of the foreign
+      # region reachable at these etcd endpoints. The etcd key, when present,
+      # overrides this fallback. Empty = this region is the primary.
+      @[CliOpt("", "--clustering-upstream-etcd-endpoints=URIs", "Foreign region etcd endpoints to replicate from in DR mode (fallback for the {prefix}/upstream_etcd key)", section: "clustering")]
+      @[IniOpt(ini_name: upstream_etcd_endpoints, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_UPSTREAM_ETCD_ENDPOINTS")]
+      property clustering_upstream_etcd_endpoints = ""
+
+      @[CliOpt("", "--clustering-upstream-etcd-prefix=KEY", "Key prefix used in the foreign region's etcd (default: same as --clustering-etcd-prefix)", section: "clustering")]
+      @[IniOpt(ini_name: upstream_etcd_prefix, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_UPSTREAM_ETCD_PREFIX")]
+      property clustering_upstream_etcd_prefix = ""
+
+      @[IniOpt(ini_name: on_promoted, section: "clustering")]
+      @[CliOpt("", "--clustering-on-promoted=COMMAND", "Shell command to execute when this region becomes the primary", section: "clustering")]
+      property clustering_on_promoted = "" # shell command to execute when this region becomes primary
+
+      @[IniOpt(ini_name: on_demoted, section: "clustering")]
+      @[CliOpt("", "--clustering-on-demoted=COMMAND", "Shell command to execute when this region becomes a DR follower", section: "clustering")]
+      property clustering_on_demoted = "" # shell command to execute when this region becomes a DR follower
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

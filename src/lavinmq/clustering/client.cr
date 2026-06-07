@@ -3,6 +3,7 @@ require "../clustering"
 require "../rate_limiter"
 require "./checksums"
 require "./proxy"
+require "./server"
 require "lz4"
 
 module LavinMQ
@@ -11,6 +12,9 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
+      # True while connected to the leader and actively streaming changes, i.e.
+      # past the initial sync. Used by a DR relay's readiness probe.
+      @streaming = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -19,10 +23,13 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
-      @file_digests = Hash(String, Digest::SHA1).new
+      @file_digests = Hash(String, Digest::SHA1).new { |h, filename| h[filename] = Digest::SHA1.new }
       @follower_done = Channel(Nil).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      # When `relay` is set this client acts as a relay: every change it applies
+      # locally is also forwarded to the relay's downstream followers. Used by a
+      # DR-region leader to re-serve the cross-region stream within its region.
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @relay : Clustering::Server? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -46,7 +53,11 @@ module LavinMQ
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         start_metrics_server unless @config.metrics_http_port == -1
-        HTTP::Server.follower_internal_socket_http_server
+        # A relay's internal unix socket (which serves the DR control routes) is
+        # bound once by the launcher at relay start, not per upstream client, so
+        # promotion stays available even before this client connects and so a new
+        # client on every upstream leader change doesn't re-bind it.
+        HTTP::Server.follower_internal_socket_http_server if @relay.nil?
       end
 
       private def start_metrics_server
@@ -94,8 +105,22 @@ module LavinMQ
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
-          sync(socket, lz4)
+          if relay = @relay
+            # Hold the relay's sync lock for the whole upstream sync so no
+            # downstream follower full-syncs against our half-applied state, and
+            # register the synced files so later downstream full-syncs can serve
+            # them. The deltas applied during the sync are streamed to already
+            # connected followers from within sync_files.
+            relay.syncing_from_upstream do
+              sync(socket, lz4)
+              relay.register_data_dir
+            end
+            relay.upstream_synced # open the downstream gate (first sync; idempotent)
+          else
+            sync(socket, lz4)
+          end
           Log.info { "Streaming changes" }
+          @streaming = true
           stream_changes(socket, lz4)
         rescue ex : IO::Error
           lz4.try &.close
@@ -103,9 +128,16 @@ module LavinMQ
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
+        ensure
+          @streaming = false
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      # True when connected to the leader and past the initial sync (streaming).
+      def connected? : Bool
+        @streaming
       end
 
       def follows?(_nil : Nil) : Bool
@@ -198,6 +230,8 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
+          # A relay cascades the delete to its already-connected downstream followers.
+          @relay.try &.delete_file(path)
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
@@ -218,6 +252,9 @@ module LavinMQ
         log_limiter = RateLimiter.new(2.seconds)
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
+          # A relay cascades the freshly written file to its already-connected
+          # downstream followers (replace_file re-reads it from local disk).
+          @relay.try &.replace_file(File.join(@data_dir, filename))
           received_count &+= 1
           log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
@@ -311,7 +348,16 @@ module LavinMQ
       private def append(filename, len, lz4)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        stream_with_checksum(filename, lz4, f, len.abs)
+        if relay = @relay
+          # Buffer the appended bytes so they can also be forwarded downstream.
+          bytes = Bytes.new(len.abs.to_i32)
+          lz4.read_fully(bytes)
+          f.write(bytes)
+          @file_digests[filename].update(bytes)
+          relay.relay_append(File.join(@data_dir, filename), bytes)
+        else
+          stream_with_checksum(filename, lz4, f, len.abs)
+        end
       end
 
       private def delete(filename)
@@ -324,6 +370,7 @@ module LavinMQ
         end
         @checksums.delete(filename)
         @file_digests.delete(filename)
+        @relay.try &.delete_file(File.join(@data_dir, filename))
       end
 
       private def replace(filename, len, lz4)
@@ -340,12 +387,15 @@ module LavinMQ
           stream_with_checksum(filename, lz4, f, len)
           f.rename f.path[0..-5]
         end
+        # Forward the freshly written file to downstream followers; replace_file
+        # re-reads it from the relay's local disk.
+        @relay.try &.replace_file(File.join(@data_dir, filename))
       end
 
       # Read from lz4, update SHA1, and write to file incrementally
       private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
         # Get or create SHA1 digest for this file
-        sha1 = @file_digests[filename] ||= Digest::SHA1.new
+        sha1 = @file_digests[filename]
 
         # Read, hash, and write incrementally
         buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]

@@ -44,6 +44,7 @@ module LavinMQ
           ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
+          ClusterController.new(@amqp_server),
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
@@ -86,10 +87,37 @@ module LavinMQ
         File.delete?(INTERNAL_UNIX_SOCKET)
       end
 
+      # A barebones HTTP API for a DR relay node, which doesn't run the full
+      # management server. Exposes only unauthenticated, read-only endpoints on
+      # the externally bound management port: follower Prometheus metrics
+      # (/metrics) and a readiness probe (/health). `ready` reports whether the
+      # relay is synced with its upstream leader.
+      #
+      # The DR control routes (/api/cluster/dr) that promote/demote the region
+      # are deliberately NOT served here — they mutate cluster state and this
+      # port has no authentication. They are served on the local internal unix
+      # socket instead (see `follower_internal_socket_http_server`), where access
+      # is gated by filesystem permissions (mode 0660).
+      def self.relay_api(ready : -> Bool) : ::HTTP::Server
+        handlers = [
+          ApiErrorHandler.new,
+          ApiDefaultsHandler.new,
+          FollowerPrometheusController.new,
+          RelayHealthController.new(ready),
+        ] of ::HTTP::Handler
+        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
+        ::HTTP::Server.new(handlers) do |context|
+          context.response.status_code = 404
+          context.response.print "Not found. Relay node serves only /metrics and /health.\n"
+        end
+      end
+
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
-      # The server returns 503 to signal that the node is a follower and can not handle the request.
+      # DR control routes (/api/cluster/dr) are handled locally so a region can be
+      # promoted during a failover even when the primary is down; everything else
+      # returns 503 to signal that the node is a follower and can not handle the request.
       def self.follower_internal_socket_http_server
-        http_server = ::HTTP::Server.new do |context|
+        http_server = ::HTTP::Server.new([FollowerDRHandler.new] of ::HTTP::Handler) do |context|
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."
