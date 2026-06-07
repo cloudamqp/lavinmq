@@ -6,6 +6,10 @@ module ClientSyncSpec
     def sync_files_public(socket, lz4)
       sync_files(socket, lz4)
     end
+
+    def stream_changes_public(socket, lz4)
+      stream_changes(socket, lz4)
+    end
   end
 
   def self.make_client(data_dir : String) : TestClient
@@ -43,6 +47,65 @@ module ClientSyncSpec
   end
 
   describe LavinMQ::Clustering::Client do
+    describe "stream_changes" do
+      # Regression: a single large action must be acked incrementally as its
+      # payload is written, not just once when the whole action completes.
+      # Otherwise a big message/file streamed over a slow link goes un-acked
+      # for seconds and the leader evicts the healthy follower on its ack
+      # deadline.
+      it "acks a large action incrementally instead of only when it completes" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "stream_file"
+          buffer_size = LavinMQ::Clustering::Client::BUFFER_SIZE
+          chunk = Bytes.new(buffer_size, 0xAB_u8)
+          rest = Bytes.new(buffer_size * 2, 0xCD_u8) # full payload spans 3 chunks
+          payload_size = (chunk.size + rest.size).to_i64
+          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+            # socket closed to end the loop
+          end
+
+          # Announce an append of the whole payload but only send the first
+          # chunk, withholding the rest.
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes -payload_size, IO::ByteFormat::LittleEndian
+          lz4_writer.write chunk
+          lz4_writer.flush
+
+          # The follower must ack the framing + first chunk without having
+          # received the rest. Before incremental acks it blocked in
+          # read_fully until the whole action arrived and acked nothing here.
+          leader_io.read_timeout = 2.seconds
+          acked = 0i64
+          while acked < framing + chunk.size
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          acked.should eq(framing + chunk.size)
+
+          # Send the remainder; the follower acks the rest and persists the file.
+          lz4_writer.write rest
+          lz4_writer.flush
+          while acked < framing + payload_size
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          acked.should eq(framing + payload_size)
+
+          File.size(File.join(data_dir, filename)).should eq payload_size
+          client_socket.close
+        end
+      end
+    end
+
     describe "sync_files directory cleanup" do
       it "deletes directory not on leader" do
         with_datadir do |data_dir|

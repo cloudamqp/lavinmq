@@ -9,6 +9,17 @@ module LavinMQ
   module Clustering
     class Client
       Log = LavinMQ::Log.for "clustering.client"
+
+      # Buffer used when streaming replicated file changes to disk. Matches
+      # LZ4::Reader's internal 64 KiB buffer.
+      BUFFER_SIZE = 64 * 1024
+
+      # Capacity of the channel buffering acks from the stream-reading fiber to
+      # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
+      # drains and coalesces it continuously), so a fixed size is fine; the
+      # leader's ack deadline, not this, governs how far a follower may lag.
+      ACK_BUFFER_CAPACITY = 8192
+
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
@@ -21,6 +32,9 @@ module LavinMQ
       @streamed_bytes = 0_u64
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
+      # Buffers acks from the stream-reading fiber to the ack-sending fiber.
+      # Replaced with a fresh channel on each (re)connect in #stream_changes.
+      @acks = Channel(Int64).new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -283,8 +297,8 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
-        spawn send_ack_loop(acks, socket), name: "Send ack loop"
+        @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        spawn send_ack_loop(@acks, socket), name: "Send ack loop"
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -292,6 +306,11 @@ module LavinMQ
           filename = lz4.read_string(filename_len)
 
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          # Ack the framing bytes (length headers + filename) up front; the
+          # payload is acked incrementally as it's written (see
+          # stream_with_checksum) so a single large action keeps the leader's
+          # progress deadline reset instead of going silent until it's done.
+          ack(sizeof(Int32) + filename_len + sizeof(Int64))
           case len
           when .negative? # append bytes to file
             append(filename, len, lz4)
@@ -300,12 +319,9 @@ module LavinMQ
           when .positive? # replace file
             replace(filename, len, lz4)
           end
-          ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
-          @streamed_bytes &+= ack_bytes
-          acks.send(ack_bytes)
         end
       ensure
-        acks.try &.close
+        @acks.close
       end
 
       private def append(filename, len, lz4)
@@ -347,8 +363,11 @@ module LavinMQ
         # Get or create SHA1 digest for this file
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
-        # Read, hash, and write incrementally
-        buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]
+        # Read, hash, and write incrementally. Each chunk is acked as soon as
+        # it's persisted so the leader sees continuous progress within a large
+        # action and won't evict us on its ack deadline (a 128 MiB message would
+        # otherwise stream for >10s with no ack on a 100 Mbit/s link).
+        buffer = uninitialized UInt8[BUFFER_SIZE]
         remaining = length
         while remaining > 0
           read_len = Math.min(remaining, buffer.size)
@@ -357,7 +376,15 @@ module LavinMQ
           file.write(bytes)
           sha1.update(bytes)
           remaining -= read_len
+          ack(read_len)
         end
+      end
+
+      # Count streamed bytes and forward the count to the ack-sending fiber.
+      private def ack(bytes : Int) : Nil
+        n = bytes.to_i64
+        @streamed_bytes &+= n
+        @acks.send(n)
       end
 
       # Concatenate as many acks as possible to generate few TCP packets

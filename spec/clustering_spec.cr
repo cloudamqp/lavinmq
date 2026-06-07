@@ -339,7 +339,6 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   end
 
   it "won't deadlock under high load when a follower disconnects [#926]" do
-    LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")

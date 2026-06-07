@@ -15,10 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline
 
 ### Removed
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
+### Deprecated
+
+- `clustering_max_unsynced_actions` is now a no-op (still accepted to avoid breaking existing configs); the follower ack buffer is a fixed size and how far a follower may lag is governed by the leader's ack deadline
 
 ## [2.8.1] - 2026-05-18
 

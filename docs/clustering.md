@@ -56,7 +56,7 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `max_unsynced_actions` | `[clustering]` | `8192` | Maximum unacknowledged actions a follower can lag before being removed from the ISR |
+| `max_unsynced_actions` | `[clustering]` | `8192` | **Deprecated:** still accepted but has no effect. A follower is removed from the ISR when it stops acking replicated data within the leader's ack deadline |
 
 ## Failover
 

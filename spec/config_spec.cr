@@ -243,7 +243,6 @@ describe LavinMQ::Config do
       config.clustering_port.should eq 5680
       config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
       config.clustering_etcd_prefix.should eq "test-lavinmq"
-      config.clustering_max_unsynced_actions.should eq 16384
       config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
       config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
       config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
@@ -329,7 +328,6 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
-    config.clustering_max_unsynced_actions.should eq 4096
     config.clustering_port.should eq 5680
   end
 
@@ -388,7 +386,6 @@ describe LavinMQ::Config do
       config.clustering_bind.should eq "10.3.3.3"
       config.clustering_etcd_endpoints.should eq "env-etcd:2379"
       config.clustering_etcd_prefix.should eq "env-prefix"
-      config.clustering_max_unsynced_actions.should eq 2048
       config.clustering_port.should eq 5681
     ensure
       ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
