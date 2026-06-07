@@ -320,8 +320,19 @@ module LavinMQ
       # already gave this follower (writes are whole-record, so the cut never
       # lands mid-record). A path absent from the baseline (created after the
       # join) is never replayed, so it's delivered in full.
+      #
+      # Appends to a given path arrive at monotonically increasing offsets, so
+      # the first one at or past the cut means the follower has caught up with
+      # that file and the entry can be dropped. When the last entry goes the
+      # whole baseline is reassigned to a fresh empty hash, releasing the
+      # capacity a large join held and turning later checks into a plain miss.
       def replayed?(path : String, offset : Int64) : Bool
-        offset < (@synced_baseline[path]? || 0i64)
+        baseline = @synced_baseline[path]?
+        return false if baseline.nil?
+        return true if offset < baseline
+        @synced_baseline.delete(path)
+        @synced_baseline = Hash(String, Int64).new if @synced_baseline.empty?
+        false
       end
 
       def forget_baseline(path : String) : Nil

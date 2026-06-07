@@ -454,6 +454,60 @@ module FollowerSpec
     end
   end
 
+  describe "#replayed?" do
+    it "treats offsets below the captured baseline as already replayed" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        follower.capture_synced_baseline({"file1" => 10i64})
+        follower.replayed?("file1", 0i64).should be_true
+        follower.replayed?("file1", 9i64).should be_true
+        # A path absent from the baseline is always delivered in full
+        follower.replayed?("other", 0i64).should be_false
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "drops a file's entry once an append reaches its baseline" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        follower.capture_synced_baseline({"file1" => 10i64, "file2" => 20i64})
+        # Caught up with file1: not replayed, and the entry is dropped
+        follower.replayed?("file1", 10i64).should be_false
+        follower.@synced_baseline.has_key?("file1").should be_false
+        follower.@synced_baseline.has_key?("file2").should be_true
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "resets to a fresh empty hash once the last file catches up" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        baseline = {"file1" => 10i64}
+        follower.capture_synced_baseline(baseline)
+        follower.replayed?("file1", 10i64).should be_false
+        follower.@synced_baseline.empty?.should be_true
+        # A fresh hash, not the captured one emptied in place
+        follower.@synced_baseline.should_not be(baseline)
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
   describe "#delete" do
     it "writes filename and a zero size marker" do
       with_datadir do |data_dir|
