@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 - Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline
+- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). A follower that disconnects mid-confirm simply leaves the in-sync set instead of forcing a syncfs
+
+### Fixed
+
+- A follower joining the replica set while the leader was publishing could duplicate bytes in its segment files (the local write to a segment races the full sync); the join now snapshots a per-file cut, caps the sync to it, and skips already-synced bytes from the change stream
 
 ### Removed
 

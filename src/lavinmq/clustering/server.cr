@@ -30,7 +30,6 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
-      @synced_generation = Atomic(Int64).new(0)
       @followers = Array(Follower).new(4)
       @password : String
       @dirty_isr = true
@@ -242,19 +241,6 @@ module LavinMQ
         end
       end
 
-      # Atomic snapshot of the currently-synced followers together with the sync
-      # generation, so the persister can bind a confirm batch to the in-sync set
-      # that existed when the batch started and detect later joins.
-      def in_sync_followers : Tuple(Array(Follower), Int64)
-        @lock.synchronize do
-          {@followers.select(&.synced?), @synced_generation.get}
-        end
-      end
-
-      def synced_generation : Int64
-        @synced_generation.get
-      end
-
       def password : String
         @coordinator.password
       end
@@ -305,8 +291,7 @@ module LavinMQ
             cut = snapshot_sizes
             follower.full_sync(cut) # sync the last, capped at the cut
             follower.capture_synced_baseline(cut)
-            follower.mark_synced!     # Change state to Synced
-            @synced_generation.add(1) # a follower joined the in-sync set
+            follower.mark_synced! # Change state to Synced
             update_isr
           end
         end

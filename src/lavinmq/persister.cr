@@ -13,28 +13,13 @@ module LavinMQ
   class Persister
     Log = LavinMQ::Log.for "persister"
 
-    # One confirm batch: the pending acks plus the durability requirement
-    # captured when the batch started (its first ack was enqueued). A batch may
-    # skip syncfs only if it was replicated to and acked by the followers that
-    # were in-sync at that point; otherwise it falls back to local syncfs.
-    private class Batch
-      getter acks = Hash(AMQP::Channel, UInt64).new
-      # Followers that were in-sync when the batch started (nil until captured).
-      property followers : Array(Clustering::Follower)? = nil
-      # Sync generation at capture; a mismatch at drain means a follower joined
-      # the in-sync set mid-batch and we must fall back to syncfs.
-      property generation = 0_i64
-      # No in-sync follower (or standalone) when the batch started → must syncfs.
-      property? needs_sync = false
-
-      def empty?
-        @acks.empty?
-      end
-    end
-
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
-    @pending : Sync::Exclusive(Batch) = Sync::Exclusive.new(Batch.new, :unchecked)
+    # Confirm acks accumulated since the last drain. Durability is decided at
+    # drain time against the in-sync set as it exists then (see
+    # #replicated_to_followers?), which is safe because a follower only reaches
+    # the in-sync set after a full_sync that includes every prior write.
+    @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
 
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -46,26 +31,7 @@ module LavinMQ
 
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
       if Config.instance.sync?
-        @pending.lock do |batch|
-          # On the first ack of a new batch, bind the batch to the in-sync set
-          # that exists right now (i.e. before/at this message's write). A
-          # follower that becomes synced later isn't credited — its incremental
-          # stream wouldn't include this batch's earlier writes.
-          if batch.empty?
-            if replicator = @replicator
-              fs, generation = replicator.in_sync_followers
-              if fs.empty?
-                batch.needs_sync = true # not replicated to any synced follower
-              else
-                batch.followers = fs
-                batch.generation = generation
-              end
-            else
-              batch.needs_sync = true # standalone: only local syncfs makes it durable
-            end
-          end
-          batch.acks[channel] = msgid
-        end
+        @pending_acks.lock { |acks| acks[channel] = msgid }
         @publish_confirm_requested.try_send true
       else
         # If sync is disabled, we can confirm immediately without waiting for
@@ -104,40 +70,52 @@ module LavinMQ
     end
 
     private def drain_pending_acks
-      batch : Batch? = nil
-      @pending.replace do |current|
+      acks : Hash(AMQP::Channel, UInt64)? = nil
+      @pending_acks.replace do |current|
         if current.empty?
           current
         else
-          batch = current
-          Batch.new
+          acks = current
+          Hash(AMQP::Channel, UInt64).new
         end
       end
-      return unless b = batch
+      return unless acks
 
-      begin
-        # Skip the (slow) local syncfs only if the batch is durable on followers:
-        # the in-sync set captured at batch start is unchanged (no follower
-        # joined since), and every one of those followers acked the replicated
-        # bytes. In every other case (standalone, no synced followers, a mid-
-        # batch join, or a follower that disconnected before acking) fall back
-        # to syncfs.
-        durable = false
-        unless b.needs_sync?
-          if (fs = b.followers) && !fs.empty? &&
-             @replicator.try(&.synced_generation) == b.generation
-            durable = fs.all? &.wait_for_confirm
-          end
+      unless replicated_to_followers?
+        begin
+          sync
+        rescue ex
+          Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+          exit 1
         end
-        sync unless durable
-      rescue ex
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-        exit 1
       end
 
-      b.acks.each do |channel, msgid|
+      acks.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
       end
+    end
+
+    # True if the pending acks are durable on followers, so the local syncfs can be
+    # skipped. We wait for every currently in-sync follower: a follower that
+    # acks has the replicated bytes; one that disconnects while we wait simply
+    # leaves the in-sync set (and won't be promoted on failover), so it no
+    # longer needs the data. Durable as long as at least one in-sync follower
+    # remains and has it. Only when there are no in-sync followers at all (or
+    # we're standalone) do we fall back to syncfs.
+    private def replicated_to_followers? : Bool
+      replicator = @replicator || return false
+      followers = replicator.followers
+      return false if followers.empty?
+      # Every follower still in the ISR must have the data: any of them may be
+      # promoted to leader on failover. wait_for_confirm blocks until the
+      # follower acks (true) or drops out of the ISR by disconnecting (false),
+      # so on return every follower still in the ISR has necessarily acked.
+      # Wait for all of them (no short-circuit) — a disconnect just removes that
+      # one from the ISR; we stay durable as long as at least one remains. Only
+      # an emptied-out ISR falls back to syncfs.
+      acked = false
+      followers.each { |f| acked = true if f.wait_for_confirm }
+      acked
     end
   end
 end

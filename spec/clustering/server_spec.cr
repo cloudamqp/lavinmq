@@ -49,13 +49,13 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 
-  describe "#in_sync_followers" do
-    it "returns only synced followers and the current sync generation" do
+  describe "#followers" do
+    it "returns only synced followers" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
-        LavinMQ::Etcd.new("localhost:12379"),
+        LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")),
         0)
       fi = FakeFileIndex.new(data_dir)
       sock_a, client_a = FakeSocket.pair
@@ -65,9 +65,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       synced.mark_synced!
       server.@followers << synced << syncing # syncing left in Syncing state
 
-      fs, generation = server.in_sync_followers
-      fs.should eq [synced] # excludes the still-syncing follower
-      generation.should eq server.synced_generation
+      server.followers.should eq [synced] # excludes the still-syncing follower
     ensure
       sock_a.try &.close
       client_a.try &.close
