@@ -11,7 +11,7 @@ module LavinMQ
     def self.reject_relay(socket) : Nil
       socket.read_timeout = 15.seconds if socket.responds_to?(:read_timeout=)
       proto = uninitialized UInt8[8]
-      return if socket.read(proto.to_slice).zero? # EOF, client went away
+      return if socket.read_fully?(proto.to_slice).nil? # EOF/short read, client went away
       return unless proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
       stream = AMQ::Protocol::Stream.new(socket)
       stream.write_bytes AMQP::Frame::Connection::Start.new(server_properties: ConnectionFactory::SERVER_PROPERTIES),

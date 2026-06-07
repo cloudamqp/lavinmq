@@ -21,6 +21,33 @@ describe "relay client rejecters" do
     ensure
       tcp.try &.close
     end
+
+    # Regression: when TCP delivers the 8-byte protocol header in more than one
+    # read, the rejecter must read the full header before comparing it, then
+    # still send Connection.Start rather than closing the socket on a short read.
+    it "handles a protocol header split across multiple reads" do
+      tcp = TCPServer.new("localhost", 0)
+      spawn(name: "amqp rejecter split spec") do
+        while socket = tcp.accept?
+          spawn LavinMQ::AMQP.reject_relay(socket)
+        end
+      end
+
+      client = TCPSocket.new("localhost", tcp.local_address.port)
+      header = Bytes[65, 77, 81, 80, 0, 0, 9, 1] # "AMQP" 0 0 9 1
+      client.write header[0, 3]                  # first fragment, less than the full header
+      client.flush
+      sleep 50.milliseconds # give the server a chance to read the short fragment
+      client.write header[3, header.size - 3]
+      client.flush
+
+      # Server must respond with a frame (Connection.Start, frame type 1), not EOF.
+      client.read_timeout = 5.seconds
+      client.read_byte.should eq 1_u8
+    ensure
+      client.try &.close
+      tcp.try &.close
+    end
   end
 
   describe "LavinMQ::MQTT.reject_relay" do
