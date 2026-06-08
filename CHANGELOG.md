@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /api/channels` and `GET /api/connections` no longer include the per-metric rate-history `log` arrays in every list row, matching `GET /api/queues`. The logs are only needed by the per-object detail pages, so they are now returned solely by `GET /api/channels/:name` and `GET /api/connections/:name`, greatly reducing list response size and latency on large deployments
 - Skip the message-expire fiber on streams to avoid a `Closed mfile` crash when the last consumer disconnects after retention dropped segments
 - Discard settlement frames (`ack`/`nack`/`reject`) for an already-closed channel instead of closing the connection with `CHANNEL_ERROR`
+- Treat a publish to a concurrently-closed queue as dropped instead of raising, which previously surfaced as an HTTP publish `500`
 
 ## [2.8.1] - 2026-05-18
 
