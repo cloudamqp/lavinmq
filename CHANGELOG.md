@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 
+### Fixed
+
+- `lavinmq_uptime` and CPU/block-I/O counters resetting to zero on leader transitions in multi-node clusters [#2012](https://github.com/cloudamqp/lavinmq/pull/2012)
+
 ## [2.8.1] - 2026-05-18
 
 ### Changed
