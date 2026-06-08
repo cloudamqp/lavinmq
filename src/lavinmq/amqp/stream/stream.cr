@@ -110,6 +110,14 @@ module LavinMQ::AMQP
       # Streams doesn't handle queue expiration
     end
 
+    # Streams never expire individual messages (message_expire_loop is a no-op),
+    # so the expire fiber must never start. Skipping the check also avoids the
+    # inherited MessageStore#first?, which dereferences the legacy @rfile that
+    # streams don't maintain and crashes once retention has closed that segment.
+    private def should_start_expire_fiber? : Bool
+      false
+    end
+
     private def start : Bool
       if @msg_store.closed
         !close
