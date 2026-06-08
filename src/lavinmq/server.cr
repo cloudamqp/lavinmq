@@ -24,6 +24,8 @@ require "./auth/jwt/jwks_fetcher"
 
 module LavinMQ
   class Server
+    PROCESS_START = Time.instant
+
     enum Protocol
       AMQP
       MQTT
@@ -32,7 +34,6 @@ module LavinMQ
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 
-    @start = Time.instant
     @closed = BoolChannel.new(false)
     @flow = true
 
@@ -50,6 +51,13 @@ module LavinMQ
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
+      # Seed from rusage so counters survive Server re-creation on leader transitions.
+      rusage = System.resource_usage
+      @user_time = rusage.user_time.total_milliseconds.to_i64
+      @sys_time = rusage.sys_time.total_milliseconds.to_i64
+      @blocks_in = rusage.blocks_in.to_i64
+      @blocks_out = rusage.blocks_out.to_i64
+
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
@@ -479,7 +487,7 @@ module LavinMQ
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
-      getter {{ m.id }} = 0_i64
+      getter {{ m.id }} : Int64
       getter {{ m.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
     getter mem_limit = 0_i64
@@ -528,7 +536,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.instant - @start
+      Time.instant - PROCESS_START
     end
   end
 end
