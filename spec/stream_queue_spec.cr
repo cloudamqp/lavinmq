@@ -385,6 +385,36 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "does not start the expire fiber when the last consumer leaves" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-expire-after-drop", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          4.times { q.publish_confirm data }
+
+          stream = s.vhosts["/"].queue("stream-expire-after-drop").as(LavinMQ::AMQP::Stream)
+          # Pin the inherited @rfile onto a populated segment, then drop that
+          # segment via max-length-bytes so @rfile dangles at a closed mfile —
+          # the same state observed in the production crash.
+          stream.@msg_store.first?
+          s.vhosts["/"].add_policy("mlb", "stream-expire-after-drop", "queues",
+            {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+
+          ch.prefetch 1
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "next"})) { }
+          should_eventually(eq 1) { stream.consumers.size }
+
+          # Pre-fix this ran ensure_expire_fiber -> should_start_expire_fiber? ->
+          # MessageStore#first?, dereferencing the dropped+closed read segment
+          # and crashing the connection's read_loop fiber. Post-fix the check is
+          # skipped for streams, so removing the last consumer must not raise.
+          stream.rm_consumer(stream.consumers.first)
+          stream.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
+
     it "meta files should be removed when segment is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
