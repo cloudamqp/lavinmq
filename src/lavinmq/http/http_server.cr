@@ -17,13 +17,18 @@ module LavinMQ
     class Server
       Log = LavinMQ::Log.for "http.server"
 
+      # Resolved once and reused for this server's lifetime so a later config
+      # reload (SIGHUP) can't make us delete or authenticate against a path
+      # different from the one we actually bound.
+      @internal_unix_socket_path : String = Config.instance.control_unix_path
+
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server),
           ViewsController.new,
           StaticController.new,
-          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
+          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
           PrometheusController.new(@amqp_server, require_authentication: true),
@@ -70,10 +75,9 @@ module LavinMQ
       end
 
       def bind_internal_unix
-        path = Config.instance.control_unix_path
-        File.delete?(path)
-        addr = @http.bind_unix(path)
-        File.chmod(path, 0o660)
+        File.delete?(@internal_unix_socket_path)
+        addr = @http.bind_unix(@internal_unix_socket_path)
+        File.chmod(@internal_unix_socket_path, 0o660)
         Log.info { "Bound to #{addr}" }
         addr
       end
@@ -84,7 +88,7 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(Config.instance.control_unix_path)
+        File.delete?(@internal_unix_socket_path)
       end
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.

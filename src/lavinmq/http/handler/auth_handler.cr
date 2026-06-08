@@ -6,7 +6,7 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User)
+      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User, @internal_unix_socket_path : String)
       end
 
       def call(context)
@@ -64,7 +64,7 @@ module LavinMQ
 
       private def internal_unix_socket?(context) : Bool
         if addr = context.request.remote_address.as?(Socket::UNIXAddress)
-          return addr.to_s == Config.instance.control_unix_path
+          return addr.to_s == @internal_unix_socket_path
         end
         false
       end
