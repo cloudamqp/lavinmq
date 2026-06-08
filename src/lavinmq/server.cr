@@ -4,7 +4,6 @@ require "systemd"
 require "./amqp"
 require "./mqtt/protocol"
 require "./rough_time"
-require "./process_start"
 require "../stdlib/*"
 require "./persister"
 require "./vhost_store"
@@ -25,6 +24,8 @@ require "./auth/jwt/jwks_fetcher"
 
 module LavinMQ
   class Server
+    PROCESS_START = Time.instant
+
     enum Protocol
       AMQP
       MQTT
@@ -535,7 +536,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.instant - LavinMQ::PROCESS_START
+      Time.instant - PROCESS_START
     end
   end
 end
