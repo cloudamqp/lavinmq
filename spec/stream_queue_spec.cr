@@ -461,6 +461,21 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "drops a publish when the store is closed concurrently" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("stream-closed-store-publish", args: stream_queue_args)
+        stream = s.vhosts["/"].queue("stream-closed-store-publish").as(LavinMQ::AMQP::Stream)
+        # Simulate a delete racing publish_internal: the store is closed after
+        # the @state.closed? check but before push, so push raises ClosedError.
+        # The publish must report Dropped, not raise (mirrors the queue spec).
+        stream.@msg_store.close
+        msg = LavinMQ::Message.new("", "stream-closed-store-publish", "body", LavinMQ::AMQP::Properties.new)
+        stream.publish(msg).dropped?.should be_true
+      end
+    end
+  end
+
   it "can requeue msgs per consumer" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

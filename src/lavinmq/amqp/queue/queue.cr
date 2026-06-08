@@ -605,6 +605,7 @@ module LavinMQ::AMQP
       publish_internal(msg)
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
@@ -616,9 +617,11 @@ module LavinMQ::AMQP
       end
       return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
+      pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
+        pushed = true
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
@@ -630,6 +633,11 @@ module LavinMQ::AMQP
       end
 
       PublishResult::Ok
+    rescue MessageStore::ClosedError
+      # A racing delete closed the store. If push hadn't stored the message it's
+      # dropped (avoids an HTTP 500); if it had, a later ClosedError from the
+      # post-publish expire-fiber check still means the publish succeeded.
+      pushed ? PublishResult::Ok : PublishResult::Dropped
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
