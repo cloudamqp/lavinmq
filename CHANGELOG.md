@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `lavinmq_uptime` and CPU/block-I/O counters resetting to zero on leader transitions in multi-node clusters [#2012](https://github.com/cloudamqp/lavinmq/pull/2012)
+- Server uptime and CPU/block-I/O counters resetting to zero on leader transitions in multi-node clusters [#2012](https://github.com/cloudamqp/lavinmq/pull/2012). Affected Prometheus metrics: `lavinmq_uptime`, `lavinmq_cpu_user_time_total`, `lavinmq_cpu_system_time_total`. Affected HTTP API fields: `uptime` on `/api/overview`; `uptime`, `cpu_user_time`, `cpu_sys_time`, `io_read_count`, `io_write_count` on `/api/nodes/{name}`
 
 ## [2.8.1] - 2026-05-18
 
