@@ -474,6 +474,11 @@ button {
   }
 }
 
+.btn-icon-svg {
+  min-width: 0;
+  padding: 0.5rem;
+}
+
 .btn-green {
   background: var(--color-success);
   border: 1px solid transparent;
@@ -2297,6 +2302,10 @@ pre.arguments .inactive-argument:before {
 
 .justify-center {
   justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
 }
 
 .items-center {

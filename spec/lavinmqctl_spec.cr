@@ -105,6 +105,16 @@ describe "LavinMQCtl" do
       end
     end
 
+    it "should trigger garbage collection and print stats" do
+      with_http_server do |(http, s)|
+        before = GC.prof_stats.gc_no
+        result = run_lavinmqctl(http.addr.to_s, ["gc_collect"])
+        result[:exit].should eq(0)
+        GC.prof_stats.gc_no.should be > before
+        result[:stdout].should contain("gc_no")
+      end
+    end
+
     it "should create and delete queue" do
       with_http_server do |(http, s)|
         result = run_lavinmqctl(http.addr.to_s, ["create_queue", "new_queue"])
