@@ -60,9 +60,9 @@ module LavinMQ
       vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
       Log.info { "Created vhost #{name}" }
       unless @users[user.name]?.try &.permissions[name]?
-        @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+        @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: save)
       end
-      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
+      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: save)
       @vhosts[name] = vhost
       save! if save
       notify_observers(Event::Added, name)
@@ -126,7 +126,7 @@ module LavinMQ
       raise ex
     end
 
-    private def save!
+    def save!
       Log.debug { "Saving vhosts to file" }
       path = File.join(@data_dir, "vhosts.json")
       File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }

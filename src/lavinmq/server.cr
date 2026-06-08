@@ -288,9 +288,15 @@ module LavinMQ
       @vhosts.close
     end
 
-    def add_parameter(parameter : Parameter)
-      @parameters.create parameter
+    def add_parameter(parameter : Parameter, save = true)
+      @parameters.create parameter, save: save
       apply_parameter(parameter)
+    end
+
+    # Persist the global parameter store; used to flush after a bulk import that
+    # created parameters with save: false.
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_parameter(component_name, parameter_name)
