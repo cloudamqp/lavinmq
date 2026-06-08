@@ -25,6 +25,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `log_level` | `-l`, `--log-level` | — | String | `info` | Log level: `trace`, `debug`, `info`, `notice`, `warn`, `error`, `fatal`, `none` |
 | `log_file` | — | — | String | (none) | Log file path |
 | `pidfile` | `--pidfile` | — | String | (empty) | PID file path |
+| `control_unix_path` | `--control-unix-path` | `LAVINMQ_CONTROL_UNIX_PATH` | String | `/tmp/lavinmqctl.sock` | UNIX socket that `lavinmqctl` connects to. Use a unique path per instance to run multiple servers on one host. |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
 | `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
