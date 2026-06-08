@@ -89,6 +89,7 @@ describe "LavinMQCtl" do
         result[:stdout].should contain("Version")
         result[:stdout].should contain("Connections")
         result[:stdout].should contain("Queues")
+        result[:stdout].should contain("Bindings")
       end
     end
 
@@ -100,6 +101,7 @@ describe "LavinMQCtl" do
         json.as_h?.should_not be_nil
         json.as_h.has_key?("Version").should be_true
         json.as_h.has_key?("Queues").should be_true
+        json.as_h.has_key?("Bindings").should be_true
       end
     end
 

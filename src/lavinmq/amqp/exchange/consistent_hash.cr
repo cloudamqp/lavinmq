@@ -48,6 +48,10 @@ module LavinMQ
         end
       end
 
+      def binding_count : Int32
+        @bindings.size
+      end
+
       def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         validate_delayed_binding!(destination)
         w = weight(routing_key)

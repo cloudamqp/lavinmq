@@ -356,7 +356,7 @@ module LavinMQ
       end
 
       private def overview_queue_metrics(vhosts, writer)
-        ready = unacked = connections = channels = consumers = queues = 0_u64
+        ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
@@ -369,6 +369,7 @@ module LavinMQ
             end
           end
           queues += vhost.queues_size
+          vhost.each_exchange { |e| bindings += e.binding_count }
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -386,6 +387,10 @@ module LavinMQ
                       value: queues,
                       type:  "gauge",
                       help:  "Queues available"})
+        writer.write({name:  "bindings",
+                      value: bindings,
+                      type:  "gauge",
+                      help:  "Bindings currently configured"})
         writer.write({name:  "queue_messages_ready",
                       value: ready,
                       type:  "gauge",
