@@ -8,28 +8,10 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      # In MQTT only topic/routing key is used in routing, but arguments is used to
-      # store QoS level for each subscription. To make @bingings treat the same subscription
-      # with different QoS as the same subscription this "custom" BindingKey is used which
-      # only includes the routing key in the hash.
-      struct BindingKey
-        def initialize(routing_key : String, arguments : AMQP::Table? = nil)
-          @binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
-        end
-
-        def inner
-          @binding_key
-        end
-
-        def hash
-          @binding_key.routing_key.hash
-        end
-      end
-
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
-        h[k] = Set(MQTT::Session).new
-      end
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      # session => {routing_key => binding arguments}, reverse index so a session's
+      # subscriptions can be looked up and listed without scanning every binding.
+      # In MQTT only the routing key identifies a subscription; arguments only carry QoS.
       @session_bindings = Hash(MQTT::Session, Hash(String, AMQP::Table?)).new do |h, k|
         h[k] = Hash(String, AMQP::Table?).new
       end
@@ -71,9 +53,9 @@ module LavinMQ
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.flat_map do |binding_key, ds|
-          ds.map do |d|
-            BindingDetails.new(name, vhost.name, binding_key.inner, d)
+        @session_bindings.flat_map do |session, rks|
+          rks.map do |rk, args|
+            BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(rk, args), session)
           end
         end
       end
@@ -93,7 +75,7 @@ module LavinMQ
         rks = @session_bindings[session]?
         return [] of BindingDetails unless rks
         rks.map do |rk, args|
-          BindingDetails.new(name, vhost.name, BindingKey.new(rk, args).inner, session)
+          BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(rk, args), session)
         end
       end
 
@@ -103,22 +85,15 @@ module LavinMQ
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
-        binding_key = BindingKey.new(routing_key, arguments)
-        @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
         @session_bindings[destination][routing_key] = arguments
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(routing_key, arguments), destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        binding_key = BindingKey.new(routing_key, arguments)
-        rk_bindings = @bindings[binding_key]
-        rk_bindings.delete destination
-        @bindings.delete binding_key if rk_bindings.empty?
-
         if rks = @session_bindings[destination]?
           rks.delete routing_key
           @session_bindings.delete destination if rks.empty?
@@ -126,10 +101,10 @@ module LavinMQ
 
         @tree.unsubscribe(routing_key, destination)
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(routing_key, arguments), destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+        delete if @auto_delete && @session_bindings.empty?
         true
       end
 
