@@ -64,7 +64,7 @@ module LavinMQ
 
       private def internal_unix_socket?(context) : Bool
         if addr = context.request.remote_address.as?(Socket::UNIXAddress)
-          return addr.to_s == HTTP::INTERNAL_UNIX_SOCKET
+          return addr.to_s == Config.instance.control_unix_path
         end
         false
       end
