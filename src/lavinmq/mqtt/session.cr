@@ -3,6 +3,7 @@ require "../error"
 require "../sortable_json"
 require "./client"
 require "./consts"
+require "./exchange"
 
 module LavinMQ
   module MQTT
