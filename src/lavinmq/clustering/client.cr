@@ -1,6 +1,7 @@
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
+require "../raft/runner"
 require "./checksums"
 require "./proxy"
 require "lz4"
