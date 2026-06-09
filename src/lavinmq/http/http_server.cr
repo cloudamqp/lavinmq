@@ -23,8 +23,13 @@ module LavinMQ
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
       def initialize(@amqp_server : LavinMQ::Server)
-        oauth_authenticator = @amqp_server.authenticator.as?(Auth::Chain)
-          .try(&.backends.select(Auth::OAuthAuthenticator).first?)
+        oauth_authenticator =
+          case auth = @amqp_server.authenticator
+          when Auth::Chain
+            auth.backends.select(Auth::OAuthAuthenticator).first?
+          when Auth::OAuthAuthenticator
+            auth
+          end
         handlers = [
           (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
