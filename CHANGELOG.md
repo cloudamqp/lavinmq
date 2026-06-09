@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discard settlement frames (`ack`/`nack`/`reject`) for an already-closed channel instead of closing the connection with `CHANNEL_ERROR`
 - Treat a publish to a concurrently-closed queue as dropped instead of raising, which previously surfaced as an HTTP publish `500`
 - Stop federation and shovel links before tearing down vhosts on shutdown, and keep the embedded amqp-client's routine connection-teardown logging (already reported via the `lmq.*` federation/shovel layers) out of the broker log
+- Reply with `Basic.GetEmpty` instead of erroring when a `basic_get` races a concurrent queue delete
 
 ## [2.8.1] - 2026-05-18
 

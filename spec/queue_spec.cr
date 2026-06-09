@@ -773,6 +773,22 @@ describe LavinMQ::AMQP::Queue do
         queue.message_count.should eq 1
       end
     end
+
+    it "reports no message instead of erroring when its queue is deleted during a get" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("get_during_delete", durable: false)
+          queue = s.vhosts["/"].queue("get_during_delete").as(LavinMQ::AMQP::Queue)
+          # The queue is deleted out from under an in-flight basic_get, so
+          # Queue#get raises ClosedError. It must surface as Basic.GetEmpty
+          # (false), not escape into the connection's read loop as an error.
+          s.vhosts["/"].delete_queue("get_during_delete")
+          delivered = false
+          queue.basic_get(true) { delivered = true }.should be_false
+          delivered.should be_false
+        end
+      end
+    end
   end
 
   describe "deduplication" do
