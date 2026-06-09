@@ -16,7 +16,11 @@ module LavinMQ
 
         if internal_unix_socket?(context)
           context.user = @direct_user
-        elsif auth = cookie_auth(context) || basic_auth(context)
+        end
+
+        # Explicit credentials override the direct user assigned to the
+        # internal unix socket.
+        if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if user = authenticate(username, password, context.request.remote_address)
             context.user = user
