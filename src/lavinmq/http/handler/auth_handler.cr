@@ -10,6 +10,8 @@ module LavinMQ
       end
 
       def call(context)
+        # A previous handler (e.g. OAuthController via its JWT cookie) may have
+        # already authenticated the request.
         return call_next(context) if context.user
 
         if internal_unix_socket?(context)
