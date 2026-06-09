@@ -1050,6 +1050,7 @@ module LavinMQ::AMQP
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
       json.object do
         details_tuple.each do |k, v|
+          next if k == :message_stats # rewritten below with the rate-history log
           json.field(k, v) unless v.nil?
         end
         json.field("message_stats") do

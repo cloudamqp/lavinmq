@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 
+### Fixed
+
+- `GET /api/queues/:vhost/:name` no longer emits the `message_stats` field twice
+
 ## [2.8.1] - 2026-05-18
 
 ### Changed
