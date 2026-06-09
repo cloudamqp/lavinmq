@@ -565,6 +565,35 @@ describe LavinMQ::Config do
     config.mqtt_bind.should eq "0.0.0.0"
   end
 
+  describe "stats_interval" do
+    it "accepts sub-second values" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          stats_interval = 500
+        CONFIG
+      end
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.stats_interval.should eq 500
+    end
+
+    it "rejects non-positive values" do
+      [0, -5000].each do |ms|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            stats_interval = #{ms}
+          CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(OptionParser::Exception, /stats_interval/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "tcp_proxy_protocol" do
     {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
       it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do

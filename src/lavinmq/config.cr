@@ -34,7 +34,14 @@ module LavinMQ
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
+      validate!
       setup_logger
+    end
+
+    private def validate!
+      unless @stats_interval.positive?
+        raise OptionParser::Exception.new("stats_interval must be positive (got #{@stats_interval})")
+      end
     end
 
     private def parse_config_from_cli(argv)
@@ -273,6 +280,7 @@ module LavinMQ
     def reload
       @sni_manager.clear
       parse_ini(@config_file)
+      validate!
       setup_logger
     end
 
