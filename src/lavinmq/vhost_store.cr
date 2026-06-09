@@ -17,6 +17,7 @@ module LavinMQ
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
+      @save_lock = Mutex.new
     end
 
     def []?(name : String) : VHost?
@@ -143,8 +144,12 @@ module LavinMQ
     def save!
       Log.debug { "Saving vhosts to file" }
       path = File.join(@data_dir, "vhosts.json")
-      File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-      File.rename "#{path}.tmp", path
+      # Serialize saves so concurrent create/delete don't race on the shared
+      # `.tmp` file and fail the rename.
+      @save_lock.synchronize do
+        File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
+        File.rename "#{path}.tmp", path
+      end
       @replicator.try &.replace_file path
     end
   end
