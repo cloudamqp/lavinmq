@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reply with `Basic.GetEmpty` instead of erroring when a `basic_get` races a concurrent queue delete
 - Serialize store saves (vhosts, parameters, users) so concurrent create/delete (under churn) don't race on the shared `.tmp` file and fail the rename
 - Don't crash the MQTT brokers on a vhost `Closed` event for a vhost that was never registered (e.g. one whose create didn't finish)
+- Serialize per-resource policy application and run stream `drop_overflow` under the message-store lock, fixing a segfault when policies were applied to a queue concurrently (e.g. under policy churn) with publishing/consuming
 
 ## [2.8.1] - 2026-05-18
 
