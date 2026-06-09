@@ -29,7 +29,7 @@ module LavinMQ
         in VHostStore::Event::Deleted
           @brokers.delete(vhost)
         in VHostStore::Event::Closed
-          @brokers[vhost].close
+          @brokers[vhost]?.try &.close
         end
       end
     end
