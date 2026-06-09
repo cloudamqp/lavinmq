@@ -182,7 +182,7 @@ describe LavinMQ::Config do
         config = LavinMQ::Config.new
         config.oauth_client_id = "test-client"
         config.oauth_issuer_url = URI.parse("https://idp.example.com")
-        config.oauth_mgmt_base_url = base_url
+        config.oauth_mgmt_base_url = URI.parse(base_url)
         config.oauth_mgmt_ui_enabled?.should eq(expected)
       end
     end
@@ -190,14 +190,14 @@ describe LavinMQ::Config do
     it "returns false when oauth_client_id is missing" do
       config = LavinMQ::Config.new
       config.oauth_issuer_url = URI.parse("https://idp.example.com")
-      config.oauth_mgmt_base_url = "https://mq.example.com"
+      config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
       config.oauth_mgmt_ui_enabled?.should be_false
     end
 
     it "returns false when oauth_issuer_url is missing" do
       config = LavinMQ::Config.new
       config.oauth_client_id = "test-client"
-      config.oauth_mgmt_base_url = "https://mq.example.com"
+      config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
       config.oauth_mgmt_ui_enabled?.should be_false
     end
   end

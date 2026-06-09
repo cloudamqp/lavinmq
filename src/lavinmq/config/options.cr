@@ -397,7 +397,7 @@ module LavinMQ
       @[IniOpt(section: "oauth", ini_name: client_id)]
       property oauth_client_id : String? = nil
       @[IniOpt(section: "oauth", ini_name: mgmt_base_url)]
-      property oauth_mgmt_base_url : String? = nil
+      property oauth_mgmt_base_url : URI? = nil
 
       # Internal: not exposed as configurable, only used for testing
       property deliver_loop_idle_timeout : Time::Span = 30.seconds

@@ -167,7 +167,7 @@ module LavinMQ
       private def cookies_secure? : Bool
         base_url = Config.instance.oauth_mgmt_base_url
         return true unless base_url
-        URI.parse(base_url).scheme != "http"
+        base_url.scheme != "http"
       end
 
       private def expire_cookie(context, name, path)
@@ -194,7 +194,7 @@ module LavinMQ
 
       private def build_redirect_uri : String
         base_url = Config.instance.oauth_mgmt_base_url || raise "oauth_mgmt_base_url must be configured when OAuth is enabled"
-        "#{base_url.chomp("/")}/oauth/callback"
+        "#{base_url.to_s.chomp("/")}/oauth/callback"
       end
 
       class OAuthError < Exception; end

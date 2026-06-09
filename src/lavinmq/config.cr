@@ -45,8 +45,7 @@ module LavinMQ
       oauth_mgmt_base_url_allowed?(base_url)
     end
 
-    private def oauth_mgmt_base_url_allowed?(base_url : String) : Bool
-      uri = URI.parse(base_url)
+    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
       return true if uri.scheme == "https"
       return false unless uri.scheme == "http"
       host = uri.host.try(&.downcase)
