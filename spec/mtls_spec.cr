@@ -224,12 +224,15 @@ def with_mtls_amqp_server(file = __FILE__, line = __LINE__, &)
   port = tcp_server.local_address.port
 
   s = LavinMQ::Server.new(config, nil)
+  amqp_server = LavinMQ::AMQP::Server.new(s, config)
   begin
-    spawn(name: "amqp mtls listen") { s.listen_tls(tcp_server, server_ctx, LavinMQ::Server::Protocol::AMQP) }
+    amqp_server.bind_tls(tcp_server, server_ctx)
+    spawn(name: "amqp mtls listen") { amqp_server.listen }
     Fiber.yield
 
     yield port, s
   ensure
+    amqp_server.close
     s.close
   end
 end

@@ -44,7 +44,7 @@ describe LavinMQ::AMQP::Queue do
       RoughTime.paused do |t|
         # Move time so message will be expired on startup
         t.travel 2.seconds
-        s.restart
+        restart_server(s)
         with_channel(s) do |ch|
           ch.queue("dlq").get.should_not be_nil, failure_message: "Message not dead lettered?!"
         end
@@ -194,7 +194,7 @@ describe LavinMQ::AMQP::Queue do
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queue("q").pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
-        s.restart
+        restart_server(s)
         s.vhosts["/"].queue("q").state.paused?.should be_true
         s.vhosts["/"].queue("q").resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
@@ -208,7 +208,7 @@ describe LavinMQ::AMQP::Queue do
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         File.touch(File.join(data_dir, ".paused"))
-        s.restart
+        restart_server(s)
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.vhosts["/"].queue("q").state.paused?.should be_true
       end
@@ -585,7 +585,7 @@ describe LavinMQ::AMQP::Queue do
       s.stop
       Dir.mkdir_p data_dir
       FileUtils.cp_r "#{s.vhosts["/"].data_dir}.copy", data_dir
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue_declare "transient", durable: false
         q[:message_count].should eq 0

@@ -19,6 +19,10 @@ module LavinMQ
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
 
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+        register_routes
+      end
+
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
@@ -73,7 +77,7 @@ module LavinMQ
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",
             node:            System.hostname,
-            uptime:          @amqp_server.uptime.to_i,
+            uptime:          @server.uptime.to_i,
             object_totals:   {
               channels:    channels,
               connections: connections,
@@ -113,7 +117,7 @@ module LavinMQ
                 rate: {{ name.id }}_rate
               },
             {% end %} } {% end %},
-            listeners:      @amqp_server.listeners,
+            listeners:      @amqp_server.listeners + @mqtt_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context

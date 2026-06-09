@@ -1,5 +1,4 @@
 require "./broker"
-require "../clustering/replicator"
 require "../observable"
 require "../vhost_store"
 
@@ -8,29 +7,51 @@ module LavinMQ
     class Brokers
       include Observer(VHostStore::Event)
 
-      def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator?)
+      def initialize(@vhosts : VHostStore)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
-        @vhosts.each do |(name, vhost)|
-          @brokers[name] = Broker.new(vhost, @replicator)
-        end
+        @closed = false
+        populate
         @vhosts.register_observer(self)
+      end
+
+      private def populate
+        @vhosts.each do |(name, vhost)|
+          @brokers[name] = Broker.new(vhost)
+        end
       end
 
       def []?(vhost : String) : Broker?
         @brokers[vhost]?
       end
 
+      def broker(vhost : String) : Broker
+        @brokers[vhost]
+      end
+
       def on(event : VHostStore::Event, data : Object?)
+        return if @closed
         return if data.nil?
         vhost = data.to_s
         case event
         in VHostStore::Event::Added
-          @brokers[vhost] = Broker.new(@vhosts[vhost], @replicator)
+          @brokers[vhost] = Broker.new(@vhosts[vhost])
         in VHostStore::Event::Deleted
-          @brokers.delete(vhost)
+          @brokers.delete(vhost).try &.close
         in VHostStore::Event::Closed
-          @brokers[vhost]?.try &.close
+          @brokers.delete(vhost).try &.close
         end
+      end
+
+      def close
+        return if @closed
+        @closed = true
+        @vhosts.unregister_observer(self)
+        close_brokers
+      end
+
+      private def close_brokers
+        @brokers.each_value &.close
+        @brokers.clear
       end
     end
   end

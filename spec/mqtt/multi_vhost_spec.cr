@@ -5,9 +5,29 @@ module MqttSpecs
   describe LavinMQ::MQTT do
     describe "multi-vhost" do
       it "should create mqtt exchange when vhost is created" do
-        with_amqp_server do |server|
+        with_server do |server|
           server.vhosts.create("new")
           server.vhosts["new"].exchange?(LavinMQ::MQTT::EXCHANGE).should_not be_nil
+        end
+      end
+
+      it "closes broker with retained messages when vhost is deleted" do
+        with_server do |server|
+          vhost = "retained"
+          server.vhosts.create(vhost)
+          broker = mqtt(server).broker(vhost)
+          broker.publish(MQTT::Protocol::Publish.new(
+            topic: "test/retain",
+            payload: "retained".to_slice,
+            packet_id: nil,
+            dup: false,
+            qos: 0u8,
+            retain: true
+          ))
+
+          server.vhosts.delete(vhost)
+
+          expect_raises(KeyError) { mqtt(server).broker(vhost) }
         end
       end
 

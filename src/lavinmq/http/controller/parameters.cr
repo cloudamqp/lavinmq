@@ -109,13 +109,13 @@ module LavinMQ
 
         get "/api/global-parameters" do |context, _params|
           refuse_unless_policymaker(context, user(context))
-          page(context, @amqp_server.parameters.values.map { |p| map_parameter(nil, p) })
+          page(context, @server.parameters.values.map { |p| map_parameter(nil, p) })
         end
 
         get "/api/global-parameters/:name" do |context, params|
           refuse_unless_policymaker(context, user(context))
           name = params["name"]
-          param = param(context, @amqp_server.parameters, {nil, name})
+          param = param(context, @server.parameters, {nil, name})
           map_parameter(nil, param).to_json(context.response)
           context
         end
@@ -129,8 +129,8 @@ module LavinMQ
             bad_request(context, "Field 'value' is required")
           end
           p = Parameter.new(nil, name, value)
-          is_update = @amqp_server.parameters[{nil, name}]?
-          @amqp_server.add_parameter(p)
+          is_update = @server.parameters[{nil, name}]?
+          @server.add_parameter(p)
           context.response.status_code = is_update ? 204 : 201
           context
         end
@@ -138,8 +138,8 @@ module LavinMQ
         delete "/api/global-parameters/:name" do |context, params|
           refuse_unless_policymaker(context, user(context))
           name = params["name"]
-          param(context, @amqp_server.parameters, {nil, name})
-          @amqp_server.delete_parameter(nil, name)
+          param(context, @server.parameters, {nil, name})
+          @server.delete_parameter(nil, name)
           context.response.status_code = 204
           context
         end

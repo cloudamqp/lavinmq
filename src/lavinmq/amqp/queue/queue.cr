@@ -217,7 +217,7 @@ module LavinMQ::AMQP
       dotqueue_file = File.join(@data_dir, ".queue")
       File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
       if durable?
-        @vhost.@replicator.try &.replace_file(dotqueue_file)
+        @vhost.replicator.try &.replace_file(dotqueue_file)
       end
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
@@ -295,7 +295,7 @@ module LavinMQ::AMQP
 
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
-      replicator = durable? ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.replicator : nil
       MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
@@ -546,7 +546,7 @@ module LavinMQ::AMQP
         @msg_store.delete
       end
       if durable?
-        @vhost.@replicator.try do |r|
+        @vhost.replicator.try do |r|
           dotqueue_file = File.join(@data_dir, ".queue")
           r.delete_file(dotqueue_file)
         end

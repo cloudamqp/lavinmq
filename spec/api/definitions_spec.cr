@@ -439,9 +439,9 @@ describe LavinMQ::HTTP::Server do
             "component": "shovel",
             "vhost": "/",
             "value": {
-              "src-uri": "#{s.amqp_url}",
+              "src-uri": "#{amqp(s).url}",
               "src-queue": "shovel_will_declare_q1",
-              "dest-uri": "#{s.amqp_url}",
+              "dest-uri": "#{amqp(s).url}",
               "dest-queue": "shovel_will_declare_q1"
             }
           }

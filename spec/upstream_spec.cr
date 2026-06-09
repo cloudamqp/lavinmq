@@ -17,7 +17,7 @@ module UpstreamSpecHelpers
     downstream_vhost = s.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(
       downstream_vhost, upstream_name,
-      "#{s.amqp_url}/upstream", exchange, queue,
+      "#{amqp(s).url}/upstream", exchange, queue,
       LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
       msg_ttl: nil, prefetch: prefetch, reconnect_delay: reconnect_delay
     )
@@ -43,7 +43,7 @@ module UpstreamSpecHelpers
   end
 
   def self.with_fe_chain(s : LavinMQ::Server, chain_length = 10, max_hops = chain_length, &)
-    url = URI.parse(s.amqp_url)
+    url = URI.parse(amqp(s).url)
     # Create ten vhosts, each with an exchange "fe"
     # Setup a chain of exchange federation with v10 as downstream
     # and v1 as "top upstream"
@@ -78,7 +78,7 @@ describe LavinMQ::Federation::Upstream do
       with_amqp_server do |s|
         vhost_downstream = s.vhosts.create("/")
         vhost_upstream = s.vhosts.create("upstream")
-        upstream = LavinMQ::Federation::Upstream.new(vhost_downstream, "qf test upstream", "#{s.amqp_url}/upstream", nil, "")
+        upstream = LavinMQ::Federation::Upstream.new(vhost_downstream, "qf test upstream", "#{amqp(s).url}/upstream", nil, "")
 
         with_channel(s) do |ch|
           ch.queue("federated_q")
@@ -95,7 +95,7 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", amqp(s).url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -114,7 +114,7 @@ describe LavinMQ::Federation::Upstream do
     it "should not federate queue if no downstream consumer" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream wo downstream", amqp(s).url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x = UpstreamSpecHelpers.setup_qs(ch).first
@@ -132,7 +132,7 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue with ack mode no-ack" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", s.amqp_url, nil, "federation_q1",
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream no-ack", amqp(s).url, nil, "federation_q1",
           ack_mode: LavinMQ::Federation::AckMode::NoAck)
 
         with_channel(s) do |ch|
@@ -152,7 +152,7 @@ describe LavinMQ::Federation::Upstream do
     it "should federate queue with ack mode on-publish" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", s.amqp_url, nil, "federation_q1",
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream on-publish", amqp(s).url, nil, "federation_q1",
           ack_mode: LavinMQ::Federation::AckMode::OnPublish)
 
         with_channel(s) do |ch|
@@ -206,7 +206,7 @@ describe LavinMQ::Federation::Upstream do
     it "should resume federation after downstream reconnects" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream reconnect", amqp(s).url, nil, "federation_q1")
         msgs = [] of AMQP::Client::DeliverMessage
 
         with_channel(s) do |ch|
@@ -238,7 +238,7 @@ describe LavinMQ::Federation::Upstream do
     it "should keep message properties" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", s.amqp_url, nil, "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream props", amqp(s).url, nil, "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -401,7 +401,7 @@ describe LavinMQ::Federation::Upstream do
     it "should federate exchange" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", s.amqp_url, "upstream_ex")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "ef test upstream", amqp(s).url, "upstream_ex")
 
         with_channel(s) do |ch|
           downstream_ex = ch.exchange("downstream_ex", "topic")
@@ -582,7 +582,7 @@ describe LavinMQ::Federation::Upstream do
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf x-received-from", s.amqp_url, exchange: nil, queue: "federation_q1")
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf x-received-from", amqp(s).url, exchange: nil, queue: "federation_q1")
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
@@ -618,7 +618,7 @@ describe LavinMQ::Federation::Upstream do
         q2 = vhost2.queue("q2")
         q3 = vhost3.queue("q3")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(amqp(s).url)
 
         vhost1_url = url.dup
         vhost1_url.path = vhost1.name
@@ -705,7 +705,7 @@ describe LavinMQ::Federation::Upstream do
         downstream_q = vhost2.queue("downstream_q")
         downstream_ex.bind(downstream_q, "#")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(amqp(s).url)
         url.path = vhost1.name
         upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-received-from", url.to_s, exchange: "upstream_ex", queue: nil)
 
@@ -752,7 +752,7 @@ describe LavinMQ::Federation::Upstream do
         downstream_q = vhost3.queue("q3")
         downstream_ex = vhost3.exchange("ex3")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(amqp(s).url)
 
         vhost1_url = url.dup
         vhost1_url.path = vhost1.name
@@ -809,7 +809,7 @@ describe LavinMQ::Federation::Upstream do
 
         upstream_ex = vhost1.exchange("upstream_ex")
 
-        url = URI.parse(s.amqp_url)
+        url = URI.parse(amqp(s).url)
         url.path = vhost1.name
         upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-bound-from", url.to_s, exchange: "upstream_ex", queue: nil)
 

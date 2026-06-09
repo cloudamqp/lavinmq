@@ -24,7 +24,7 @@ module LavinMQ
     module UserHelpers
       private def user(context, params, key = "name")
         name = params[key]
-        u = @amqp_server.users[name]?
+        u = @server.users[name]?
         not_found(context, "Not Found") if u.nil? || u.hidden?
         u
       end
@@ -36,13 +36,13 @@ module LavinMQ
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.values.reject(&.hidden?)
+          page(context, @server.users.values.reject(&.hidden?)
             .map { |u| UserView.new(u) })
         end
 
         get "/api/users/without-permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          arr = @amqp_server.users.values.reject(&.hidden?)
+          arr = @server.users.values.reject(&.hidden?)
             .select(&.permissions.empty?)
             .map { |u| UserView.new(u) }
           page(context, arr)
@@ -59,7 +59,7 @@ module LavinMQ
             unless u.as_s?
               bad_request(context, "Field 'users' must be array of user names")
             end
-            @amqp_server.users.delete(u.as_s, false)
+            @server.users.delete(u.as_s, false)
           end
           context.response.status_code = 204
           context
@@ -83,23 +83,23 @@ module LavinMQ
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
           hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
-          unless @amqp_server.flow?
+          unless @server.flow?
             precondition_failed(context, "Server low on disk space, can not create new user")
           end
-          if u = @amqp_server.users[name]?
+          if u = @server.users[name]?
             if password_hash
               u.update_password_hash(password_hash, hashing_algorithm)
             elsif password
               u.update_password(password)
             end
             u.tags = tags if body["tags"]?
-            @amqp_server.users.save!
+            @server.users.save!
             context.response.status_code = 204
           else
             if password_hash
-              @amqp_server.users.add(name, password_hash, hashing_algorithm, tags)
+              @server.users.add(name, password_hash, hashing_algorithm, tags)
             elsif password
-              @amqp_server.users.create(name, password, tags)
+              @server.users.create(name, password, tags)
             else
               bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
             end
@@ -115,7 +115,7 @@ module LavinMQ
         delete "/api/users/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           u = user(context, params)
-          @amqp_server.users.delete(u.name)
+          @server.users.delete(u.name)
           context.response.status_code = 204
           context
         end

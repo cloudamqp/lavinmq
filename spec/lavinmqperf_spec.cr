@@ -57,16 +57,11 @@ describe "LavinMQPerf" do
 
     it "should verify summary averages are correct" do
       with_amqp_server do |s|
-        # Set up TCP listener for AMQP connections
-        tcp_server = TCPServer.new("localhost", 0)
-        port = tcp_server.local_address.port
-        spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
-
         io = IO::Memory.new
         throughput = LavinMQPerf::AMQP::Throughput.new(io)
 
         throughput.run([
-          "--uri=amqp://guest:guest@localhost:#{port}",
+          "--uri=amqp://guest:guest@localhost:#{amqp_port(s)}",
           "-x", "1",
           "-y", "1",
           "-z", "3",
@@ -102,8 +97,6 @@ describe "LavinMQPerf" do
         reported_avg_consume.should be > 0
         measured_avg_consume = consume_rates.sum / consume_rates.size
         (reported_avg_consume.to_f / measured_avg_consume).should be_close(1.0, 0.5)
-
-        tcp_server.close
       end
     end
   end

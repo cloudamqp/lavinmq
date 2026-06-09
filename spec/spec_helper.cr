@@ -17,6 +17,8 @@ require "spec"
 require "file_utils"
 require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
+require "../src/lavinmq/amqp/server"
+require "../src/lavinmq/mqtt/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
 require "http/client"
@@ -49,6 +51,103 @@ module LavinMQ
   end
 end
 
+class LavinMQ::Server
+  def restart_stores_for_specs
+    stop
+    Dir.mkdir_p @data_dir
+    LavinMQ::Schema.migrate(@data_dir, @replicator)
+    @persister = LavinMQ::Persister.new(@data_dir)
+    @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
+    @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
+    @vhosts = LavinMQ::VHostStore.new(@data_dir, @users, @replicator, @persister)
+    @parameters = LavinMQ::ParameterStore(LavinMQ::Parameter).new(@data_dir, "parameters.json", @replicator)
+    apply_parameter
+    start_log_exchange
+    @closed.set(false)
+    Fiber.yield
+  end
+end
+
+SPEC_AMQP_SERVERS = {} of LavinMQ::Server => LavinMQ::AMQP::Server
+SPEC_MQTT_SERVERS = {} of LavinMQ::Server => LavinMQ::MQTT::Server
+
+def register_amqp(server : LavinMQ::Server, amqp_server : LavinMQ::AMQP::Server) : LavinMQ::AMQP::Server
+  SPEC_AMQP_SERVERS[server] = amqp_server
+end
+
+def register_mqtt(server : LavinMQ::Server, mqtt_server : LavinMQ::MQTT::Server) : LavinMQ::MQTT::Server
+  SPEC_MQTT_SERVERS[server] = mqtt_server
+end
+
+def unregister_amqp(server : LavinMQ::Server) : Nil
+  SPEC_AMQP_SERVERS.delete(server)
+end
+
+def unregister_mqtt(server : LavinMQ::Server) : Nil
+  SPEC_MQTT_SERVERS.delete(server)
+end
+
+def amqp(server : LavinMQ::Server) : LavinMQ::AMQP::Server
+  SPEC_AMQP_SERVERS[server]
+end
+
+def mqtt(server : LavinMQ::Server) : LavinMQ::MQTT::Server
+  SPEC_MQTT_SERVERS[server]
+end
+
+def protocol_listeners(server : LavinMQ::Server)
+  listeners = [] of LavinMQ::ProtocolListenerDetails
+  SPEC_AMQP_SERVERS[server]?.try { |amqp_server| listeners.concat(amqp_server.listeners) }
+  SPEC_MQTT_SERVERS[server]?.try { |mqtt_server| listeners.concat(mqtt_server.listeners) }
+  listeners
+end
+
+private def protocol_server_state(server : LavinMQ::ProtocolServer)
+  tcp_listener = server.@listeners.select(TCPServer).first?
+  {
+    config:      server.@config,
+    address:     tcp_listener.try(&.local_address.address),
+    port:        tcp_listener.try(&.local_address.port),
+    tls_context: tcp_listener.try { |listener| server.@tls_contexts[listener]? },
+    listening:   server.listening?,
+  }
+end
+
+private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, name : String) : Nil
+  address = state[:address] || return
+  port = state[:port] || return
+
+  if tls_context = state[:tls_context]
+    server.bind_tls(address, port, tls_context)
+  else
+    server.bind_tcp(address, port)
+  end
+  spawn(name: name) { server.listen } if state[:listening]
+end
+
+def restart_server(server : LavinMQ::Server)
+  amqp_server = SPEC_AMQP_SERVERS[server]?
+  mqtt_server = SPEC_MQTT_SERVERS[server]?
+  amqp_state = amqp_server.try { |amqp| protocol_server_state(amqp) }
+  mqtt_state = mqtt_server.try { |mqtt| protocol_server_state(mqtt) }
+  amqp_server.try &.close
+  mqtt_server.try &.close
+  unregister_amqp(server)
+  unregister_mqtt(server)
+
+  server.restart_stores_for_specs
+
+  if amqp_state
+    amqp_server = register_amqp(server, LavinMQ::AMQP::Server.new(server, amqp_state[:config]))
+    restore_protocol_listener(amqp_server, amqp_state, "amqp listener")
+  end
+  if mqtt_state
+    mqtt_server = register_mqtt(server, LavinMQ::MQTT::Server.new(server, mqtt_state[:config]))
+    restore_protocol_listener(mqtt_server, mqtt_state, "mqtt listener")
+  end
+  Fiber.yield
+end
+
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
@@ -59,13 +158,6 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  s.@listeners
-    .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
-    .keys
-    .select(TCPServer)
-    .first
-    .local_address
-    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -75,7 +167,7 @@ ensure
 end
 
 def amqp_port(s)
-  s.@listeners.keys.select(TCPServer).first.local_address.port
+  amqp(s).@listeners.select(TCPServer).first.local_address.port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep
@@ -128,15 +220,18 @@ def with_amqp_server(tls = false, replicator = nil,
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
   s = LavinMQ::Server.new(config, replicator)
+  amqp_server = LavinMQ::AMQP::Server.new(s, config)
+  register_amqp(s, amqp_server)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
+      amqp_server.bind_tls(tcp_server, ctx)
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
+      amqp_server.bind_tcp(tcp_server)
     end
+    spawn(name: "amqp listener") { amqp_server.listen }
     Fiber.yield
     yield s
   ensure
@@ -158,13 +253,17 @@ def with_amqp_server(tls = false, replicator = nil,
             "If they should be closed, please delete them in the end of the spec."
       raise Spec::AssertionFailed.new(msg, file, line)
     end
+    amqp(s).close
+    unregister_amqp(s)
     s.close
   end
 end
 
 def with_http_server(file = __FILE__, line = __LINE__, &)
   with_amqp_server(file: file, line: line) do |s|
-    h = LavinMQ::HTTP::Server.new(s)
+    mqtt_server = LavinMQ::MQTT::Server.new(s)
+    register_mqtt(s, mqtt_server)
+    h = LavinMQ::HTTP::Server.new(s, amqp(s), mqtt_server)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
       spawn(name: "http listen") { h.listen }
@@ -172,6 +271,8 @@ def with_http_server(file = __FILE__, line = __LINE__, &)
       yield({HTTPSpecHelper.new(addr), s})
     ensure
       h.close
+      mqtt(s).close
+      unregister_mqtt(s)
     end
   end
 end
