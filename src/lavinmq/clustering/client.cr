@@ -305,7 +305,7 @@ module LavinMQ
             # checksums.sha1(.tmp) is local-only replication metadata, never
             # sent by the leader; skip it so the "delete files not on leader"
             # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp", ".join_target")
             yield path
           end
         end
