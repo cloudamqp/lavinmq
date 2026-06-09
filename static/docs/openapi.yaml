@@ -85,6 +85,8 @@ components:
       "$ref": "./schemas/nodes.yaml#/node"
     nodes:
       "$ref": "./schemas/nodes.yaml#/nodes"
+    gc_stats:
+      "$ref": "./schemas/nodes.yaml#/gc_stats"
     parameter:
       "$ref": "./schemas/parameters.yaml#/parameter"
     parameters:
@@ -228,8 +230,14 @@ paths:
     "$ref": "./paths/main.yaml#/~1extensions"
   "/nodes":
     "$ref": "./paths/nodes.yaml#/~1nodes"
+  "/nodes/gc_stats":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1gc_stats"
+  "/nodes/gc_collect":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1gc_collect"
   "/nodes/{name}":
     "$ref": "./paths/nodes.yaml#/~1nodes~1{name}"
+  "/nodes/{name}/gc_collect":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1{name}~1gc_collect"
   "/parameters":
     "$ref": "./paths/parameters.yaml#/~1parameters"
   "/parameters/{component}":

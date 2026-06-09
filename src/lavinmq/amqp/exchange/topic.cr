@@ -121,6 +121,10 @@ module LavinMQ
         end
       end
 
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
+      end
+
       def bind(destination : AMQP::Destination, routing_key, arguments = nil)
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)

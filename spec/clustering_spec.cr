@@ -592,6 +592,55 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "removes empty queue dir from follower when queue is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("dirdelete_test", durable: true)
+          q.publish_confirm "hello"
+          qdir = s.vhosts["/"].queue("dirdelete_test").as(LavinMQ::AMQP::Queue).@data_dir
+          qdir_relative = qdir[(s.data_dir.size + 1)..]
+          replicated_qdir = File.join(cluster.follower_config.data_dir, qdir_relative)
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+          wait_for { Dir.exists?(replicated_qdir) }
+          q.delete
+          wait_for { !Dir.exists?(replicated_qdir) }
+        end
+      end
+    end
+  end
+
+  it "keeps the queue dir on follower when a segment is deleted but the queue isn't" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("segdelete_test", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 100)
+          # publish enough to span more than one segment, so an older fully-acked
+          # segment can be deleted while the active write segment + .queue remain
+          101.times { q.publish_confirm body }
+
+          dq = s.vhosts["/"].queue("segdelete_test").as(LavinMQ::AMQP::DurableQueue)
+          dq.@msg_store.@segments.size.should be > 1
+          repl_qdir = File.join(cluster.follower_config.data_dir, dq.@data_dir[(s.data_dir.size + 1)..])
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+          files_before = Dir.children(repl_qdir).size
+
+          # consume and ack everything; fully-acked non-write segments get deleted
+          q.subscribe(no_ack: false, &.ack)
+          wait_for { dq.message_count == 0 && dq.@msg_store.@segments.size == 1 }
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+          # a segment file was deleted, but the queue dir exists
+          Dir.exists?(repl_qdir).should be_true
+          Dir.children(repl_qdir).size.should be < files_before
+        end
+      end
+    end
+  end
+
   it "does not replicate .queue file for non-durable queue" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|

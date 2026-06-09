@@ -44,6 +44,20 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose the number of bindings" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthb")
+        vhost.declare_queue("bq", true, false)
+        vhost.bind_queue("bq", "amq.topic", "rk1")
+        vhost.bind_queue("bq", "amq.topic", "rk2")
+        raw = http.get("/metrics").body
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+        bindings = parsed_metrics.find { |m| m[:key] == "lavinmq_bindings" }
+        bindings.should_not be_nil
+        bindings.try(&.[:value].should eq 2)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -111,6 +125,16 @@ describe LavinMQ::HTTP::PrometheusController do
         mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
         mfile_metric.should_not be_nil
         mfile_metric.not_nil![:value].should be >= 0
+      end
+    end
+
+    it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
+      uptime1 = uninitialized Time::Span
+      with_metrics_server do |_, server|
+        uptime1 = server.uptime
+      end
+      with_metrics_server do |_, server|
+        server.uptime.should be > uptime1
       end
     end
   end

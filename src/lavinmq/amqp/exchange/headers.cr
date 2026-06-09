@@ -26,6 +26,10 @@ module LavinMQ
         end
       end
 
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
+      end
+
       def bind(destination : Destination, routing_key, arguments)
         validate_delayed_binding!(destination)
         validate!(arguments)
