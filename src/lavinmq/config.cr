@@ -291,6 +291,13 @@ module LavinMQ
       broadcast_backend.append(in_memory_backend, @log_level)
 
       ::Log.setup(@log_level, broadcast_backend)
+      # Federation and shovels use the embedded amqp-client, whose connection
+      # read loop logs routine teardown (EOF / failed CloseOk) at ERROR whenever
+      # a connection drops — unavoidable on broker shutdown and under connection
+      # churn. LavinMQ already reports those events through its own
+      # federation/shovel layers (lmq.*), so keep the library's redundant
+      # connection log out of the broker log.
+      ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
