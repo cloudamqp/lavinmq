@@ -821,6 +821,11 @@ module LavinMQ::AMQP
       get(no_ack) do |env|
         yield env
       end.tap { ensure_expire_fiber }
+    rescue ClosedError | MessageStore::ClosedError
+      # The queue was closed/deleted concurrently with the get (its @closed flag
+      # or the message store). Report no message available (Basic.GetEmpty)
+      # rather than letting the error escape into the connection's read loop.
+      false
     end
 
     # If nil is returned it means that the delivery limit is reached
