@@ -82,6 +82,20 @@ module LavinMQ
     end
 
     def close
+      # Stop outbound links (federation upstreams and shovels) on every vhost
+      # before tearing any vhost down. A link holds an AMQP client connection to
+      # another vhost, so force-closing one vhost's connections while another
+      # vhost's link is still live would close that link's socket from under it —
+      # which the amqp-client read loop logs as "connection closed unexpectedly".
+      # Stopping them first lets each link close cleanly against a live peer.
+      WaitGroup.wait do |wg|
+        @vhosts.each_value do |vhost|
+          wg.spawn do
+            vhost.stop_shovels
+            vhost.stop_upstream_links
+          end
+        end
+      end
       WaitGroup.wait do |wg|
         @vhosts.each_value do |vhost|
           wg.spawn do

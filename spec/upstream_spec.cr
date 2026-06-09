@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 require "../src/lavinmq/federation/upstream"
 
 module UpstreamSpecHelpers
@@ -991,6 +992,27 @@ describe LavinMQ::Federation::Upstream do
             v3fe.publish_in_count.should eq 0
           end
         end
+      end
+    end
+  end
+
+  describe "shutdown" do
+    it "closes federation links without logging unexpected-close errors" do
+      # A federation link's upstream connection lives on another vhost. On
+      # broker shutdown every link must be stopped first (cleanly closing those
+      # connections against still-live peers); otherwise a peer vhost can
+      # force-close the link's socket mid-flight and the amqp-client read loop
+      # logs "connection closed unexpectedly" / "Couldn't write CloseOk frame".
+      Log.capture("amqp.client.connection", :error) do |logs|
+        with_amqp_server do |s|
+          upstream, up, down = UpstreamSpecHelpers.setup_federation(s, "shutdown-test", nil, "uq")
+          up.declare_queue("uq", false, false)
+          down.declare_queue("dq", false, false)
+          link = upstream.link(down.queue("dq"))
+          wait_for { link.state.running? }
+        end
+        # with_amqp_server's teardown has now run s.close (the broker shutdown).
+        logs.empty
       end
     end
   end
