@@ -112,6 +112,23 @@ describe LavinMQ::Server do
     end
   end
 
+  describe "unexpected frames" do
+    it "closes the connection with unexpected frame for heartbeat on non-zero channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_byte(8_u8)                             # heartbeat frame type
+          IO::ByteFormat::NetworkEndian.encode(1_u16, io) # channel
+          IO::ByteFormat::NetworkEndian.encode(0_u32, io) # frame size
+          io.write_byte(206_u8)                           # frame end
+          io.flush
+
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Close)
+          close.reply_code.should eq 505
+        end
+      end
+    end
+  end
+
   describe "channel_max" do
     it "should not accept a channel_max from the client lower than the server config" do
       with_amqp_server do |s|
