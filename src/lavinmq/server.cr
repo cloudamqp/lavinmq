@@ -360,7 +360,7 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval.milliseconds.to_i
+      interval = @config.stats_interval / 1000.0
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 

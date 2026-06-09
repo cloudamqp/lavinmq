@@ -25,6 +25,22 @@ module LavinMQ
     end
   end
 
+  describe Server do
+    describe "#update_system_metrics" do
+      it "yields finite rates with sub-second stats_interval" do
+        with_stats_interval(500) do
+          with_amqp_server do |s|
+            s.update_system_metrics(nil)
+            s.update_system_metrics(nil)
+            {s.user_time_log, s.sys_time_log, s.blocks_out_log, s.blocks_in_log}.each do |log|
+              log.each &.finite?.should be_true
+            end
+          end
+        end
+      end
+    end
+  end
+
   describe Stats do
     describe "#update_rates" do
       [1, 50, 250, 500, 999, 1000, 5000, 30_000].each do |ms|
