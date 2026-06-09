@@ -30,8 +30,8 @@ module LavinMQ
           return
         end
 
-        context.response.cookies << ::HTTP::Cookie.new(name: "oauth_token", value: "", path: "/", max_age: 0.seconds)
-        context.response.cookies << ::HTTP::Cookie.new(name: "m", value: "", path: "/", max_age: 0.seconds)
+        expire_cookie(context, "oauth_token", cookie_path)
+        expire_cookie(context, "m", cookie_path)
       end
 
       private def authenticate_token(token, remote_address) : Auth::BaseUser?
@@ -63,12 +63,8 @@ module LavinMQ
         verifier, challenge = OAuth2::PKCE.generate
         state = Random::Secure.urlsafe_base64(32)
 
-        # Path must be "/" (not "/oauth"): when the UI is mounted under a
-        # reverse-proxy base path the browser evaluates the cookie path against
-        # the public URL (e.g. /lavinmq/oauth/callback), which "/oauth" would
-        # not match, so the state cookie would not be sent back on the callback.
         set_cookie(context, "oauth_state", "#{state}:#{verifier}",
-          path: "/", http_only: true,
+          path: cookie_path, http_only: true,
           samesite: ::HTTP::Cookie::SameSite::Lax, max_age: 5.minutes)
 
         params = ::URI::Params.build do |p|
@@ -107,11 +103,11 @@ module LavinMQ
         max_age = token_response.expires_in.try { |e| Math.min(e, 8.hours.total_seconds.to_i64).seconds } || 8.hours
 
         set_cookie(context, "oauth_token", token_response.access_token,
-          path: "/", http_only: true, samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
+          path: cookie_path, http_only: true, samesite: ::HTTP::Cookie::SameSite::Lax, max_age: max_age)
         value = Base64.strict_encode("#{user.name}:")
         set_cookie(context, "m", "|oauth:#{URI.encode_path_segment(value)}",
-          path: "/", samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
-        expire_cookie(context, "oauth_state", "/")
+          path: cookie_path, samesite: ::HTTP::Cookie::SameSite::Lax, max_age: max_age)
+        expire_cookie(context, "oauth_state", cookie_path)
 
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = ".."
@@ -126,8 +122,8 @@ module LavinMQ
       end
 
       private def handle_logout(context) : ::HTTP::Server::Context
-        expire_cookie(context, "oauth_token", "/")
-        expire_cookie(context, "m", "/")
+        expire_cookie(context, "oauth_token", cookie_path)
+        expire_cookie(context, "m", cookie_path)
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = "../login"
         context
@@ -172,6 +168,13 @@ module LavinMQ
 
       private def expire_cookie(context, name, path)
         context.response.cookies << ::HTTP::Cookie.new(name: name, value: "", path: path, max_age: 0.seconds)
+      end
+
+      # Scope auth cookies to the path the UI is served under (the path of
+      # oauth_mgmt_base_url, e.g. "/lavinmq" behind a proxy), defaulting to "/".
+      private def cookie_path : String
+        path = Config.instance.oauth_mgmt_base_url.try(&.path).to_s.chomp("/")
+        path.empty? ? "/" : path
       end
 
       private def oauth_error(context, status_code, message) : NoReturn
