@@ -306,6 +306,7 @@ module LavinMQ
         configure_tls_context(ctx)
       end
       @config.sni_manager.reload
+      setup_sni_callbacks
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
@@ -348,47 +349,32 @@ module LavinMQ
     end
 
     private def setup_sni_callbacks
-      return if @config.sni_manager.empty?
-
-      # Set up SNI callback for AMQP TLS context
+      sni_manager = @config.sni_manager
       if amqp_tls = @amqp_tls_context
-        sni_manager = @config.sni_manager
-        amqp_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
-            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
-            sni_host.amqp_tls_context
-          else
-            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
+        self.class.install_sni_callback(amqp_tls, sni_manager, :amqp)
       end
-
-      # Set up SNI callback for MQTT TLS context
       if mqtt_tls = @mqtt_tls_context
-        sni_manager = @config.sni_manager
-        mqtt_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
-            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
-            sni_host.mqtt_tls_context
-          else
-            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
-            nil
-          end
-        end
+        self.class.install_sni_callback(mqtt_tls, sni_manager, :mqtt)
       end
-
-      # Set up SNI callback for HTTP TLS context
       if http_tls = @http_tls_context
-        sni_manager = @config.sni_manager
-        http_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
-            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
-            sni_host.http_tls_context
-          else
-            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
-            nil
+        self.class.install_sni_callback(http_tls, sni_manager, :http)
+      end
+    end
+
+    def self.install_sni_callback(ctx : OpenSSL::SSL::Context::Server,
+                                  sni_manager : SNIManager,
+                                  protocol : Symbol)
+      ctx.on_server_name do |hostname|
+        if sni_host = sni_manager.get_host(hostname)
+          Log.debug { "SNI (#{protocol}): Using certificate for hostname '#{hostname}'" }
+          case protocol
+          when :amqp then sni_host.amqp_tls_context
+          when :mqtt then sni_host.mqtt_tls_context
+          else            sni_host.http_tls_context
           end
+        else
+          Log.debug { "SNI (#{protocol}): No specific certificate for '#{hostname}', using default" }
+          nil
         end
       end
     end

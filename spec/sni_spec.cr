@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "../src/stdlib/openssl_on_server_name"
+require "../src/lavinmq/launcher"
 
 describe LavinMQ::SNIHost do
   it "creates TLS contexts with default settings" do
@@ -467,6 +468,55 @@ describe "SNI end-to-end" do
     begin
       ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "mtls.localhost")
       ssl_client.gets
+      ssl_client.close
+    ensure
+      tcp_client.close
+    end
+
+    tcp_server.close
+    server_done.receive
+  end
+end
+
+describe LavinMQ::Launcher do
+  it "serves a per-host certificate for an SNI host added after the callback was installed" do
+    sni_manager = LavinMQ::SNIManager.new
+    sni_manager.empty?.should be_true
+    default_ctx = OpenSSL::SSL::Context::Server.new
+    default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    default_ctx.private_key = "spec/resources/server_key.pem"
+
+    LavinMQ::Launcher.install_sni_callback(default_ctx, sni_manager, :amqp)
+
+    foobar_host = LavinMQ::SNIHost.new("foobar.localhost")
+    foobar_host.tls_cert = "spec/resources/foobar_localhost_certificate.pem"
+    foobar_host.tls_key = "spec/resources/foobar_localhost_key.pem"
+    sni_manager.add_host(foobar_host)
+
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    port = tcp_server.local_address.port
+    server_done = Channel(Nil).new
+
+    spawn do
+      if client = tcp_server.accept?
+        begin
+          ssl_socket = OpenSSL::SSL::Socket::Server.new(client, default_ctx)
+          ssl_socket.close
+        rescue
+          # Ignore handshake errors in server
+        ensure
+          client.close
+        end
+      end
+      server_done.send(nil)
+    end
+
+    tcp_client = TCPSocket.new("127.0.0.1", port)
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::PEER
+    client_ctx.ca_certificates = "spec/resources/foobar_localhost_certificate.pem"
+    begin
+      ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "foobar.localhost")
       ssl_client.close
     ensure
       tcp_client.close
