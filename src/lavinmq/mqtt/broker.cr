@@ -22,10 +22,10 @@ module LavinMQ
       # - Handling the retain store
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
-      def initialize(@vhost : VHost, @replicator : Clustering::Replicator?)
+      def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.register_exchange(@exchange)
       end

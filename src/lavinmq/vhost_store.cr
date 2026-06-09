@@ -18,6 +18,7 @@ module LavinMQ
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
       @save_lock = Mutex.new
+      load!
     end
 
     def []?(name : String) : VHost?
@@ -119,7 +120,7 @@ module LavinMQ
       end
     end
 
-    def load!
+    private def load!
       path = File.join(@data_dir, "vhosts.json")
       if File.exists? path
         Log.debug { "Loading vhosts from file" }

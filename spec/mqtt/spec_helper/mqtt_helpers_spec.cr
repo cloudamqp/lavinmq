@@ -10,8 +10,8 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    listener = server.listeners.find(&.[:protocol].mqtt?)
-    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: LavinMQ::Server::Protocol, port: Int32))
+    listener = protocol_listeners(server).find { |l| l[:protocol] == :mqtt }
+    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: Symbol, port: Int32))
 
     socket = TCPSocket.new(
       tcp_listener[:ip_address],
@@ -40,12 +40,22 @@ module MqttHelpers
     mqtt_server = TCPServer.new("localhost", 0)
     amqp_server = TCPServer.new("localhost", 0)
     s = LavinMQ::Server.new(LavinMQ::Config.instance, nil)
+    amqp = LavinMQ::AMQP::Server.new(s)
+    mqtt = LavinMQ::MQTT::Server.new(s)
+    register_amqp(s, amqp)
+    register_mqtt(s, mqtt)
     begin
-      spawn(name: "amqp tcp listen") { s.listen(amqp_server, LavinMQ::Server::Protocol::AMQP) }
-      spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, LavinMQ::Server::Protocol::MQTT) }
+      amqp.bind_tcp(amqp_server)
+      mqtt.bind_tcp(mqtt_server)
+      spawn(name: "amqp listener") { amqp.listen }
+      spawn(name: "mqtt listener") { mqtt.listen }
       Fiber.yield
       yield s
     ensure
+      amqp(s).close
+      mqtt(s).close
+      unregister_amqp(s)
+      unregister_mqtt(s)
       s.close
       FileUtils.rm_rf(LavinMQ::Config.instance.data_dir) if clean_dir
     end

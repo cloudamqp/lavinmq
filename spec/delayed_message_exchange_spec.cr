@@ -54,7 +54,7 @@ describe "Delayed Message Exchange" do
           ex.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
         end
-        s.restart
+        restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
         sleep 1.second
         wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
@@ -82,7 +82,7 @@ describe "Delayed Message Exchange" do
         seg_file = File.join(data_dir, "msgs.0000000001")
         File.open(seg_file, "r+") { |f| f.truncate(f.size // 2) }
 
-        s.restart
+        restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
       end
     end
@@ -105,7 +105,7 @@ describe "Delayed Message Exchange" do
         seg_file = File.join(data_dir, "msgs.0000000001")
         File.open(seg_file, "a") { |f| f.write_bytes(1i64, IO::ByteFormat::SystemEndian) }
 
-        s.restart
+        restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
       end
     end

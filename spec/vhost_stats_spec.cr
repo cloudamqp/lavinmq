@@ -113,13 +113,11 @@ module VHostByteRateSpecs
   extend MqttMatchers
 
   # Sends data over the given protocol and returns the number of bytes
-  # the vhost should have tracked. Uses exhaustive case (case...in) on
-  # the Protocol enum so that adding a new protocol variant without
-  # handling it here will cause a compile error.
+  # the vhost should have tracked.
   def self.send_and_receive_over_protocol(protocol, s, vhost)
     case protocol
-    in LavinMQ::Server::Protocol::AMQP
-      port = s.@listeners.keys.select(TCPServer).first.local_address.port
+    when :amqp
+      port = amqp(s).@listeners.select(TCPServer).first.local_address.port
       conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
       ch = conn.channel
       q = ch.queue("byte_rate_q")
@@ -129,7 +127,7 @@ module VHostByteRateSpecs
       received.receive
       conn.close(no_wait: false)
       wait_for { vhost.connections.none?(LavinMQ::AMQP::Client) }
-    in LavinMQ::Server::Protocol::MQTT
+    when :mqtt
       with_client_io(s) do |sub_io|
         connect(sub_io)
         subscribe(sub_io, topic_filters: mk_topic_filters({"test/byte_rates", 0}))
@@ -141,6 +139,8 @@ module VHostByteRateSpecs
 
         read_packet(sub_io)
       end
+    else
+      fail "Unknown protocol #{protocol.inspect}"
     end
   end
 
@@ -151,7 +151,7 @@ module VHostByteRateSpecs
           vhost = s.vhosts["/"]
           before = vhost.recv_oct_count
 
-          port = s.@listeners.keys.select(TCPServer).first.local_address.port
+          port = amqp(s).@listeners.select(TCPServer).first.local_address.port
           conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
           ch = conn.channel
           q = ch.queue("byte_rate_q")
@@ -167,7 +167,7 @@ module VHostByteRateSpecs
         with_server do |s|
           vhost = s.vhosts["/"]
 
-          port = s.@listeners.keys.select(TCPServer).first.local_address.port
+          port = amqp(s).@listeners.select(TCPServer).first.local_address.port
           conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
           ch = conn.channel
           q = ch.queue("byte_rate_q")
@@ -222,16 +222,14 @@ module VHostByteRateSpecs
         end
       end
 
-      # This test exercises every protocol (via exhaustive case...in on the
-      # Protocol enum) and verifies that vhost-level byte counts are at least
-      # as large as the sum of per-connection byte counts. If a new protocol
-      # is added to the enum without handling it in send_and_receive_over_protocol,
-      # this spec will fail to compile.
+      # This test exercises every supported frontend protocol and verifies that
+      # vhost-level byte counts are at least as large as the sum of
+      # per-connection byte counts.
       it "all protocols should aggregate byte counts to vhost level" do
         with_server do |s|
           vhost = s.vhosts["/"]
 
-          LavinMQ::Server::Protocol.each do |protocol|
+          [:amqp, :mqtt].each do |protocol|
             send_and_receive_over_protocol(protocol, s, vhost)
           end
 

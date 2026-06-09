@@ -26,7 +26,7 @@ module LavinMQ::AMQP
     end
 
     private def init_msg_store(msg_dir)
-      replicator = durable? ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
       PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
     end

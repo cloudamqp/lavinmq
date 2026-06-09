@@ -88,7 +88,7 @@ describe LavinMQ::AMQP::DurableQueue do
         end
         s.stop
         File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
-        s.restart
+        restart_server(s)
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue_declare("corrupt_q2", passive: true)
           q[:message_count].should eq 1
@@ -111,13 +111,13 @@ describe LavinMQ::AMQP::DurableQueue do
       s.stop
       # Emulate the file was preallocated after server crash
       File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-      s.restart
+      restart_server(s)
       # Write another message after the prealloced space
       with_channel(s) do |ch|
         q = ch.queue("corruption_test", durable: true)
         q.publish_confirm "Hello world"
       end
-      s.restart
+      restart_server(s)
       queue = s.vhosts["/"].queue("corruption_test").as(LavinMQ::AMQP::DurableQueue)
       queue.message_count.should eq 2
     end
