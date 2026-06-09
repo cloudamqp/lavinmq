@@ -12,6 +12,13 @@ module LavinMQ
     abstract def fetch_vhost?(json)
     abstract def vhosts
 
+    # The queue/exchange/binding imports store definitions with fsync: false to
+    # avoid an fsync per object; this flushes each vhost's definitions file once
+    # at the end instead.
+    private def fsync_definition_files
+      vhosts.each_value(&.fsync_definitions)
+    end
+
     private def export_vhost_parameters(json)
       json.array do
         vhosts.each_value do |vhost|
@@ -60,10 +67,14 @@ module LavinMQ
 
     private def import_vhosts(body)
       if vhosts = body["vhosts"]?
+        # Create with save: false so each vhost doesn't rewrite+fsync vhosts.json
+        # (and users.json, via the permissions create adds); save both once at the end.
         vhosts.as_a.each do |v|
           name = v["name"].as_s
-          @amqp_server.vhosts.create name
+          @amqp_server.vhosts.create name, save: false
         end
+        @amqp_server.vhosts.save!
+        @amqp_server.users.save!
       end
     end
 
@@ -75,7 +86,7 @@ module LavinMQ
             durable = q["durable"].as_bool
             auto_delete = q["auto_delete"].as_bool
             arguments = AMQP::Table.new(q["arguments"].as_h)
-            v.declare_queue(name, durable, auto_delete, arguments)
+            v.declare_queue(name, durable, auto_delete, arguments, fsync: false)
           end
         end
       end
@@ -91,7 +102,7 @@ module LavinMQ
             internal = e["internal"].as_bool
             auto_delete = e["auto_delete"].as_bool
             arguments = AMQP::Table.new(e["arguments"].as_h)
-            v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
+            v.declare_exchange(name, type, durable, auto_delete, internal, arguments, fsync: false)
           end
         end
       end
@@ -108,9 +119,9 @@ module LavinMQ
             arguments = AMQP::Table.new(b["arguments"].as_h?)
             case destination_type
             when "queue"
-              v.bind_queue(destination, source, routing_key, arguments)
+              v.bind_queue(destination, source, routing_key, arguments, fsync: false)
             when "exchange"
-              v.bind_exchange(destination, source, routing_key, arguments)
+              v.bind_exchange(destination, source, routing_key, arguments, fsync: false)
             end
           end
         end
@@ -188,6 +199,11 @@ module LavinMQ
 
     private def import_parameters(body, skip_existing = false)
       if parameters = body["parameters"]?
+        # add with save: false and save each touched store once at the end, so a
+        # large import doesn't rewrite the whole parameters/operator_policies
+        # JSON file per entry.
+        touched_parameters = Set(VHost).new
+        touched_operator_policies = Set(VHost).new
         parameters.as_a.each do |p|
           if v = fetch_vhost?(p)
             name = p["name"].as_s
@@ -197,13 +213,17 @@ module LavinMQ
             when "vhost-limits"
               import_vhost_limits(v, value, skip_existing)
             when "operator_policy"
-              import_operator_policy(v, name, value, skip_existing)
+              touched_operator_policies << v if import_operator_policy(v, name, value, skip_existing)
             else
               next if skip_existing && v.parameters[{component, name}]?
-              v.add_parameter(Parameter.new(component, name, p["value"]))
+              v.add_parameter(Parameter.new(component, name, p["value"]), save: false, apply: false)
+              touched_parameters << v
             end
           end
         end
+        touched_parameters.each(&.save_parameters!)
+        touched_operator_policies.each(&.save_operator_policies!)
+        apply_policies(touched_parameters | touched_operator_policies)
       end
     end
 
@@ -217,28 +237,36 @@ module LavinMQ
       end
     end
 
-    private def import_operator_policy(v, name, value, skip_existing)
-      return if skip_existing && v.operator_policies[name]?
+    # Returns true if the operator policy was added (false when skipped).
+    private def import_operator_policy(v, name, value, skip_existing) : Bool
+      return false if skip_existing && v.operator_policies[name]?
       v.add_operator_policy(name,
         value["pattern"].as_s,
         value["apply-to"].as_s,
         value["definition"].as_h,
-        value["priority"].as_i.to_i8)
+        value["priority"].as_i.to_i8,
+        save: false,
+        apply: false)
+      true
     end
 
     private def import_global_parameters(body, skip_existing = false)
       if parameters = body["global_parameters"]?
+        added = false
         parameters.as_a.each do |p|
           name = p["name"].as_s
           next if skip_existing && @amqp_server.parameters[{nil, name}]?
           param = Parameter.new(nil, name, p["value"])
-          @amqp_server.add_parameter(param)
+          @amqp_server.add_parameter(param, save: false)
+          added = true
         end
+        @amqp_server.save_parameters! if added
       end
     end
 
     private def import_policies(body, skip_existing = false)
       if policies = body["policies"]?
+        touched = Set(VHost).new
         policies.as_a.each do |p|
           if v = fetch_vhost?(p)
             name = p["name"].as_s
@@ -248,9 +276,21 @@ module LavinMQ
               p["pattern"].as_s,
               p["apply-to"].as_s,
               p["definition"].as_h,
-              p["priority"].as_i.to_i8)
+              p["priority"].as_i.to_i8,
+              save: false,
+              apply: false)
+            touched << v
           end
         end
+        touched.each(&.save_policies!)
+        apply_policies(touched)
+      end
+    end
+
+    # Apply policies once per vhost after a bulk import, instead of per entry.
+    private def apply_policies(vhosts : Set(VHost))
+      vhosts.each do |v|
+        spawn v.apply_policies, name: "ApplyPolicies (import) #{v.name}"
       end
     end
 
@@ -361,6 +401,7 @@ module LavinMQ
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
+      fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
     end
@@ -398,6 +439,7 @@ module LavinMQ
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
+      fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
       import_global_parameters(body, skip_existing)

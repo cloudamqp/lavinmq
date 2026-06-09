@@ -203,6 +203,10 @@ module LavinMQ
       abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
+      # Number of bindings on this exchange. Counted cheaply, without allocating
+      # the full `bindings_details` array.
+      abstract def binding_count : Int32
+
       # Result of routing a message through an exchange.
       # `Routed` is set if at least one queue accepted the message.
       # `Overflowed` is set if at least one matched queue rejected the message

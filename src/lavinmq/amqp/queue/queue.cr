@@ -107,6 +107,15 @@ module LavinMQ::AMQP
     @queue_expiration_ttl_change = ::Channel(Nil).new
     @effective_args = Array(String).new
 
+    # Idle fiber management
+    @message_expire_fiber_active = Atomic(Bool).new(false)
+
+    def message_expire_fiber_active?
+      @message_expire_fiber_active.get(:relaxed)
+    end
+
+    private EXPIRE_FIBER_IDLE_THRESHOLD = 30.seconds
+
     getter? internal = false
 
     private def queue_expire_loop
@@ -131,10 +140,22 @@ module LavinMQ::AMQP
     private def message_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        @consumers_empty.when_true.receive
-        @log.debug { "Consumers empty" }
-        @msg_store.empty.when_false.receive
-        @log.debug { "Message store not empty" }
+        select
+        when @consumers_empty.when_true.receive
+          @log.debug { "Consumers empty" }
+        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+          @log.debug { "Idle timeout while waiting for consumers empty, stopping fiber" }
+          break
+        end
+
+        select
+        when @msg_store.empty.when_false.receive
+          @log.debug { "Message store not empty" }
+        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+          @log.debug { "Idle timeout while waiting for messages, stopping fiber" }
+          break
+        end
+
         next unless @consumers.empty?
         if ttl = time_to_message_expiration
           @log.debug { "Next message TTL: #{ttl}" }
@@ -157,6 +178,9 @@ module LavinMQ::AMQP
             @log.debug { "Message TTL changed" }
           when @msg_store.empty.when_true.receive
             @log.debug { "Msg store is empty" }
+          when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+            @log.debug { "Idle timeout while no messages need expiring, stopping fiber" }
+            break
           end
         end
       end
@@ -165,6 +189,9 @@ module LavinMQ::AMQP
       close
       raise ex
     rescue ::Channel::ClosedError
+    ensure
+      @message_expire_fiber_active.set(false, :release)
+      ensure_expire_fiber # restart if msg arrived during teardown
     end
 
     getter name, arguments, vhost
@@ -210,7 +237,7 @@ module LavinMQ::AMQP
         end
         handle_arguments
         spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-        spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+        start_message_expire_loop if should_start_expire_fiber?
         true
       end
     end
@@ -225,9 +252,36 @@ module LavinMQ::AMQP
       end
     end
 
+    private def start_message_expire_loop
+      return if @message_expire_fiber_active.swap(true)
+      @log.debug { "Starting message expire loop" }
+      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    # Ensure the expire fiber is running if there are messages that need expiring
+    private def ensure_expire_fiber
+      if !@closed && !@message_expire_fiber_active.get(:acquire)
+        start_message_expire_loop if should_start_expire_fiber?
+      end
+    end
+
+    # Check if we need the expire fiber running
+    private def should_start_expire_fiber? : Bool
+      return false if @msg_store.size == 0  # No messages to expire
+      return false unless @consumers.empty? # Expire loop can't run with consumers present; rm_consumer will restart it
+      return true if @message_ttl           # Queue-level TTL means all messages need expiring
+
+      # Check if first message has TTL (including expiration: "0" for immediate expiry)
+      @msg_store_lock.synchronize do
+        @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
+      end
+    end
+
     private def reset_queue_state
       @closed = false
       @state = QueueState::Running
+      @message_expire_fiber_active.set(false, :release)
+
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
@@ -309,6 +363,7 @@ module LavinMQ::AMQP
         unless @message_ttl.try &.< value.as_i64
           @message_ttl = value.as_i64
           @message_ttl_change.try_send? nil
+          ensure_expire_fiber
           @effective_args.delete("x-message-ttl")
           return true
         end
@@ -386,6 +441,7 @@ module LavinMQ::AMQP
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
       @effective_args << "x-message-ttl" if @message_ttl
       @message_ttl_change.try_send? nil
+      ensure_expire_fiber if @message_ttl
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       @effective_args << "x-delivery-limit" if @delivery_limit
       overflow = parse_header("x-overflow", String)
@@ -566,6 +622,12 @@ module LavinMQ::AMQP
       end
       @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty
+
+      # Record activity if message has TTL (needs expiration)
+      if @message_ttl || msg.properties.expiration
+        ensure_expire_fiber
+      end
+
       PublishResult::Ok
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -749,7 +811,7 @@ module LavinMQ::AMQP
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
-      end
+      end.tap { ensure_expire_fiber }
     end
 
     # If nil is returned it means that the delivery limit is reached
@@ -878,6 +940,7 @@ module LavinMQ::AMQP
           end
           drop_overflow
           ensure_consumers_deliver_loops if was_empty
+          ensure_expire_fiber
         end
       else
         expire_msg(sp, :rejected)
@@ -932,6 +995,8 @@ module LavinMQ::AMQP
           delete
         else
           notify_consumers_empty(true)
+          # Check if fiber needs to restart for message expiration
+          ensure_expire_fiber
         end
       end
     end
@@ -950,9 +1015,11 @@ module LavinMQ::AMQP
         delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       end
       @log.info { "Purged #{delete_count} messages" }
-      # Signal expire loop to recalculate wait time for next message
+      # Signal expire loop to recalculate wait time for next message, and
+      # restart it if it had stopped while the (now purged) head message had no TTL
       if delete_count > 0
         @message_ttl_change.try_send? nil
+        ensure_expire_fiber
       end
       delete_count
     rescue ex : MessageStore::Error

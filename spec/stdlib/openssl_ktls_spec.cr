@@ -42,7 +42,7 @@ describe OpenSSL::SSL::Socket do
       ktls_handshake(ctx) do |ssl|
         ssl.ktls_send?.should be_false
         ssl.ktls_recv?.should be_false
-        ssl.ktls_status.should be_nil
+        ssl.ktls_status.should eq "off"
       end
     end
 
@@ -57,7 +57,7 @@ describe OpenSSL::SSL::Socket do
 
         ktls_handshake(ctx) do |ssl|
           ssl.ktls_send?.should be_true
-          ssl.ktls_status.should_not be_nil
+          ssl.ktls_status.should_not eq "off"
         end
       end
     {% end %}

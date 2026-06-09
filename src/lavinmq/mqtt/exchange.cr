@@ -56,6 +56,10 @@ module LavinMQ
         result
       end
 
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
+      end
+
       # Only here to make superclass happy
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
