@@ -20,22 +20,23 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      @consumers = Array(Consumer).new
+      @consumers = Array(AMQP::Consumer).new
 
-      def consumers : Array(Consumer)
-        @consumers.dup
+      def consumers : Array(LavinMQ::Client::Channel::Consumer)
+        @consumers.map &.as(LavinMQ::Client::Channel::Consumer)
       end
 
       def consumers_size : Int32
         @consumers.size
       end
 
-      def find_consumer(& : Consumer -> Bool) : Consumer?
+      def find_consumer(& : AMQP::Consumer -> Bool) : AMQP::Consumer?
         @consumers.find { |c| yield c }
       end
 
-      def delete_consumer(consumer : Consumer) : Consumer?
-        @consumers.delete(consumer)
+      def cancel_consumer(consumer : AMQP::Consumer) : Nil
+        send AMQP::Frame::Basic::Cancel.new(@id, consumer.tag, no_wait: true)
+        delete_and_close_consumer(consumer)
       end
 
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
@@ -73,7 +74,7 @@ module LavinMQ
         tag : UInt64,
         queue : Queue,
         sp : SegmentPosition,
-        consumer : Consumer?,
+        consumer : AMQP::Consumer?,
         delivered_at : Time::Instant
 
       def details_tuple
@@ -442,8 +443,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
-          q.add_consumer(c)
+          add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
@@ -451,6 +451,11 @@ module LavinMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
+      end
+
+      private def add_consumer(consumer : AMQP::Consumer) : Nil
+        @consumers.push(consumer)
+        consumer.queue.add_consumer(consumer)
       end
 
       def basic_get(frame)
@@ -709,12 +714,12 @@ module LavinMQ
         end
       end
 
-      def close
-        return unless @running
+      def close : Bool
+        return false unless @running
         @running = false
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
-          consumer.close
+          close_consumer(consumer)
           Fiber.yield if (i % 128) == 0
         end
         @consumers.clear
@@ -731,8 +736,19 @@ module LavinMQ
         end
         @has_capacity.close
         @next_msg_body_file.try &.close
-        @client.vhost.event_tick(EventType::ChannelClosed)
         @log.debug { "Closed" }
+        true
+      end
+
+      private def close_consumer(consumer : AMQP::Consumer) : Nil
+        consumer.close
+        consumer.queue.rm_consumer(consumer)
+      end
+
+      private def delete_and_close_consumer(consumer : AMQP::Consumer) : Nil
+        if @consumers.delete(consumer)
+          close_consumer(consumer)
+        end
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
@@ -787,9 +803,8 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
-          c = @consumers.delete_at idx
-          c.close
+        if consumer = @consumers.find { |cons| cons.tag == frame.consumer_tag }
+          delete_and_close_consumer(consumer)
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)

@@ -37,7 +37,7 @@ module LavinMQ
         true
       end
 
-      def add_client(io, connection_info, user, packet)
+      def add_client(io, connection_info, user, packet) : Client
         if prev_client = @clients[packet.client_id]?
           prev_client.close(
             "New client #{connection_info.remote_address} " \
@@ -61,6 +61,17 @@ module LavinMQ
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
+        client
+      end
+
+      def run_client(io, connection_info, user, packet) : Client
+        client = add_client(io, connection_info, user, packet)
+        begin
+          client.run
+        ensure
+          remove_client(client)
+        end
+        client
       end
 
       def remove_client(client)

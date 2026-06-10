@@ -37,11 +37,11 @@ module LavinMQ
       end
 
       def close
+        return if @closed
         @closed = true
         @notify_closed.close
         @has_capacity.close
         @flow_change.close
-        @queue.rm_consumer(self)
       end
 
       def ensure_deliver_loop
@@ -249,9 +249,7 @@ module LavinMQ
       end
 
       def cancel
-        @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, no_wait: true)
-        @channel.delete_consumer(self)
-        close
+        @channel.cancel_consumer(self)
       end
 
       private def consumer_priority(frame) : Int32

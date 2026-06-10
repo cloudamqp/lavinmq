@@ -27,7 +27,8 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
+        Fiber.yield
 
         # Client should be connected
         reader.closed?.should be_false
@@ -59,7 +60,7 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
 
         sleep 50.milliseconds
 
