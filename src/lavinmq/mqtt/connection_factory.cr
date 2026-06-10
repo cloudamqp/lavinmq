@@ -25,7 +25,12 @@ module LavinMQ
             logger.trace { "recv #{packet.inspect}" }
             if user_and_broker = authenticate(io, packet)
               user, broker = user_and_broker
-              packet = assign_client_id(packet) if packet.client_id.empty?
+              packet = assign_client_id(packet, user.name) if packet.client_id.empty?
+              unless valid_client_id?(packet.client_id, user.name)
+                logger.warn { "Client id \"#{packet.client_id}\" rejected for user \"#{user.name}\" (client_id_validation=#{@config.mqtt_client_id_validation})" }
+                connack io, false, Connack::ReturnCode::IdentifierRejected
+                return
+              end
               session_present = broker.session_present?(packet.client_id, packet.clean_session?)
               connack io, session_present, Connack::ReturnCode::Accepted
               return broker.add_client(io, connection_info, user, packet)
@@ -73,14 +78,26 @@ module LavinMQ
         {user, broker}
       end
 
-      def assign_client_id(packet)
-        client_id = Random::Secure.base64(32)
+      def assign_client_id(packet, username : String)
+        client_id = case @config.mqtt_client_id_validation
+                    in .none?            then Random::Secure.base64(32)
+                    in .username?        then username
+                    in .username_prefix? then "#{username}#{Random::Secure.hex(16)}"
+                    end
         Connect.new(client_id,
           packet.clean_session?,
           packet.keepalive,
           packet.username,
           packet.password,
           packet.will)
+      end
+
+      private def valid_client_id?(client_id : String, username : String) : Bool
+        case @config.mqtt_client_id_validation
+        in .none?            then true
+        in .username?        then client_id == username
+        in .username_prefix? then client_id.starts_with?(username)
+        end
       end
     end
   end
