@@ -44,6 +44,20 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose the number of bindings" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthb")
+        vhost.declare_queue("bq", true, false)
+        vhost.bind_queue("bq", "amq.topic", "rk1")
+        vhost.bind_queue("bq", "amq.topic", "rk2")
+        raw = http.get("/metrics").body
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+        bindings = parsed_metrics.find { |m| m[:key] == "lavinmq_bindings" }
+        bindings.should_not be_nil
+        bindings.try(&.[:value].should eq 2)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|

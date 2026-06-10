@@ -2,6 +2,7 @@ import * as HTTP from './http.js'
 import * as Chart from './chart.js'
 import * as Helpers from './helpers.js'
 import * as Table from './table.js'
+import * as DOM from './dom.js'
 import { DataSource } from './datasource.js'
 
 const numFormatter = new Intl.NumberFormat()
@@ -31,6 +32,83 @@ function render (data) {
 function start (cb) {
   update(cb)
   setInterval(update, 5000, cb)
+}
+
+const gcStatsFields = [
+  { heading: 'GC cycles', key: 'gc_no', info: 'Garbage collection cycle number. The value may wrap.' },
+  { heading: 'Heap size', key: 'heap_size', bytes: true, info: 'Heap size in bytes (including the area unmapped to OS).' },
+  { heading: 'Free bytes', key: 'free_bytes', bytes: true, info: 'Total bytes contained in free and unmapped blocks.' },
+  { heading: 'Unmapped bytes', key: 'unmapped_bytes', bytes: true, info: 'Amount of memory unmapped to the OS.' },
+  { heading: 'Allocated since last GC', key: 'bytes_since_gc', bytes: true, info: 'Number of bytes allocated since the recent collection.' },
+  { heading: 'Allocated before last GC', key: 'bytes_before_gc', bytes: true, info: 'Number of bytes allocated before the recent garbage collection. The value may wrap.' },
+  { heading: 'Non GC bytes', key: 'non_gc_bytes', bytes: true, info: 'Number of bytes not considered candidates for garbage collection.' },
+  { heading: 'Marker threads', key: 'markers_m1', info: 'Number of marker threads (excluding the initiating one), or 0 if single-threaded.' },
+  { heading: 'Reclaimed since last GC', key: 'bytes_reclaimed_since_gc', bytes: true, info: 'Approximate number of reclaimed bytes after the recent garbage collection.' },
+  { heading: 'Reclaimed before last GC', key: 'reclaimed_bytes_before_gc', bytes: true, info: 'Approximate number of bytes reclaimed before the recent garbage collection. The value may wrap.' },
+  { heading: 'Explicitly freed since last GC', key: 'expl_freed_bytes_since_gc', bytes: true, info: 'Number of bytes freed explicitly since the recent garbage collection.' },
+  { heading: 'Obtained from OS', key: 'obtained_from_os_bytes', bytes: true, info: 'Total amount of memory obtained from the OS, in bytes.' }
+]
+
+const renderGCStats = (gc) => {
+  const table = document.getElementById('gc-stats-table')
+  if (!table || gc === undefined) return
+  while (table.firstChild) {
+    table.firstChild.remove()
+  }
+  for (const field of gcStatsFields) {
+    const value = gc[field.key]
+    if (value === undefined) continue
+    const row = document.createElement('tr')
+    const th = document.createElement('th')
+    const tooltip = document.createElement('a')
+    tooltip.className = 'prop-tooltip'
+    tooltip.append(document.createTextNode(field.heading))
+    const icon = document.createElement('span')
+    icon.className = 'tooltip-icon'
+    icon.textContent = '?'
+    const text = document.createElement('span')
+    text.className = 'prop-tooltiptext'
+    text.textContent = field.info
+    tooltip.append(icon, text)
+    th.append(tooltip)
+    const td = document.createElement('td')
+    td.textContent = field.bytes ? humanizeBytes(value) : numFormatter.format(value)
+    row.append(th, td)
+    table.append(row)
+  }
+}
+
+const refreshGCStats = () => {
+  return HTTP.request('GET', 'api/nodes/gc_stats').then(renderGCStats)
+}
+
+const gcRefreshBtn = document.getElementById('gc-refresh-btn')
+if (gcRefreshBtn) {
+  gcRefreshBtn.addEventListener('click', () => {
+    gcRefreshBtn.disabled = true
+    refreshGCStats().finally(() => { gcRefreshBtn.disabled = false })
+  })
+}
+
+const gcBtn = document.getElementById('gc-btn')
+if (gcBtn) {
+  gcBtn.addEventListener('click', () => {
+    gcBtn.disabled = true
+    HTTP.request('POST', 'api/nodes/gc_collect')
+      .then(() => {
+        DOM.toast('Garbage collection triggered')
+        return refreshGCStats()
+      })
+      .finally(() => { gcBtn.disabled = false })
+  })
+  // Only admins may read GC stats; the gc-btn element is in the DOM for all
+  // users (require-administrator only hides it via CSS), so fetching here
+  // unconditionally would 403 for non-admins and pop up an error. Gate the
+  // initial load on the (persisted, synchronously applied) admin role class;
+  // afterwards fetch only on demand.
+  if (Helpers.stateClasses.has('user-is-administrator')) {
+    refreshGCStats()
+  }
 }
 
 const updateDetails = (nodeStats) => {

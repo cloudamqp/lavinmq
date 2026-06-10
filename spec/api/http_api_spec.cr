@@ -86,6 +86,25 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should return the number of bindings in object_totals" do
+      with_http_server do |http, s|
+        response = http.get("/api/overview")
+        before_count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+
+        with_channel(s) do |ch|
+          x = ch.fanout_exchange
+          q1 = ch.queue("bindings_q1", exclusive: true)
+          q2 = ch.queue("bindings_q2", exclusive: true)
+          ch.queue_bind(q1.name, x.name, "#")
+          ch.queue_bind(q2.name, x.name, "#")
+
+          response = http.get("/api/overview")
+          count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+          count.should eq(before_count + 2)
+        end
+      end
+    end
+
     it "should return the number of acked and delivered messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")

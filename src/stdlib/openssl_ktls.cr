@@ -17,12 +17,13 @@ abstract class OpenSSL::SSL::Socket < IO
     bio.ktls_recv?
   end
 
-  # Returns a string describing the kTLS status: "send+recv", "send", "recv", or nil.
-  def ktls_status : String?
+  # Returns a string describing the kTLS status: "send+recv", "send", "recv", or "off".
+  def ktls_status : String
     case {ktls_send?, ktls_recv?}
-    when {true, true}  then "send+recv"
-    when {true, false} then "send"
-    when {false, true} then "recv"
+    in {true, true}   then "send+recv"
+    in {true, false}  then "send"
+    in {false, true}  then "recv"
+    in {false, false} then "off"
     end
   end
 end

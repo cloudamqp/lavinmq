@@ -19,6 +19,14 @@ module LavinMQ
       @definitions_deletes = 0
     end
 
+    # Flush buffered definition writes to disk. Used after a bulk operation
+    # (e.g. import) that stored its definitions with fsync: false.
+    def fsync
+      @definitions_lock.synchronize do
+        @definitions_file.fsync
+      end
+    end
+
     # Exchange accessors
 
     def exchange?(name : String) : Exchange?
@@ -101,7 +109,7 @@ module LavinMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false) : Bool
+    def apply(f, loading = false, fsync = true) : Bool
       @definitions_lock.synchronize do
         case f
         when AMQP::Frame::Exchange::Declare
@@ -109,7 +117,7 @@ module LavinMQ
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
-          store_definition(f) if !loading && f.durable
+          store_definition(f, fsync: fsync) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
             unless @vhost.closed?
@@ -129,7 +137,7 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f) if !loading && src.durable? && dst.durable?
+          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
@@ -139,7 +147,7 @@ module LavinMQ
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(@vhost, f)
           @vhost.apply_policies([q] of Queue) unless loading
-          store_definition(f) if !loading && f.durable && !f.exclusive
+          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
           @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
           if q = @queues.delete(f.queue_name)
@@ -161,7 +169,7 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, fsync: fsync) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
@@ -315,12 +323,12 @@ module LavinMQ
       end
     end
 
-    private def store_definition(frame, dirty = false)
+    private def store_definition(frame, dirty = false, fsync = true)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.try &.append @definitions_file_path, bytes
-      @definitions_file.fsync
+      @definitions_file.fsync if fsync
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
           compact!
