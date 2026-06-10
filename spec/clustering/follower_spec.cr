@@ -454,18 +454,39 @@ module FollowerSpec
     end
   end
 
-  describe "#replayed?" do
-    it "treats offsets below the captured baseline as already replayed" do
+  describe "#already_synced" do
+    it "counts appends below the captured baseline as fully synced" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         follower.capture_synced_baseline({"file1" => 10i64})
-        follower.replayed?("file1", 0i64).should be_true
-        follower.replayed?("file1", 9i64).should be_true
+        follower.already_synced("file1", 0i64, 5i64).should eq 5
+        follower.already_synced("file1", 9i64, 1i64).should eq 1
         # A path absent from the baseline is always delivered in full
-        follower.replayed?("other", 0i64).should be_false
+        follower.already_synced("other", 0i64, 4i64).should eq 0
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "returns the synced head size for an append straddling the baseline" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # The cut landed mid-record: full_sync delivered bytes [0, 10), the
+        # record spans [6, 14) — the follower already has its first 4 bytes.
+        follower.capture_synced_baseline({"file1" => 10i64})
+        follower.already_synced("file1", 6i64, 8i64).should eq 4
+        # A straddle doesn't drop the entry; the next append (at the record's
+        # end) does.
+        follower.@synced_baseline.has_key?("file1").should be_true
+        follower.already_synced("file1", 14i64, 4i64).should eq 0
+        follower.@synced_baseline.has_key?("file1").should be_false
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -479,8 +500,8 @@ module FollowerSpec
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
         follower.capture_synced_baseline({"file1" => 10i64, "file2" => 20i64})
-        # Caught up with file1: not replayed, and the entry is dropped
-        follower.replayed?("file1", 10i64).should be_false
+        # Caught up with file1: nothing already synced, and the entry is dropped
+        follower.already_synced("file1", 10i64, 4i64).should eq 0
         follower.@synced_baseline.has_key?("file1").should be_false
         follower.@synced_baseline.has_key?("file2").should be_true
       ensure
@@ -497,7 +518,7 @@ module FollowerSpec
 
         baseline = {"file1" => 10i64}
         follower.capture_synced_baseline(baseline)
-        follower.replayed?("file1", 10i64).should be_false
+        follower.already_synced("file1", 10i64, 4i64).should eq 0
         follower.@synced_baseline.empty?.should be_true
         # A fresh hash, not the captured one emptied in place
         follower.@synced_baseline.should_not be(baseline)

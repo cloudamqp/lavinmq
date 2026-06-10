@@ -336,23 +336,28 @@ module LavinMQ
         @synced_baseline = sizes
       end
 
-      # True if an append starting at `offset` is entirely within what full_sync
-      # already gave this follower (writes are whole-record, so the cut never
-      # lands mid-record). A path absent from the baseline (created after the
-      # join) is never replayed, so it's delivered in full.
+      # How many leading bytes of the append `[offset, offset + length)` this
+      # follower already received via full_sync (0 = none, `length` = all).
+      # The baseline cut is a live file size, so it may land *inside* a record
+      # that a writer had written locally but not yet dispatched when the cut
+      # was taken; such a straddling append is healed by the caller sending
+      # only the tail the snapshot didn't cover (the follower appends raw
+      # bytes, it doesn't care about record boundaries).
       #
       # Appends to a given path arrive at monotonically increasing offsets, so
-      # the first one at or past the cut means the follower has caught up with
-      # that file and the entry can be dropped. When the last entry goes the
-      # whole baseline is reassigned to a fresh empty hash, releasing the
-      # capacity a large join held and turning later checks into a plain miss.
-      def replayed?(path : String, offset : Int64) : Bool
+      # the first one ending at or past the cut means the follower has caught
+      # up with that file and the entry can be dropped. When the last entry
+      # goes the whole baseline is reassigned to a fresh empty hash, releasing
+      # the capacity a large join held and turning later checks into a plain
+      # miss.
+      def already_synced(path : String, offset : Int64, length : Int64) : Int64
         baseline = @synced_baseline[path]?
-        return false if baseline.nil?
-        return true if offset < baseline
-        @synced_baseline.delete(path)
+        return 0i64 unless baseline
+        return length if offset + length <= baseline  # entirely in the snapshot
+        return baseline - offset if offset < baseline # straddles the cut: has the head
+        @synced_baseline.delete(path)                 # caught up with this path
         @synced_baseline = Hash(String, Int64).new if @synced_baseline.empty?
-        false
+        0i64
       end
 
       def forget_baseline(path : String) : Nil

@@ -84,7 +84,14 @@ module LavinMQ
           files[path] = nil
           checksums.delete(path)
         end
-        each_follower &.replace(path)
+        each_follower do |f|
+          f.replace(path)
+          # The whole file was just resent; a synced baseline for it (captured
+          # at this follower's join) no longer describes its content and would
+          # wrongly skip appends at offsets below the old cut (e.g. after a
+          # definitions compaction shrinks the file).
+          f.forget_baseline(path)
+        end
       end
 
       # Replicate `length` bytes from `path` starting at `pos`. The bytes are
@@ -100,7 +107,10 @@ module LavinMQ
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         bytes = mfile.to_slice(pos.to_i64, length.to_i64)
         offset = pos.to_i64
-        each_follower { |f| f.append(path, bytes) unless f.replayed?(path, offset) }
+        each_follower do |f|
+          skip = f.already_synced(path, offset, bytes.size.to_i64)
+          f.append(path, bytes[skip..]) if skip < bytes.size
+        end
       end
 
       # Replicate a small in-memory integer (e.g. Schema::VERSION, ack
@@ -110,7 +120,18 @@ module LavinMQ
       def append_value(path : String, value : UInt32 | Int32, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower { |f| f.append(path, value) unless f.replayed?(path, offset) }
+        each_follower do |f|
+          case skip = f.already_synced(path, offset, 4i64)
+          when 0 then f.append(path, value)
+          when 4 then next # entirely within the follower's full_sync snapshot
+          else
+            # A 4-byte value is written in a single call, so a cut inside it
+            # shouldn't happen; stay byte-exact anyway and send the tail.
+            buf = uninitialized UInt8[4]
+            IO::ByteFormat::LittleEndian.encode(value, buf.to_slice)
+            f.append(path, buf.to_slice[skip..])
+          end
+        end
       end
 
       # Replicate an in-memory byte buffer. Caller owns the buffer. See
@@ -118,7 +139,10 @@ module LavinMQ
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower { |f| f.append(path, bytes) unless f.replayed?(path, offset) }
+        each_follower do |f|
+          skip = f.already_synced(path, offset, bytes.bytesize.to_i64)
+          f.append(path, bytes[skip..]) if skip < bytes.bytesize
+        end
       end
 
       def delete_file(path : String)
@@ -204,7 +228,10 @@ module LavinMQ
       # Snapshot the current logical size of every indexed file, using the same
       # size rule as full_sync (mfile.size for sparse MFiles, else File.size).
       # Captured at mark_synced to record the per-file cut a joining follower
-      # received via full_sync. Callers hold @lock.
+      # received via full_sync. A live size may land *inside* a record that a
+      # writer has written locally but not yet dispatched — that's fine: the
+      # snapshot delivers the head bytes and Follower#already_synced makes the
+      # later append stream only the tail. Callers hold @lock.
       private def snapshot_sizes : Hash(String, Int64)
         sizes = Hash(String, Int64).new
         @file_index.shared do |files, _checksums|
@@ -287,7 +314,8 @@ module LavinMQ
             # it, so what full_sync sends equals the baseline exactly. A larger
             # mfile.size from an in-flight write (local write done, replication
             # dispatch still pending) is excluded here and delivered via the
-            # stream instead of being duplicated.
+            # stream instead of being duplicated — wholly, or just the record's
+            # tail if the cut landed mid-record (Follower#already_synced).
             cut = snapshot_sizes
             follower.full_sync(cut) # sync the last, capped at the cut
             follower.capture_synced_baseline(cut)

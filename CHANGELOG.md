@@ -16,12 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 - Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline
-- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). A follower that disconnects mid-confirm simply leaves the in-sync set instead of forcing a syncfs
+- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). When a follower disconnects mid-confirm, the confirm is held until the follower's removal from the etcd ISR is committed, so a leader crash right after the confirm can't elect a replica that lacks the data
 
 ### Fixed
 
+- A node that won the etcd leader election while no longer in the ISR (its candidacy was queued before it fell behind or disconnected) now releases the lease and exits instead of serving, preventing confirmed messages from being lost cluster-wide when an out-of-sync replica would otherwise be promoted
 - A follower joining the replica set while the leader was publishing could duplicate bytes in its segment files (the local write to a segment races the full sync); the join now snapshots a per-file cut, caps the sync to it, and skips already-synced bytes from the change stream
-- A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates
+- A replication append that straddles a joining follower's full-sync cut now streams only the unsynced tail. The cut is a live file size and can land inside a record a publisher has written locally but not yet dispatched; skipping the whole append (as before) tore the record on the follower
+- A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates and are removed before the next publish confirm is delivered
 
 ### Removed
 
