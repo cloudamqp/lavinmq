@@ -303,11 +303,12 @@ module LavinMQ
             # If the follower was behind (unacked replicated data) when it
             # dropped, it may be missing data that's about to be confirmed via
             # the surviving followers, so it must leave the etcd ISR now rather
-            # than on the next replication write — otherwise it could be promoted
-            # on failover lacking already-confirmed data. A caught-up follower
-            # (no lag) still has everything confirmed so far, so we leave it in
-            # the ISR as a valid failover candidate; the next write's each_follower
-            # flush removes it before anything it lacks is confirmed.
+            # than lazily — otherwise it could be promoted on failover lacking
+            # already-confirmed data. A caught-up follower (no lag) still has
+            # everything confirmed so far, so we leave it in the ISR as a valid
+            # failover candidate; the Persister flushes the dirty ISR before
+            # the next publish confirm, so nothing it lacks is ever confirmed
+            # while it remains listed.
             behind = follower.lag_in_bytes > 0
             @followers.delete(follower)
             @dirty_isr = true
@@ -335,12 +336,40 @@ module LavinMQ
       private def update_isr
         ids = Set(Int32).new
         @followers.each do |f|
-          ids.add(f.id) if f.synced?
+          # A dead follower may linger in @followers until its handler fiber
+          # runs its cleanup; it must not re-enter the ISR meanwhile (flush_isr
+          # races that cleanup when a confirm is pending).
+          ids.add(f.id) if f.synced? && !f.dead?
         end
         ids.add(@id)
         Log.info { "In-sync replicas: #{ids.to_a}" }
         @coordinator.update_isr(ids)
         @dirty_isr = false
+      end
+
+      # True when the ISR last written to the coordinator may be stale (a
+      # follower connected or disconnected since). Checked by the Persister
+      # before sending publish confirms.
+      def isr_dirty? : Bool
+        @lock.synchronize { @dirty_isr }
+      end
+
+      # Commit the current ISR to the coordinator, retrying until it succeeds.
+      # Called by the Persister before sending publish confirms when a synced
+      # follower has disconnected: the confirm may only go out once the
+      # follower's removal from the ISR is durable, otherwise a leader crash
+      # right after the confirm could elect that follower even though it lacks
+      # the confirmed data. Confirms must stall rather than be issued against
+      # a stale ISR — if the coordinator stays unreachable the leader's lease
+      # eventually expires and the process exits.
+      def flush_isr : Nil
+        loop do
+          @lock.synchronize { update_isr }
+          return
+        rescue ex
+          Log.warn(exception: ex) { "Failed to update ISR, retrying" }
+          sleep 0.5.seconds
+        end
       end
 
       def close
@@ -353,9 +382,13 @@ module LavinMQ
         @file_index.lock { |_files, checksums| checksums.store }
       end
 
+      # Note: no coordinator (etcd) call may happen here. This runs in the
+      # publish path; an etcd write that raises would abort the dispatch after
+      # the local write, leaving a hole in every follower's file. A dirty ISR
+      # is instead flushed by the Persister (flush_isr) before any publish
+      # confirm is sent.
       private def each_follower(& : Follower -> Nil) : Nil
         @lock.synchronize do
-          update_isr if @dirty_isr
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f

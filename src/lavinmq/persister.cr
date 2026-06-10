@@ -100,14 +100,25 @@ module LavinMQ
 
     # Block until every in-sync follower has acked the replicated bytes, so a
     # confirm means the data is durable on the leader (syncfs, done before
-    # this) and on every follower that could be promoted on failover. A
-    # follower that disconnects while we wait simply leaves the in-sync set
-    # (and won't be promoted), so it no longer needs to be waited for. Wait
+    # this) and on every follower that could be promoted on failover. Wait
     # for all of them (no short-circuit) — wait_for_confirm blocks until the
-    # follower acks or drops out of the ISR by disconnecting, so on return
-    # every follower still in the ISR has necessarily acked.
+    # follower acks or disconnects.
+    #
+    # A follower that disconnected (wait_for_confirm == false, or it dropped
+    # before the drain and left the ISR dirty) may lack data that's about to
+    # be confirmed, so its removal from the ISR must be *committed to the
+    # coordinator* before the confirm goes out — otherwise a leader crash
+    # right after the confirm could elect that follower and lose the
+    # confirmed messages. flush_isr retries until the write succeeds: while
+    # the coordinator is unreachable confirms stall (publishers time out,
+    # message state stays uncertain — never falsely confirmed), and if it
+    # stays unreachable the leader's lease expires and the process exits.
     private def wait_for_followers(followers) : Nil
-      followers.try &.each &.wait_for_confirm
+      all_acked = true
+      followers.try &.each { |f| all_acked &= f.wait_for_confirm }
+      if replicator = @replicator
+        replicator.flush_isr if !all_acked || replicator.isr_dirty?
+      end
     end
   end
 end

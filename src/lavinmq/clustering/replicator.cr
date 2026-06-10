@@ -17,6 +17,11 @@ module LavinMQ
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
+      # ISR bookkeeping for the publish-confirm path: a confirm may only be
+      # sent against an ISR that is committed to the coordinator (see
+      # Persister#wait_for_followers).
+      abstract def isr_dirty? : Bool
+      abstract def flush_isr : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
       abstract def listen(server : TCPServer)

@@ -21,6 +21,9 @@ module LavinMQ
 
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
+      # Wakes the publish-confirm waiter on each ack; closed (never replaced)
+      # when ack_loop ends, which doubles as the follower's death signal (see
+      # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
@@ -105,6 +108,14 @@ module LavinMQ
       ensure
         @ack_notify.close # unblock any waiter; this follower is gone
         @running.done
+      end
+
+      # True once ack_loop has ended (follower disconnected or timed out).
+      # Server#update_isr excludes dead followers: a publish-confirm waiter
+      # unblocked by the @ack_notify close can flush an ISR without this
+      # follower even though it hasn't been removed from @followers yet.
+      def dead? : Bool
+        @ack_notify.closed?
       end
 
       # Flush the LZ4 buffer so pending bytes reach the follower without
