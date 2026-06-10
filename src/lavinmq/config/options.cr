@@ -2,6 +2,7 @@ require "log"
 require "../auth/password"
 require "../amqp/exchange/consistent_hash_algorithm"
 require "../ip_matcher"
+require "../http/constants"
 
 module LavinMQ
   class Config
@@ -94,6 +95,11 @@ module LavinMQ
       @[CliOpt("", "--http-unix-path=PATH", "HTTP UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mgmt")]
       property http_unix_path = ""
+
+      @[CliOpt("", "--control-unix-path=PATH", "UNIX socket lavinmqctl connects to (default: /tmp/lavinmqctl.sock)", section: "bindings")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_CONTROL_UNIX_PATH")]
+      property control_unix_path : String = HTTP::DEFAULT_CONTROL_UNIX_PATH
 
       @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mgmt")]
