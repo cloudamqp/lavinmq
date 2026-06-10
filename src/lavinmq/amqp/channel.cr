@@ -467,7 +467,7 @@ module LavinMQ
         end
       end
 
-      record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool, failure : Bool = false
+      record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
       @tx_acks = Array(TxAck).new
 
       def basic_ack(frame)
@@ -519,7 +519,7 @@ module LavinMQ
           @unack_lock.synchronize do
             if @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
               check_double_ack!(frame.delivery_tag)
-              @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue, true)
+              @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue)
               return
             end
           end
@@ -529,7 +529,7 @@ module LavinMQ
 
         @log.debug { "Rejecting #{frame.inspect}" }
         if unack = delete_unacked(frame.delivery_tag)
-          do_reject(frame.requeue, unack, failure: true)
+          do_reject(frame.requeue, unack)
         else
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
@@ -583,11 +583,11 @@ module LavinMQ
         "unknown delivery tag #{delivery_tag}"
       end
 
-      private def do_reject(requeue, unack, failure : Bool = false)
+      private def do_reject(requeue, unack)
         if c = unack.consumer
           c.reject(unack.sp, requeue)
         end
-        unack.queue.reject(unack.sp, requeue, failure: failure)
+        unack.queue.reject(unack.sp, requeue)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
@@ -618,7 +618,7 @@ module LavinMQ
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
-              unack.queue.reject(unack.sp, requeue: true)
+              unack.queue.requeue(unack.sp)
             end
             @unacked.clear
           else # redeliver to the original recipient
@@ -629,7 +629,7 @@ module LavinMQ
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
                 false
               else
-                unack.queue.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
                 true
               end
             end
@@ -661,7 +661,7 @@ module LavinMQ
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.reject(unack.sp, true)
+            unack.queue.requeue(unack.sp)
             unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear
@@ -789,7 +789,7 @@ module LavinMQ
                   unack = @unacked.shift
                   @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                   if tx_ack.negative
-                    do_reject(tx_ack.requeue, unack, failure: tx_ack.failure)
+                    do_reject(tx_ack.requeue, unack)
                   else
                     do_ack(unack)
                   end
@@ -798,7 +798,7 @@ module LavinMQ
                 unack = @unacked.delete_at(idx)
                 @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                 if tx_ack.negative
-                  do_reject(tx_ack.requeue, unack, failure: tx_ack.failure)
+                  do_reject(tx_ack.requeue, unack)
                 else
                   do_ack(unack)
                 end

@@ -20,7 +20,6 @@ module LavinMQPerf
     mode = ARGV.shift?
     case mode
     when "throughput"       then AMQP::Throughput.new.run
-    when "retry-bench"      then AMQP::RetryBench.new.run
     when "bind-churn"       then AMQP::BindChurn.new.run
     when "queue-churn"      then AMQP::QueueChurn.new.run
     when "connection-churn" then AMQP::ConnectionChurn.new.run

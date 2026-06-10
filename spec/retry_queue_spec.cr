@@ -2,12 +2,12 @@ require "./spec_helper"
 
 describe "Retry Queue" do
   describe "Scaffold" do
-    it "should create internal retry queue when x-retry-delay is set" do
+    it "should create internal retry queue when x-delayed-retry-min is set" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 1000,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1000,
           })
           ch.queue("retry-test", args: args)
           retry_q = s.vhosts["/"].queues["amq.retry-retry-test"]?
@@ -17,7 +17,7 @@ describe "Retry Queue" do
       end
     end
 
-    it "should not create retry queue when x-retry-delay is not set" do
+    it "should not create retry queue when x-delayed-retry-min is not set" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({"x-delivery-limit" => 3})
@@ -27,13 +27,13 @@ describe "Retry Queue" do
       end
     end
 
-    it "should reject negative x-retry-delay" do
+    it "should reject negative x-delayed-retry-min" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           expect_raises(AMQP::Client::Channel::ClosedException) do
             args = AMQP::Client::Arguments.new({
-              "x-delivery-limit" => 3,
-              "x-retry-delay"    => -1,
+              "x-delivery-limit"    => 3,
+              "x-delayed-retry-min" => -1,
             })
             ch.queue("bad-retry", args: args)
           end
@@ -41,13 +41,13 @@ describe "Retry Queue" do
       end
     end
 
-    it "should reject non-integer x-retry-delay" do
+    it "should reject non-integer x-delayed-retry-min" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           expect_raises(AMQP::Client::Channel::ClosedException) do
             args = AMQP::Client::Arguments.new({
-              "x-delivery-limit" => 3,
-              "x-retry-delay"    => "bad",
+              "x-delivery-limit"    => 3,
+              "x-delayed-retry-min" => "bad",
             })
             ch.queue("bad-retry", args: args)
           end
@@ -61,8 +61,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 1,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1,
           })
           q = ch.queue("retry-basic", args: args)
           ch.default_exchange.publish_confirm("test body", q.name)
@@ -83,7 +83,7 @@ describe "Retry Queue" do
           dlq = ch.queue("retry-no-requeue-dlq")
           args = AMQP::Client::Arguments.new({
             "x-delivery-limit"          => 3,
-            "x-retry-delay"             => 1,
+            "x-delayed-retry-min"       => 1,
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "retry-no-requeue-dlq",
           })
@@ -103,8 +103,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 1,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1,
           })
           q = ch.queue("retry-props", args: args)
           props = AMQP::Client::Properties.new(
@@ -127,7 +127,7 @@ describe "Retry Queue" do
       end
     end
 
-    it "should instant requeue without x-retry-delay" do
+    it "should instant requeue without x-delayed-retry-min" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({"x-delivery-limit" => 3})
@@ -143,25 +143,24 @@ describe "Retry Queue" do
       end
     end
 
-    it "should instant requeue on nack(requeue=true) even with x-retry-delay" do
+    it "should also trigger retry on nack(requeue=true)" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 60000, # 60s — would obviously fail this test if it triggered
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 200,
           })
-          q = ch.queue("retry-nack-bypass", args: args)
+          q = ch.queue("retry-nack-trigger", args: args)
           ch.default_exchange.publish_confirm("nack body", q.name)
 
           msg = wait_for { q.get(no_ack: false) }
           msg.nack(requeue: true)
-
           start = Time.instant
-          msg2 = wait_for(timeout: 2.seconds) { q.get(no_ack: true) }
+          msg2 = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
           delay = Time.instant - start
           msg2.body_io.to_s.should eq "nack body"
+          delay.should be >= 180.milliseconds
           delay.should be < 500.milliseconds
-          s.vhosts["/"].queues["amq.retry-retry-nack-bypass"].message_count.should eq 0
         end
       end
     end
@@ -169,8 +168,8 @@ describe "Retry Queue" do
     it "should not delay broker-initiated requeue on channel close" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({
-          "x-delivery-limit" => 3,
-          "x-retry-delay"    => 60000,
+          "x-delivery-limit"    => 3,
+          "x-delayed-retry-min" => 60000,
         })
         with_channel(s) do |ch|
           q = ch.queue("retry-close-bypass", args: args)
@@ -193,12 +192,40 @@ describe "Retry Queue" do
   end
 
   describe "Exponential backoff" do
-    it "should default to constant delay (multiplier=1)" do
+    it "should default to linear backoff when multiplier is omitted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 5,
-            "x-retry-delay"    => 200,
+            "x-delivery-limit"    => 5,
+            "x-delayed-retry-min" => 200,
+          })
+          q = ch.queue("retry-linear", args: args)
+          ch.default_exchange.publish_confirm("msg", q.name)
+
+          delays = [] of Time::Span
+          3.times do
+            start = Time.instant
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            delays << Time.instant - start
+            msg.reject(requeue: true)
+          end
+
+          # Linear: delay = min × delivery_count → 200ms, 400ms, ...
+          delays[1].should be >= 180.milliseconds
+          delays[1].should be < 350.milliseconds
+          delays[2].should be >= 380.milliseconds
+          delays[2].should be < 600.milliseconds
+        end
+      end
+    end
+
+    it "should give constant delay when multiplier = 1" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 200,
+            "x-delayed-retry-multiplier" => 1,
           })
           q = ch.queue("retry-constant", args: args)
           ch.default_exchange.publish_confirm("msg", q.name)
@@ -213,9 +240,9 @@ describe "Retry Queue" do
 
           # All retries should wait ~200ms (constant), not grow
           delays[1].should be >= 180.milliseconds
-          delays[1].should be < 400.milliseconds
+          delays[1].should be < 350.milliseconds
           delays[2].should be >= 180.milliseconds
-          delays[2].should be < 400.milliseconds
+          delays[2].should be < 350.milliseconds
         end
       end
     end
@@ -224,9 +251,9 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"         => 5,
-            "x-retry-delay"            => 200,
-            "x-retry-delay-multiplier" => 2,
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 200,
+            "x-delayed-retry-multiplier" => 2,
           })
           q = ch.queue("retry-backoff", args: args)
           ch.default_exchange.publish_confirm("msg", q.name)
@@ -247,14 +274,14 @@ describe "Retry Queue" do
       end
     end
 
-    it "should cap delay at x-retry-max-delay" do
+    it "should cap delay at x-delayed-retry-max" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"         => 5,
-            "x-retry-delay"            => 100,
-            "x-retry-delay-multiplier" => 2,
-            "x-retry-max-delay"        => 250,
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 100,
+            "x-delayed-retry-multiplier" => 2,
+            "x-delayed-retry-max"        => 250,
           })
           q = ch.queue("retry-cap", args: args)
           ch.default_exchange.publish_confirm("msg", q.name)
@@ -290,9 +317,9 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"         => 5,
-            "x-retry-delay"            => 100,
-            "x-retry-delay-multiplier" => 3,
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 100,
+            "x-delayed-retry-multiplier" => 3,
           })
           q = ch.queue("retry-multiplier", args: args)
           ch.default_exchange.publish_confirm("msg", q.name)
@@ -323,7 +350,7 @@ describe "Retry Queue" do
           dlq = ch.queue("retry-dlq")
           args = AMQP::Client::Arguments.new({
             "x-delivery-limit"          => 2,
-            "x-retry-delay"             => 1,
+            "x-delayed-retry-min"       => 1,
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "retry-dlq",
           })
@@ -347,8 +374,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 2,
-            "x-retry-delay"    => 1,
+            "x-delivery-limit"    => 2,
+            "x-delayed-retry-min" => 1,
           })
           q = ch.queue("retry-exhaust-discard", args: args)
           ch.default_exchange.publish_confirm("discard test", q.name)
@@ -365,59 +392,31 @@ describe "Retry Queue" do
       end
     end
 
-    it "should stop retrying after max delay is reached" do
+    it "should keep retrying at capped delay until x-delivery-limit ends it" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          dlq = ch.queue("retry-max-delay-dlq")
+          dlq = ch.queue("retry-cap-dlq")
           args = AMQP::Client::Arguments.new({
-            "x-retry-delay"             => 1,
-            "x-retry-delay-multiplier"  => 2,
-            "x-retry-max-delay"         => 3,
-            "x-dead-letter-exchange"    => "",
-            "x-dead-letter-routing-key" => "retry-max-delay-dlq",
+            "x-delivery-limit"           => 4,
+            "x-delayed-retry-min"        => 1,
+            "x-delayed-retry-multiplier" => 2,
+            "x-delayed-retry-max"        => 3,
+            "x-dead-letter-exchange"     => "",
+            "x-dead-letter-routing-key"  => "retry-cap-dlq",
           })
-          q = ch.queue("retry-max-delay-stop", args: args)
-          ch.default_exchange.publish_confirm("max delay test", q.name)
+          q = ch.queue("retry-cap-pure", args: args)
+          ch.default_exchange.publish_confirm("cap test", q.name)
 
-          # delay=1 (< max), retry
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-          # delay=2 (< max), retry
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-          # delay=4 capped to 3 (>= max), last retry
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-          # previous delay hit max, done — goes to DLX
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
+          # Cap is a pure clamp; retries keep going at the capped delay until
+          # x-delivery-limit terminates. With limit=4 the message is dead-lettered
+          # on the 5th delivery attempt.
+          5.times do
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
 
           dlq_msg = wait_for { dlq.get(no_ack: true) }
-          dlq_msg.body_io.to_s.should eq "max delay test"
-        end
-      end
-    end
-
-    it "should discard after max delay when no DLX" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = AMQP::Client::Arguments.new({
-            "x-retry-delay"            => 1,
-            "x-retry-delay-multiplier" => 2,
-            "x-retry-max-delay"        => 1,
-          })
-          q = ch.queue("retry-max-delay-discard", args: args)
-          ch.default_exchange.publish_confirm("discard test", q.name)
-
-          # delay=1 (>= max), last retry
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-          # previous delay hit max, done — discard
-          msg = wait_for { q.get(no_ack: false) }
-          msg.reject(requeue: true)
-
-          sleep 50.milliseconds
-          q.get(no_ack: true).should be_nil
+          dlq_msg.body_io.to_s.should eq "cap test"
         end
       end
     end
@@ -428,8 +427,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 1000,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1000,
           })
           q = ch.queue("retry-cleanup", args: args)
           s.vhosts["/"].queues["amq.retry-retry-cleanup"]?.should_not be_nil
@@ -443,8 +442,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 60000,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60000,
           })
           q = ch.queue("retry-delete-pending", args: args)
           ch.default_exchange.publish_confirm("pending msg", q.name)
@@ -468,8 +467,8 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 100,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 100,
           })
           q = ch.queue("retry-durable", durable: true, args: args)
           ch.default_exchange.publish_confirm("persist", q.name)
@@ -484,8 +483,8 @@ describe "Retry Queue" do
         s.vhosts["/"].queues["amq.retry-retry-durable"]?.should_not be_nil
         with_channel(s) do |ch|
           q = ch.queue("retry-durable", durable: true, args: AMQP::Client::Arguments.new({
-            "x-delivery-limit" => 3,
-            "x-retry-delay"    => 100,
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 100,
           }))
           msg = wait_for { q.get(no_ack: true) }
           msg.body_io.to_s.should eq "persist"
