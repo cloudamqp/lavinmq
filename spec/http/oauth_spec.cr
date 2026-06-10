@@ -428,6 +428,50 @@ describe "OAuth2" do
       end
     end
 
+    it "includes the audience parameter when oauth_audience is configured" do
+      LavinMQ::Config.instance.oauth_client_id = "test-client"
+      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
+      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
+      LavinMQ::Config.instance.oauth_audience = "lavinmq-api"
+
+      oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
+        issuer: "https://idp.example.com",
+        jwks_uri: "https://idp.example.com/jwks",
+        authorization_endpoint: "https://idp.example.com/authorize",
+        token_endpoint: "https://idp.example.com/token")
+      chain = build_oauth_chain(oidc)
+
+      with_http_server(authenticator: chain) do |http, _|
+        response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
+        response.status_code.should eq 200
+        authorize_url = JSON.parse(response.body)["authorize_url"].as_s
+        URI.parse(authorize_url).query_params["audience"].should eq "lavinmq-api"
+      end
+    ensure
+      LavinMQ::Config.instance.oauth_audience = nil
+    end
+
+    it "omits the audience parameter when oauth_audience is not configured" do
+      LavinMQ::Config.instance.oauth_client_id = "test-client"
+      LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
+      LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
+      LavinMQ::Config.instance.oauth_audience = nil
+
+      oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
+        issuer: "https://idp.example.com",
+        jwks_uri: "https://idp.example.com/jwks",
+        authorization_endpoint: "https://idp.example.com/authorize",
+        token_endpoint: "https://idp.example.com/token")
+      chain = build_oauth_chain(oidc)
+
+      with_http_server(authenticator: chain) do |http, _|
+        response = ::HTTP::Client.get(http.test_uri("/oauth/authorize"), headers: ::HTTP::Headers.new)
+        response.status_code.should eq 200
+        authorize_url = JSON.parse(response.body)["authorize_url"].as_s
+        URI.parse(authorize_url).query_params.has_key?("audience").should be_false
+      end
+    end
+
     it "omits Secure when the management UI is served over http://localhost" do
       LavinMQ::Config.instance.oauth_client_id = "test-client"
       LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")

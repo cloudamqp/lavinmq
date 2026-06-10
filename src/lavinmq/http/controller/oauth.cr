@@ -75,6 +75,10 @@ module LavinMQ
           p.add "code_challenge", challenge
           p.add "code_challenge_method", "S256"
           p.add "state", state
+          # Some IdPs (e.g. Auth0) only issue JWT access tokens when an audience is requested
+          if audience = config.oauth_audience
+            p.add "audience", audience
+          end
         end
 
         context.response.content_type = "application/json"

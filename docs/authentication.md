@@ -73,7 +73,7 @@ jwks_cache_ttl = 3600
 | `additional_scopes_keys` | `[]` | Additional JWT claims to check for scope strings |
 | `scope_prefix` | (none) | Prefix to strip from scope strings |
 | `verify_aud` | `true` | Verify the JWT `aud` claim |
-| `audience` | (none) | Expected JWT audience value |
+| `audience` | (none) | Expected JWT audience value. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | `3600` | How long to cache the JWKS keys (seconds) |
 
 ### Management UI SSO Login
@@ -95,7 +95,10 @@ audience = lavinmq
 
 Because `verify_aud` defaults to `true`, SSO tokens must have an `aud` claim
 matching either `audience` or `resource_server_id`. Alternatively set
-`verify_aud = false` if audience validation is not wanted.
+`verify_aud = false` if audience validation is not wanted. When `audience` is
+set it is also included in the authorization request, which some identity
+providers (e.g. Auth0) require to issue a JWT access token instead of an
+opaque one.
 
 If any of the three keys is missing, the SSO button is hidden and only username/password login is available.
 

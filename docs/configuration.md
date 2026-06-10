@@ -124,7 +124,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `additional_scopes_keys` | Array | `[]` | Additional JWT claims to check for scopes |
 | `scope_prefix` | String | (none) | Prefix to strip from scope strings |
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
-| `audience` | String | (none) | Expected JWT audience |
+| `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
 ## [experimental] Section
