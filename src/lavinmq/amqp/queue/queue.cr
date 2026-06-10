@@ -63,8 +63,8 @@ module LavinMQ::AMQP
     @delivery_limit : Int64?
     @reject_on_overflow = false
     @delayed_retry_min : Int64?
-    @delayed_retry_multiplier : Int32?
     @delayed_retry_max : Int64?
+    @delayed_retry_multiplier : Int32?
     @delayed_retry_queue : RetryQueue?
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
