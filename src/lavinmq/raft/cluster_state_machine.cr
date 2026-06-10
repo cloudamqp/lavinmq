@@ -12,6 +12,12 @@ module LavinMQ::Raft
     @mutex = Mutex.new
     @secret = ""
     @isr = Set(Int32).new
+    # Wake-up channel for "ISR changed". apply / restore fire a non-blocking
+    # `while try_send?` loop that delivers to every waiting receiver plus
+    # one buffered slot for late arrivals; receivers re-check the predicate
+    # they care about, so spurious wakeups are safe. Waiters use this to
+    # avoid busy-polling raft state.
+    getter isr_changed = ::Channel(Nil).new(1)
 
     # Consistent multi-field snapshot.
     def state : ClusterState
@@ -30,9 +36,20 @@ module LavinMQ::Raft
       @mutex.synchronize do
         case entry
         in ClusterCommand::SetSecret then @secret = entry.secret
-        in ClusterCommand::SetIsr    then @isr = entry.node_ids.dup
-        in ClusterCommand            then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
+        in ClusterCommand::SetIsr
+          @isr = entry.node_ids.dup
+          signal_isr_changed
+        in ClusterCommand then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
         end
+      end
+    end
+
+    # Wake every consumer currently blocked on @isr_changed.receive — and,
+    # for buffered(1), park one extra signal in the buffer for any late
+    # arrival. `try_send?` (LavinMQ stdlib extension) is non-blocking and
+    # returns false once nothing more can accept the signal.
+    private def signal_isr_changed : Nil
+      while @isr_changed.try_send?(nil)
       end
     end
 
@@ -61,6 +78,7 @@ module LavinMQ::Raft
       @mutex.synchronize do
         @secret = secret
         @isr = isr
+        signal_isr_changed
       end
     end
 

@@ -140,8 +140,9 @@ module LavinMQ::Raft
       return if @server.isr.empty?
       return if @server.isr.includes?(@server.node_id)
       Log.info { "Not in sync, waiting for the leader to add us to ISR" }
+      isr_changed = @server.state_machine.isr_changed
       until @server.isr.includes?(@server.node_id)
-        Fiber.yield
+        isr_changed.receive
       end
       Log.info { "In sync with leader" }
     end
@@ -149,7 +150,17 @@ module LavinMQ::Raft
     private def follow_leader_loop : Nil
       loop do
         id = @leader_changes.receive
-        handle_leader_change(id)
+        begin
+          handle_leader_change(id)
+        rescue ex
+          # handle_leader_change can raise on transient conditions (e.g.
+          # @coordinator.password timing out before SetSecret has applied,
+          # or Clustering::Client construction failing). Swallow + log so
+          # the fiber survives — otherwise it'd die and subsequent leader
+          # changes would silently fill the buffered channel until they
+          # get dropped, breaking replication failover for this node.
+          Log.error(exception: ex) { "handle_leader_change failed for #{id}; will retry on next leader change" }
+        end
       end
     rescue ::Channel::ClosedError
     end
