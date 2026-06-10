@@ -30,10 +30,10 @@ class LavinMQ::Clustering::Controller
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
+    ensure_in_isr!
     @is_leader.set(true)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
-    # TODO: make sure we still are in the ISR set
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -119,6 +119,29 @@ class LavinMQ::Clustering::Controller
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
+  end
+
+  # A queued election candidacy can outlive ISR membership: this node may have
+  # been dropped from the ISR (lagging or disconnected replication) after it
+  # campaigned, and etcd's election doesn't consult the ISR key. Serving as
+  # leader while missing confirmed messages would lose them cluster-wide — the
+  # in-sync nodes would full_sync from us and delete them. Exit instead: that
+  # releases the lease, withdraws the candidacy and lets an in-sync candidate
+  # win; on restart wait_to_be_insync blocks until this node is re-synced.
+  private def ensure_in_isr! : Nil
+    isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
+    return if isr.nil? # no ISR recorded yet (fresh cluster)
+    return if isr.split(",").map(&.to_i(36)).includes?(@id)
+    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr}), stepping down" }
+    # Release the lease explicitly: the election key is bound to it, so this
+    # revokes the just-won leadership at once instead of leaving the cluster
+    # leaderless until the lease TTL expires.
+    begin
+      @lease.try &.release
+    rescue ex
+      Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
+    end
+    exit 3
   end
 
   def wait_to_be_insync(lease)

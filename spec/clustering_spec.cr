@@ -294,6 +294,64 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "steps down if it wins the election while not in the ISR" do
+    config1 = LavinMQ::Config.new
+    config1.data_dir = "/tmp/isr-stepdown1"
+    config1.clustering_etcd_endpoints = "localhost:12379"
+    config1.clustering_advertised_uri = "tcp://localhost:5683"
+    FileUtils.rm_rf config1.data_dir
+    controller1 = LavinMQ::Clustering::Controller.new(config1)
+
+    config2 = LavinMQ::Config.new
+    config2.data_dir = "/tmp/isr-stepdown2"
+    config2.clustering_etcd_endpoints = "localhost:12379"
+    config2.clustering_advertised_uri = "tcp://localhost:5684"
+    FileUtils.rm_rf config2.data_dir
+    controller2 = LavinMQ::Clustering::Controller.new(config2)
+
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    leader1 = Channel(Nil).new
+    spawn(name: "elect listen spec") do
+      etcd.elect_listen("lavinmq/leader") do |value|
+        leader1.send nil if value == config1.clustering_advertised_uri
+      end
+    rescue SpecExit
+    end
+    sleep 0.1.seconds
+    spawn(name: "stepdown ctrl1") do
+      controller1.run { }
+    rescue SpecExit
+    end
+    leader1.receive # controller1 is leader
+
+    served2 = false
+    stepped_down = Channel(Int32).new(1)
+    spawn(name: "stepdown ctrl2") do
+      controller2.run { served2 = true }
+    rescue ex : SpecExit
+      stepped_down.send ex.code
+    end
+    sleep 0.5.seconds # let controller2 queue its election candidacy
+
+    # controller2 falls out of the ISR (e.g. lagging replication) while its
+    # candidacy stays queued; the leader then dies.
+    etcd.put("lavinmq/isr", controller1.id.to_s(36))
+    controller1.stop
+
+    # Winning the election out of the ISR means it lacks confirmed data:
+    # it must step down instead of serving.
+    select
+    when code = stepped_down.receive
+      code.should eq 3
+    when timeout(10.seconds)
+      fail "out-of-ISR election winner did not step down"
+    end
+    served2.should be_false
+  ensure
+    FileUtils.rm_rf "/tmp/isr-stepdown1"
+    FileUtils.rm_rf "/tmp/isr-stepdown2"
+  end
+
   it "will release lease on shutdown" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"
