@@ -57,4 +57,76 @@ describe "control socket" do
       File.delete?(socket_path)
     end
   end
+
+  describe "prepare_control_socket" do
+    it "does nothing if the path does not exist" do
+      path = File.tempname("ctl", ".sock")
+      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      File.exists?(path).should be_false
+    end
+
+    it "raises if the path exists but is not a socket" do
+      path = File.tempname("ctl", ".sock")
+      File.touch(path)
+      expect_raises(Exception, /not a socket/) do
+        LavinMQ::HTTP::Server.prepare_control_socket(path)
+      end
+      File.exists?(path).should be_true
+    ensure
+      File.delete?(path) if path
+    end
+
+    it "deletes a stale socket no one is listening on" do
+      path = File.tempname("ctl", ".sock")
+      sock = Socket.unix
+      sock.bind(Socket::UNIXAddress.new(path))
+      sock.close
+      File.info(path, follow_symlinks: false).type.socket?.should be_true
+      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      File.exists?(path).should be_false
+    ensure
+      File.delete?(path) if path
+    end
+
+    it "raises if the socket is in use" do
+      path = File.tempname("ctl", ".sock")
+      server = UNIXServer.new(path)
+      expect_raises(LavinMQ::HTTP::ControlSocketInUseError, /already in use/) do
+        LavinMQ::HTTP::Server.prepare_control_socket(path)
+      end
+      File.exists?(path).should be_true
+    ensure
+      server.try &.close
+      File.delete?(path) if path
+    end
+  end
+
+  describe "follower_internal_socket_http_server" do
+    it "skips binding when another node serves the control socket" do
+      config = LavinMQ::Config.instance
+      original_path = config.control_unix_path
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config.control_unix_path = socket_path
+      leader = UNIXServer.new(socket_path)
+      LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
+    ensure
+      leader.try &.close
+      config.control_unix_path = original_path if config && original_path
+      File.delete?(socket_path) if socket_path
+    end
+
+    it "binds when alone on the machine" do
+      config = LavinMQ::Config.instance
+      original_path = config.control_unix_path
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config.control_unix_path = socket_path
+      server = LavinMQ::HTTP::Server.follower_internal_socket_http_server
+      server.should_not be_nil
+      UNIXSocket.open(socket_path) { }
+    ensure
+      server.try &.close
+      config.control_unix_path = original_path if config && original_path
+      File.delete?(socket_path) if socket_path
+    end
+  end
 end
