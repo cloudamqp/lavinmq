@@ -73,5 +73,52 @@ module MqttSpecs
         end
       end
     end
+
+    describe "username_prefix mode" do
+      before_each do
+        LavinMQ::Config.instance.mqtt_client_id_validation = LavinMQ::MQTT::ClientIdValidation::UsernamePrefix
+      end
+
+      it "accepts a client_id prefixed with the username" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connack = connect(io, client_id: "guest-sensor-1")
+            connack.should be_a(MQTT::Protocol::Connack)
+            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          end
+        end
+      end
+
+      it "accepts a client_id equal to the username" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connack = connect(io, client_id: "guest")
+            connack.should be_a(MQTT::Protocol::Connack)
+            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          end
+        end
+      end
+
+      it "rejects a client_id not prefixed with the username" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connack = connect(io, client_id: "sensor-1")
+            connack.should be_a(MQTT::Protocol::Connack)
+            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::IdentifierRejected
+            io.should be_closed
+          end
+        end
+      end
+
+      it "assigns a username-prefixed client_id when it is empty" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connack = connect(io, client_id: "", clean_session: true)
+            connack.should be_a(MQTT::Protocol::Connack)
+            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          end
+        end
+      end
+    end
   end
 end
