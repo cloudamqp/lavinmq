@@ -4,7 +4,9 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
+require "../amqp/server"
 require "../auth/user"
+require "../mqtt/server"
 
 class HTTP::Server::Context
   property user : LavinMQ::Auth::BaseUser? = nil
@@ -22,33 +24,33 @@ module LavinMQ
       # different from the one we actually bound.
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
-      def initialize(@amqp_server : LavinMQ::Server)
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
         handlers = [
           StrictTransportSecurity.new,
-          WebsocketProxy.new(@amqp_server),
+          WebsocketProxy.new(@amqp_server, @mqtt_server),
           ViewsController.new,
           StaticController.new,
-          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user, @internal_unix_socket_path),
+          AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
-          PrometheusController.new(@amqp_server, require_authentication: true),
+          PrometheusController.new(@server, require_authentication: true),
           ApiDefaultsHandler.new,
-          MainController.new(@amqp_server),
-          DefinitionsController.new(@amqp_server),
-          ConnectionsController.new(@amqp_server),
-          ChannelsController.new(@amqp_server),
-          ConsumersController.new(@amqp_server),
-          ExchangesController.new(@amqp_server),
-          QueuesController.new(@amqp_server),
-          BindingsController.new(@amqp_server),
-          VHostsController.new(@amqp_server),
-          VHostLimitsController.new(@amqp_server),
-          UsersController.new(@amqp_server),
-          PermissionsController.new(@amqp_server),
-          ParametersController.new(@amqp_server),
-          ShovelsController.new(@amqp_server),
-          NodesController.new(@amqp_server),
-          LogsController.new(@amqp_server),
+          MainController.new(@server, @amqp_server, @mqtt_server),
+          DefinitionsController.new(@server),
+          ConnectionsController.new(@server),
+          ChannelsController.new(@server),
+          ConsumersController.new(@server),
+          ExchangesController.new(@server),
+          QueuesController.new(@server),
+          BindingsController.new(@server),
+          VHostsController.new(@server),
+          VHostLimitsController.new(@server),
+          UsersController.new(@server),
+          PermissionsController.new(@server),
+          ParametersController.new(@server),
+          ShovelsController.new(@server),
+          NodesController.new(@server),
+          LogsController.new(@server),
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)

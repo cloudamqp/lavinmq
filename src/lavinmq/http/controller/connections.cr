@@ -6,10 +6,10 @@ module LavinMQ
     module ConnectionsHelper
       private def connections(user : Auth::BaseUser)
         if user.tags.any? { |t| t.administrator? || t.monitoring? }
-          @amqp_server.connections
+          @server.connections
         else
           vhosts = user.permissions.keys
-          @amqp_server.connections.select &.vhost.name.in?(vhosts)
+          @server.connections.select &.vhost.name.in?(vhosts)
         end
       end
     end
@@ -73,7 +73,7 @@ module LavinMQ
       private def with_connection(context, params, &)
         name = params["name"]
         user = user(context)
-        connection = @amqp_server.connections.find { |c| c.name == name }
+        connection = @server.connections.find { |c| c.name == name }
         not_found(context, "Connection #{name} does not exist") unless connection
         access_refused(context) unless can_access_connection?(connection, user)
         yield connection

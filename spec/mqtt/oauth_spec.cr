@@ -16,7 +16,7 @@ module MqttSpecs
         permissions = {"*" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = mqtt(server).broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-wildcard-test",
           clean_session: true,
@@ -47,7 +47,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = mqtt(server).broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-exact-test",
           clean_session: true,
@@ -77,7 +77,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = mqtt(server).broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-cleanup-test",
           clean_session: true,

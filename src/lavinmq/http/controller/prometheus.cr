@@ -213,7 +213,7 @@ module LavinMQ
                    u = user(context)
                    vhosts(u)
                  else
-                   @amqp_server.vhosts.values
+                   @server.vhosts.values
                  end
 
         selected = context.request.query_params.fetch_all("vhost")
@@ -310,46 +310,46 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open file descriptors"})
         writer.write({name:  "process_open_tcp_sockets",
-                      value: @amqp_server.vhosts.sum { |_, v| v.connections_size },
+                      value: @server.vhosts.sum { |_, v| v.connections_size },
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
                       type:  "gauge",
-                      value: @amqp_server.rss,
+                      value: @server.rss,
                       help:  "Memory used in bytes"})
         writer.write({name:  "disk_space_available_bytes",
                       type:  "gauge",
-                      value: @amqp_server.disk_free,
+                      value: @server.disk_free,
                       help:  "Disk space available in bytes"})
         writer.write({name:  "process_max_fds",
                       value: System.file_descriptor_limit[0],
                       type:  "gauge",
                       help:  "Open file descriptors limit"})
         writer.write({name:  "resident_memory_limit_bytes",
-                      value: @amqp_server.mem_limit,
+                      value: @server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
       end
 
       private def global_metrics(writer)
-        message_stats = @amqp_server.vhosts.map { |_, v| v.message_details[:message_stats] }
+        message_stats = @server.vhosts.map { |_, v| v.message_details[:message_stats] }
         writer.write({name:  "global_messages_delivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_delivered_total +
+                      value: @server.deleted_vhosts_messages_delivered_total +
                              message_stats.sum { |ms| ms[:deliver_get] },
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_redelivered_total +
+                      value: @server.deleted_vhosts_messages_redelivered_total +
                              message_stats.sum { |ms| ms[:redeliver] },
                       type: "counter",
                       help: "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
-                      value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
+                      value: @server.deleted_vhosts_messages_acknowledged_total +
                              message_stats.sum { |ms| ms[:ack] },
                       type: "counter",
                       help: "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: @amqp_server.deleted_vhosts_messages_confirmed_total +
+                      value: @server.deleted_vhosts_messages_confirmed_total +
                              message_stats.sum { |ms| ms[:confirm] },
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
@@ -406,34 +406,34 @@ module LavinMQ
       end
 
       private def custom_metrics(writer)
-        writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
+        writer.write({name: "uptime", value: @server.uptime.to_i,
                       type: "counter",
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
-                      value: @amqp_server.sys_time,
+                      value: @server.sys_time,
                       type:  "counter",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
-                      value: @amqp_server.user_time,
+                      value: @server.user_time,
                       type:  "counter",
                       help:  "Total CPU user time"})
         writer.write({name:  "stats_collection_duration_seconds_total",
-                      value: @amqp_server.stats_collection_duration_seconds_total.to_f,
+                      value: @server.stats_collection_duration_seconds_total.to_f,
                       type:  "gauge",
                       help:  "Total time it takes to collect metrics (stats_loop)"})
         writer.write({name:  "stats_rates_collection_duration_seconds",
-                      value: @amqp_server.stats_rates_collection_duration_seconds.to_f,
+                      value: @server.stats_rates_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to update stats rates (update_stats_rates)"})
         writer.write({name:  "stats_system_collection_duration_seconds",
-                      value: @amqp_server.stats_system_collection_duration_seconds.to_f,
+                      value: @server.stats_system_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
         writer.write({name:  "total_connected_followers",
-                      value: @amqp_server.followers.size,
+                      value: @server.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
-        @amqp_server.followers.each do |f|
+        @server.followers.each do |f|
           writer.write({name:   "follower_lag_in_bytes",
                         labels: {id: f.id.to_s(36)},
                         value:  f.lag_in_bytes,

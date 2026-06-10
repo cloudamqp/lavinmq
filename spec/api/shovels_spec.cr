@@ -3,8 +3,8 @@ require "uri"
 
 def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused = false)
   config = NamedTuple.new(
-    "src-uri": server.amqp_url,
-    "dest-uri": server.amqp_url,
+    "src-uri": amqp(server).url,
+    "dest-uri": amqp(server).url,
     "dest-queue": "q1",
     "src-queue": "q2",
     "src-prefetch-count": 1000,

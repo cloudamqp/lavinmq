@@ -498,7 +498,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           q.get(no_ack: false).try(&.body_io.to_s).should eq "m2"
           q.get(no_ack: false).try(&.body_io.to_s).should eq "m1"
         end
-        s.restart
+        restart_server(s)
         with_channel(s) do |ch|
           q = ch.queue("pq", args: AMQP::Client::Arguments.new({"x-max-priority": 9}))
           q.publish "m3", props: AMQP::Client::Properties.new(priority: 8)

@@ -23,6 +23,18 @@ describe "Websocket support" do
     end
   end
 
+  it "tracks AMQP websocket connections on the vhost" do
+    with_http_server do |http, s|
+      c = AMQP::Client.new("ws://#{http.addr}")
+      conn = c.connect
+
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+
+      conn.close
+      wait_for { s.vhosts["/"].connections.none?(LavinMQ::AMQP::Client) }
+    end
+  end
+
   it "can publish large messages" do
     with_http_server do |http, _|
       c = AMQP::Client.new("ws://#{http.addr}")
