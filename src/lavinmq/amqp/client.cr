@@ -96,7 +96,7 @@ module LavinMQ
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
-            close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
+            send_connection_close(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
           end
         end
         read_loop
@@ -250,13 +250,13 @@ module LavinMQ
           user.refresh(frame.secret)
           send AMQP::Frame::Connection::UpdateSecretOk.new
         else
-          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
+          send_connection_close(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
         end
       rescue ex : Auth::JWT::Error
-        close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, ex.message)
+        send_connection_close(frame, ConnectionReplyCode::ACCESS_REFUSED, ex.message)
       rescue ex : Exception
         @log.error(exception: ex) { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
-        close_connection(frame, ConnectionReplyCode::INTERNAL_ERROR, "Failed to update secret: #{ex.message}")
+        send_connection_close(frame, ConnectionReplyCode::INTERNAL_ERROR, "Failed to update secret: #{ex.message}")
       end
 
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
@@ -414,16 +414,16 @@ module LavinMQ
 
       private def reject_unknown_channel(frame) : Nil
         @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
-        close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "Channel #{frame.channel} not open")
+        send_connection_close(frame, ConnectionReplyCode::CHANNEL_ERROR, "Channel #{frame.channel} not open")
       end
 
       private def open_channel(frame)
         if @channels.has_key? frame.channel
-          close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
+          send_connection_close(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
         elsif @channels.size >= @actual_channel_max
           reply_text = "number of channels opened (#{@channels.size})" \
                        " has reached the negotiated channel_max (#{@actual_channel_max})"
-          close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
+          send_connection_close(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
         else
           add_channel(frame.channel)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
@@ -431,14 +431,16 @@ module LavinMQ
       end
 
       private def add_channel(id : UInt16) : Client::Channel
-        AMQP::Channel.new(self, id).tap do |channel|
-          @channels[id] = channel
-          @vhost.event_tick(EventType::ChannelCreated)
-        end
+        channel = AMQP::Channel.new(self, id)
+        @channels[id] = channel
+        @vhost.event_tick(EventType::ChannelCreated)
+        channel
       end
 
       private def close_channel(channel : Client::Channel?) : Nil
-        @vhost.event_tick(EventType::ChannelClosed) if channel.try &.close
+        if channel.try &.close
+          @vhost.event_tick(EventType::ChannelClosed)
+        end
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -518,7 +520,7 @@ module LavinMQ
         end
       rescue ex : LavinMQ::Error::UnexpectedFrame
         @log.error { ex.inspect }
-        close_channel(ex.frame, ChannelReplyCode::UNEXPECTED_FRAME, ex.frame.class.name)
+        send_channel_close(ex.frame, ChannelReplyCode::UNEXPECTED_FRAME, ex.frame.class.name)
       end
 
       private def cleanup
@@ -558,6 +560,7 @@ module LavinMQ
 
         code = ConnectionReplyCode::CONNECTION_FORCED
         send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
+      ensure
         @running = false
       end
 
@@ -569,9 +572,9 @@ module LavinMQ
         !@running
       end
 
-      def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
+      private def send_channel_close(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
         if frame.channel.zero?
-          return close_connection(frame, ConnectionReplyCode::UNEXPECTED_FRAME, text)
+          return send_connection_close(frame, ConnectionReplyCode::UNEXPECTED_FRAME, text)
         end
         text = "#{code} - #{text}"
         case frame
@@ -583,7 +586,7 @@ module LavinMQ
         close_channel(@channels[frame.channel]?)
       end
 
-      def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
+      private def send_connection_close(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
         text = "#{code} - #{text}"
         @log.info { "Closing, #{text}" }
         case frame
@@ -599,32 +602,32 @@ module LavinMQ
 
       def send_access_refused(frame, text)
         @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::ACCESS_REFUSED, text)
+        send_channel_close(frame, ChannelReplyCode::ACCESS_REFUSED, text)
       end
 
       def send_not_found(frame, text = "")
         @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
+        send_channel_close(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
       def send_passive_not_found(frame, text = "")
         @log.info { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
+        send_channel_close(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
+        send_channel_close(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
       end
 
       def send_precondition_failed(frame, text)
         @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::PRECONDITION_FAILED, text)
+        send_channel_close(frame, ChannelReplyCode::PRECONDITION_FAILED, text)
       end
 
       def send_not_implemented(frame, text = nil)
         @log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
-        close_channel(frame, ChannelReplyCode::NOT_IMPLEMENTED, text)
+        send_channel_close(frame, ChannelReplyCode::NOT_IMPLEMENTED, text)
       end
 
       def send_not_implemented(ex : AMQ::Protocol::Error::NotImplemented)
@@ -639,16 +642,16 @@ module LavinMQ
       end
 
       def send_internal_error(message)
-        close_connection(nil, ConnectionReplyCode::INTERNAL_ERROR, "Unexpected error, please report")
+        send_connection_close(nil, ConnectionReplyCode::INTERNAL_ERROR, "Unexpected error, please report")
       end
 
       def send_resource_error(frame, message)
         @log.warn { "Resource error channel=#{frame.channel} reason=\"#{message}\"" }
-        close_channel(frame, ChannelReplyCode::RESOURCE_ERROR, message)
+        send_channel_close(frame, ChannelReplyCode::RESOURCE_ERROR, message)
       end
 
       def send_frame_error(message = nil)
-        close_connection(nil, ConnectionReplyCode::FRAME_ERROR, message)
+        send_connection_close(nil, ConnectionReplyCode::FRAME_ERROR, message)
       end
 
       private def declare_exchange(frame)
