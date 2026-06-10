@@ -1,4 +1,5 @@
 require "http/client"
+require "ini"
 require "json"
 require "uri"
 require "file_utils"
@@ -45,13 +46,37 @@ class LavinMQCtl
     raise CtlExit.new(1)
   end
 
-  # Implemented in Task 9 (file wipe) and Task 10 (running-node detection).
-  def raft_reset
-    data_dir = @options["data_dir"]?
-    if data_dir.nil? || data_dir.empty?
-      @io.puts "raft_reset: --data-dir not specified"
-      raise CtlExit.new(1)
+  # Resolves data_dir using the same precedence as the lavinmq server:
+  # CLI --data-dir → ENV LAVINMQ_DATADIR → [main] data_dir in the INI →
+  # default /var/lib/lavinmq. Lets `lavinmqctl raft_*` work without
+  # repeating --data-dir when a config file is present.
+  private def resolved_data_dir : String
+    if cli = @options["data_dir"]?
+      return cli unless cli.empty?
     end
+    if env = ENV["LAVINMQ_DATADIR"]?
+      return env unless env.empty?
+    end
+    config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
+    ini_path = File.join(config_dir, "lavinmq.ini")
+    if File.file?(ini_path)
+      begin
+        ini = INI.parse(File.read(ini_path))
+        if main = ini["main"]?
+          if v = main["data_dir"]?
+            return v unless v.empty?
+          end
+        end
+      rescue ::INI::ParseException
+        # Fall through to the default — surfacing a parse error from a
+        # ctl command would mask the actual user intent.
+      end
+    end
+    "/var/lib/lavinmq"
+  end
+
+  def raft_reset
+    data_dir = resolved_data_dir
     # Running-node detection: Task 10 implements maybe_signal_running_node. For now, no-op when no pidfile.
     if pidfile = @options["pidfile"]?
       maybe_signal_running_node(pidfile, data_dir)
@@ -120,11 +145,7 @@ class LavinMQCtl
       @io.puts "raft_join: invalid URI scheme: #{leader_uri}"
       raise CtlExit.new(1)
     end
-    data_dir = @options["data_dir"]?
-    if data_dir.nil? || data_dir.empty?
-      @io.puts "raft_join: --data-dir not specified"
-      raise CtlExit.new(1)
-    end
+    data_dir = resolved_data_dir
     # Reset raft state (file wipe + optional SIGTERM)
     raft_reset
     # Write the join marker
