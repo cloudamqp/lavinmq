@@ -82,7 +82,7 @@ module LavinMQ
         client_id = case @config.mqtt_client_id_validation
                     in .none?            then Random::Secure.base64(32)
                     in .username?        then username
-                    in .username_prefix? then "#{username}#{Random::Secure.hex(16)}"
+                    in .username_prefix? then "#{username}-#{Random::Secure.hex(16)}"
                     end
         Connect.new(client_id,
           packet.clean_session?,
@@ -96,7 +96,7 @@ module LavinMQ
         case @config.mqtt_client_id_validation
         in .none?            then true
         in .username?        then client_id == username
-        in .username_prefix? then client_id.starts_with?(username)
+        in .username_prefix? then client_id == username || client_id.starts_with?("#{username}-")
         end
       end
     end

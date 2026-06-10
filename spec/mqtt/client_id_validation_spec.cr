@@ -110,6 +110,17 @@ module MqttSpecs
         end
       end
 
+      it "rejects a client_id that continues the username without a dash" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connack = connect(io, client_id: "guestsensor")
+            connack.should be_a(MQTT::Protocol::Connack)
+            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::IdentifierRejected
+            io.should be_closed
+          end
+        end
+      end
+
       it "assigns a username-prefixed client_id when it is empty" do
         with_server do |server|
           with_client_io(server) do |io|
@@ -117,8 +128,8 @@ module MqttSpecs
             connack.should be_a(MQTT::Protocol::Connack)
             connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
             client = server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first
-            client.client_id.should start_with("guest")
-            client.client_id.size.should be > "guest".size
+            client.client_id.should start_with("guest-")
+            client.client_id.size.should be > "guest-".size
           end
         end
       end

@@ -115,7 +115,7 @@ The username field can include a vhost using the format `vhost:username`. If no 
 By default any client_id is accepted. Since the client_id is chosen freely by the client, it cannot be trusted for identity purposes on its own. The `client_id_validation` setting ties it to the authenticated username:
 
 - `username`: the client_id must be equal to the username
-- `username_prefix`: the client_id must start with the username, so one set of credentials can be shared by several devices (user `fleet1` can connect as `fleet1-sensor-a` and `fleet1-sensor-b`)
+- `username_prefix`: the client_id must be the username, or the username followed by `-` and a device name, so one set of credentials can be shared by several devices (user `fleet1` can connect as `fleet1-sensor-a` and `fleet1-sensor-b`). Avoid usernames containing `-` with this mode, since a username like `fleet1-eu` overlaps with the id namespace of a user named `fleet1`.
 
 A CONNECT with a non-conforming client_id is rejected with return code 2 (identifier rejected) and the connection is closed. An empty client_id is automatically assigned a conforming one. When the username includes a vhost (`vhost:username`), the client_id is validated against the username part only.
 
