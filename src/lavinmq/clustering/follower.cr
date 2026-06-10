@@ -107,15 +107,24 @@ module LavinMQ
         @running.done
       end
 
+      # Flush the LZ4 buffer so pending bytes reach the follower without
+      # waiting for the ack_loop's 100ms flush timeout. Write errors are
+      # swallowed: a broken socket is detected by ack_loop, which closes
+      # @ack_notify so a wait_for_confirm waiter still unblocks.
+      def flush : Nil
+        @write_lock.synchronize { @lz4.flush }
+      rescue IO::Error | Socket::Error
+      end
+
       # Block until the follower has acked at least the bytes already sent at
       # call time. Flushes the LZ4 buffer first so the pending bytes reach the
       # follower without waiting for the ack_loop's 100ms flush timeout.
-      # Returns true if the bytes were acked, false if the follower disconnected
-      # (caller should then fall back to syncfs). A follower that stops acking is
-      # disconnected by ack_loop, which closes @ack_notify and unblocks us here.
+      # Returns true if the bytes were acked, false if the follower
+      # disconnected. A follower that stops acking is disconnected by
+      # ack_loop, which closes @ack_notify and unblocks us here.
       def wait_for_confirm : Bool
         target = @sent_bytes.get
-        @write_lock.synchronize { @lz4.flush }
+        flush
         until @acked_bytes.get >= target
           @ack_notify.receive
         end

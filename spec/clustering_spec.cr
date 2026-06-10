@@ -78,7 +78,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "confirms publishes once replicated to followers (without local syncfs)" do
+  it "confirms publishes once synced locally and replicated to followers" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         wait_for { cluster.replicator.followers.first?.try &.synced? }
@@ -98,8 +98,8 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
 
   it "confirms via syncfs while the only follower is still syncing" do
     # Regression: a publish written while all followers are syncing isn't streamed
-    # to them. The confirm must fall back to local syncfs and not be credited to a
-    # follower that flips to synced before the persister drains.
+    # to them. The confirm must not stall waiting for an ack from a follower that
+    # flips to synced before the persister drains.
     Dir.mkdir_p LavinMQ::Config.instance.data_dir
     replicator = LavinMQ::Clustering::Server.new(
       LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)

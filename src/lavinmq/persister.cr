@@ -15,9 +15,9 @@ module LavinMQ
 
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
-    # Confirm acks accumulated since the last drain. Durability is decided at
-    # drain time against the in-sync set as it exists then (see
-    # #replicated_to_followers?), which is safe because a follower only reaches
+    # Confirm acks accumulated since the last drain. The follower set is
+    # decided at drain time against the in-sync set as it exists then (see
+    # #wait_for_followers), which is safe because a follower only reaches
     # the in-sync set after a full_sync that includes every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
 
@@ -81,41 +81,33 @@ module LavinMQ
       end
       return unless acks
 
-      unless replicated_to_followers?
-        begin
-          sync
-        rescue ex
-          Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-          exit 1
-        end
+      # Push the pending replicated bytes to the followers first, so they
+      # persist and ack them while our own syncfs runs.
+      followers = @replicator.try &.followers
+      followers.try &.each &.flush
+      begin
+        sync
+      rescue ex
+        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
       end
+      wait_for_followers(followers)
 
       acks.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
       end
     end
 
-    # True if the pending acks are durable on followers, so the local syncfs can be
-    # skipped. We wait for every currently in-sync follower: a follower that
-    # acks has the replicated bytes; one that disconnects while we wait simply
-    # leaves the in-sync set (and won't be promoted on failover), so it no
-    # longer needs the data. Durable as long as at least one in-sync follower
-    # remains and has it. Only when there are no in-sync followers at all (or
-    # we're standalone) do we fall back to syncfs.
-    private def replicated_to_followers? : Bool
-      replicator = @replicator || return false
-      followers = replicator.followers
-      return false if followers.empty?
-      # Every follower still in the ISR must have the data: any of them may be
-      # promoted to leader on failover. wait_for_confirm blocks until the
-      # follower acks (true) or drops out of the ISR by disconnecting (false),
-      # so on return every follower still in the ISR has necessarily acked.
-      # Wait for all of them (no short-circuit) — a disconnect just removes that
-      # one from the ISR; we stay durable as long as at least one remains. Only
-      # an emptied-out ISR falls back to syncfs.
-      acked = false
-      followers.each { |f| acked = true if f.wait_for_confirm }
-      acked
+    # Block until every in-sync follower has acked the replicated bytes, so a
+    # confirm means the data is durable on the leader (syncfs, done before
+    # this) and on every follower that could be promoted on failover. A
+    # follower that disconnects while we wait simply leaves the in-sync set
+    # (and won't be promoted), so it no longer needs to be waited for. Wait
+    # for all of them (no short-circuit) — wait_for_confirm blocks until the
+    # follower acks or drops out of the ISR by disconnecting, so on return
+    # every follower still in the ISR has necessarily acked.
+    private def wait_for_followers(followers) : Nil
+      followers.try &.each &.wait_for_confirm
     end
   end
 end

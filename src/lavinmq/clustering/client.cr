@@ -410,9 +410,9 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent: the leader confirms
-      # publishes to clients on follower acks alone (skipping its own syncfs),
-      # so an acked byte must be durable here. Syncing once per coalesced
+      # Data is synced to disk before each ack is sent: the leader holds
+      # publish confirms until in-sync followers have acked, so an acked
+      # byte must be durable here. Syncing once per coalesced
       # batch makes batching emerge naturally — acks accumulate while the
       # blocking syncfs runs.
       private def send_ack_loop(acks, socket)
