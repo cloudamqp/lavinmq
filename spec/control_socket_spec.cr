@@ -115,6 +115,18 @@ describe "control socket" do
       File.delete?(socket_path) if socket_path
     end
 
+    it "skips binding instead of raising when the socket can not be prepared" do
+      config = LavinMQ::Config.instance
+      original_path = config.control_unix_path
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config.control_unix_path = socket_path
+      File.touch(socket_path) # not a socket: prepare_control_socket raises a plain Exception
+      LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
+    ensure
+      config.control_unix_path = original_path if config && original_path
+      File.delete?(socket_path) if socket_path
+    end
+
     it "binds when alone on the machine" do
       config = LavinMQ::Config.instance
       original_path = config.control_unix_path

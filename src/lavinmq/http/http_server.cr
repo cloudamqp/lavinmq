@@ -101,7 +101,7 @@ module LavinMQ
         path = Config.instance.control_unix_path
         begin
           prepare_control_socket(path)
-        rescue ex : ControlSocketInUseError
+        rescue ex
           Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
           return
         end
