@@ -1,3 +1,4 @@
+require "systemd"
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
@@ -113,6 +114,9 @@ module LavinMQ
         if unix_mqtt_proxy = @unix_mqtt_proxy
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
+        # Signal systemd that the follower is set up and the proxies are
+        # forwarding client traffic to the leader.
+        SystemD.notify_ready
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
