@@ -151,6 +151,7 @@ module LavinMQ
       end
 
       def close
+        return if closed?
         @new_message_available.close
         super
       end

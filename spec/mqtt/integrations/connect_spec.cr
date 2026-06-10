@@ -16,6 +16,31 @@ module MqttSpecs
           end
         end
       end
+
+      it "keeps the replacement client registered after the old client cleanup runs" do
+        with_server do |server|
+          client_id = "reconnect-race"
+          broker = mqtt(server).broker("/")
+          vhost = server.vhosts["/"]
+
+          with_client_io(server) do |io|
+            connect(io, client_id: client_id)
+            old_client = broker.@clients[client_id]
+
+            with_client_io(server) do |io2|
+              connect(io2, client_id: client_id)
+              new_client = broker.@clients[client_id]
+              new_client.same?(old_client).should be_false
+
+              io.should be_closed
+              wait_for { vhost.connections.none?(&.same?(old_client)) }
+
+              broker.@clients[client_id]?.try(&.same?(new_client)).should be_true
+              pingpong(io2).should be_a(MQTT::Protocol::PingResp)
+            end
+          end
+        end
+      end
     end
 
     describe "receives connack" do
