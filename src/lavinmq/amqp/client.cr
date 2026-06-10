@@ -89,15 +89,17 @@ module LavinMQ
             ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
           end
         @log = Logger.new(Log, @metadata)
-        @vhost.add_connection(self)
+      end
+
+      def run : Nil
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
             close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
           end
         end
+        read_loop
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -423,10 +425,20 @@ module LavinMQ
                        " has reached the negotiated channel_max (#{@actual_channel_max})"
           close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
         else
-          @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
-          @vhost.event_tick(EventType::ChannelCreated)
+          add_channel(frame.channel)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
         end
+      end
+
+      private def add_channel(id : UInt16) : Client::Channel
+        AMQP::Channel.new(self, id).tap do |channel|
+          @channels[id] = channel
+          @vhost.event_tick(EventType::ChannelCreated)
+        end
+      end
+
+      private def close_channel(channel : Client::Channel?) : Nil
+        @vhost.event_tick(EventType::ChannelClosed) if channel.try &.close
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -438,10 +450,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          @channels.delete(frame.channel).try &.close
+          close_channel(@channels.delete(frame.channel))
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          @channels.delete(frame.channel).try &.close
+          close_channel(@channels.delete(frame.channel))
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -513,7 +525,7 @@ module LavinMQ
         @running = false
         i = 0u32
         @channels.each_value do |ch|
-          ch.close
+          close_channel(ch)
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
@@ -521,7 +533,6 @@ module LavinMQ
         # whose observer mutates @exclusive_queues.
         @exclusive_queues.dup.each(&.close)
         @exclusive_queues.clear
-        @vhost.rm_connection(self)
         case user = @user
         when Auth::OAuthUser
           user.cleanup
@@ -569,7 +580,7 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels[frame.channel]?.try &.close
+        close_channel(@channels[frame.channel]?)
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -623,7 +634,7 @@ module LavinMQ
           @running = false
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels[ex.channel]?.try &.close
+          close_channel(@channels[ex.channel]?)
         end
       end
 

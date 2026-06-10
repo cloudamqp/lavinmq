@@ -28,7 +28,7 @@ module LavinMQ
               packet = assign_client_id(packet) if packet.client_id.empty?
               session_present = broker.session_present?(packet.client_id, packet.clean_session?)
               connack io, session_present, Connack::ReturnCode::Accepted
-              return broker.add_client(io, connection_info, user, packet)
+              return broker.run_client(io, connection_info, user, packet)
             else
               logger.warn { "Authentication failure for user \"#{packet.username}\"" }
               connack io, false, Connack::ReturnCode::NotAuthorized

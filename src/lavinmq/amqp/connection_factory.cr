@@ -15,7 +15,7 @@ module LavinMQ
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
       end
 
-      def start(socket, connection_info) : Client?
+      def create(socket, connection_info) : Client?
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
