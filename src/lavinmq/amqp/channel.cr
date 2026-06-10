@@ -22,8 +22,8 @@ module LavinMQ
       getter? flow = true
       @consumers = Array(AMQP::Consumer).new
 
-      def consumers : Array(LavinMQ::Client::Channel::Consumer)
-        @consumers.map &.as(LavinMQ::Client::Channel::Consumer)
+      def consumers : Array(AMQP::Consumer)
+        @consumers.dup
       end
 
       def consumers_size : Int32
@@ -36,7 +36,10 @@ module LavinMQ
 
       def cancel_consumer(consumer : AMQP::Consumer) : Nil
         send AMQP::Frame::Basic::Cancel.new(@id, consumer.tag, no_wait: true)
-        delete_and_close_consumer(consumer)
+        if @consumers.delete(consumer)
+          consumer.close
+          consumer.queue.rm_consumer(consumer)
+        end
       end
 
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
@@ -443,7 +446,8 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          add_consumer(c)
+          @consumers.push(c)
+          q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
@@ -451,11 +455,6 @@ module LavinMQ
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
-      end
-
-      private def add_consumer(consumer : AMQP::Consumer) : Nil
-        @consumers.push(consumer)
-        consumer.queue.add_consumer(consumer)
       end
 
       def basic_get(frame)
@@ -719,7 +718,8 @@ module LavinMQ
         @running = false
         @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
-          close_consumer(consumer)
+          consumer.close
+          consumer.queue.rm_consumer(consumer)
           Fiber.yield if (i % 128) == 0
         end
         @consumers.clear
@@ -738,17 +738,6 @@ module LavinMQ
         @next_msg_body_file.try &.close
         @log.debug { "Closed" }
         true
-      end
-
-      private def close_consumer(consumer : AMQP::Consumer) : Nil
-        consumer.close
-        consumer.queue.rm_consumer(consumer)
-      end
-
-      private def delete_and_close_consumer(consumer : AMQP::Consumer) : Nil
-        if @consumers.delete(consumer)
-          close_consumer(consumer)
-        end
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
@@ -804,7 +793,9 @@ module LavinMQ
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
         if consumer = @consumers.find { |cons| cons.tag == frame.consumer_tag }
-          delete_and_close_consumer(consumer)
+          @consumers.delete(consumer)
+          consumer.close
+          consumer.queue.rm_consumer(consumer)
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
