@@ -116,6 +116,9 @@ module MqttSpecs
             connack = connect(io, client_id: "", clean_session: true)
             connack.should be_a(MQTT::Protocol::Connack)
             connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            client = server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first
+            client.client_id.should start_with("guest")
+            client.client_id.size.should be > "guest".size
           end
         end
       end
