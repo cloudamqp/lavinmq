@@ -66,8 +66,19 @@ function noencode (v) {
   return new NoUrlEscapeString(v)
 }
 
+async function submitForm (form, method, url, options = {}) {
+  const { body, table } = options
+  return request(method, url, { body })
+    .then(res => {
+      if (res?.is_error) throw res
+      if (table) table.reload()
+      form.reset()
+    })
+}
+
 export {
   request,
+  submitForm,
   url,
   noencode
 }
