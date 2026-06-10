@@ -30,14 +30,9 @@ module LavinMQ
 
       def close
         @lock.synchronize do
-          begin
-            write_index
-          rescue File::NotFoundError
-            # The vhost directory can already be gone when the broker is closed
-            # from a VHostStore::Deleted notification.
-          end
-          @index_file.close rescue nil
-          @files.each_value { |f| f.close rescue nil }
+          write_index
+          @index_file.close
+          @files.each_value &.close
         end
       end
 

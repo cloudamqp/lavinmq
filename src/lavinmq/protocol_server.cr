@@ -4,8 +4,10 @@ require "wait_group"
 require "./server"
 
 module LavinMQ
-  alias ProtocolListenerDetails = NamedTuple(ip_address: String, protocol: Symbol, port: Int32) |
-                                  NamedTuple(path: String, protocol: Symbol)
+  enum Protocol
+    AMQP
+    MQTT
+  end
 
   abstract class ProtocolServer
     @listeners = Array(Socket::Server).new
@@ -15,7 +17,7 @@ module LavinMQ
     @listening = false
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@server : LavinMQ::Server, @config : Config, @protocol : Symbol)
+    def initialize(@server : LavinMQ::Server, @config : Config, @protocol : Protocol)
     end
 
     def closed? : Bool
@@ -137,7 +139,7 @@ module LavinMQ
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
     end
 
-    def listeners : Array(ProtocolListenerDetails)
+    def listeners
       @listeners.map do |l|
         case l
         when UNIXServer

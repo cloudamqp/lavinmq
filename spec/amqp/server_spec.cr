@@ -40,7 +40,7 @@ describe LavinMQ::AMQP::Server do
       spawn(name: "amqp duplicate listen spec") { amqp_server.listen }
       wait_for { amqp_server.listening? }
 
-      expect_raises(Exception, "Can't start running amqp server") do
+      expect_raises(Exception, "Can't start running AMQP server") do
         amqp_server.listen
       end
 

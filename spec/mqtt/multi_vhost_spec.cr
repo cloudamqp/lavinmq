@@ -11,26 +11,6 @@ module MqttSpecs
         end
       end
 
-      it "closes broker with retained messages when vhost is deleted" do
-        with_server do |server|
-          vhost = "retained"
-          server.vhosts.create(vhost)
-          broker = mqtt(server).broker(vhost)
-          broker.publish(MQTT::Protocol::Publish.new(
-            topic: "test/retain",
-            payload: "retained".to_slice,
-            packet_id: nil,
-            dup: false,
-            qos: 0u8,
-            retain: true
-          ))
-
-          server.vhosts.delete(vhost)
-
-          expect_raises(KeyError) { mqtt(server).broker(vhost) }
-        end
-      end
-
       describe "authentication" do
         it "should deny mqtt access to default vhost for user lacking vhost permissions" do
           with_server do |server|

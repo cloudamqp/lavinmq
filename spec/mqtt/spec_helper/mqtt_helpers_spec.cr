@@ -10,12 +10,11 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    listener = protocol_listeners(server).find { |l| l[:protocol] == :mqtt }
-    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: Symbol, port: Int32))
+    tcp_listener = mqtt(server).@listeners.select(TCPServer).first.local_address
 
     socket = TCPSocket.new(
-      tcp_listener[:ip_address],
-      tcp_listener[:port],
+      tcp_listener.address,
+      tcp_listener.port,
       connect_timeout: 30)
     socket.keepalive = true
     socket.tcp_nodelay = false

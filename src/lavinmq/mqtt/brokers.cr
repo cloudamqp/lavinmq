@@ -36,7 +36,7 @@ module LavinMQ
         in VHostStore::Event::Added
           @brokers[vhost] = Broker.new(@vhosts[vhost])
         in VHostStore::Event::Deleted
-          @brokers.delete(vhost).try &.close
+          @brokers.delete(vhost)
         in VHostStore::Event::Closed
           @brokers.delete(vhost).try &.close
         end
