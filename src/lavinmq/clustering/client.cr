@@ -4,6 +4,7 @@ require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
+require "http/server"
 
 module LavinMQ
   module Clustering
