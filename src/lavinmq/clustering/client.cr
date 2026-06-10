@@ -45,6 +45,8 @@ module LavinMQ
           h[k] = File.open(path, "a").tap &.sync = true
         end
         Dir.mkdir_p @data_dir
+        @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
+        raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
@@ -407,18 +409,39 @@ module LavinMQ
         @acks.send(n)
       end
 
-      # Concatenate as many acks as possible to generate few TCP packets
+      # Concatenate as many acks as possible to generate few TCP packets.
+      # Data is synced to disk before each ack is sent: the leader confirms
+      # publishes to clients on follower acks alone (skipping its own syncfs),
+      # so an acked byte must be durable here. Syncing once per coalesced
+      # batch makes batching emerge naturally — acks accumulate while the
+      # blocking syncfs runs.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
+          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
+      end
+
+      # Make all replicated writes durable before acking the leader.
+      private def sync_to_disk : Nil
+        {% if flag?(:linux) %}
+          ret = LibC.syncfs(@data_dir_fd)
+          raise IO::Error.from_errno("syncfs") if ret != 0
+        {% else %}
+          LibC.sync
+        {% end %}
+      rescue ex
+        # Can't ack data that isn't durable; die fast so the leader drops us
+        # from the in-sync set and stops confirming publishes on our acks.
+        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
       end
 
       private def log_streamed_bytes_loop
@@ -466,6 +489,7 @@ module LavinMQ
         end
         @file_digests.clear
         @checksums.store
+        LibC.close(@data_dir_fd) if @data_dir_fd >= 0
         @data_dir_lock.release
         @metrics_server.try &.close
       end
