@@ -93,6 +93,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | `[mqtt]` | `false` | Enable ACL checks on MQTT publish/subscribe |
+| `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none`, `username` or `username_prefix` |
 
 ## Permissions
 
@@ -108,6 +109,17 @@ When disabled, any authenticated MQTT client can publish and subscribe to any to
 MQTT clients authenticate using the CONNECT packet's username and password fields. These are validated against the same authentication chain as AMQP (local users, OAuth2). For OAuth2, the password field carries the JWT token.
 
 The username field can include a vhost using the format `vhost:username`. If no colon is present, `default_vhost` is used.
+
+### Client ID Validation
+
+By default any client_id is accepted. Since the client_id is chosen freely by the client, it cannot be trusted for identity purposes on its own. The `client_id_validation` setting ties it to the authenticated username:
+
+- `username`: the client_id must be equal to the username
+- `username_prefix`: the client_id must start with the username, so one set of credentials can be shared by several devices (user `fleet1` can connect as `fleet1-sensor-a` and `fleet1-sensor-b`)
+
+A CONNECT with a non-conforming client_id is rejected with return code 2 (identifier rejected) and the connection is closed. An empty client_id is automatically assigned a conforming one. When the username includes a vhost (`vhost:username`), the client_id is validated against the username part only.
+
+Note that connecting with a client_id already in use takes over that session, so `username` mode limits each user to one connection at a time.
 
 ## Limitations
 
