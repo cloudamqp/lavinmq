@@ -7,7 +7,7 @@ module LavinMQ
       @connection_factory : ConnectionFactory
 
       def initialize(server : LavinMQ::Server, config : Config = Config.instance)
-        super(server, config, :amqp)
+        super(server, config, LavinMQ::Protocol::AMQP)
         @connection_factory = ConnectionFactory.new(@server.authenticator, @server.vhosts)
       end
 

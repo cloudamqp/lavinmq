@@ -95,13 +95,6 @@ def mqtt(server : LavinMQ::Server) : LavinMQ::MQTT::Server
   SPEC_MQTT_SERVERS[server]
 end
 
-def protocol_listeners(server : LavinMQ::Server)
-  listeners = [] of LavinMQ::ProtocolListenerDetails
-  SPEC_AMQP_SERVERS[server]?.try { |amqp_server| listeners.concat(amqp_server.listeners) }
-  SPEC_MQTT_SERVERS[server]?.try { |mqtt_server| listeners.concat(mqtt_server.listeners) }
-  listeners
-end
-
 private def protocol_server_state(server : LavinMQ::ProtocolServer)
   tcp_listener = server.@listeners.select(TCPServer).first?
   {
