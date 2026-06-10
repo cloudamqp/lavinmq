@@ -46,8 +46,8 @@ module LavinMQ::AMQP
     add_argument_validator "x-cache-ttl", VALIDATOR_INT_ZERO
     add_argument_validator "x-deduplication-header", VALIDATOR_STRING
     add_argument_validator "x-delayed-retry-min", VALIDATOR_INT_ONE
-    add_argument_validator "x-delayed-retry-multiplier", VALIDATOR_INT_ONE
     add_argument_validator "x-delayed-retry-max", VALIDATOR_INT_ONE
+    add_argument_validator "x-delayed-retry-multiplier", VALIDATOR_INT_ONE
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
@@ -62,11 +62,10 @@ module LavinMQ::AMQP
     @expires : Int64?
     @delivery_limit : Int64?
     @reject_on_overflow = false
-    @retry_min_delay : Int64?  # x-delayed-retry-min
-    @retry_multiplier : Int32? # x-delayed-retry-multiplier; nil = linear (delay = min * n)
-    @retry_max_delay : Int64?  # x-delayed-retry-max; nil = no cap
-    @retry_queue : RetryQueue?
-    DEFAULT_RETRY_DELIVERY_LIMIT = 20i64 # matches RabbitMQ 4.0+ quorum queue default
+    @delayed_retry_min : Int64?
+    @delayed_retry_multiplier : Int32?
+    @delayed_retry_max : Int64?
+    @delayed_retry_queue : RetryQueue?
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -388,17 +387,17 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
-      @retry_min_delay = parse_header("x-delayed-retry-min", Int).try(&.to_i64)
-      if @retry_min_delay
+      @delayed_retry_min = parse_header("x-delayed-retry-min", Int).try(&.to_i64)
+      if @delayed_retry_min
+        unless @delivery_limit
+          raise LavinMQ::Error::PreconditionFailed.new(
+            "x-delivery-limit must be set when x-delayed-retry-min is set")
+        end
         @effective_args << "x-delayed-retry-min"
-        @retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
+        @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
         @effective_args << "x-delayed-retry-multiplier" if @arguments["x-delayed-retry-multiplier"]?
-        @retry_max_delay = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
+        @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
         @effective_args << "x-delayed-retry-max" if @arguments["x-delayed-retry-max"]?
-        # Default x-delivery-limit when retry is enabled, matching RabbitMQ 4.0+ quorum-queue default.
-        # Without a limit, a flapping consumer could keep a message in-flight forever.
-        @delivery_limit ||= DEFAULT_RETRY_DELIVERY_LIMIT
-        @effective_args << "x-delivery-limit" unless @arguments["x-delivery-limit"]?
         init_retry_queue
       end
     end
@@ -410,9 +409,9 @@ module LavinMQ::AMQP
     end
 
     private def init_retry_queue
-      return if @retry_queue
+      return if @delayed_retry_queue
       queue = RetryQueue.create(@vhost, self)
-      @retry_queue = queue
+      @delayed_retry_queue = queue
       @vhost.queues[queue.name] = queue
     end
 
@@ -437,12 +436,12 @@ module LavinMQ::AMQP
     # Capped at x-delayed-retry-max if set; cap is a pure clamp,
     # termination is governed by x-delivery-limit only.
     private def calculate_retry_delay(base_delay : Int64, delivery_count : Int32) : Int64
-      raw = if mult = @retry_multiplier
+      raw = if mult = @delayed_retry_multiplier
               (base_delay * (mult.to_i64 ** (delivery_count - 1))).to_i64
             else
               base_delay * delivery_count
             end
-      if max = @retry_max_delay
+      if max = @delayed_retry_max
         Math.min(raw, max)
       else
         raw
@@ -514,8 +513,8 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      if retry_queue = @retry_queue
-        @retry_queue = nil
+      if retry_queue = @delayed_retry_queue
+        @delayed_retry_queue = nil
         retry_queue.delete
       end
       close
@@ -800,7 +799,7 @@ module LavinMQ::AMQP
           expire_msg(env, :expired)
           next
         end
-        if (@delivery_limit || @retry_min_delay) && !no_ack
+        if (@delivery_limit || @delayed_retry_min) && !no_ack
           env = with_delivery_count_header(env) || next
         end
         sp = env.segment_position
@@ -842,7 +841,7 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit || @retry_min_delay
+      if @delivery_limit || @delayed_retry_min
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries[sp]? || headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 0
@@ -866,7 +865,7 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit || @retry_min_delay
+      @deliveries.delete(sp) if @delivery_limit || @delayed_retry_min
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -907,7 +906,6 @@ module LavinMQ::AMQP
       raise ex
     end
 
-
     private def requeue_message(sp : SegmentPosition, route_to_retry : Bool)
       if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
         return expire_msg(sp, :expired)
@@ -917,8 +915,8 @@ module LavinMQ::AMQP
           return expire_msg(sp, :delivery_limit)
         end
       end
-      if route_to_retry && (retry_queue = @retry_queue) && (retry_min_delay = @retry_min_delay)
-        route_to_retry_queue(sp, retry_queue, retry_min_delay)
+      if route_to_retry && (retry_queue = @delayed_retry_queue) && (delayed_retry_min = @delayed_retry_min)
+        route_to_retry_queue(sp, retry_queue, delayed_retry_min)
       else
         @msg_store_lock.synchronize { @msg_store.requeue(sp) }
         drop_overflow

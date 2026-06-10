@@ -54,6 +54,17 @@ describe "Retry Queue" do
         end
       end
     end
+
+    it "should require x-delivery-limit when x-delayed-retry-min is set" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /x-delivery-limit/) do
+            args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+            ch.queue("retry-no-limit", args: args)
+          end
+        end
+      end
+    end
   end
 
   describe "Basic retry" do
