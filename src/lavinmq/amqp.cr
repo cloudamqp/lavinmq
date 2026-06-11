@@ -1,4 +1,5 @@
 require "amq-protocol"
+require "./amqp/table_ext"
 
 module LavinMQ
   module AMQP

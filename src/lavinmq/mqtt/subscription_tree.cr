@@ -50,7 +50,12 @@ module LavinMQ
 
       def unsubscribe(filter : String, session : T)
         if subs = @non_wildcards[filter]?
-          return unless subs.delete(session).nil?
+          unless subs.delete(session).nil?
+            # Drop the entry when the last subscriber is gone, otherwise the
+            # hash grows with every unique filter ever subscribed to
+            @non_wildcards.delete(filter) if subs.empty?
+            return
+          end
         end
         unsubscribe(StringTokenIterator.new(filter), session)
       end

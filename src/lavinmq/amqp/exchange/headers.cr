@@ -37,9 +37,9 @@ module LavinMQ
           if headers.nil? || headers.empty?
             @args_empty
           elsif @match_any
-            @pairs.any? { |p| headers.has_key?(p.key) && headers[p.key] == p.value }
+            @pairs.any? { |p| headers.has_entry?(p.key, p.value) }
           else
-            @pairs.all? { |p| headers.has_key?(p.key) && headers[p.key] == p.value }
+            @pairs.all? { |p| headers.has_entry?(p.key, p.value) }
           end
         end
       end
