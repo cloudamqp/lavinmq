@@ -94,6 +94,21 @@ test.describe('logout', _ => {
     expect(cookies.some(c => c.name === 'm')).toBe(false)
   })
 
+  test('oauth username containing colons is shown in full', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem('lmq.whoami')
+      document.cookie = `m=|oauth:${window.btoa('f:realm:alice:')}; path=/`
+    })
+    // An OAuth session authenticates with the HttpOnly oauth_token cookie,
+    // which a frontend test can't mint, so stub the API away.
+    await page.route(url => url.pathname.startsWith('/api/'), route => route.fulfill({ json: {} }))
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'f:realm:alice', tags: 'administrator' }
+    }))
+    await page.goto('/')
+    await expect(page.locator('#username')).toHaveText('f:realm:alice')
+  })
+
   test('oauth session sign-out goes through oauth/logout', async ({ page }) => {
     await page.goto('/')
     await page.evaluate(() => { document.cookie = `m=|oauth:${window.btoa('alice:')}; path=/` })

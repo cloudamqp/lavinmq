@@ -4,7 +4,10 @@ const oauthAuthPrefix = '|oauth:'
 
 function getUsername () {
   if (!getCookie('m')) return
-  return window.atob(getAuth()).split(':')[0]
+  const auth = window.atob(getAuth())
+  // The OAuth identity is "name:" with no password; the name may contain colons
+  if (isOAuthSession()) return auth.slice(0, auth.lastIndexOf(':'))
+  return auth.split(':')[0]
 }
 
 function getPassword () {
