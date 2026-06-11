@@ -479,6 +479,47 @@ module Stress
     end
   end
 
+  private def self.disconnected?(ch, conn) : Bool
+    ch.closed? || conn.closed?
+  end
+
+  # Drain the per-message confirm callbacks for one batch against a shared
+  # deadline. Each arriving confirm is counted individually; confirms that
+  # never show up before the deadline are timeouts — or disconnects if we
+  # already know the channel/connection died.
+  private def self.await_batch_confirms(ack_chan, published : Int32, deadline, ch, conn, label : String) : Nil
+    received = 0
+    while received < published && !STOP.get
+      remaining = deadline - Time.instant
+      break if remaining <= Time::Span.zero
+      select
+      when ok = ack_chan.receive
+        received += 1
+        if ok
+          STATS.incr_confirmed
+        elsif disconnected?(ch, conn)
+          STATS.incr_confirm_disconnects
+        else
+          STATS.incr_confirm_nacked
+        end
+      when timeout(remaining)
+        break
+      end
+    end
+    missing = published - received
+    if missing > 0
+      # Don't warn if we already know the connection died — that explains
+      # the missing confirms (cleanup() drains the pending deque but our
+      # already-timed-out `select` no longer sees them).
+      if disconnected?(ch, conn)
+        STATS.incr_confirm_disconnects(by: missing.to_i64)
+      else
+        STATS.incr_confirm_timeouts(by: missing.to_i64)
+        Log.warn { "[#{label}] #{missing}/#{published} confirms missing after #{BATCH_CONFIRM_TIMEOUT}" }
+      end
+    end
+  end
+
   # Batched confirmer: publish BATCH_CONFIRM_SIZE without waiting between
   # them, then drain the confirm callbacks with a total deadline. Each
   # arriving confirm is counted individually; messages whose confirm never
@@ -502,37 +543,8 @@ module Stress
           published += 1
         end
         next if published == 0
-        received = 0
         deadline = Time.instant + BATCH_CONFIRM_TIMEOUT
-        while received < published && !STOP.get
-          remaining = deadline - Time.instant
-          break if remaining <= Time::Span.zero
-          select
-          when ok = ack_chan.receive
-            received += 1
-            if ok
-              STATS.incr_confirmed
-            elsif ch.closed? || conn.closed?
-              STATS.incr_confirm_disconnects
-            else
-              STATS.incr_confirm_nacked
-            end
-          when timeout(remaining)
-            break
-          end
-        end
-        missing = published - received
-        if missing > 0
-          # Don't warn if we already know the connection died — that explains
-          # the missing confirms (cleanup() drains the pending deque but our
-          # already-timed-out `select` no longer sees them).
-          if ch.closed? || conn.closed?
-            STATS.incr_confirm_disconnects(by: missing.to_i64)
-          else
-            STATS.incr_confirm_timeouts(by: missing.to_i64)
-            Log.warn { "[bconf-#{kind}-#{id}] #{missing}/#{published} confirms missing after #{BATCH_CONFIRM_TIMEOUT}" }
-          end
-        end
+        await_batch_confirms(ack_chan, published, deadline, ch, conn, "bconf-#{kind}-#{id}")
         STATS.incr_batch_confirm_cycles
       end
     end
