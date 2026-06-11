@@ -1252,33 +1252,42 @@ module Stress
   # happen. The pool is intentionally small to force collisions.
   POLICY_NAMES = %w(churn-a churn-b churn-c churn-d churn-e churn-f churn-g churn-h)
 
+  private def self.maybe_field(json : JSON::Builder, name : String, value : String) : Nil
+    json.field name, value if Random.rand(2) == 0
+  end
+
+  private def self.build_policy_field(json : JSON::Builder, choice : Int32) : Nil
+    case choice
+    when 0
+      json.field "max-length", Random.rand(1..200)
+      maybe_field(json, "dead-letter-exchange", EX_DLX)
+    when 1
+      json.field "max-length-bytes", Random.rand(4096..65_536)
+      json.field "overflow", "drop-head"
+    when 2
+      json.field "message-ttl", Random.rand(50..2000)
+      maybe_field(json, "dead-letter-exchange", EX_DLX)
+    when 3
+      json.field "expires", Random.rand(5_000..60_000)
+    when 4
+      json.field "overflow", "reject-publish"
+      json.field "max-length", Random.rand(1..50)
+    when 5
+      json.field "dead-letter-exchange", EX_DLX
+      json.field "dead-letter-routing-key", "via-policy"
+    when 6
+      json.field "delivery-limit", Random.rand(1..10)
+    when 7
+      # Stream-applicable: max-length-bytes forces drop_overflow churn.
+      json.field "max-length-bytes", Random.rand(1024 * 1024..STREAM_MAX_LENGTH_BYTES)
+      maybe_field(json, "max-age", "#{Random.rand(1..30)}s")
+    end
+  end
+
   private def self.build_policy_definition(json : JSON::Builder, allow_stream : Bool) : Nil
+    choice = Random.rand(allow_stream ? 8 : 7)
     json.object do
-      case Random.rand(allow_stream ? 8 : 7)
-      when 0
-        json.field "max-length", Random.rand(1..200)
-        json.field "dead-letter-exchange", EX_DLX if Random.rand(2) == 0
-      when 1
-        json.field "max-length-bytes", Random.rand(4096..65_536)
-        json.field "overflow", "drop-head"
-      when 2
-        json.field "message-ttl", Random.rand(50..2000)
-        json.field "dead-letter-exchange", EX_DLX if Random.rand(2) == 0
-      when 3
-        json.field "expires", Random.rand(5_000..60_000)
-      when 4
-        json.field "overflow", "reject-publish"
-        json.field "max-length", Random.rand(1..50)
-      when 5
-        json.field "dead-letter-exchange", EX_DLX
-        json.field "dead-letter-routing-key", "via-policy"
-      when 6
-        json.field "delivery-limit", Random.rand(1..10)
-      when 7
-        # Stream-applicable: max-length-bytes forces drop_overflow churn.
-        json.field "max-length-bytes", Random.rand(1024 * 1024..STREAM_MAX_LENGTH_BYTES)
-        json.field "max-age", "#{Random.rand(1..30)}s" if Random.rand(2) == 0
-      end
+      build_policy_field(json, choice)
     end
   end
 
