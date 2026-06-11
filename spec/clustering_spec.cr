@@ -224,6 +224,40 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "ensures the clustering secret exists even when another node is already leader" do
+    config = LavinMQ::Config.new
+    config.data_dir = "/tmp/secret-follower"
+    config.clustering_etcd_endpoints = "localhost:12379"
+    config.clustering_advertised_uri = "tcp://localhost:5683"
+    config.clustering_port = 5683
+    config.amqp_port = 0
+    config.http_port = 0
+    config.mqtt_port = 0
+    config.metrics_http_port = 0
+    config.control_unix_path = File.tempname("secret-follower-ctl")
+    controller = LavinMQ::Clustering::Controller.new(config)
+
+    # Simulate an elected leader that has not (yet) written the clustering
+    # secret — the window a starting follower can race into.
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    etcd.lease_grant(id: 4711)
+    etcd.election_campaign("lavinmq/leader", "tcp://fake-leader:5679", lease: 4711)
+
+    spawn(name: "controller secret spec") do
+      controller.run { }
+    rescue SpecExit
+    end
+
+    deadline = Time.instant + 5.seconds
+    until etcd.get("lavinmq/clustering_secret")
+      fail "controller never ensured the clustering secret" if Time.instant > deadline
+      Fiber.yield
+    end
+  ensure
+    controller.try &.stop
+    FileUtils.rm_rf("/tmp/secret-follower")
+  end
+
   it "will release lease on shutdown" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"
