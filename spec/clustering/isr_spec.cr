@@ -117,6 +117,49 @@ describe LavinMQ::Clustering::Server do
     end
   end
 
+  describe "join failures" do
+    # Regression: if the join's ISR commit raised after mark_synced!, the
+    # follower used to stay in @followers as Synced with no ack_loop running —
+    # a zombie that every wait_for_confirm (publish confirms, definition
+    # fences) blocked on forever. It must be removed like any other
+    # disconnect.
+    it "drops a follower whose join failed at the ISR commit, instead of leaving a zombie" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr join failure spec")
+
+      coordinator.failing = true # the join's ISR commit will raise after mark_synced!
+      follower_id = 3
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+
+      wait_for { server.all_followers.empty? }
+
+      coordinator.failing = false
+      # The next durable operation must commit an ISR without the follower
+      # and must not hang waiting for an ack that can never come.
+      server.append_bytes(File.join(data_dir, "file"), "x".to_slice, 0i64)
+      done = Channel(Nil).new(1)
+      spawn(name: "wait_for_followers join failure spec") do
+        server.wait_for_followers
+        done.send nil
+      end
+      select
+      when done.receive
+      when timeout(5.seconds)
+        fail "wait_for_followers hung after the failed join"
+      end
+      coordinator.last_isr.try(&.includes?(follower_id)).should be_false
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "durable operations against the ISR" do
     it "commits a dirty ISR before a replicated durable operation returns" do
       data_dir = LavinMQ::Config.instance.data_dir

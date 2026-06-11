@@ -115,7 +115,8 @@ module LavinMQ
         @running.done
       end
 
-      # True once ack_loop has ended (follower disconnected or timed out).
+      # True once ack_loop has ended (follower disconnected or timed out) or
+      # the follower was closed without ack_loop ever running.
       # Server#update_isr excludes dead followers: a publish-confirm waiter
       # unblocked by the @ack_notify close can flush an ISR without this
       # follower even though it hasn't been removed from @followers yet.
@@ -332,6 +333,12 @@ module LavinMQ
           # ignore connection errors while closing
         end
         @running.wait
+        # Normally ack_loop's ensure has closed these by now, but a follower
+        # whose ack_loop never ran (e.g. its join failed after mark_synced!)
+        # must still read as dead and unblock any wait_for_confirm waiter,
+        # or a publish confirm could hang on it forever.
+        @ack_notify.close
+        @flush_requested.close
       end
 
       def to_json(json : JSON::Builder)

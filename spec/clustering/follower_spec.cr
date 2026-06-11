@@ -557,6 +557,45 @@ module FollowerSpec
     end
   end
 
+  describe "#close" do
+    # Regression: a follower whose join failed after mark_synced! (e.g. the
+    # ISR commit raised) never runs ack_loop, so ack_loop's ensure never
+    # closes @ack_notify. close() must mark it dead and unblock waiters
+    # itself, or a publish confirm waiting on it would hang forever.
+    it "marks a follower whose ack_loop never ran as dead and unblocks waiters" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Drain the client side so close's final flush doesn't block
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+
+        confirmed = Channel(Bool).new(1)
+        spawn { confirmed.send follower.wait_for_confirm }
+        sleep 50.milliseconds # let the waiter block on the ack notification
+
+        follower.close
+        select
+        when result = confirmed.receive
+          result.should be_false
+        when timeout(2.seconds)
+          fail "wait_for_confirm was not unblocked by close"
+        end
+        follower.dead?.should be_true
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
   describe "#already_synced" do
     it "counts appends below the captured baseline as fully synced" do
       with_datadir do |data_dir|
