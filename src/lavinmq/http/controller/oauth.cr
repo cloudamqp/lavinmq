@@ -64,8 +64,7 @@ module LavinMQ
         state = Random::Secure.urlsafe_base64(32)
 
         set_cookie(context, "oauth_state", "#{state}:#{verifier}",
-          path: cookie_path, http_only: true,
-          samesite: ::HTTP::Cookie::SameSite::Lax, max_age: 5.minutes)
+          path: cookie_path, http_only: true, max_age: 5.minutes)
 
         params = ::URI::Params.build do |p|
           p.add "client_id", client_id
@@ -107,10 +106,10 @@ module LavinMQ
         max_age = token_response.expires_in.try { |e| Math.min(e, 8.hours.total_seconds.to_i64).seconds } || 8.hours
 
         set_cookie(context, "oauth_token", token_response.access_token,
-          path: cookie_path, http_only: true, samesite: ::HTTP::Cookie::SameSite::Lax, max_age: max_age)
+          path: cookie_path, http_only: true, max_age: max_age)
         value = Base64.strict_encode("#{user.name}:")
         set_cookie(context, "m", "|oauth:#{URI.encode_path_segment(value)}",
-          path: cookie_path, samesite: ::HTTP::Cookie::SameSite::Lax, max_age: max_age)
+          path: cookie_path, max_age: max_age)
         expire_cookie(context, "oauth_state", cookie_path)
 
         context.response.status = ::HTTP::Status::FOUND
@@ -153,8 +152,10 @@ module LavinMQ
         {code, cookie_value[sep + 1..], client_id}
       end
 
+      # SameSite defaults to Lax: the OAuth callback arrives as a top-level
+      # redirect from the IdP, where Strict cookies are not sent.
       private def set_cookie(context, name, value, path = "/", http_only = false,
-                             samesite = ::HTTP::Cookie::SameSite::Strict,
+                             samesite = ::HTTP::Cookie::SameSite::Lax,
                              max_age = 8.hours)
         context.response.cookies << ::HTTP::Cookie.new(
           name: name, value: value, path: path, http_only: http_only,
