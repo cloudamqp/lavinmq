@@ -9,12 +9,20 @@ module LavinMQ
   class DefinitionsStore
     Log = LavinMQ::Log.for "definitions_store"
 
+    @definitions_file : File
+
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      @definitions_file = File.open(@definitions_file_path, "a+")
+      # Unbuffered (sync) writes: replication offsets (store_definition) and a
+      # joining follower's cut + full_sync (Clustering::Server#snapshot_sizes,
+      # #files_with_hash) read this file's size and content through separate
+      # fds, so a frame must never sit in a user-space write buffer where they
+      # can't see it — a follower joining in that window would be marked
+      # synced while permanently missing the frame.
+      @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
       @replicator.try &.register_file(@definitions_file)
       @definitions_deletes = 0
     end
@@ -289,7 +297,9 @@ module LavinMQ
     private def compact!
       @definitions_lock.synchronize do
         @log.info { "Compacting definitions" }
-        io = File.open("#{@definitions_file_path}.tmp", "a+")
+        # sync = true for the same reason as in #initialize: this file becomes
+        # @definitions_file after the rename.
+        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -330,6 +340,11 @@ module LavinMQ
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       offset = @definitions_file.size.to_i64
+      # The write goes straight to the file (sync = true), so by dispatch time
+      # the frame is readable at `offset` through any fd: a follower joining
+      # between write and dispatch gets it via its full_sync cut, and
+      # already_synced then skips (or tail-slices) this append against the
+      # baseline instead of duplicating it.
       @definitions_file.write bytes
       @replicator.try &.append_bytes @definitions_file_path, bytes, offset
       if fsync
