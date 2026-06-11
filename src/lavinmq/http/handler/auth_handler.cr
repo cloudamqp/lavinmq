@@ -44,6 +44,9 @@ module LavinMQ
 
       private def cookie_auth(context)
         if m = context.request.cookies["m"]?
+          # The "|oauth:" identity cookie set for SSO sessions (see
+          # OAuthController) carries no password and is not credentials.
+          return if m.value.starts_with?("|oauth:")
           if idx = m.value.rindex(':')
             auth = URI.decode(m.value[idx + 1..])
             return decode(auth)

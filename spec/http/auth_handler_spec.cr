@@ -69,5 +69,15 @@ describe LavinMQ::HTTP::AuthHandler do
         context.user.should eq users.direct_user
       end
     end
+
+    it "stays authenticated when the OAuth identity cookie username contains a colon" do
+      with_auth_handler do |handler, users|
+        value = URI.encode_path_segment(Base64.strict_encode("f:realm:alice:"))
+        context = request_context(::HTTP::Headers{"Cookie" => "m=|oauth:#{value}"})
+        context.user = users.direct_user
+        handler.call(context)
+        context.user.should eq users.direct_user
+      end
+    end
   end
 end
