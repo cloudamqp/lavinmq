@@ -106,8 +106,41 @@ describe LavinMQ::Clustering::Server do
 
       # No eager flush: the ISR still lists the follower (it has everything
       # confirmed so far and is a valid candidate). It is only removed before
-      # the next publish confirm (see "flushes a dirty ISR" below).
+      # the next replicated durable operation or publish confirm (see the
+      # specs below).
       coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "durable operations against the ISR" do
+    it "commits a dirty ISR before a replicated durable operation returns" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr durable op spec")
+
+      follower_id = 9
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { server.followers.any? &.id.== follower_id }
+
+      client_io.close # caught-up disconnect: stays in the ISR, marks it dirty
+      wait_for { server.followers.empty? }
+      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+
+      # Durable operations that don't go through the Persister (queue/exchange
+      # declares appending to definitions.amqp, users.json replaces, segment
+      # deletes) must commit the shrunken ISR before they return — and thus
+      # before they are acknowledged to any client — otherwise a leader crash
+      # could elect the disconnected follower without the acknowledged change.
+      server.append_bytes(File.join(data_dir, "definitions.amqp"), "frame".to_slice, 0i64)
+      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
     ensure
       client_io.try &.close
       server.try &.close

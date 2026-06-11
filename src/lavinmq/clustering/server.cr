@@ -334,9 +334,10 @@ module LavinMQ
             # than lazily — otherwise it could be promoted on failover lacking
             # already-confirmed data. A caught-up follower (no lag) still has
             # everything confirmed so far, so we leave it in the ISR as a valid
-            # failover candidate; the Persister flushes the dirty ISR before
-            # the next publish confirm, so nothing it lacks is ever confirmed
-            # while it remains listed.
+            # failover candidate; the dirty ISR is flushed before the next
+            # replicated durable operation returns (each_follower) and before
+            # the next publish confirm (Persister), so nothing it lacks is
+            # ever acknowledged while it remains listed.
             behind = follower.lag_in_bytes > 0
             @followers.delete(follower)
             @dirty_isr = true
@@ -383,13 +384,15 @@ module LavinMQ
       end
 
       # Commit the current ISR to the coordinator, retrying until it succeeds.
-      # Called by the Persister before sending publish confirms when a synced
-      # follower has disconnected: the confirm may only go out once the
-      # follower's removal from the ISR is durable, otherwise a leader crash
-      # right after the confirm could elect that follower even though it lacks
-      # the confirmed data. Confirms must stall rather than be issued against
-      # a stale ISR — if the coordinator stays unreachable the leader's lease
-      # eventually expires and the process exits.
+      # Called before any durable operation is acknowledged when a synced
+      # follower has disconnected — by each_follower after dispatching a
+      # replicated change, and by the Persister before sending publish
+      # confirms: the acknowledgment may only go out once the follower's
+      # removal from the ISR is durable, otherwise a leader crash right after
+      # the acknowledgment could elect that follower even though it lacks the
+      # acknowledged data. Operations must stall rather than be acknowledged
+      # against a stale ISR — if the coordinator stays unreachable the
+      # leader's lease eventually expires and the process exits.
       def flush_isr : Nil
         loop do
           @lock.synchronize { update_isr }
@@ -410,12 +413,21 @@ module LavinMQ
         @file_index.lock { |_files, checksums| checksums.store }
       end
 
-      # Note: no coordinator (etcd) call may happen here. This runs in the
-      # publish path; an etcd write that raises would abort the dispatch after
-      # the local write, leaving a hole in every follower's file. A dirty ISR
-      # is instead flushed by the Persister (flush_isr) before any publish
-      # confirm is sent.
+      # Dispatch a replicated change to all synced followers, then commit a
+      # dirty ISR before returning. Every durable operation replicates its
+      # change before acknowledging it (definitions writes, JSON file
+      # replaces, segment deletes, publishes), so flushing here guarantees no
+      # operation is acknowledged while etcd still lists a follower that
+      # disconnected before this change was dispatched — a leader crash right
+      # after the acknowledgment could otherwise elect that follower without
+      # the acknowledged change. The etcd write happens after the dispatch
+      # loop, so a coordinator failure can't abort a dispatch halfway and
+      # leave a hole in every follower's file, and flush_isr retries instead
+      # of raising into the publish path — the operation stalls, and if the
+      # coordinator stays unreachable the leader's lease expires and the
+      # process exits.
       private def each_follower(& : Follower -> Nil) : Nil
+        dirty = false
         @lock.synchronize do
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
@@ -424,7 +436,9 @@ module LavinMQ
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
+          dirty = @dirty_isr
         end
+        flush_isr if dirty
       end
 
       private def strip_datadir(path : String) : String
