@@ -237,6 +237,7 @@ class EtcdCluster
   end
 
   def start : Array(Process)
+    ensure_etcd_in_path!
     @ports.map_with_index do |p, i|
       start_process(p, i)
     end
