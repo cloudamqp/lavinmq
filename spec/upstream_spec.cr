@@ -692,6 +692,37 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should reflect bindings made while link is starting" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef test bindings during start", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          downstream_q = downstream_ch.queue("downstream_q")
+          # Pre-existing bindings stretch the binding replay the link does
+          # during startup, so that the binds below land mid-replay.
+          before = 200
+          before.times { |i| downstream_q.bind("downstream_ex", "before.link.#{i}") }
+
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first? }
+          downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+          # The link starts observing the downstream exchange while it is
+          # still replaying the bindings above to the upstream exchange.
+          wait_for { downstream_ex.@__lavinmq_exchangeevent_observers.includes?(link) }
+          # Binds observed during startup must also be reflected upstream.
+          # (Regression: they were dropped if observed before the link had
+          # an upstream channel.)
+          during = 10
+          during.times { |i| downstream_q.bind("downstream_ex", "during.link.#{i}") }
+
+          upstream_ex = wait_for { upstream_vhost.exchange?("upstream_ex") }
+          upstream_ex = upstream_ex.as(LavinMQ::AMQP::Exchange)
+          wait_for { upstream_ex.bindings_details.size == before + during }
+        end
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost1 = s.vhosts.create("one")
