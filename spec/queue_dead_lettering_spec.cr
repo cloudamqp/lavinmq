@@ -615,7 +615,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should not stack overflow with two mutually dead-lettering queues" do
+      it "should not stack overflow with two mutually dead-lettering queues", tags: "slow" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
             n = 10_000

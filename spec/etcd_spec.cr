@@ -17,7 +17,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
   end
 
   describe "#put_or_get" do
-    it "should set and return value if key is non-existent" do
+    it "should set and return value if key is non-existent", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -27,7 +27,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       end
     end
 
-    it "should get existing value if key exists" do
+    it "should get existing value if key exists", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)

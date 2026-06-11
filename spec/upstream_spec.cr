@@ -827,7 +827,7 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    describe "exchange federation chain" do
+    describe "exchange federation chain", tags: "slow" do
       it "append to x-bound-from" do
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 10) do

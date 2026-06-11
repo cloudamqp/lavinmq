@@ -27,7 +27,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
 
     describe "for File" do
-      it "should open and read file calculating hash" do
+      it "should open and read file calculating hash", tags: "slow" do
         data_dir = LavinMQ::Config.instance.data_dir
         Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(

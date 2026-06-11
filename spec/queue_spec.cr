@@ -108,7 +108,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should expire short-TTL message after consuming long-TTL message" do
+  it "Should expire short-TTL message after consuming long-TTL message", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         # Create a queue with dead letter exchange so we can verify expiration happened
