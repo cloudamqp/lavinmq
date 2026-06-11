@@ -30,6 +30,10 @@ module LavinMQ
           return
         end
 
+        # No JWKS keys yet means verification couldn't run; keep the session
+        # cookies, the token may still be valid.
+        return if @oauth_authenticator.token_verifier.fetcher.public_keys.empty?
+
         expire_cookie(context, "oauth_token", cookie_path)
         expire_cookie(context, "m", cookie_path)
       end

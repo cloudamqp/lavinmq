@@ -11,6 +11,11 @@ class SeedableJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
     @oidc_config = oidc
     @public_keys.update(keys, 1.hour) unless keys.empty?
   end
+
+  # Keep specs hermetic: an on-demand fetch must fail, not go over the network.
+  def fetch_jwks : JWKSResult
+    raise "no network in specs"
+  end
 end
 
 class OnDemandOIDCFetcher < LavinMQ::Auth::JWT::JWKSFetcher
@@ -158,7 +163,8 @@ describe "OAuth2" do
     end
 
     it "clears a stale oauth_token cookie on rejection" do
-      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
+      keys = {"k1" => "not-a-real-pem"}
+      with_http_server(authenticator: build_oauth_chain(default_oidc, keys)) do |http, _|
         headers = ::HTTP::Headers{
           "Cookie" => "oauth_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.fakepayload.fakesignature",
         }
@@ -166,6 +172,19 @@ describe "OAuth2" do
         set_cookies = response.headers.get?("Set-Cookie") || [] of String
         cleared = set_cookies.any? { |c| c.starts_with?("oauth_token=;") && c.downcase.includes?("max-age=0") }
         cleared.should be_true
+      end
+    end
+
+    it "keeps session cookies when JWKS keys could not be fetched" do
+      with_http_server(authenticator: build_oauth_chain(default_oidc)) do |http, _|
+        headers = ::HTTP::Headers{
+          "Cookie" => "oauth_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.fakepayload.fakesignature",
+        }
+        response = ::HTTP::Client.get(http.test_uri("/api/whoami"), headers: headers)
+        response.status_code.should eq 401
+        set_cookies = response.headers.get?("Set-Cookie") || [] of String
+        set_cookies.any?(&.starts_with?("oauth_token=;")).should be_false
+        set_cookies.any?(&.starts_with?("m=;")).should be_false
       end
     end
 
