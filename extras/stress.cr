@@ -732,6 +732,35 @@ module Stress
 
   # -------- Queue churn --------
 
+  private def self.random_queue_args : Arguments
+    args = Arguments.new
+    case Random.rand(8)
+    when 0
+      args["x-message-ttl"] = Random.rand(0..500).to_i64.as(AMQ::Protocol::Field)
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+    when 1
+      args["x-expires"] = Random.rand(200..2000).to_i64.as(AMQ::Protocol::Field)
+    when 2
+      args["x-max-length"] = Random.rand(1..50).to_i64.as(AMQ::Protocol::Field)
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+    when 3
+      args["x-max-length-bytes"] = Random.rand(1024..16_384).to_i64.as(AMQ::Protocol::Field)
+      args["x-overflow"] = "drop-head".as(AMQ::Protocol::Field)
+    when 4
+      args["x-max-length"] = Random.rand(1..20).to_i64.as(AMQ::Protocol::Field)
+      args["x-overflow"] = "reject-publish".as(AMQ::Protocol::Field)
+    when 5
+      # Stream queue (small fraction)
+      args["x-queue-type"] = "stream".as(AMQ::Protocol::Field)
+    when 6
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+      args["x-dead-letter-routing-key"] = "via-dlx".as(AMQ::Protocol::Field)
+    else
+      # plain queue
+    end
+    args
+  end
+
   def self.queue_churn(id : Int32)
     with_amqp("q-churn-#{id}") do |conn|
       ch = conn.channel
@@ -739,32 +768,7 @@ module Stress
       while !STOP.get && !ch.closed?
         n &+= 1
         name = "stress.tmpq.#{id}.#{n}"
-        args = Arguments.new
-        # Pick a random arg mix
-        case Random.rand(8)
-        when 0
-          args["x-message-ttl"] = Random.rand(0..500).to_i64.as(AMQ::Protocol::Field)
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-        when 1
-          args["x-expires"] = Random.rand(200..2000).to_i64.as(AMQ::Protocol::Field)
-        when 2
-          args["x-max-length"] = Random.rand(1..50).to_i64.as(AMQ::Protocol::Field)
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-        when 3
-          args["x-max-length-bytes"] = Random.rand(1024..16_384).to_i64.as(AMQ::Protocol::Field)
-          args["x-overflow"] = "drop-head".as(AMQ::Protocol::Field)
-        when 4
-          args["x-max-length"] = Random.rand(1..20).to_i64.as(AMQ::Protocol::Field)
-          args["x-overflow"] = "reject-publish".as(AMQ::Protocol::Field)
-        when 5
-          # Stream queue (small fraction)
-          args["x-queue-type"] = "stream".as(AMQ::Protocol::Field)
-        when 6
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-          args["x-dead-letter-routing-key"] = "via-dlx".as(AMQ::Protocol::Field)
-        else
-          # plain queue
-        end
+        args = random_queue_args
         durable = Random.rand(2) == 0
         auto_delete = Random.rand(3) == 0
         begin
