@@ -53,6 +53,12 @@ class FakeSocket < TCPSocket
     @io.read_timeout = timeout
   end
 
+  # Follower sets write_timeout so flushes to a blocked follower give up;
+  # route it to the backing UNIXSocket so blocked writes time out in specs.
+  def write_timeout=(timeout)
+    @io.write_timeout = timeout
+  end
+
   def remote_address : Socket::IPAddress
     Socket::IPAddress.parse("tcp://127.0.0.1:1234")
   end

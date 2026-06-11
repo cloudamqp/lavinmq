@@ -458,6 +458,70 @@ module FollowerSpec
       end
     end
 
+    # Regression: the publish-confirm loop runs on an isolated execution
+    # context, but the follower socket's fd belongs to the default context's
+    # event loop (ack_loop keeps a read pending on it). wait_for_confirm used
+    # to flush the socket from the calling fiber; when the flush blocked, the
+    # cross-context fd handover raised RuntimeError, killing the confirm loop
+    # and hanging every publish confirm forever. The flush must instead be
+    # delegated to a follower-owned fiber on the default context.
+    it "never writes the socket from the calling fiber, so an isolated execution context can wait safely" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Outstanding data pending inside the LZ4 writer (well below its
+        # block size, so the append itself doesn't touch the socket); any
+        # flush must now write to the socket.
+        follower.append("#{data_dir}/file", Bytes.new(1024))
+
+        # Fill the socket buffers (the client side never reads), then stop at
+        # the first blocked write, so a later flush of the pending LZ4 data
+        # must block on the event loop.
+        filled = Channel(Nil).new(1)
+        spawn(name: "socket filler") do
+          junk = Bytes.new(65536)
+          loop { follower_socket.write junk }
+        rescue IO::TimeoutError
+          filled.send nil
+        rescue IO::Error
+          # socket closed at spec end
+        end
+        select
+        when filled.receive
+        when timeout(10.seconds)
+          fail "socket buffers never filled"
+        end
+
+        # ack_loop on the default context keeps a read pending on the fd.
+        spawn { follower.ack_loop }
+        sleep 20.milliseconds
+
+        result = Channel(Bool | Exception).new(1)
+        Fiber::ExecutionContext::Isolated.new("confirm from isolated EC") do
+          result.send follower.wait_for_confirm
+        rescue ex
+          result.send ex
+        end
+
+        # The follower never acks; eventually ack_loop gives up (its own
+        # blocked flush times out) and unblocks the waiter with false. The
+        # old direct flush instead raised RuntimeError here: the blocked
+        # write tried to move the fd to the isolated context's event loop
+        # while ack_loop's read was pending on the default one.
+        select
+        when r = result.receive
+          r.should be_false # never acked — and no cross-context IO error raised
+        when timeout(10.seconds)
+          fail "wait_for_confirm never returned from the isolated execution context"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "returns when the follower disconnects before acking" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair

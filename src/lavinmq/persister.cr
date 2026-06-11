@@ -82,9 +82,12 @@ module LavinMQ
       end
       return unless acks
 
-      # Push the pending replicated bytes to the followers first, so they
-      # persist and ack them while our own syncfs runs.
-      @replicator.try &.followers.each &.flush
+      # Ask each follower's flush fiber to push the pending replicated bytes,
+      # so they persist and ack them while our own syncfs runs. Only a
+      # request: this loop runs on an isolated thread and must never write
+      # the follower sockets itself — their fds belong to the default
+      # execution context's event loop (see Follower#flush_loop).
+      @replicator.try &.followers.each &.request_flush
       begin
         sync
       rescue ex

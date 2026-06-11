@@ -25,6 +25,9 @@ module LavinMQ
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
+      # Wakes flush_loop; capacity 1 so a burst of requests coalesces into one
+      # flush. Closed when ack_loop ends, stopping flush_loop.
+      @flush_requested = ::Channel(Nil).new(1)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -69,6 +72,7 @@ module LavinMQ
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
+        spawn(name: "Clustering follower flush loop") { flush_loop }
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
@@ -106,7 +110,8 @@ module LavinMQ
       rescue IO::EOFError | Socket::Error | IO::Error
         # socket closed
       ensure
-        @ack_notify.close # unblock any waiter; this follower is gone
+        @ack_notify.close      # unblock any waiter; this follower is gone
+        @flush_requested.close # stop flush_loop
         @running.done
       end
 
@@ -122,20 +127,43 @@ module LavinMQ
       # waiting for the ack_loop's 100ms flush timeout. Write errors are
       # swallowed: a broken socket is detected by ack_loop, which closes
       # @ack_notify so a wait_for_confirm waiter still unblocks.
-      def flush : Nil
+      private def flush : Nil
         @write_lock.synchronize { @lz4.flush }
       rescue IO::Error | Socket::Error
       end
 
+      # Flushes on behalf of request_flush callers. Runs in its own fiber,
+      # spawned by ack_loop on the default execution context: the publish
+      # confirm loop runs on an isolated thread and must not write the socket
+      # itself — the socket's fd belongs to the default context's event loop
+      # (ack_loop keeps a read pending on it), and a write that blocks from
+      # another context raises instead of waiting.
+      private def flush_loop
+        @running.add
+        while @flush_requested.receive?
+          flush
+        end
+      ensure
+        @running.done
+      end
+
+      # Ask flush_loop to push buffered bytes to the follower. Never blocks
+      # and never touches the socket, so it's safe to call from any execution
+      # context (see flush_loop).
+      def request_flush : Nil
+        @flush_requested.try_send(nil)
+      rescue ::Channel::ClosedError
+      end
+
       # Block until the follower has acked at least the bytes already sent at
-      # call time. Flushes the LZ4 buffer first so the pending bytes reach the
+      # call time. Requests a flush first so the pending bytes reach the
       # follower without waiting for the ack_loop's 100ms flush timeout.
       # Returns true if the bytes were acked, false if the follower
       # disconnected. A follower that stops acking is disconnected by
       # ack_loop, which closes @ack_notify and unblocks us here.
       def wait_for_confirm : Bool
         target = @sent_bytes.get
-        flush
+        request_flush
         until @acked_bytes.get >= target
           @ack_notify.receive
         end
