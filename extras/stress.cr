@@ -552,6 +552,26 @@ module Stress
 
   # -------- Consumers --------
 
+  private def self.handle_consume(msg, consume_mode : Symbol, reject_rate : Float64, n : Int64) : Nil
+    if reject_rate > 0 && Random.rand < reject_rate
+      msg.reject(requeue: false)
+      STATS.incr_rejected
+      STATS.incr_dead_lettered
+    else
+      case consume_mode
+      when :slow
+        sleep Random.rand(5..50).milliseconds
+      when :bursty
+        sleep Random.rand(100..500).milliseconds if n % 50 == 0
+      end
+      msg.ack
+      STATS.incr_acked
+    end
+  rescue ex
+    # Connection/channel killed under us mid-ack. The with_amqp loop will reconnect.
+    STATS.incr_errors
+  end
+
   # consume_mode: :fast | :slow | :bursty
   def self.consumer(id : Int32, queue : String, consume_mode : Symbol, reject_rate : Float64 = 0.0)
     with_amqp("cons-#{consume_mode}-#{id}") do |conn|
@@ -560,25 +580,7 @@ module Stress
       seq = Atomic(Int64).new(0_i64)
       tag = ch.basic_consume(queue, tag: "cons-#{consume_mode}-#{id}-#{Random.rand(1_000_000)}", no_ack: false, block: false) do |msg|
         n = seq.add(1_i64) + 1
-        begin
-          if reject_rate > 0 && Random.rand < reject_rate
-            msg.reject(requeue: false)
-            STATS.incr_rejected
-            STATS.incr_dead_lettered
-          else
-            case consume_mode
-            when :slow
-              sleep Random.rand(5..50).milliseconds
-            when :bursty
-              sleep Random.rand(100..500).milliseconds if n % 50 == 0
-            end
-            msg.ack
-            STATS.incr_acked
-          end
-        rescue ex
-          # Connection/channel killed under us mid-ack. The with_amqp loop will reconnect.
-          STATS.incr_errors
-        end
+        handle_consume(msg, consume_mode, reject_rate, n)
       end
       until STOP.get || ch.closed? || conn.closed?
         sleep 200.milliseconds
