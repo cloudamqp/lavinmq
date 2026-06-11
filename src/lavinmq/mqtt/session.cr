@@ -75,7 +75,7 @@ module LavinMQ
         ARGUMENTS
       end
 
-      protected def close : Bool
+      def close : Bool
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
