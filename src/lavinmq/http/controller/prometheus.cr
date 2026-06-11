@@ -552,10 +552,6 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
-          vhost.each_session do |s|
-            labels = {queue: s.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_deduplication", s.dedup_count, labels)
-          end
         end
       end
 
@@ -568,10 +564,6 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_consumers", q.consumer_count, labels)
-          end
-          vhost.each_session do |s|
-            labels = {queue: s.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_consumers", s.consumer_count, labels)
           end
         end
       end
