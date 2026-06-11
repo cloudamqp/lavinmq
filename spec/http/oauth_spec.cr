@@ -188,8 +188,10 @@ describe "OAuth2" do
       end
     end
 
-    it "still allows basic auth" do
-      with_http_server do |http, _|
+    it "still allows basic auth when OAuth is wired" do
+      chain = build_oauth_chain(default_oidc)
+      with_http_server(authenticator: chain) do |http, s|
+        chain.backends << LavinMQ::Auth::LocalAuthenticator.new(s.users)
         response = http.get("/api/whoami")
         response.status_code.should eq 200
       end

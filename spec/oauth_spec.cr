@@ -536,10 +536,9 @@ describe LavinMQ::HTTP::OAuthController do
     end
   end
 
-  it "is registered when an OAuth authenticator is in the chain" do
+  it "is registered when a bare OAuth authenticator is used" do
     oauth = create_oauth_test_authenticator
-    chain = LavinMQ::Auth::Chain.new([oauth] of LavinMQ::Auth::Authenticator)
-    with_http_server(authenticator: chain) do |http, _|
+    with_http_server(authenticator: oauth) do |http, _|
       response = http.get "/oauth/enabled"
       response.status_code.should eq 200
     end
