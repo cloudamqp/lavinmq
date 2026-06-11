@@ -79,6 +79,12 @@ module LavinMQ::Raft
       run_on_tick { @node.propose(cmd) }
     end
 
+    # Hand raft leadership to `target`. Returns false when this node is not
+    # leader, the target is not a known voter, or the target is this node.
+    def transfer_leadership(to target : Int32) : Bool
+      run_on_tick { @node.transfer_leadership(to: target.to_u64) }
+    end
+
     # Marshal a mutating Node call onto the tick fiber's thread.
     # NOTE: callbacks fired by the tick fiber (on_role_change,
     # on_configuration_applied) MUST NOT call back into this method — the tick

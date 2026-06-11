@@ -215,6 +215,25 @@ describe LavinMQ::Raft::Server do
     end
   end
 
+  describe "transfer_leadership" do
+    it "hands leadership to a follower voter" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        follower = servers.find! { |s| s != leader }
+        leader.transfer_leadership(to: follower.node_id).should be_true
+        retry_until(5.seconds) { follower.is_leader.value }
+      end
+    end
+
+    it "returns false when called on a follower" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        follower = servers.find! { |s| s != leader }
+        follower.transfer_leadership(to: leader.node_id).should be_false
+      end
+    end
+  end
+
   describe "state accessors" do
     it "exposes the state-machine snapshot via Server#state" do
       with_single_node do |server|
