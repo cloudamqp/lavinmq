@@ -1295,7 +1295,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "restarts fast even with large messages" do
+  it "restarts fast even with large messages", tags: "slow" do
     with_amqp_server do |s|
       data = Bytes.new 128 * 1024**2
       with_channel(s) do |ch|

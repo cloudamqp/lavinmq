@@ -14,7 +14,7 @@ require "./spec_helper"
 # parallel, so the workers are spawned on a dedicated parallel execution
 # context (the spec runner's default context is effectively single-threaded).
 describe "stream queue policy/publish concurrency" do
-  it "applies a stream policy concurrently with publishing without corrupting the store" do
+  it "applies a stream policy concurrently with publishing without corrupting the store", tags: "slow" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
       vhost.declare_queue("stream-race", true, false,

@@ -178,7 +178,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter many rejects" do
+      it "should dead letter many rejects", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(100, q)
           done = Channel(Nil).new

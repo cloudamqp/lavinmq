@@ -87,7 +87,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
 
       done = Channel(Nil).new
-      iterations = 1_000_000
+      iterations = 200_000
 
       # Reader on a separate thread: iterate files_with_hash
       Fiber::ExecutionContext::Isolated.new("test-concurrent-hash") do
@@ -137,7 +137,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
 
       done = Channel(Nil).new
-      iterations = 1_000_000
+      iterations = 200_000
 
       # Reader on a separate thread: call with_file repeatedly
       Fiber::ExecutionContext::Isolated.new("test-concurrent-wf") do

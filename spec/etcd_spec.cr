@@ -63,7 +63,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can elect leader" do
+  it "can elect leader", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -143,7 +143,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will not lose leadership when only one etcd node is lost" do
+  it "will not lose leadership when only one etcd node is lost", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)

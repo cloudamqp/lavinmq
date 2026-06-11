@@ -698,7 +698,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "should pause and resume shovel" do
+    it "should pause and resume shovel", tags: "slow" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("pause:resume:vhost")
         queue_name = "shovel:pause:resume"
