@@ -10,24 +10,27 @@ module LavinMQ
       end
 
       def call(context)
-        # A previous handler (e.g. OAuthController via its JWT cookie) may have
-        # already authenticated the request.
-        return call_next(context) if context.user
-
         if internal_unix_socket?(context)
-          context.user = @direct_user
+          context.user ||= @direct_user
         end
 
-        # Explicit credentials override the direct user assigned to the
-        # internal unix socket.
-        if auth = cookie_auth(context) || basic_auth(context)
+        # Explicit credentials override a user assigned earlier (direct user
+        # or OAuth cookie session) and must be valid for the request to stay
+        # authenticated. The passwordless OAuth identity cookie does not
+        # count as credentials.
+        if auth = explicit_credentials(context)
           username, password = auth
-          if user = authenticate(username, password, context.request.remote_address)
-            context.user = user
-          end
+          context.user = authenticate(username, password, context.request.remote_address)
         end
 
         call_next(context)
+      end
+
+      private def explicit_credentials(context) : Tuple(String, String)?
+        if auth = cookie_auth(context)
+          return auth unless auth[1].empty?
+        end
+        basic_auth(context)
       end
 
       private def basic_auth(context)
