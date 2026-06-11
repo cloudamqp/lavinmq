@@ -149,6 +149,97 @@ describe LavinMQ::Clustering::Server do
     end
   end
 
+  describe "definition changes against follower acks" do
+    it "holds a durable queue declare until in-sync followers ack it" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr declare fence spec")
+
+      follower_id = 5
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { server.followers.any? &.id.== follower_id }
+
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          declared = Channel(Nil).new(1)
+          spawn(name: "declare queue spec") do
+            ch.queue("definition_fence", durable: true)
+            declared.send nil
+          rescue
+            declared.close
+          end
+
+          # The declare's definition is replicated but the raw follower never
+          # acks; the Declare-Ok must be held back, like a publish confirm.
+          wait_for { server.followers.find(&.id.== follower_id).try { |f| f.lag_in_bytes > 0 } }
+          select
+          when declared.receive
+            fail "Declare-Ok delivered before the follower acked the definition"
+          when timeout(300.milliseconds)
+          end
+
+          # Ack everything outstanding; the declare must now complete.
+          follower = server.followers.find!(&.id.== follower_id)
+          client_io.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+          select
+          when declared.receive
+          when timeout(5.seconds)
+            fail "Declare-Ok never delivered after the follower acked"
+          end
+          coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+        end
+      end
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "completes a declare by evicting a follower that never acks, after committing its ISR removal" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr declare evict spec")
+
+      follower_id = 5
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { server.followers.any? &.id.== follower_id }
+
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          declared = Channel(Nil).new(1)
+          spawn(name: "declare queue spec") do
+            ch.queue("definition_fence_evict", durable: true)
+            declared.send nil
+          rescue
+            declared.close
+          end
+
+          # The follower never acks: after the ack deadline it is dropped and
+          # its ISR removal committed, and only then may the declare complete
+          # — the remaining failover candidates all have the definition.
+          select
+          when declared.receive
+          when timeout(10.seconds)
+            fail "Declare-Ok never delivered after the silent follower was evicted"
+          end
+          coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+        end
+      end
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "publish confirms against the ISR" do
     it "flushes a dirty ISR before delivering a publish confirm" do
       data_dir = LavinMQ::Config.instance.data_dir
@@ -192,13 +283,16 @@ describe LavinMQ::Clustering::Server do
       spawn(server.listen(tcp_server), name: "isr confirm stall spec")
 
       follower_id = 7
-      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
-      wait_for { server.followers.any? &.id.== follower_id }
-
+      client_io = nil.as(TCPSocket?)
       with_amqp_server(replicator: server) do |s|
         with_channel(s) do |ch|
           ch.confirm_select
+          # Declare before the follower joins: a durable declare also waits
+          # for follower acks, and this raw follower never acks anything.
           q = ch.queue("isr_confirm_stall", durable: true)
+          client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+          wait_for { server.followers.any? &.id.== follower_id }
+
           coordinator.failing = true # coordinator becomes unreachable
           q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
           # The raw follower never acks; once bytes are outstanding, drop it.

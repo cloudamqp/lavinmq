@@ -20,10 +20,13 @@ module LavinMQ
     end
 
     # Flush buffered definition writes to disk. Used after a bulk operation
-    # (e.g. import) that stored its definitions with fsync: false.
+    # (e.g. import) that stored its definitions with fsync: false; the whole
+    # batch is acknowledged after this, so it waits for follower acks like
+    # the per-frame path does.
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
+        @replicator.try &.wait_for_followers
       end
     end
 
@@ -329,7 +332,16 @@ module LavinMQ
       offset = @definitions_file.size.to_i64
       @definitions_file.write bytes
       @replicator.try &.append_bytes @definitions_file_path, bytes, offset
-      @definitions_file.fsync if fsync
+      if fsync
+        @definitions_file.fsync
+        # The caller acknowledges the change to the client right after this
+        # returns (Declare-Ok etc.), so like a publish confirm it must be
+        # durable on every in-sync follower first — otherwise a leader crash
+        # could elect a follower lacking the acknowledged change. A follower
+        # that doesn't ack within its deadline is disconnected and its ISR
+        # removal committed before this returns.
+        @replicator.try &.wait_for_followers
+      end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
           compact!

@@ -403,6 +403,21 @@ module LavinMQ
         end
       end
 
+      # Block until every in-sync follower has acked everything replicated so
+      # far, so a durable operation may be acknowledged to a client: once
+      # this returns, every node etcd lists as a failover candidate has the
+      # operation durably on disk. Wait for all followers (no short-circuit)
+      # — wait_for_confirm blocks until the follower acks or disconnects. A
+      # follower that disconnected (wait_for_confirm == false, or it dropped
+      # earlier and left the ISR dirty) may lack data that's about to be
+      # acknowledged, so its removal must be committed to the coordinator
+      # before this returns (see flush_isr).
+      def wait_for_followers : Nil
+        all_acked = true
+        followers.each { |f| all_acked &= f.wait_for_confirm }
+        flush_isr if !all_acked || isr_dirty?
+      end
+
       def close
         @listeners.each &.close
         @lock.synchronize do

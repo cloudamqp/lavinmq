@@ -17,8 +17,9 @@ module LavinMQ
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Confirm acks accumulated since the last drain. The follower set is
     # decided at drain time against the in-sync set as it exists then (see
-    # #wait_for_followers), which is safe because a follower only reaches
-    # the in-sync set after a full_sync that includes every prior write.
+    # Clustering::Server#wait_for_followers), which is safe because a
+    # follower only reaches the in-sync set after a full_sync that includes
+    # every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
 
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
@@ -83,41 +84,24 @@ module LavinMQ
 
       # Push the pending replicated bytes to the followers first, so they
       # persist and ack them while our own syncfs runs.
-      followers = @replicator.try &.followers
-      followers.try &.each &.flush
+      @replicator.try &.followers.each &.flush
       begin
         sync
       rescue ex
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
         exit 1
       end
-      wait_for_followers(followers)
+      # Block until every in-sync follower has acked the replicated bytes and
+      # any ISR shrink is committed to the coordinator, so a confirm means
+      # the data is durable on the leader (syncfs, done above) and on every
+      # node that could be promoted on failover. While the coordinator is
+      # unreachable confirms stall (publishers time out, message state stays
+      # uncertain — never falsely confirmed), and if it stays unreachable the
+      # leader's lease expires and the process exits.
+      @replicator.try &.wait_for_followers
 
       acks.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
-      end
-    end
-
-    # Block until every in-sync follower has acked the replicated bytes, so a
-    # confirm means the data is durable on the leader (syncfs, done before
-    # this) and on every follower that could be promoted on failover. Wait
-    # for all of them (no short-circuit) — wait_for_confirm blocks until the
-    # follower acks or disconnects.
-    #
-    # A follower that disconnected (wait_for_confirm == false, or it dropped
-    # before the drain and left the ISR dirty) may lack data that's about to
-    # be confirmed, so its removal from the ISR must be *committed to the
-    # coordinator* before the confirm goes out — otherwise a leader crash
-    # right after the confirm could elect that follower and lose the
-    # confirmed messages. flush_isr retries until the write succeeds: while
-    # the coordinator is unreachable confirms stall (publishers time out,
-    # message state stays uncertain — never falsely confirmed), and if it
-    # stays unreachable the leader's lease expires and the process exits.
-    private def wait_for_followers(followers) : Nil
-      all_acked = true
-      followers.try &.each { |f| all_acked &= f.wait_for_confirm }
-      if replicator = @replicator
-        replicator.flush_isr if !all_acked || replicator.isr_dirty?
       end
     end
   end

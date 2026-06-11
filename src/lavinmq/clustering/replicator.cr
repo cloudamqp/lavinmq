@@ -22,6 +22,12 @@ module LavinMQ
       # Persister#wait_for_followers).
       abstract def isr_dirty? : Bool
       abstract def flush_isr : Nil
+      # Block until every in-sync follower has acked everything replicated so
+      # far, then commit any pending ISR change. Called after a durable
+      # operation has been dispatched and locally fsynced, before it is
+      # acknowledged to a client (publish confirms via the Persister,
+      # definition changes via the DefinitionsStore).
+      abstract def wait_for_followers : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
       abstract def listen(server : TCPServer)

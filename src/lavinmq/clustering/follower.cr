@@ -139,6 +139,12 @@ module LavinMQ
         until @acked_bytes.get >= target
           @ack_notify.receive
         end
+        # Several fibers can wait concurrently (the publish confirm loop and
+        # definition fences) but each ack wakes only one; pass the wakeup on
+        # so every waiter whose target was reached gets to re-check. A waiter
+        # still short of its target swallows the relayed wakeup harmlessly —
+        # its missing bytes guarantee another ack (or eviction) follows.
+        @ack_notify.try_send(nil)
         true
       rescue ::Channel::ClosedError | IO::Error | Socket::Error
         # follower disconnected; stop waiting for it

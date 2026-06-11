@@ -350,6 +350,45 @@ module FollowerSpec
       end
     end
 
+    it "unblocks all concurrent waiters when the follower acks" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Drain the client side so synchronous appends don't block on LZ4 writes
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+        target = follower.lag_in_bytes
+        spawn { follower.ack_loop }
+
+        # The publish confirm loop and definition fences can wait
+        # concurrently; a single ack must unblock every waiter whose target
+        # it reaches, not just one.
+        confirmed = Channel(Bool).new
+        3.times { spawn { confirmed.send follower.wait_for_confirm } }
+        sleep 100.milliseconds # let all waiters block on the ack notification
+
+        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        3.times do
+          select
+          when result = confirmed.receive
+            result.should be_true
+          when timeout(2.seconds)
+            fail "a concurrent wait_for_confirm waiter never unblocked"
+          end
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "disconnects a connected follower that stops acking, unblocking the waiter" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
