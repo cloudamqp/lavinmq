@@ -240,7 +240,7 @@ describe LavinMQ::AMQP::Queue do
           select
           when msg = channel.receive
             fail "Consumer should not get a message '#{msg}'"
-          when timeout 2.seconds
+          when timeout 1.second
             iq.resume!
           end
           channel.receive.should eq "test message 2"

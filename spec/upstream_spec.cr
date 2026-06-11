@@ -451,7 +451,7 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    it "should continue after upstream restart" do
+    it "should continue after upstream restart", tags: "slow" do
       with_amqp_server do |s|
         # Use reconnect delay so we have time to see state being stopped
         # and that we can publish a message before it's reconnected

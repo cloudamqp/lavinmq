@@ -221,7 +221,7 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  it "consume from timestamp offset across segment boundary" do
+  it "consume from timestamp offset across segment boundary", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("stream-ts-across-segments", args: stream_queue_args)

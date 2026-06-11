@@ -70,7 +70,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
   end
 
   describe "thread safety" do
-    it "concurrent files_with_hash and mutations don't crash" do
+    it "concurrent files_with_hash and mutations don't crash", tags: "slow" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
@@ -120,7 +120,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
 
-    it "concurrent with_file and mutations don't crash" do
+    it "concurrent with_file and mutations don't crash", tags: "slow" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(

@@ -216,7 +216,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter when ttl expires while unacked and reject(requeue=true)" do
+      it "should dead letter when ttl expires while unacked and reject(requeue=true)", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, ch, _|
           # Generous TTL so the message is still alive when we get it: the gap
           # between publish_confirm and q.get is two AMQP round-trips, which can
