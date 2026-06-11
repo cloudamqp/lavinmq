@@ -1,6 +1,5 @@
 require "http/server"
 require "json"
-require "raft/http/handler"
 require "./constants"
 require "./handler/*"
 require "./controller"
@@ -27,19 +26,11 @@ module LavinMQ
           controller,
         ] of ::HTTP::Handler
         if rr = raft_runner
-          # Mounting raft.cr's handler here gives every node (leader and
-          # follower) a scrape-able /raft/metrics, /raft/status, etc. The
-          # main HTTP server still exposes the same routes on the leader
-          # behind auth. NOTE: the metrics server has no auth, so
-          # /raft/admin/* is reachable without credentials on this port —
-          # acceptable for a localhost-bound metrics port; lock down if
-          # exposing externally.
-          raft_handler = ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand).new(
-            rr.server.node,
-            rr.transport,
-            rr.advertised_address,
-          )
-          handlers << RaftHandlerWrapper.new(raft_handler)
+          # Read-only surface only: every node (leader and follower) gets a
+          # scrape-able /raft/metrics, /raft/status, etc. The mutating
+          # /raft/admin/* routes are mounted solely on the main HTTP server,
+          # behind authentication — this port has none.
+          handlers << rr.status_handler
         end
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)

@@ -67,16 +67,9 @@ module LavinMQ
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         if raft_runner = runner.as?(LavinMQ::Raft::Runner)
-          # Wrap in a concrete (non-generic) class to work around a Crystal
-          # codegen bug: the dispatch table for `next_handler.call(context)`
-          # in stdlib HTTP::Handler#call_next omits generic-class
-          # instantiations. See docs/superpowers/crystal-bug-report.md.
-          raft_handler = ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand).new(
-            raft_runner.server.node,
-            raft_runner.transport,
-            raft_runner.advertised_address,
-          )
-          handlers << RaftHandlerWrapper.new(raft_handler)
+          handlers << raft_runner.status_handler
+          handlers << AdminGuard.new("/raft/admin/")
+          handlers << raft_runner.admin_handler
         end
         @http = ::HTTP::Server.new(handlers)
       end
