@@ -8,8 +8,8 @@ module LavinMQ::Raft
     def initialize(@server : Server)
     end
 
-    def update_isr(synced_node_ids : Set(Int32)) : Nil
-      @server.propose(ClusterCommand::SetIsr.new(synced_node_ids))
+    def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
+      @server.propose(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
     end
 
     def password : String

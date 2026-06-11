@@ -28,7 +28,7 @@ module LavinMQ::Clustering
       leader
     end
 
-    def update_isr(synced_node_ids : Set(Int32)) : Nil
+    def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
       leader = @election_leader.get
       raise Etcd::StaleLeadership.new(leader_key) unless leader && leader.election == leader_key
 
