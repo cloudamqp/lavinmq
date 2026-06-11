@@ -362,14 +362,6 @@ module LavinMQ
         false
       end
 
-      # def ack(sp : SegmentPosition) : Nil; end
-
-      # def reject(sp : SegmentPosition, requeue : Bool) : Nil; end
-
-      # def basic_get(no_ack : Bool, force : Bool = false, & : Envelope -> Nil) : Bool
-      #  false
-      # end
-
       def state : QueueState
         closed? ? QueueState::Closed : QueueState::Running
       end
