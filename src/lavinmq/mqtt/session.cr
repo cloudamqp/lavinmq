@@ -16,13 +16,13 @@ module LavinMQ
       include AMQP::QueueStats
       Log = ::LavinMQ::Log.for "mqtt.session"
 
-      ARGUMENTS = AMQP::Table.new({"x-queue-type" => "mqtt"})
+      ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
+      EFFECTIVE_ARGS = {"x-queue-type"}
 
       getter name : String
       getter vhost : VHost
       getter? auto_delete
 
-      @effective_args = Array(String).new
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
       @reject_on_overflow = false
@@ -349,12 +349,9 @@ module LavinMQ
       end
 
       private def clear_policy_arguments
-        handle_arguments
       end
 
       private def handle_arguments
-        @effective_args = Array(String).new
-        @effective_args << "x-queue-type"
       end
 
       def pause!; end
@@ -433,7 +430,7 @@ module LavinMQ
           state:                        state,
           effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
           message_stats:                current_stats_details,
-          effective_arguments:          @effective_args,
+          effective_arguments:          EFFECTIVE_ARGS,
           effective_policy_arguments:   effective_policy_args,
           internal:                     false,
         }
