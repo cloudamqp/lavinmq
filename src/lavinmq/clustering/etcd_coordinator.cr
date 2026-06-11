@@ -10,7 +10,7 @@ module LavinMQ::Clustering
     def initialize(@config : Config, @etcd : Etcd)
     end
 
-    def update_isr(synced_node_ids : Set(Int32)) : Nil
+    def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
       key = "#{@config.clustering_etcd_prefix}/isr"
       ids = synced_node_ids.map(&.to_s(36)).join(",")
       @etcd.put(key, ids)

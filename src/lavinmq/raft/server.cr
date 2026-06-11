@@ -185,7 +185,7 @@ module LavinMQ::Raft
 
     private def wire_callbacks : Nil
       @node.on_role_change do |_old_role, new_role|
-        @is_leader.set(new_role == ::Raft::Role::Leader)
+        @is_leader.set(new_role.leader?)
       end
       @node.on_configuration_applied do |peers|
         peers.each do |peer|
