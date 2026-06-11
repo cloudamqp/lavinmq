@@ -3,11 +3,34 @@ require "file_utils"
 require "http/server"
 require "json"
 require "../../src/lavinmq/raft/runner"
+require "../../src/lavinmq/http/raft_handler_wrapper"
 
 private def tmp_data_dir : String
   dir = File.tempname("raft-runner-spec")
   Dir.mkdir_p(dir)
   dir
+end
+
+private def free_port : Int32
+  TCPServer.open("127.0.0.1", 0, &.local_address.port)
+end
+
+private def runner_config(dir : String, raft_port : Int32, data_port : Int32) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = dir
+  config.clustering_bind = "127.0.0.1"
+  config.clustering_raft_port = raft_port
+  config.clustering_port = data_port
+  config.clustering_advertised_uri = "tcp://127.0.0.1:#{data_port}"
+  config
+end
+
+private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
+  deadline = Time.instant + timeout
+  until block.call
+    fail "operation timed out" if Time.instant > deadline
+    Fiber.yield
+  end
 end
 
 describe LavinMQ::Raft::Runner do
@@ -106,7 +129,7 @@ describe LavinMQ::Raft::Runner do
     end
   end
 
-  describe "post-election ISR check" do
+  describe "in_isr?" do
     it "returns true when ISR is empty (fresh bootstrap)" do
       dir = tmp_data_dir
       runner = nil.as(LavinMQ::Raft::Runner?)
@@ -119,7 +142,7 @@ describe LavinMQ::Raft::Runner do
         config.clustering_port = 0
         config.clustering_advertised_uri = "tcp://127.0.0.1:0"
         runner = LavinMQ::Raft::Runner.new(config)
-        runner.not_nil!.post_election_in_isr?.should be_true
+        runner.not_nil!.in_isr?.should be_true
       ensure
         runner.try &.stop rescue nil
         FileUtils.rm_rf(dir)
@@ -152,7 +175,7 @@ describe LavinMQ::Raft::Runner do
           fail "apply timed out" if Time.instant > deadline
           Fiber.yield
         end
-        r.post_election_in_isr?.should be_true
+        r.in_isr?.should be_true
       ensure
         runner.try &.stop rescue nil
         FileUtils.rm_rf(dir)
@@ -185,10 +208,78 @@ describe LavinMQ::Raft::Runner do
           fail "apply timed out" if Time.instant > deadline
           Fiber.yield
         end
-        r.post_election_in_isr?.should be_false
+        r.in_isr?.should be_false
       ensure
         runner.try &.stop rescue nil
         FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
+  describe "in-sync leadership gate" do
+    it "hands leadership back to an in-sync voter when elected while not in ISR, without serving" do
+      a_dir = tmp_data_dir
+      b_dir = tmp_data_dir
+      File.write(File.join(a_dir, ".clustering_id"), 1.to_s(36))
+      File.write(File.join(b_dir, ".clustering_id"), 2.to_s(36))
+      runner_a = nil.as(LavinMQ::Raft::Runner?)
+      runner_b = nil.as(LavinMQ::Raft::Runner?)
+      admin = nil.as(HTTP::Server?)
+      begin
+        a = LavinMQ::Raft::Runner.new(runner_config(a_dir, free_port, free_port))
+        runner_a = a
+        b = LavinMQ::Raft::Runner.new(runner_config(b_dir, free_port, free_port))
+        runner_b = b
+
+        a.transport.start
+        a.server.start
+        a.server.bootstrap.should be_true
+        select
+        when a.server.is_leader.when_true.receive
+        when timeout(5.seconds)
+          fail "node A did not become leader after bootstrap"
+        end
+
+        # Only A is in ISR — B's data plane is out of sync
+        a.server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1})).should be_true
+
+        # Serve A's raft admin endpoint so B can join through the real path
+        inner = ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand).new(
+          a.server.node, a.transport, a.advertised_address)
+        admin = HTTP::Server.new([LavinMQ::HTTP::RaftHandlerWrapper.new(inner)])
+        admin_addr = admin.not_nil!.bind_tcp("127.0.0.1", 0)
+        spawn(name: "stub-admin") { admin.not_nil!.listen }
+
+        File.write(File.join(b_dir, ".join_target"), "http://#{admin_addr}")
+        b_served = false
+        spawn(name: "runner-b") do
+          b.run { b_served = true }
+        rescue ::Channel::ClosedError
+          # closed at cleanup
+        end
+
+        # B joins, replicates the config and ISR, and is auto-promoted to voter
+        retry_until(10.seconds) { a.server.voters.includes?(2_u64) }
+        retry_until(5.seconds) { b.server.isr.includes?(1) }
+
+        # Force the out-of-sync node to win the raft election
+        retry_until(5.seconds) { a.server.transfer_leadership(to: 2) }
+
+        # B must win the election, refuse to serve, and hand leadership back
+        # to A — the only in-sync voter.
+        b_was_leader = false
+        retry_until(10.seconds) do
+          b_was_leader ||= b.server.is_leader.value
+          b_was_leader && a.server.is_leader.value
+        end
+        b.server.is_leader.value.should be_false
+        b_served.should be_false
+      ensure
+        admin.try &.close rescue nil
+        runner_b.try &.stop rescue nil
+        runner_a.try &.stop rescue nil
+        FileUtils.rm_rf(a_dir)
+        FileUtils.rm_rf(b_dir)
       end
     end
   end

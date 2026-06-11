@@ -40,7 +40,7 @@ module LavinMQ::Raft
       build_advertised_address
     end
 
-    def post_election_in_isr? : Bool
+    def in_isr? : Bool
       isr = @server.isr
       isr.empty? || isr.includes?(@server.node_id)
     end
@@ -61,12 +61,7 @@ module LavinMQ::Raft
 
       maybe_bootstrap_or_join
 
-      wait_to_be_insync
-      @server.is_leader.when_true.receive
-      unless post_election_in_isr?
-        Log.fatal { "Won raft election but not in ISR (#{@server.isr.to_a}); refusing to serve" }
-        exit 3
-      end
+      wait_for_insync_leadership
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
       @repli_client.try &.close
       yield
@@ -136,15 +131,49 @@ module LavinMQ::Raft
       raise "join exhausted #{JOIN_MAX_ATTEMPTS} attempts: #{last_error}"
     end
 
-    private def wait_to_be_insync : Nil
-      return if @server.isr.empty?
-      return if @server.isr.includes?(@server.node_id)
-      Log.info { "Not in sync, waiting for the leader to add us to ISR" }
+    HANDOFF_RETRY_INTERVAL = 1.second
+
+    # Block until this node is both raft leader and in ISR (an empty ISR —
+    # fresh bootstrap — counts as in sync). Raft elects on log recency alone,
+    # and the raft log holds only tiny metadata entries, so a node whose
+    # *data* is out of sync can win the election; serving from it would lose
+    # messages. Hand leadership to an in-sync voter instead and keep waiting.
+    private def wait_for_insync_leadership : Nil
       isr_changed = @server.state_machine.isr_changed
-      until @server.isr.includes?(@server.node_id)
-        isr_changed.receive
+      logged_waiting = false
+      loop do
+        if @server.is_leader.value
+          return if in_isr?
+          hand_off_leadership
+          select
+          when isr_changed.receive
+          when @server.is_leader.when_false.receive
+          when timeout(HANDOFF_RETRY_INTERVAL)
+          end
+        else
+          if !in_isr? && !logged_waiting
+            logged_waiting = true
+            Log.info { "Not in sync, waiting for the leader to add us to ISR" }
+          end
+          select
+          when @server.is_leader.when_true.receive
+          when isr_changed.receive
+          end
+        end
       end
-      Log.info { "In sync with leader" }
+    end
+
+    private def hand_off_leadership : Nil
+      isr = @server.isr
+      voters = @server.voters
+      target = isr.find { |id| id != @server.node_id && voters.includes?(id.to_u64) }
+      if target.nil?
+        Log.error { "Raft leader but not in ISR #{isr.to_a} and no in-sync voter available; refusing to serve until the ISR recovers" }
+      elsif @server.transfer_leadership(to: target)
+        Log.warn { "Raft leader but not in ISR #{isr.to_a}; handing leadership to in-sync node #{target}" }
+      else
+        Log.warn { "Raft leader but not in ISR #{isr.to_a}; leadership transfer to #{target} rejected, retrying" }
+      end
     end
 
     private def follow_leader_loop : Nil
