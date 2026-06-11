@@ -10,6 +10,23 @@ module ClientSyncSpec
     def stream_changes_public(socket, lz4)
       stream_changes(socket, lz4)
     end
+
+    # Instrumentation for the close/ack-loop fd race spec: slow each sync down
+    # and record whether one ever ran against a closed data dir fd — the real
+    # implementation would Log.fatal and exit 1 there.
+    property sync_delay : Time::Span = Time::Span.zero
+    getter syncs_started = 0
+    getter? synced_on_closed_fd = false
+
+    private def sync_to_disk : Nil
+      @syncs_started += 1
+      sleep @sync_delay unless @sync_delay.zero?
+      if LibC.fcntl(@data_dir_fd, LibC::F_GETFD, 0) == -1
+        @synced_on_closed_fd = true
+        return
+      end
+      super
+    end
   end
 
   def self.make_client(data_dir : String) : TestClient
@@ -372,6 +389,61 @@ module ClientSyncSpec
 
           Dir.exists?(File.join(data_dir, "queue1")).should be_true
           Dir.exists?(File.join(data_dir, "queue2")).should be_false
+        end
+      end
+    end
+
+    describe "#close" do
+      # Regression: close used to wait only for the follow loop, then close
+      # the data dir fd while the ack-sending fiber could still be draining
+      # buffered acks — each preceded by a syncfs on that fd. The resulting
+      # EBADF made the follower Log.fatal and exit 1 in the middle of a
+      # graceful shutdown or a promotion to leader.
+      it "waits for the ack loop's pending syncs before closing the data dir fd" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client.sync_delay = 50.milliseconds
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          # Stream a small append so acks start flowing and the ack loop
+          # enters its (slowed) sync.
+          filename = "ack_file"
+          payload = "data"
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          lz4_writer.write payload.to_slice
+          lz4_writer.flush
+          wait_for { client.syncs_started > 0 }
+
+          # Keep acks arriving while close runs, so a sync is in flight or
+          # pending throughout the shutdown.
+          spawn(name: "ack feeder") do
+            20.times do
+              client.@acks.send(1i64)
+              sleep 10.milliseconds
+            end
+          rescue Channel::ClosedError
+            # close drained and closed the channel
+          end
+
+          # follow() was never called in this harness, so satisfy close's
+          # follower-done handshake ourselves.
+          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+          client.close
+
+          sleep 200.milliseconds # let any straggler sync run after close returned
+          client.synced_on_closed_fd?.should be_false
+          client_socket.close
+          leader_io.close
         end
       end
     end

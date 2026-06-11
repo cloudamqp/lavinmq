@@ -4,6 +4,7 @@ require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
+require "wait_group"
 
 module LavinMQ
   module Clustering
@@ -35,6 +36,10 @@ module LavinMQ
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
+      # Tracks the ack-sending fiber: #close must wait for it to finish before
+      # closing @data_dir_fd, since it syncs (syncfs on that fd) before every
+      # ack it sends — even acks still buffered in @acks after the stream ends.
+      @ack_loops = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -300,6 +305,7 @@ module LavinMQ
 
       private def stream_changes(socket, lz4)
         @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        @ack_loops.add # before spawn, so a concurrent #close can't miss the fiber
         spawn send_ack_loop(@acks, socket), name: "Send ack loop"
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
@@ -443,6 +449,8 @@ module LavinMQ
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
+      ensure
+        @ack_loops.done
       end
 
       # Make all replicated writes durable before acking the leader.
@@ -499,6 +507,14 @@ module LavinMQ
         when timeout(5.seconds)
           Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
         end
+        # The ack loop keeps draining acks buffered in @acks even after the
+        # channel is closed, syncing to disk before each send. Wait for it to
+        # finish before closing @data_dir_fd below, or its syncfs would hit a
+        # closed (or worse, reused) fd and the process would exit 1 mid
+        # shutdown/promotion. Closing @acks is normally done by stream_changes,
+        # but do it here too in case the follower loop is stuck.
+        @acks.close
+        @ack_loops.wait
         # Finalize all pending checksums
         @file_digests.each do |filename, sha1|
           @checksums[filename] = sha1.final
