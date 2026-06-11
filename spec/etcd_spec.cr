@@ -38,7 +38,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can watch" do
+  it "can watch", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -155,7 +155,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "raises LeaseNotFound when using an invalid lease" do
+  it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)

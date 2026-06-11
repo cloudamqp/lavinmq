@@ -273,7 +273,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "segments should be removed if max-age set" do
+    it "segments should be removed if max-age set", tags: "slow" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = {"x-queue-type": "stream", "x-max-age": "1s"}
@@ -287,7 +287,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "removes segments on publish if max-age policy is set" do
+    it "removes segments on publish if max-age policy is set", tags: "slow" do
       with_amqp_server do |s|
         s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
         with_channel(s) do |ch|
@@ -302,7 +302,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "removes segments when max-age policy is applied" do
+    it "removes segments when max-age policy is applied", tags: "slow" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = {"x-queue-type": "stream", "x-max-age": "1M"}

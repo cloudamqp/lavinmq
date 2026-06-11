@@ -1283,7 +1283,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports consumer timeouts" do
+  it "supports consumer timeouts", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("", exclusive: true, args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))

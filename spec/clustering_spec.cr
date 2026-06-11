@@ -51,7 +51,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
-describe LavinMQ::Clustering::Client, tags: "etcd" do
+describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
   add_etcd_around_each
 
   it "can stream changes" do

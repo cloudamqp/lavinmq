@@ -214,7 +214,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "should pause the queue by setting it in flow (consume)" do
+    it "should pause the queue by setting it in flow (consume)", tags: "slow" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange(x_name, "direct")

@@ -500,7 +500,7 @@ describe LavinMQ::Auth::OAuthUser do
       end
 
       # Give fiber a moment to trigger the timeout and call callback
-      sleep 1000.milliseconds
+      wait_for { callback_called }
 
       # Callback should be called since timeout triggers immediately for expired tokens
       callback_called.should be_true
@@ -520,7 +520,7 @@ describe LavinMQ::Auth::OAuthUser do
       user.cleanup
 
       # Give fiber a moment to detect closed channel and exit
-      sleep 1000.milliseconds
+      sleep 100.milliseconds
 
       # Callback should not be called since user was closed before expiration
       callback_called.should be_false
