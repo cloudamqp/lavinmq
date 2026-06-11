@@ -1,30 +1,37 @@
 require "http/server/handler"
-require "raft/http/handler"
+require "raft/http/status_handler"
+require "raft/http/admin_handler"
 require "../raft/cluster_command"
 
 module LavinMQ
   module HTTP
-    # Concrete (non-generic) wrapper around raft.cr's generic
-    # `Raft::HTTP::Handler(T)` so it can participate in
+    # Concrete (non-generic) wrapper around raft.cr's generic HTTP handlers
+    # (`StatusHandler(T)` / `AdminHandler(T)`) so they can participate in
     # `Array(::HTTP::Handler)` chain dispatch.
     #
-    # Crystal's codegen for the virtual dispatch at `handler.cr:30`
-    # (`next_handler.call(context)`) builds a type-id case table over
-    # concrete classes that `include ::HTTP::Handler`. Generic-class
-    # instantiations are not enumerated as branches in that table — so a
-    # `Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand)` placed
-    # directly in the handler array traps with `brk #1` when the chain
-    # tries to dispatch into it.
+    # Crystal's codegen for the virtual dispatch in stdlib
+    # `HTTP::Handler#call_next` (`next_handler.call(context)`) builds a
+    # type-id case table over concrete classes that `include ::HTTP::Handler`.
+    # Generic-class instantiations are not enumerated as branches in that
+    # table — so a generic raft handler placed directly in the handler array
+    # traps with `brk #1` when the chain tries to dispatch into it.
     #
     # This wrapper is a plain concrete class, so it gets its own branch.
-    # See docs/superpowers/crystal-bug-report.md for the full diagnosis.
+    # Build instances via `Raft::Runner#status_handler` / `#admin_handler`.
     class RaftHandlerWrapper
       include ::HTTP::Handler
 
-      def initialize(@inner : ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand))
+      alias Inner = ::Raft::HTTP::StatusHandler(LavinMQ::Raft::ClusterCommand) |
+                    ::Raft::HTTP::AdminHandler(LavinMQ::Raft::ClusterCommand)
+
+      def initialize(@inner : Inner)
       end
 
       def call(context : ::HTTP::Server::Context)
+        # The inner handler's call_next consults its own `next` pointer, not
+        # ours; forward ours so a fall-through continues down the outer chain
+        # (stdlib responds 404 only when there is no next handler at all).
+        @inner.next = @next
         @inner.call(context)
       end
     end

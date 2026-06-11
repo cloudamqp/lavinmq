@@ -4,6 +4,7 @@ require "http/client"
 require "http/headers"
 require "json"
 require "../clustering/client"
+require "../http/raft_handler_wrapper"
 require "./server"
 require "./coordinator"
 
@@ -43,6 +44,21 @@ module LavinMQ::Raft
     def in_isr? : Bool
       isr = @server.isr
       isr.empty? || isr.includes?(@server.node_id)
+    end
+
+    # Read-only /raft/status|log|metrics surface. Safe to mount without
+    # authentication (e.g. on the metrics port).
+    def status_handler : LavinMQ::HTTP::RaftHandlerWrapper
+      LavinMQ::HTTP::RaftHandlerWrapper.new(
+        ::Raft::HTTP::StatusHandler(ClusterCommand).new(@server.node, @transport, advertised_address))
+    end
+
+    # Mutating POST /raft/admin/* surface. Mount only behind authentication.
+    # Hands the raw Node to the handler for now; mutations should be marshaled
+    # through Server#run_on_tick once the handler accepts an interface.
+    def admin_handler : LavinMQ::HTTP::RaftHandlerWrapper
+      LavinMQ::HTTP::RaftHandlerWrapper.new(
+        ::Raft::HTTP::AdminHandler(ClusterCommand).new(@server.node, @transport))
     end
 
     def run(&)

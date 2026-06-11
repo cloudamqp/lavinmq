@@ -244,9 +244,7 @@ describe LavinMQ::Raft::Runner do
         a.server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1})).should be_true
 
         # Serve A's raft admin endpoint so B can join through the real path
-        inner = ::Raft::HTTP::Handler(LavinMQ::Raft::ClusterCommand).new(
-          a.server.node, a.transport, a.advertised_address)
-        admin = HTTP::Server.new([LavinMQ::HTTP::RaftHandlerWrapper.new(inner)])
+        admin = HTTP::Server.new([a.admin_handler] of ::HTTP::Handler)
         admin_addr = admin.not_nil!.bind_tcp("127.0.0.1", 0)
         spawn(name: "stub-admin") { admin.not_nil!.listen }
 
