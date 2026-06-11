@@ -350,7 +350,6 @@ module LavinMQ
         get_no_ack += s.get_no_ack_count
         publish += s.publish_count
         redeliver += s.redeliver_count
-        return_unroutable += s.return_unroutable_count
       end
 
       {
