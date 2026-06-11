@@ -366,6 +366,24 @@ module Stress
 
   # -------- Producers --------
 
+  private def self.publish_for_kind(ch, exchange : String, kind : Symbol, body : String, args : Properties)
+    case kind
+    when :topic
+      ch.basic_publish(body, exchange, TOPIC_KEYS.sample, props: args)
+    when :headers
+      h = Arguments.new({
+        "type" => HEADER_TYPES.sample.as(AMQ::Protocol::Field),
+        "n"    => Random.rand(10).to_i64.as(AMQ::Protocol::Field),
+      })
+      props = Properties.new(delivery_mode: args.delivery_mode, expiration: args.expiration, headers: h)
+      ch.basic_publish(body, exchange, "", props: props)
+    when :direct
+      ch.basic_publish(body, exchange, "main", props: args)
+    when :fanout
+      ch.basic_publish(body, exchange, "", props: args)
+    end
+  end
+
   # mode: :fast | :slow | :bursty
   def self.producer(id : Int32, exchange : String, mode : Symbol, kind : Symbol)
     with_amqp("prod-#{kind}-#{mode}-#{id}") do |conn|
@@ -374,28 +392,12 @@ module Stress
       while !STOP.get && !ch.closed?
         seq &+= 1
         body = "msg-#{kind}-#{mode}-#{id}-#{seq}"
-        rkey = ""
         args = Properties.new(delivery_mode: 1_u8)
         # 10% messages carry per-message TTL for DLX path
         if Random.rand(10) == 0
           args = Properties.new(delivery_mode: 1_u8, expiration: Random.rand(500).to_s)
         end
-        case kind
-        when :topic
-          rkey = TOPIC_KEYS.sample
-          ch.basic_publish(body, exchange, rkey, props: args)
-        when :headers
-          h = Arguments.new({
-            "type" => HEADER_TYPES.sample.as(AMQ::Protocol::Field),
-            "n"    => Random.rand(10).to_i64.as(AMQ::Protocol::Field),
-          })
-          props = Properties.new(delivery_mode: args.delivery_mode, expiration: args.expiration, headers: h)
-          ch.basic_publish(body, exchange, "", props: props)
-        when :direct
-          ch.basic_publish(body, exchange, "main", props: args)
-        when :fanout
-          ch.basic_publish(body, exchange, "", props: args)
-        end
+        publish_for_kind(ch, exchange, kind, body, args)
         STATS.incr_published
 
         case mode
