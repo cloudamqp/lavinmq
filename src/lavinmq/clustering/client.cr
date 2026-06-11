@@ -308,17 +308,23 @@ module LavinMQ
           filename = lz4.read_string(filename_len)
 
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
-          # Ack the framing bytes (length headers + filename) up front; the
-          # payload is acked incrementally as it's written (see
-          # stream_with_checksum) so a single large action keeps the leader's
-          # progress deadline reset instead of going silent until it's done.
-          ack(sizeof(Int32) + filename_len + sizeof(Int64))
+          # For append/replace the framing bytes (length headers + filename)
+          # are acked up front and the payload is acked incrementally as it's
+          # written (see stream_with_checksum), so a single large action keeps
+          # the leader's progress deadline reset instead of going silent until
+          # it's done. For a delete the framing is the entire record — acking
+          # it tells the leader the deletion is durable — so it's only acked
+          # once the deletion has been applied.
+          framing = sizeof(Int32) + filename_len + sizeof(Int64)
           case len
           when .negative? # append bytes to file
+            ack(framing)
             append(filename, len, lz4)
           when .zero? # file is deleted
             delete(filename)
+            ack(framing)
           when .positive? # replace file
+            ack(framing)
             replace(filename, len, lz4)
           end
         end
@@ -375,13 +381,18 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          stream_with_checksum(filename, lz4, f, len)
+          # The record's final ack tells the leader the replace is durable, so
+          # it must not be sent while the new content only exists as the .tmp
+          # file; hold it back until the rename has installed the file.
+          deferred = stream_with_checksum(filename, lz4, f, len, defer_final_ack: true)
           f.rename f.path[0..-5]
+          ack(deferred)
         end
       end
 
-      # Read from lz4, update SHA1, and write to file incrementally
-      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
+      # Read from lz4, update SHA1, and write to file incrementally.
+      # Returns the number of bytes received but not yet acked (see below).
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false) : Int64
         # Get or create SHA1 digest for this file
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
@@ -389,6 +400,9 @@ module LavinMQ
         # it's persisted so the leader sees continuous progress within a large
         # action and won't evict us on its ack deadline (a 128 MiB message would
         # otherwise stream for >10s with no ack on a 100 Mbit/s link).
+        # With defer_final_ack the last chunk is not acked but its size
+        # returned, for callers that must apply the action (replace's rename)
+        # before the leader may consider it durable.
         buffer = uninitialized UInt8[BUFFER_SIZE]
         remaining = length
         while remaining > 0
@@ -398,8 +412,10 @@ module LavinMQ
           file.write(bytes)
           sha1.update(bytes)
           remaining -= read_len
+          return read_len.to_i64 if remaining.zero? && defer_final_ack
           ack(read_len)
         end
+        0i64
       end
 
       # Count streamed bytes and forward the count to the ack-sending fiber.

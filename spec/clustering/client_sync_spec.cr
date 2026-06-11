@@ -104,6 +104,158 @@ module ClientSyncSpec
           client_socket.close
         end
       end
+
+      # A delete record's framing bytes are its only bytes, so their ack tells
+      # the leader the deletion is durable; it may only be sent once the file
+      # is actually gone, or a failover could resurrect deleted data.
+      it "acks a delete only after the file has been deleted" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "doomed_file"
+          File.write File.join(data_dir, filename), "data"
+          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
+          lz4_writer.flush
+
+          # Receiving the full ack implies the unlink has been applied.
+          leader_io.read_timeout = 2.seconds
+          acked = 0i64
+          while acked < framing
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          acked.should eq framing
+          File.exists?(File.join(data_dir, filename)).should be_false
+          client_socket.close
+        end
+      end
+
+      it "does not ack a delete that could not be applied" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          # A directory can't be unlinked, so the delete raises before it is
+          # applied; the record must not be acked (the follower disconnects
+          # and re-syncs instead of overstating its progress).
+          filename = "undeletable"
+          Dir.mkdir_p File.join(data_dir, filename)
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
+          lz4_writer.flush
+
+          leader_io.read_timeout = 500.milliseconds
+          expect_raises(IO::TimeoutError) do
+            leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          client_socket.close
+        end
+      end
+
+      # The final ack of a replace marks the whole record as durable, so it
+      # may only be sent once the .tmp file has been renamed into place;
+      # otherwise the leader can treat the follower as caught up while it
+      # still exposes the old file.
+      it "acks the end of a replace only after the file is renamed into place" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "replaced_file"
+          File.write File.join(data_dir, filename), "old content"
+          content = "new content"
+          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          lz4_writer.write content.to_slice
+          lz4_writer.flush
+
+          # Receiving the full ack implies the rename has been applied.
+          leader_io.read_timeout = 2.seconds
+          acked = 0i64
+          while acked < framing + content.bytesize
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          acked.should eq framing + content.bytesize
+          File.read(File.join(data_dir, filename)).should eq content
+          File.exists?(File.join(data_dir, "#{filename}.tmp")).should be_false
+          client_socket.close
+        end
+      end
+
+      it "does not send a replace's final ack if the rename could not be applied" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          # A file can't be renamed over a directory, so the replace raises
+          # after writing the .tmp file but before it is installed; the
+          # payload's final ack must never be sent.
+          filename = "unreplaceable"
+          Dir.mkdir_p File.join(data_dir, filename)
+          content = "new content"
+          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          lz4_writer.write content.to_slice
+          lz4_writer.flush
+
+          # The framing bytes are acked up front, but nothing further.
+          leader_io.read_timeout = 2.seconds
+          acked = 0i64
+          while acked < framing
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          acked.should eq framing
+          leader_io.read_timeout = 500.milliseconds
+          expect_raises(IO::TimeoutError) do
+            leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+          client_socket.close
+        end
+      end
     end
 
     describe "sync_files directory cleanup" do
