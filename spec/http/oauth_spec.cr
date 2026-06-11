@@ -198,6 +198,17 @@ describe "OAuth2" do
     end
   end
 
+  describe "OAuth sessions using the management API" do
+    it "can create a vhost" do
+      chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), default_oidc)
+      with_http_server(authenticator: chain) do |http, _|
+        headers = ::HTTP::Headers{"Cookie" => "oauth_token=anytoken"}
+        response = ::HTTP::Client.put(http.test_uri("/api/vhosts/oauth-vhost"), headers: headers)
+        response.status_code.should eq 201
+      end
+    end
+  end
+
   describe "PKCE" do
     it "generates a verifier of at least 43 characters" do
       verifier, _ = LavinMQ::HTTP::OAuth2::PKCE.generate

@@ -60,8 +60,12 @@ module LavinMQ
       end
       vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
       Log.info { "Created vhost #{name}" }
-      unless @users[user.name]?.try &.permissions[name]?
-        @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: save)
+      # Grant the creating user full permissions on the new vhost. Only local
+      # users have stored permissions; OAuth users get theirs from token scopes.
+      if local_user = @users[user.name]?
+        unless local_user.permissions[name]?
+          @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: save)
+        end
       end
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: save)
       @vhosts[name] = vhost

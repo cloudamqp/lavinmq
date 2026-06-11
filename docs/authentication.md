@@ -155,6 +155,11 @@ Or with an optional routing-key segment (accepted for compatibility but ignored)
 - Multiple permission scopes for the same vhost and permission type are combined into a single regex (alternation).
 - Permissions for vhosts not granted are denied by default (empty regex `^$`).
 
+Token scopes are the only source of permissions for OAuth users. Unlike local
+users, an OAuth user who creates a vhost is not granted permissions on it;
+access to the new vhost must be granted through the identity provider, e.g.
+with wildcard vhost scopes such as `read:*/*`.
+
 ### Examples
 
 A token with these filtered scopes:
