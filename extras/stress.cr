@@ -978,6 +978,17 @@ module Stress
     end
   end
 
+  # Mix in automatic offset tracking on/off, sometimes as the string
+  # form "true"/"false" which the server also accepts.
+  private def self.apply_random_offset_tracking(args : Arguments) : Nil
+    case Random.rand(4)
+    when 0 then args["x-stream-automatic-offset-tracking"] = true.as(AMQ::Protocol::Field)
+    when 1 then args["x-stream-automatic-offset-tracking"] = false.as(AMQ::Protocol::Field)
+    when 2 then args["x-stream-automatic-offset-tracking"] = "true".as(AMQ::Protocol::Field)
+    else # omitted — server default applies
+    end
+  end
+
   # Pick a randomized `x-stream-offset` value plus a random
   # `x-stream-automatic-offset-tracking` setting. Exercises every branch
   # of `StreamMessageStore#find_offset`: named ("first"/"last"/"next"),
@@ -1009,14 +1020,7 @@ module Stress
       ts = Time.utc - Random.rand(300..3600).seconds
       args["x-stream-offset"] = ts.as(AMQ::Protocol::Field)
     end
-    # Mix in automatic offset tracking on/off, sometimes as the string
-    # form "true"/"false" which the server also accepts.
-    case Random.rand(4)
-    when 0 then args["x-stream-automatic-offset-tracking"] = true.as(AMQ::Protocol::Field)
-    when 1 then args["x-stream-automatic-offset-tracking"] = false.as(AMQ::Protocol::Field)
-    when 2 then args["x-stream-automatic-offset-tracking"] = "true".as(AMQ::Protocol::Field)
-    else # omitted — server default applies
-    end
+    apply_random_offset_tracking(args)
     args
   end
 
