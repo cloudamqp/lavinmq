@@ -3,6 +3,7 @@ require "ini"
 require "json"
 require "uri"
 require "file_utils"
+require "../lavinmq/data_dir_lock"
 
 class LavinMQCtl
   class CtlExit < Exception
@@ -76,62 +77,97 @@ class LavinMQCtl
   end
 
   def raft_reset
-    data_dir = resolved_data_dir
-    # Running-node detection: Task 10 implements maybe_signal_running_node. For now, no-op when no pidfile.
-    if pidfile = @options["pidfile"]?
-      maybe_signal_running_node(pidfile, data_dir)
-    end
-    deleted = [] of String
-    RAFT_STATE_DIRS.each do |d|
-      path = File.join(data_dir, d)
-      if Dir.exists?(path)
-        FileUtils.rm_rf(path)
-        deleted << "#{d}/"
-      end
-    end
-    RAFT_STATE_FILES.each do |f|
-      path = File.join(data_dir, f)
-      if File.exists?(path)
-        File.delete(path)
-        deleted << f
-      end
-    end
-    @io.puts "raft_reset: removed #{deleted.empty? ? "(nothing to remove)" : deleted.join(", ")} from #{data_dir}"
+    with_wiped_raft_state(resolved_data_dir) { }
   end
 
-  private def maybe_signal_running_node(pidfile : String, data_dir : String) : Nil
-    return unless File.exists?(pidfile)
-    pid_str = File.read(pidfile).strip
-    pid = pid_str.to_i64? || return
-    return unless Process.exists?(pid)
-    unless @options["force"]?
-      # Refuse if the node is part of a real cluster.
-      # If /raft/status is unreachable assume safe (single-node or already wedged).
-      begin
-        response = http.get("/raft/status", @headers)
-        if response.status_code == 200
-          data = JSON.parse(response.body)
-          if peers = data["peers"]?
-            if peers.as_a.size > 1
-              @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers.as_a.size}). Use --force to override."
-              raise CtlExit.new(1)
-            end
-          end
+  # Wipes the raft state directories while holding the data dir lock, then
+  # yields (still locked) for follow-up work like writing `.join_target` —
+  # so a systemd-restarted server can't race past its bootstrap-or-join
+  # decision before the marker exists. A running node is detected through
+  # the same flock the server holds for its whole lifetime; no pidfile
+  # configuration needed.
+  private def with_wiped_raft_state(data_dir : String, &) : Nil
+    Dir.mkdir_p(data_dir)
+    lock = LavinMQ::DataDirLock.new(data_dir)
+    stop_running_node(lock) unless lock.try_acquire
+    begin
+      deleted = [] of String
+      RAFT_STATE_DIRS.each do |d|
+        path = File.join(data_dir, d)
+        if Dir.exists?(path)
+          FileUtils.rm_rf(path)
+          deleted << "#{d}/"
         end
-      rescue ex : IO::Error | Socket::Error
-        # /raft/status unreachable: skip the safety check.
       end
+      RAFT_STATE_FILES.each do |f|
+        path = File.join(data_dir, f)
+        if File.exists?(path)
+          File.delete(path)
+          deleted << f
+        end
+      end
+      @io.puts "raft_reset: removed #{deleted.empty? ? "(nothing to remove)" : deleted.join(", ")} from #{data_dir}"
+      yield
+    ensure
+      lock.release
     end
-    @io.puts "raft_reset: sending SIGTERM to pid #{pid}"
-    Process.signal(Signal::TERM, pid)
-    deadline = Time.instant + 30.seconds
-    while Process.exists?(pid)
-      if Time.instant > deadline
-        @io.puts "raft_reset: timed out waiting for pid #{pid} to exit"
+  end
+
+  # The data dir lock is held: a node is running. Refuse unless that is
+  # provably safe to discard (or --force), then stop the node and wait for
+  # its lock to be released. Never wipes under a holder it could not stop.
+  private def stop_running_node(lock : LavinMQ::DataDirLock) : Nil
+    ensure_safe_to_stop
+    info = lock.holder_info
+    if m = info.match(/PID (\d+) @ (.+)/)
+      pid, host = m[1].to_i64, m[2]
+      unless host == System.hostname
+        @io.puts "raft_reset: data dir is locked by #{info.inspect} on another host; stop that node first"
         raise CtlExit.new(1)
       end
-      sleep 100.milliseconds
+      @io.puts "raft_reset: node is running, sending SIGTERM to pid #{pid}"
+      begin
+        Process.signal(Signal::TERM, pid)
+      rescue
+        @io.puts "raft_reset: could not signal pid #{pid}; stop the node manually"
+        raise CtlExit.new(1)
+      end
+      deadline = Time.instant + 30.seconds
+      until lock.try_acquire
+        if Time.instant > deadline
+          @io.puts "raft_reset: timed out waiting for the node to exit"
+          raise CtlExit.new(1)
+        end
+        sleep 100.milliseconds
+      end
+    else
+      @io.puts "raft_reset: data dir is locked by a running node (#{info.inspect}); stop it first"
+      raise CtlExit.new(1)
     end
+  end
+
+  # Refuse unless the running node is provably safe to discard: the leader
+  # of a single-node cluster (the bootstrap-then-join formation flow). A
+  # follower's control socket answers 503, an unreachable socket proves
+  # nothing — both require --force.
+  private def ensure_safe_to_stop : Nil
+    return if @options["force"]?
+    begin
+      response = http.get("/raft/status", @headers)
+      if response.status_code == 200
+        data = JSON.parse(response.body)
+        peers = data["peers"]?.try(&.as_a.size) || 0
+        return if peers <= 1
+        @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers}). Use --force to override."
+      else
+        @io.puts "raft_reset: refusing — node is running but its role can't be verified " \
+                 "(HTTP #{response.status_code}; a follower answers 503). " \
+                 "Use --force to discard this node's cluster membership."
+      end
+    rescue ex : IO::Error | Socket::Error
+      @io.puts "raft_reset: refusing — node is running but /raft/status is unreachable (#{ex.message}). Use --force to override."
+    end
+    raise CtlExit.new(1)
   end
 
   def raft_join
@@ -146,12 +182,12 @@ class LavinMQCtl
       raise CtlExit.new(1)
     end
     data_dir = resolved_data_dir
-    # Reset raft state (file wipe + optional SIGTERM)
-    raft_reset
-    # Write the join marker
-    Dir.mkdir_p(data_dir)
-    marker = File.join(data_dir, ".join_target")
-    File.write(marker, leader_uri)
-    @io.puts "raft_join: wrote #{marker} → #{leader_uri}; restart lavinmq to join the cluster"
+    with_wiped_raft_state(data_dir) do
+      # Written while the data dir lock is still held, so a restarting
+      # server can't observe "wiped but no marker" and auto-bootstrap.
+      marker = File.join(data_dir, ".join_target")
+      File.write(marker, leader_uri)
+      @io.puts "raft_join: wrote #{marker} → #{leader_uri}; restart lavinmq to join the cluster"
+    end
   end
 end

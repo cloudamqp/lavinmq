@@ -290,28 +290,22 @@ class LavinMQCtl
     end
     @parser.on("raft_reset", "Wipe raft state and signal lavinmq to restart fresh") do
       @cmd = "raft_reset"
-      self.banner = "Usage: #{PROGRAM_NAME} raft_reset [--force] [--data-dir=DIR] [--pidfile=FILE]"
+      self.banner = "Usage: #{PROGRAM_NAME} raft_reset [--force] [--data-dir=DIR]"
       @parser.on("--force", "Allow reset on a multi-node cluster (destructive)") do
         @options["force"] = "true"
       end
       @parser.on("--data-dir=DIR", "Data directory (overrides config)") do |v|
         @options["data_dir"] = v
-      end
-      @parser.on("--pidfile=FILE", "Pidfile path (overrides config)") do |v|
-        @options["pidfile"] = v
       end
     end
     @parser.on("raft_join", "Reset raft state and configure this node to join a cluster on restart") do
       @cmd = "raft_join"
-      self.banner = "Usage: #{PROGRAM_NAME} raft_join <leader-http-uri> [--force] [--data-dir=DIR] [--pidfile=FILE]"
+      self.banner = "Usage: #{PROGRAM_NAME} raft_join <leader-http-uri> [--force] [--data-dir=DIR]"
       @parser.on("--force", "Allow reset on a multi-node cluster (destructive)") do
         @options["force"] = "true"
       end
       @parser.on("--data-dir=DIR", "Data directory (overrides config)") do |v|
         @options["data_dir"] = v
-      end
-      @parser.on("--pidfile=FILE", "Pidfile path (overrides config)") do |v|
-        @options["pidfile"] = v
       end
     end
 

@@ -1,6 +1,7 @@
 require "../spec_helper"
 require "http/server"
 require "../../src/lavinmqctl/cli"
+require "../../src/lavinmq/data_dir_lock"
 
 describe "LavinMQCtl raft_*" do
   describe "raft_status" do
@@ -70,19 +71,19 @@ describe "LavinMQCtl raft_*" do
       spawn(name: "stub-reset-multi") { stub.listen }
       begin
         data_dir = File.tempname("raft-reset-multi-spec")
-        pidfile = File.tempname("raft-reset-multi-pid")
         begin
           Dir.mkdir_p(data_dir)
-          # Write our own pid into the pidfile so liveness check returns true.
-          File.write(pidfile, Process.pid.to_s)
           File.write(File.join(data_dir, ".clustering_id"), "1")
+          # Hold the data dir lock, as a running server would.
+          lock = LavinMQ::DataDirLock.new(data_dir)
+          lock.try_acquire.should be_true
 
           stdout = IO::Memory.new
           original_argv = ARGV.dup
           begin
             ARGV.clear
             ARGV.concat(["--uri", "http://#{addr}", "raft_reset",
-                         "--data-dir=#{data_dir}", "--pidfile=#{pidfile}"])
+                         "--data-dir=#{data_dir}"])
             cli = LavinMQCtl.new(stdout)
             expect_raises(LavinMQCtl::CtlExit) do
               cli.run_cmd
@@ -90,12 +91,101 @@ describe "LavinMQCtl raft_*" do
           ensure
             ARGV.clear
             ARGV.concat(original_argv)
+            lock.release
           end
           # State should remain untouched (refusal happened before signal).
           File.exists?(File.join(data_dir, ".clustering_id")).should be_true
           stdout.to_s.should contain("refusing")
         ensure
-          File.delete?(pidfile)
+          FileUtils.rm_rf(data_dir)
+        end
+      ensure
+        stub.close
+      end
+    end
+
+    it "refuses without --force when the running node is a follower (control socket answers 503)" do
+      stub = HTTP::Server.new do |context|
+        # A follower's control socket answers 503 to everything.
+        context.response.status_code = 503
+        context.response.print "This node is a follower"
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-reset-follower") { stub.listen }
+      begin
+        data_dir = File.tempname("raft-reset-follower-spec")
+        begin
+          Dir.mkdir_p(File.join(data_dir, "raft"))
+          File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+          lock = LavinMQ::DataDirLock.new(data_dir)
+          lock.try_acquire.should be_true
+
+          stdout = IO::Memory.new
+          original_argv = ARGV.dup
+          begin
+            ARGV.clear
+            ARGV.concat(["--uri", "http://#{addr}", "raft_reset",
+                         "--data-dir=#{data_dir}"])
+            cli = LavinMQCtl.new(stdout)
+            expect_raises(LavinMQCtl::CtlExit) do
+              cli.run_cmd
+            end
+          ensure
+            ARGV.clear
+            ARGV.concat(original_argv)
+            lock.release
+          end
+          Dir.exists?(File.join(data_dir, "raft")).should be_true
+          stdout.to_s.should contain("--force")
+        ensure
+          FileUtils.rm_rf(data_dir)
+        end
+      ensure
+        stub.close
+      end
+    end
+
+    it "refuses to touch a data dir locked from another host" do
+      stub = HTTP::Server.new do |context|
+        context.response.status_code = 200
+        context.response.content_type = "application/json"
+        context.response.print({
+          "id"    => 1_i64,
+          "role"  => "leader",
+          "peers" => [{"id" => 1_i64, "role" => "voter"}],
+        }.to_json)
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-reset-otherhost") { stub.listen }
+      begin
+        data_dir = File.tempname("raft-reset-otherhost-spec")
+        begin
+          Dir.mkdir_p(File.join(data_dir, "raft"))
+          File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+          lock = LavinMQ::DataDirLock.new(data_dir)
+          lock.try_acquire.should be_true
+          # Simulate a holder on a shared (NFS) data dir: the flock is held,
+          # but the recorded holder lives on another machine.
+          File.write(File.join(data_dir, ".lock"), "PID 4711 @ another-host")
+
+          stdout = IO::Memory.new
+          original_argv = ARGV.dup
+          begin
+            ARGV.clear
+            ARGV.concat(["--uri", "http://#{addr}", "raft_reset",
+                         "--data-dir=#{data_dir}"])
+            cli = LavinMQCtl.new(stdout)
+            expect_raises(LavinMQCtl::CtlExit) do
+              cli.run_cmd
+            end
+          ensure
+            ARGV.clear
+            ARGV.concat(original_argv)
+            lock.release
+          end
+          Dir.exists?(File.join(data_dir, "raft")).should be_true
+          stdout.to_s.should contain("another host")
+        ensure
           FileUtils.rm_rf(data_dir)
         end
       ensure
