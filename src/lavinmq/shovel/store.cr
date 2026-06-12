@@ -49,17 +49,21 @@ module LavinMQ
         dest_uris = parse_uris(config["dest-uri"]?)
         src_uris = parse_uris(config["src-uri"]?)
 
-        src_q = config["src-queue"]?.try(&.as_s)
-        src_x = config["src-exchange"]?.try(&.as_s)
-        dst = config["dest-exchange"]?.try(&.as_s)
-        dst_q = config["dest-queue"]?.try(&.as_s)
-
-        if dst.nil? && dst_q
-          dst = "" # default exchange
-        end
+        src_q = config["src-queue"]?.try(&.as_s).presence
+        src_x = config["src-exchange"]?.try(&.as_s).presence
+        dst_x = config["dest-exchange"]?.try(&.as_s) # nil = unset, "" = default exchange
+        dst_x_key = config["dest-exchange-key"]?.try(&.as_s).presence
+        dst_q = config["dest-queue"]?.try(&.as_s).presence
 
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
-        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil?
+        if dst_q && dst_x.presence
+          raise ConfigError.new("Only one of dest-queue and dest-exchange can be set")
+        end
+        if dst_x_key && dst_x.nil?
+          raise ConfigError.new("dest-exchange-key is only valid when dest-exchange is set")
+        end
+        # The destination is optional: when neither a queue nor an exchange is set,
+        # messages are republished with their original exchange and routing key.
 
         return unless user
 
@@ -73,12 +77,20 @@ module LavinMQ
 
         dest_uris.each do |uri|
           vhost = vhost_from_uri(uri)
-          if d = dst
-            if !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
+          if d = dst_x
+            if d.empty? # Default exchange
+              if !user.can_write?(vhost, "")
+                raise ConfigError.new("#{user.name} can't publish to default exchange in #{vhost}")
+              end
+            elsif !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
               raise ConfigError.new("#{user.name} can't access exchange '#{d}' in #{vhost}")
             end
           end
           if q = dst_q
+            # Messages are published to the default exchange (write) and the queue is declared (config)
+            if !user.can_write?(vhost, "")
+              raise ConfigError.new("#{user.name} can't publish to default exchange in #{vhost}")
+            end
             if !user.can_config?(vhost, q)
               raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
             end

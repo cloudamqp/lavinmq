@@ -234,6 +234,35 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "should shovel to the routing key when the destination queue is empty" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "rk_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # empty destination queue, default exchange, routing key points at the real queue
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          "",
+          "",
+          "rk_q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rk_shovel", vhost)
+        with_channel(s) do |ch|
+          x, q2 = ShovelSpecHelpers.setup_qs ch, "rk_"
+          x.publish_confirm "shovel me", "rk_q1"
+          shovel.run
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me"
+        end
+      end
+    end
+
     it "should shovel large messages" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
@@ -432,6 +461,43 @@ describe LavinMQ::Shovel do
           rmsg = nil
           wait_for { rmsg = q2.get(no_ack: true) }
           rmsg.not_nil!.body_io.to_s.should eq "shovel me"
+        end
+      ensure
+        shovel.try &.terminate
+      end
+    end
+
+    it "republishes with the original exchange and routing key when no destination is set" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "parity_src",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # No queue, exchange or exchange-key: messages keep their original routing (RabbitMQ parity)
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          nil,
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "parity_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("parity_x", "direct")
+          src_q = ch.queue("parity_src")
+          dest_q = ch.queue("parity_dest")
+          src_q.bind("parity_x", "parity_rk")
+          x.publish_confirm "preserve me", "parity_rk"
+          # unbind the source queue and bind the destination queue instead
+          src_q.unbind("parity_x", "parity_rk")
+          dest_q.bind("parity_x", "parity_rk")
+          shovel.run
+          wait_for { shovel.terminated? }
+          wait_for { vhost.queue("parity_dest").message_count == 1 }
+          dest_q.get(no_ack: true).not_nil!.body_io.to_s.should eq "preserve me"
         end
       ensure
         shovel.try &.terminate
@@ -932,6 +998,109 @@ describe LavinMQ::Shovel do
         expect_raises(LavinMQ::Shovel::ConfigError) do
           LavinMQ::Shovel::Store.validate_config!(config, user)
         end
+      end
+    end
+
+    it "raises when user lacks write access to the default exchange for a destination queue" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user3", "pass")
+        # config + read on everything, but write only matches non-empty names (not the default exchange)
+        s.users.add_permission("shovel_user3", "/", /.*/, /.*/, /.+/)
+        config = JSON.parse({
+          "src-uri":    "amqp:///",
+          "dest-uri":   "amqp:///",
+          "src-queue":  "q1",
+          "dest-queue": "q2",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, /can't publish to default exchange/) do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+
+    it "allows no destination to be set (republishes with original exchange and routing key)" do
+      config = JSON.parse({
+        "src-uri":   "amqp:///",
+        "dest-uri":  "amqp:///",
+        "src-queue": "q1",
+      }.to_json)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
+    end
+
+    it "treats an empty dest-exchange as the default exchange and requires write access" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user4", "pass")
+        # config + read on everything, but write only matches non-empty names (not the default exchange)
+        s.users.add_permission("shovel_user4", "/", /.*/, /.*/, /.+/)
+        config = JSON.parse({
+          "src-uri":       "amqp:///",
+          "dest-uri":      "amqp:///",
+          "src-queue":     "q1",
+          "dest-exchange": "",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, /can't publish to default exchange/) do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+
+    it "raises when the source queue is an empty string" do
+      config = JSON.parse({
+        "src-uri":    "amqp:///",
+        "dest-uri":   "amqp:///",
+        "src-queue":  "",
+        "dest-queue": "q2",
+      }.to_json)
+      expect_raises(LavinMQ::Shovel::ConfigError, /source requires/) do
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
+      end
+    end
+
+    it "allows an empty destination queue and exchange when a routing key is set" do
+      config = JSON.parse({
+        "src-uri":           "amqp:///",
+        "dest-uri":          "amqp:///",
+        "src-queue":         "q1",
+        "dest-queue":        "",
+        "dest-exchange":     "",
+        "dest-exchange-key": "rk",
+      }.to_json)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
+    end
+
+    it "allows dest-queue together with an empty dest-exchange" do
+      config = JSON.parse({
+        "src-uri":       "amqp:///",
+        "dest-uri":      "amqp:///",
+        "src-queue":     "q1",
+        "dest-queue":    "q2",
+        "dest-exchange": "",
+      }.to_json)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
+    end
+
+    it "raises when dest-queue and a non-empty dest-exchange are both set" do
+      config = JSON.parse({
+        "src-uri":       "amqp:///",
+        "dest-uri":      "amqp:///",
+        "src-queue":     "q1",
+        "dest-queue":    "q2",
+        "dest-exchange": "x2",
+      }.to_json)
+      expect_raises(LavinMQ::Shovel::ConfigError, /Only one of dest-queue and dest-exchange/) do
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
+      end
+    end
+
+    it "raises when dest-exchange-key is set without a dest-exchange" do
+      config = JSON.parse({
+        "src-uri":           "amqp:///",
+        "dest-uri":          "amqp:///",
+        "src-queue":         "q1",
+        "dest-exchange-key": "rk",
+      }.to_json)
+      expect_raises(LavinMQ::Shovel::ConfigError, /dest-exchange-key is only valid/) do
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
       end
     end
   end
