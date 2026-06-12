@@ -342,6 +342,13 @@ module LavinMQ
         @replay_queue = Deque({ExchangeEvent, BindingDetails}).new
         @replay_lock = Mutex.new
         @replaying = false
+        # The upstream bindings this link has created, keyed by the downstream
+        # binding's properties_key, holding the routing key and transformed
+        # arguments needed to unbind upstream. Bindings removed downstream
+        # while the link is disconnected are never observed as events, so this
+        # is what lets a reconnect unbind them upstream. Guarded by
+        # @replay_lock.
+        @upstream_bindings = Hash(String, {String, ::AMQP::Client::Arguments}).new
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -380,9 +387,14 @@ module LavinMQ
         private def apply_binding_event(ex, event : ExchangeEvent, b : BindingDetails)
           updated, args = update_bound_from?(b.arguments)
           return unless updated
+          key = b.binding_key.properties_key
           case event
-          when .bind?   then ex.bind(@upstream_exchange, b.routing_key, args: args)
-          when .unbind? then ex.unbind(@upstream_exchange, b.routing_key, args: args)
+          when .bind?
+            ex.bind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings[key] = {b.routing_key, args} }
+          when .unbind?
+            ex.unbind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
           end
         end
 
@@ -483,7 +495,9 @@ module LavinMQ
           # a direct RPC here would race the replay below on the same channel.
           @consumer_ex = consumer_ex
           @federated_ex.register_observer(self)
-          @federated_ex.bindings_details.each do |binding|
+          snapshot = @federated_ex.bindings_details
+          unbind_removed_bindings(consumer_ex, snapshot)
+          snapshot.each do |binding|
             apply_binding_event(consumer_ex, ExchangeEvent::Bind, binding)
           end
           loop do
@@ -506,6 +520,22 @@ module LavinMQ
           @replay_lock.synchronize do
             @replaying = false
             @replay_queue.clear
+          end
+        end
+
+        # Unbind upstream bindings this link created that are no longer in the
+        # downstream snapshot: their unbinds happened while the link was
+        # disconnected, so they were never seen as events and would otherwise
+        # stay bound upstream forever, forwarding messages the downstream no
+        # longer wants.
+        private def unbind_removed_bindings(consumer_ex, snapshot)
+          desired = snapshot.map(&.binding_key.properties_key).to_set
+          removed = @replay_lock.synchronize do
+            @upstream_bindings.reject { |key, _| desired.includes?(key) }
+          end
+          removed.each do |key, (routing_key, args)|
+            consumer_ex.unbind(@upstream_exchange, routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
           end
         end
 
