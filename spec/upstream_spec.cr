@@ -569,9 +569,16 @@ describe LavinMQ::Federation::Upstream do
           vhost.declare_exchange("ex1", "topic", true, false)
 
           upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{v}})
-          link1 = upstream.link(vhost.exchange("ex1"))
+          begin
+            link1 = upstream.link(vhost.exchange("ex1"))
 
-          link1.@upstream_exchange.should eq "ex1"
+            link1.@upstream_exchange.should eq "ex1"
+          ensure
+            # The upstream is not registered in the vhost's upstream store, so
+            # nothing else stops the link; without this the link fiber keeps
+            # reconnecting for the rest of the spec process.
+            upstream.close
+          end
         end
       end
     end

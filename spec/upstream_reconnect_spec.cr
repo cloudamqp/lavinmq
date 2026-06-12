@@ -40,10 +40,12 @@ describe LavinMQ::Federation::Upstream do
         upstream_ex = upstream_ex.as(LavinMQ::AMQP::Exchange)
         wait_for { upstream_ex.bindings_details.size == 2 }
 
-        # Only control the link's fiber; the broker's housekeeping fibers
-        # (RoughTime, stats loop, ...) keep re-arming periodic sleeps, which
-        # would freeze and leak as pending timers.
-        TimeControl.control(only: /^Federation link /) do |controller|
+        # Only control this spec's link fiber, matched by its full name: any
+        # other fiber re-arming a timer during the block — the broker's
+        # housekeeping fibers (RoughTime, stats loop, ...), but also leftover
+        # federation links from earlier specs — would freeze and leak as a
+        # pending timer.
+        TimeControl.control(only: /^Federation link downstream\/downstream_ex$/) do |controller|
           # Kill the link's upstream connection; the link parks in
           # wait_before_reconnect on a now-virtual reconnect_delay timeout.
           upstream_vhost.each_connection do |conn|
