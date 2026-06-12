@@ -59,9 +59,7 @@ module LavinMQ::Raft
 
       protected def self.read_body(io : IO, format : IO::ByteFormat) : SetSecret
         len = io.read_bytes(UInt32, format)
-        buf = Bytes.new(len)
-        io.read_fully(buf)
-        new(String.new(buf))
+        new(io.read_string(len))
       end
     end
 

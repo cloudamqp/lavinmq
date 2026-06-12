@@ -20,7 +20,7 @@ module LavinMQ::Raft
       deadline = Time.instant + 5.seconds
       while @server.secret.empty?
         raise "timed out waiting for SetSecret apply" if Time.instant > deadline
-        Fiber.yield
+        sleep 1.millisecond
       end
       @server.secret
     end
