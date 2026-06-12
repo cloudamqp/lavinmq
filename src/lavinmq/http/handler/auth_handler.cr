@@ -6,22 +6,31 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User)
+      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User, @internal_unix_socket_path : String)
       end
 
       def call(context)
         if internal_unix_socket?(context)
-          context.user = @direct_user
+          context.user ||= @direct_user
         end
 
-        if auth = cookie_auth(context) || basic_auth(context)
+        # Explicit credentials override a user assigned earlier (direct user
+        # or OAuth cookie session) and must be valid for the request to stay
+        # authenticated. The passwordless OAuth identity cookie does not
+        # count as credentials.
+        if auth = explicit_credentials(context)
           username, password = auth
-          if user = authenticate(username, password, context.request.remote_address)
-            context.user = user
-          end
+          context.user = authenticate(username, password, context.request.remote_address)
         end
 
         call_next(context)
+      end
+
+      private def explicit_credentials(context) : Tuple(String, String)?
+        if auth = cookie_auth(context)
+          return auth unless auth[1].empty?
+        end
+        basic_auth(context)
       end
 
       private def basic_auth(context)
@@ -35,6 +44,9 @@ module LavinMQ
 
       private def cookie_auth(context)
         if m = context.request.cookies["m"]?
+          # The "|oauth:" identity cookie set for SSO sessions (see
+          # OAuthController) carries no password and is not credentials.
+          return if m.value.starts_with?("|oauth:")
           if idx = m.value.rindex(':')
             auth = URI.decode(m.value[idx + 1..])
             return decode(auth)
@@ -64,7 +76,7 @@ module LavinMQ
 
       private def internal_unix_socket?(context) : Bool
         if addr = context.request.remote_address.as?(Socket::UNIXAddress)
-          return addr.to_s == HTTP::INTERNAL_UNIX_SOCKET
+          return addr.to_s == @internal_unix_socket_path
         end
         false
       end

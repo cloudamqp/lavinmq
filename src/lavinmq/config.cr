@@ -35,6 +35,32 @@ module LavinMQ
       parse_env()
       parse_cli(argv)
       setup_logger
+      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
+        Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    def oauth_mgmt_ui_enabled? : Bool
+      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
+      oauth_mgmt_base_url_allowed?(base_url)
+    end
+
+    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
+      return true if uri.scheme == "https"
+      return false unless uri.scheme == "http"
+      host = uri.host.try(&.downcase)
+      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+    end
+
+    private def oauth_mgmt_ui_disabled_reason : String
+      missing = [] of String
+      missing << "oauth.client_id" unless @oauth_client_id
+      missing << "oauth.issuer" unless @oauth_issuer_url
+      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
+      unless missing.empty?
+        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+      end
+      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
     private def parse_config_from_cli(argv)
@@ -291,6 +317,13 @@ module LavinMQ
       broadcast_backend.append(in_memory_backend, @log_level)
 
       ::Log.setup(@log_level, broadcast_backend)
+      # Federation and shovels use the embedded amqp-client, whose connection
+      # read loop logs routine teardown (EOF / failed CloseOk) at ERROR whenever
+      # a connection drops — unavoidable on broker shutdown and under connection
+      # churn. LavinMQ already reports those events through its own
+      # federation/shovel layers (lmq.*), so keep the library's redundant
+      # connection log out of the broker log.
+      ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end

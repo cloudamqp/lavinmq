@@ -49,7 +49,7 @@ module LavinMQ
       end
 
       macro redirect_unless_logged_in!
-        if !context.request.cookies.has_key?("m")
+        if !context.request.cookies.has_key?("m") && !context.request.cookies.has_key?("oauth_token")
           context.response.status = ::HTTP::Status::TEMPORARY_REDIRECT
           context.response.headers["Location"] = "login"
           next context

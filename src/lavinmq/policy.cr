@@ -6,29 +6,32 @@ module LavinMQ
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter effective_policy_args = Array(String).new
+    # apply_policies is spawned per policy/parameter add & delete, so concurrent
+    # applies can hit the same resource; serialize them to protect the shared
+    # @effective_args / store state.
+    @policy_lock = Mutex.new(:reentrant)
 
     def reapply_policy
       apply_policy(@policy, @operator_policy)
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-      clear_policy
-      effective_policy_args = Array(String).new
-      Policy.merge_definitions(policy, operator_policy).each do |key, value|
-        if apply_policy_argument(key, value)
-          effective_policy_args << key
+      @policy_lock.synchronize do
+        clear_policy
+        effective_policy_args = Array(String).new
+        Policy.merge_definitions(policy, operator_policy).each do |key, value|
+          if apply_policy_argument(key, value)
+            effective_policy_args << key
+          end
+        rescue ex
+          # Skip an invalid policy argument and carry on with the rest.
+          Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
         end
-      rescue ex
-        # We rescue exceptions and ignore the argument, continuing on the next one.
-        #
-        # This log line isn't very good. Sometimes @log should be used, but we can't know that here. With the new L
-        # logging it's not as important.
-        Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
+        @effective_policy_args = effective_policy_args
+        @policy = policy
+        @operator_policy = operator_policy
+        after_policy_applied
       end
-      @effective_policy_args = effective_policy_args
-      @policy = policy
-      @operator_policy = operator_policy
-      after_policy_applied
     end
 
     def clear_policy

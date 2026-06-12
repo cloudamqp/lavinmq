@@ -12,6 +12,8 @@ module LavinMQ
         DIRECT_USER == name
       end
 
+      @save_lock = Mutex.new
+
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
         @users = Hash(String, User).new
         load!
@@ -169,8 +171,12 @@ module LavinMQ
         Log.debug { "Saving users to file" }
         path = File.join(@data_dir, "users.json")
         tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename tmpfile, path
+        # Serialize saves so concurrent user add/delete don't race on the shared
+        # `.tmp` file and fail the rename.
+        @save_lock.synchronize do
+          File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
+          File.rename tmpfile, path
+        end
         @replicator.try &.replace_file path
       end
     end

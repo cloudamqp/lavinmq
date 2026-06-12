@@ -120,6 +120,12 @@ More configuration options can be viewed with `-h`,
 and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
 for an example, or see the section on [config files in the documentation](https://lavinmq.com/documentation/configuration-files).
 
+To run multiple LavinMQ instances on the same host, give each one its own
+`--data-dir`, ports/binds and a unique `--control-unix-path` (the socket
+`lavinmqctl` connects to, default `/tmp/lavinmqctl.sock`). `lavinmqctl` accepts
+the same `--control-unix-path` flag (or the `LAVINMQCTL_CONTROL_UNIX_PATH`
+environment variable) to reach a specific instance.
+
 ### Client Libraries
 
 All AMQP client libraries work with LavinMQ, and there are AMQP client libraries for almost every platform. The LavinMQ website has guides for many common platforms:

@@ -25,6 +25,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `log_level` | `-l`, `--log-level` | — | String | `info` | Log level: `trace`, `debug`, `info`, `notice`, `warn`, `error`, `fatal`, `none` |
 | `log_file` | — | — | String | (none) | Log file path |
 | `pidfile` | `--pidfile` | — | String | (empty) | PID file path |
+| `control_unix_path` | `--control-unix-path` | `LAVINMQ_CONTROL_UNIX_PATH` | String | `/tmp/lavinmqctl.sock` | UNIX socket that `lavinmqctl` connects to. Use a unique path per instance to run multiple servers on one host. |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
 | `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
@@ -116,12 +117,14 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | INI Key | Type | Default | Description |
 |---------|------|---------|-------------|
 | `issuer` | URI | (none) | OAuth2/OIDC issuer URL |
+| `client_id` | String | (none) | OAuth2 client ID. Required to enable management UI SSO login |
+| `mgmt_base_url` | URI | (none) | Public base URL of the management UI. Setting it together with `issuer` and `client_id` enables the SSO login button. Must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host. When `verify_aud` is true, SSO tokens must match `audience` or `resource_server_id` |
 | `resource_server_id` | String | (none) | Resource server identifier |
 | `preferred_username_claims` | Array | `["sub", "client_id"]` | JWT claims for username extraction |
 | `additional_scopes_keys` | Array | `[]` | Additional JWT claims to check for scopes |
 | `scope_prefix` | String | (none) | Prefix to strip from scope strings |
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
-| `audience` | String | (none) | Expected JWT audience |
+| `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
 ## [experimental] Section

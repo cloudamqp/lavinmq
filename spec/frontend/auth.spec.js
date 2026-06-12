@@ -29,16 +29,12 @@ test.describe('login', _ => {
     expect(cookies.some(c => c.name === 'm')).toBe(true)
   })
 
-  test('failed login shows "Authentication failure" alert', async ({ page }) => {
+  test('failed login shows "Authentication failure" error', async ({ page }) => {
     await page.goto('/login')
     await page.getByLabel('Username').fill('guest')
     await page.getByLabel('Password').fill('wrongpassword')
-    const [d] = await Promise.all([
-      page.waitForEvent('dialog'),
-      page.getByRole('button').click()
-    ])
-    expect(d.message()).toBe('Authentication failure')
-    await d.dismiss()
+    await page.getByRole('button', { name: 'Log in', exact: true }).click()
+    await expect(page.locator('#login-error')).toHaveText('Authentication failure')
   })
 })
 
@@ -96,6 +92,32 @@ test.describe('logout', _ => {
     ])
     const cookies = await context.cookies()
     expect(cookies.some(c => c.name === 'm')).toBe(false)
+  })
+
+  test('oauth username containing colons is shown in full', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.removeItem('lmq.whoami')
+      document.cookie = `m=|oauth:${window.btoa('f:realm:alice:')}; path=/`
+    })
+    // An OAuth session authenticates with the HttpOnly oauth_token cookie,
+    // which a frontend test can't mint, so stub the API away.
+    await page.route(url => url.pathname.startsWith('/api/'), route => route.fulfill({ json: {} }))
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({
+      json: { name: 'f:realm:alice', tags: 'administrator' }
+    }))
+    await page.goto('/')
+    await expect(page.locator('#username')).toHaveText('f:realm:alice')
+  })
+
+  test('oauth session sign-out goes through oauth/logout', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => { document.cookie = `m=|oauth:${window.btoa('alice:')}; path=/` })
+    await page.route(url => url.pathname.endsWith('/oauth/logout'),
+      route => route.fulfill({ status: 200, body: 'ok' }))
+    await Promise.all([
+      page.waitForRequest('**/oauth/logout'),
+      page.locator('#signoutLink').click()
+    ])
   })
 })
 
