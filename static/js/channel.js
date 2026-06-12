@@ -121,4 +121,4 @@ function updateChannel () {
   })
 }
 updateChannel()
-setInterval(updateChannel, 5000)
+Helpers.pollWhileVisible(updateChannel, 5000)

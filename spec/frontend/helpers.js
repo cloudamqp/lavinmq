@@ -53,4 +53,14 @@ async function trackCspViolations (page) {
   return () => page.evaluate(() => window.__cspViolations || [])
 }
 
-export { waitForPathRequest, trackCspViolations }
+// Simulate the Page Visibility API by overriding document.hidden /
+// document.visibilityState and dispatching a visibilitychange event.
+async function setPageVisibility (page, state) {
+  await page.evaluate((state) => {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+    Object.defineProperty(document, 'hidden', { value: state === 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }, state)
+}
+
+export { waitForPathRequest, trackCspViolations, setPageVisibility }

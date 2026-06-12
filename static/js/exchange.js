@@ -54,7 +54,7 @@ function updateExchange (all) {
   })
 }
 updateExchange(true)
-setInterval(updateExchange, 5000)
+Helpers.pollWhileVisible(updateExchange, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),

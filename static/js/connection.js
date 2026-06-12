@@ -74,7 +74,7 @@ function updateConnection (all) {
   })
 }
 updateConnection(true)
-setInterval(updateConnection, 5000)
+Helpers.pollWhileVisible(updateConnection, 5000)
 const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQueryState: false })
 const tableOptions = {
   dataSource: channelsDataSource,
