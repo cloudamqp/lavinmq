@@ -2,11 +2,11 @@ require "../spec_helper"
 require "file_utils"
 require "http/server"
 require "json"
-require "../../src/lavinmq/raft/runner"
+require "../../src/lavinmq/raft/elector"
 require "../../src/lavinmq/http/raft_handler_wrapper"
 
 private def tmp_data_dir : String
-  dir = File.tempname("raft-runner-spec")
+  dir = File.tempname("raft-elector-spec")
   Dir.mkdir_p(dir)
   dir
 end
@@ -15,7 +15,7 @@ private def free_port : Int32
   TCPServer.open("127.0.0.1", 0, &.local_address.port)
 end
 
-private def runner_config(dir : String, raft_port : Int32, data_port : Int32) : LavinMQ::Config
+private def elector_config(dir : String, raft_port : Int32, data_port : Int32) : LavinMQ::Config
   config = LavinMQ::Config.new
   config.data_dir = dir
   config.clustering_bind = "127.0.0.1"
@@ -33,7 +33,7 @@ private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
   end
 end
 
-describe LavinMQ::Raft::Runner do
+describe LavinMQ::Raft::Elector do
   it "constructs and stops without crashing" do
     dir = tmp_data_dir
     begin
@@ -44,9 +44,9 @@ describe LavinMQ::Raft::Runner do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
-      runner.node_id.should eq 1
-      runner.stop
+      elector = LavinMQ::Raft::Elector.new(config)
+      elector.node_id.should eq 1
+      elector.stop
     ensure
       FileUtils.rm_rf(dir)
     end
@@ -54,7 +54,7 @@ describe LavinMQ::Raft::Runner do
 
   it "auto-bootstraps a fresh node with no peers and no .join_target" do
     dir = tmp_data_dir
-    runner = nil
+    elector = nil
     begin
       config = LavinMQ::Config.new
       config.data_dir = dir
@@ -62,25 +62,25 @@ describe LavinMQ::Raft::Runner do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
-      spawn(name: "runner-test") do
-        runner.not_nil!.run { Fiber.yield }
+      elector = LavinMQ::Raft::Elector.new(config)
+      spawn(name: "elector-test") do
+        elector.not_nil!.campaign { Fiber.yield }
       end
       select
-      when runner.not_nil!.server.is_leader.when_true.receive
-        runner.not_nil!.server.is_leader.value.should be_true
+      when elector.not_nil!.server.is_leader.when_true.receive
+        elector.not_nil!.server.is_leader.value.should be_true
       when timeout(3.seconds)
-        fail "single-node runner did not auto-bootstrap into leadership"
+        fail "single-node elector did not auto-bootstrap into leadership"
       end
     ensure
-      runner.try &.stop rescue nil
+      elector.try &.stop rescue nil
       FileUtils.rm_rf(dir)
     end
   end
 
   it "skips auto-bootstrap when .join_target exists" do
     dir = tmp_data_dir
-    runner = nil.as(LavinMQ::Raft::Runner?)
+    elector = nil.as(LavinMQ::Raft::Elector?)
     begin
       File.write(File.join(dir, ".join_target"), "http://unreachable.invalid:99999")
       config = LavinMQ::Config.new
@@ -89,26 +89,26 @@ describe LavinMQ::Raft::Runner do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
-      spawn(name: "runner-skipbootstrap-test") do
+      elector = LavinMQ::Raft::Elector.new(config)
+      spawn(name: "elector-skipbootstrap-test") do
         begin
-          runner.not_nil!.run { Fiber.yield }
+          elector.not_nil!.campaign { Fiber.yield }
         rescue
           # perform_join will fail to connect; that's fine
         end
       end
       sleep 200.milliseconds
-      runner.not_nil!.server.is_leader.value.should be_false
+      elector.not_nil!.server.is_leader.value.should be_false
       File.exists?(File.join(dir, ".join_target")).should be_true
     ensure
-      runner.try &.stop rescue nil
+      elector.try &.stop rescue nil
       FileUtils.rm_rf(dir)
     end
   end
 
   it "preserves .join_target when perform_join raises" do
     dir = tmp_data_dir
-    runner = nil.as(LavinMQ::Raft::Runner?)
+    elector = nil.as(LavinMQ::Raft::Elector?)
     begin
       File.write(File.join(dir, ".join_target"), "http://127.0.0.1:1")
       config = LavinMQ::Config.new
@@ -117,14 +117,14 @@ describe LavinMQ::Raft::Runner do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
+      elector = LavinMQ::Raft::Elector.new(config)
       # Use an invalid scheme so perform_join raises IMMEDIATELY without the 30-attempt retry loop.
       expect_raises(Exception, /invalid leader URI scheme/) do
-        runner.not_nil!.perform_join("garbage://target")
+        elector.not_nil!.perform_join("garbage://target")
       end
       File.exists?(File.join(dir, ".join_target")).should be_true
     ensure
-      runner.try &.stop rescue nil
+      elector.try &.stop rescue nil
       FileUtils.rm_rf(dir)
     end
   end
@@ -132,7 +132,7 @@ describe LavinMQ::Raft::Runner do
   describe "in_isr?" do
     it "returns true when ISR is empty (fresh bootstrap)" do
       dir = tmp_data_dir
-      runner = nil.as(LavinMQ::Raft::Runner?)
+      elector = nil.as(LavinMQ::Raft::Elector?)
       begin
         File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
         config = LavinMQ::Config.new
@@ -141,17 +141,17 @@ describe LavinMQ::Raft::Runner do
         config.clustering_raft_port = 0
         config.clustering_port = 0
         config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-        runner = LavinMQ::Raft::Runner.new(config)
-        runner.not_nil!.in_isr?.should be_true
+        elector = LavinMQ::Raft::Elector.new(config)
+        elector.not_nil!.in_isr?.should be_true
       ensure
-        runner.try &.stop rescue nil
+        elector.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
     end
 
     it "returns true when ISR includes our node_id" do
       dir = tmp_data_dir
-      runner = nil.as(LavinMQ::Raft::Runner?)
+      elector = nil.as(LavinMQ::Raft::Elector?)
       begin
         File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
         config = LavinMQ::Config.new
@@ -160,8 +160,8 @@ describe LavinMQ::Raft::Runner do
         config.clustering_raft_port = 0
         config.clustering_port = 0
         config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-        runner = LavinMQ::Raft::Runner.new(config)
-        r = runner.not_nil!
+        elector = LavinMQ::Raft::Elector.new(config)
+        r = elector.not_nil!
         r.server.start
         r.server.bootstrap
         select
@@ -177,14 +177,14 @@ describe LavinMQ::Raft::Runner do
         end
         r.in_isr?.should be_true
       ensure
-        runner.try &.stop rescue nil
+        elector.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
     end
 
     it "returns false when ISR is non-empty and excludes our node_id" do
       dir = tmp_data_dir
-      runner = nil.as(LavinMQ::Raft::Runner?)
+      elector = nil.as(LavinMQ::Raft::Elector?)
       begin
         File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
         config = LavinMQ::Config.new
@@ -193,8 +193,8 @@ describe LavinMQ::Raft::Runner do
         config.clustering_raft_port = 0
         config.clustering_port = 0
         config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-        runner = LavinMQ::Raft::Runner.new(config)
-        r = runner.not_nil!
+        elector = LavinMQ::Raft::Elector.new(config)
+        r = elector.not_nil!
         r.server.start
         r.server.bootstrap
         select
@@ -210,7 +210,7 @@ describe LavinMQ::Raft::Runner do
         end
         r.in_isr?.should be_false
       ensure
-        runner.try &.stop rescue nil
+        elector.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
     end
@@ -222,14 +222,14 @@ describe LavinMQ::Raft::Runner do
       b_dir = tmp_data_dir
       File.write(File.join(a_dir, ".clustering_id"), 1.to_s(36))
       File.write(File.join(b_dir, ".clustering_id"), 2.to_s(36))
-      runner_a = nil.as(LavinMQ::Raft::Runner?)
-      runner_b = nil.as(LavinMQ::Raft::Runner?)
+      elector_a = nil.as(LavinMQ::Raft::Elector?)
+      elector_b = nil.as(LavinMQ::Raft::Elector?)
       admin = nil.as(HTTP::Server?)
       begin
-        a = LavinMQ::Raft::Runner.new(runner_config(a_dir, free_port, free_port))
-        runner_a = a
-        b = LavinMQ::Raft::Runner.new(runner_config(b_dir, free_port, free_port))
-        runner_b = b
+        a = LavinMQ::Raft::Elector.new(elector_config(a_dir, free_port, free_port))
+        elector_a = a
+        b = LavinMQ::Raft::Elector.new(elector_config(b_dir, free_port, free_port))
+        elector_b = b
 
         a.transport.start
         a.server.start
@@ -250,8 +250,8 @@ describe LavinMQ::Raft::Runner do
 
         File.write(File.join(b_dir, ".join_target"), "http://#{admin_addr}")
         b_served = false
-        spawn(name: "runner-b") do
-          b.run { b_served = true }
+        spawn(name: "elector-b") do
+          b.campaign { b_served = true }
         rescue ::Channel::ClosedError
           # closed at cleanup
         end
@@ -274,8 +274,8 @@ describe LavinMQ::Raft::Runner do
         b_served.should be_false
       ensure
         admin.try &.close rescue nil
-        runner_b.try &.stop rescue nil
-        runner_a.try &.stop rescue nil
+        elector_b.try &.stop rescue nil
+        elector_a.try &.stop rescue nil
         FileUtils.rm_rf(a_dir)
         FileUtils.rm_rf(b_dir)
       end
@@ -297,7 +297,7 @@ describe LavinMQ::Raft::Runner do
       end
       addr = stub.bind_tcp("127.0.0.1", 0)
       spawn(name: "stub-flaky-leader") { stub.listen }
-      runner = nil.as(LavinMQ::Raft::Runner?)
+      elector = nil.as(LavinMQ::Raft::Elector?)
       begin
         dir = tmp_data_dir
         begin
@@ -308,14 +308,14 @@ describe LavinMQ::Raft::Runner do
           config.clustering_raft_port = 0
           config.clustering_port = 0
           config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-          runner = LavinMQ::Raft::Runner.new(config)
-          runner.not_nil!.perform_join("http://#{addr}")
+          elector = LavinMQ::Raft::Elector.new(config)
+          elector.not_nil!.perform_join("http://#{addr}")
           attempts.should eq 3
         ensure
           FileUtils.rm_rf(dir)
         end
       ensure
-        runner.try &.stop rescue nil
+        elector.try &.stop rescue nil
         stub.close
       end
     end
@@ -332,7 +332,7 @@ describe LavinMQ::Raft::Runner do
       end
       addr = stub.bind_tcp("127.0.0.1", 0)
       spawn(name: "stub-leader") { stub.listen }
-      runner = nil.as(LavinMQ::Raft::Runner?)
+      elector = nil.as(LavinMQ::Raft::Elector?)
       begin
         dir = tmp_data_dir
         begin
@@ -343,8 +343,8 @@ describe LavinMQ::Raft::Runner do
           config.clustering_raft_port = 0
           config.clustering_port = 0
           config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-          runner = LavinMQ::Raft::Runner.new(config)
-          runner.not_nil!.perform_join("http://#{addr}")
+          elector = LavinMQ::Raft::Elector.new(config)
+          elector.not_nil!.perform_join("http://#{addr}")
           received_path.should eq "/raft/admin/add_server/42"
           received_body.should_not be_nil
           parsed = JSON.parse(received_body.not_nil!)
@@ -353,7 +353,7 @@ describe LavinMQ::Raft::Runner do
           FileUtils.rm_rf(dir)
         end
       ensure
-        runner.try &.stop rescue nil
+        elector.try &.stop rescue nil
         stub.close
       end
     end

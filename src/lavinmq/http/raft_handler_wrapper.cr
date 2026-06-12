@@ -17,7 +17,7 @@ module LavinMQ
     # traps with `brk #1` when the chain tries to dispatch into it.
     #
     # This wrapper is a plain concrete class, so it gets its own branch.
-    # Build instances via `Raft::Runner#status_handler` / `#admin_handler`.
+    # Build instances via `Raft::Elector#status_handler` / `#admin_handler`.
     class RaftHandlerWrapper
       include ::HTTP::Handler
 

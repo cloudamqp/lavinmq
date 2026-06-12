@@ -1,25 +1,25 @@
 require "../spec_helper"
 require "base64"
-require "../../src/lavinmq/raft/runner"
+require "../../src/lavinmq/raft/elector"
 
-private def with_raft_runner(&)
+private def with_raft_elector(&)
   config = LavinMQ::Config.instance
   config.clustering_bind = "127.0.0.1"
   config.clustering_raft_port = 0
   config.clustering_port = 0
   config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-  runner = LavinMQ::Raft::Runner.new(config)
+  elector = LavinMQ::Raft::Elector.new(config)
   begin
-    yield runner
+    yield elector
   ensure
-    runner.stop rescue nil
+    elector.stop rescue nil
   end
 end
 
 private def with_raft_http_server(&)
   with_amqp_server do |s|
-    with_raft_runner do |runner|
-      h = LavinMQ::HTTP::Server.new(s, runner)
+    with_raft_elector do |elector|
+      h = LavinMQ::HTTP::Server.new(s, elector)
       begin
         addr = h.bind_tcp("::1", 0)
         spawn(name: "http listen") { h.listen }
@@ -34,8 +34,8 @@ end
 
 private def with_raft_metrics_server(&)
   with_amqp_server do |s|
-    with_raft_runner do |runner|
-      h = LavinMQ::HTTP::MetricsServer.new(s, runner)
+    with_raft_elector do |elector|
+      h = LavinMQ::HTTP::MetricsServer.new(s, elector)
       begin
         addr = h.bind_tcp("::1", 0)
         spawn(name: "metrics listen") { h.listen }

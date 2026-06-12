@@ -2,7 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
-require "../../raft/runner"
+require "../../raft/elector"
 
 module LavinMQ
   module HTTP
@@ -116,7 +116,7 @@ module LavinMQ
       # identity mappings). Takes the runner as a parameter so it can be
       # called from both the leader's PrometheusController and the
       # follower's FollowerPrometheusController.
-      def raft_metrics(writer : PrometheusWriter, runner : LavinMQ::Raft::Runner?) : Nil
+      def raft_metrics(writer : PrometheusWriter, runner : LavinMQ::Raft::Elector?) : Nil
         return if runner.nil?
         server = runner.server
         isr = server.isr
@@ -224,7 +224,7 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize(@raft_runner : LavinMQ::Raft::Runner? = nil)
+      def initialize(@raft_elector : LavinMQ::Raft::Elector? = nil)
         register_routes
       end
 
@@ -241,7 +241,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
-            raft_metrics(writer, @raft_runner)
+            raft_metrics(writer, @raft_elector)
           end
           context
         end
@@ -262,7 +262,7 @@ module LavinMQ
       def initialize(
         amqp_server : LavinMQ::Server,
         @require_authentication : Bool,
-        @raft_runner : LavinMQ::Raft::Runner? = nil,
+        @raft_elector : LavinMQ::Raft::Elector? = nil,
       )
         super(amqp_server)
       end
@@ -294,7 +294,7 @@ module LavinMQ
             custom_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
-            raft_metrics(writer, @raft_runner)
+            raft_metrics(writer, @raft_elector)
           end
           context
         end

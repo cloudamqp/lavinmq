@@ -1,6 +1,6 @@
 require "../spec_helper"
 require "file_utils"
-require "../../src/lavinmq/raft/runner"
+require "../../src/lavinmq/raft/elector"
 require "../../src/lavinmq/http/controller/prometheus"
 
 private def tmp_data_dir : String
@@ -10,9 +10,9 @@ private def tmp_data_dir : String
 end
 
 describe "ISR Prometheus metrics" do
-  it "emits lavinmq_raft_isr_size and lavinmq_raft_in_isr when runner is set" do
+  it "emits lavinmq_raft_isr_size and lavinmq_raft_in_isr when elector is set" do
     dir = tmp_data_dir
-    runner = nil.as(LavinMQ::Raft::Runner?)
+    elector = nil.as(LavinMQ::Raft::Elector?)
     begin
       File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
       config = LavinMQ::Config.new
@@ -21,8 +21,8 @@ describe "ISR Prometheus metrics" do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
-      r = runner.not_nil!
+      elector = LavinMQ::Raft::Elector.new(config)
+      r = elector.not_nil!
       r.server.start
       r.server.bootstrap
       select
@@ -55,14 +55,14 @@ describe "ISR Prometheus metrics" do
       output.should contain("lavinmq_raft_isr_size 1")
       output.should contain("lavinmq_raft_in_isr 1")
     ensure
-      runner.try &.stop rescue nil
+      elector.try &.stop rescue nil
       FileUtils.rm_rf(dir)
     end
   end
 
-  it "emits lavinmq_raft_isr_size and lavinmq_raft_in_isr via metrics server when runner is injected" do
+  it "emits lavinmq_raft_isr_size and lavinmq_raft_in_isr via metrics server when elector is injected" do
     dir = tmp_data_dir
-    runner = nil.as(LavinMQ::Raft::Runner?)
+    elector = nil.as(LavinMQ::Raft::Elector?)
     begin
       File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
       config = LavinMQ::Config.new
@@ -71,8 +71,8 @@ describe "ISR Prometheus metrics" do
       config.clustering_raft_port = 0
       config.clustering_port = 0
       config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      runner = LavinMQ::Raft::Runner.new(config)
-      r = runner.not_nil!
+      elector = LavinMQ::Raft::Elector.new(config)
+      r = elector.not_nil!
       r.server.start
       r.server.bootstrap
       select
@@ -103,12 +103,12 @@ describe "ISR Prometheus metrics" do
         end
       end
     ensure
-      runner.try &.stop rescue nil
+      elector.try &.stop rescue nil
       FileUtils.rm_rf(dir)
     end
   end
 
-  it "does not emit raft metrics when no runner is set" do
+  it "does not emit raft metrics when no elector is set" do
     with_metrics_server do |http, _|
       response = http.get("/metrics")
       response.status_code.should eq 200

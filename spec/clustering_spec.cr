@@ -2,7 +2,7 @@ require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/controller"
+require "../src/lavinmq/clustering/etcd_elector"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
@@ -313,7 +313,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config1.clustering_port = 5681
     config1.amqp_port = 5671
     config1.http_port = 15671
-    controller1 = LavinMQ::Clustering::Controller.new(config1)
+    elector1 = LavinMQ::Clustering::EtcdElector.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -322,7 +322,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config2.clustering_port = 5682
     config2.amqp_port = 5672
     config2.http_port = 15672
-    controller2 = LavinMQ::Clustering::Controller.new(config2)
+    elector2 = LavinMQ::Clustering::EtcdElector.new(config2)
 
     listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
@@ -335,26 +335,26 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      controller1.run { }
+      elector1.campaign { }
     rescue SpecExit
     end
     spawn(name: "failover2") do
-      controller2.run { }
+      elector2.campaign { }
     rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
-      controller1.stop
+      elector1.stop
       listen.receive.should match /2$/
       sleep 0.1.seconds
-      controller2.stop
+      elector2.stop
     when /2$/
-      controller2.stop
+      elector2.stop
       listen.receive.should match /1$/
       sleep 0.1.seconds
-      controller1.stop
+      elector1.stop
     else fail("no leader elected")
     end
   end
@@ -457,7 +457,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config.mqtt_port = 0
     config.metrics_http_port = 0
     config.control_unix_path = File.tempname("secret-follower-ctl")
-    controller = LavinMQ::Clustering::Controller.new(config)
+    elector = LavinMQ::Clustering::EtcdElector.new(config)
 
     # Simulate an elected leader that has not (yet) written the clustering
     # secret — the window a starting follower can race into.
@@ -465,18 +465,18 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     etcd.lease_grant(id: 4711)
     etcd.election_campaign("lavinmq/leader", "tcp://fake-leader:5679", lease: 4711)
 
-    spawn(name: "controller secret spec") do
-      controller.run { }
+    spawn(name: "elector secret spec") do
+      elector.campaign { }
     rescue SpecExit
     end
 
     deadline = Time.instant + 5.seconds
     until etcd.get("lavinmq/clustering_secret")
-      fail "controller never ensured the clustering secret" if Time.instant > deadline
+      fail "elector never ensured the clustering secret" if Time.instant > deadline
       Fiber.yield
     end
   ensure
-    controller.try &.stop
+    elector.try &.stop
     FileUtils.rm_rf("/tmp/secret-follower")
   end
 

@@ -1,35 +1,35 @@
 require "spec"
-require "../src/lavinmq/standalone_runner"
+require "../src/lavinmq/clustering/standalone_elector"
 
-describe LavinMQ::StandaloneRunner do
+describe LavinMQ::Clustering::StandaloneElector do
   it "yields to block immediately" do
-    runner = LavinMQ::StandaloneRunner.new
+    elector = LavinMQ::Clustering::StandaloneElector.new
     yielded = false
 
     spawn do
-      runner.run do
+      elector.campaign do
         yielded = true
       end
     end
 
     Fiber.yield
     yielded.should be_true
-    runner.stop
+    elector.stop
   end
 
   it "stops when stop is called" do
-    runner = LavinMQ::StandaloneRunner.new
+    elector = LavinMQ::Clustering::StandaloneElector.new
     stopped = false
 
     spawn do
-      runner.run { }
+      elector.campaign { }
       stopped = true
     end
 
     Fiber.yield
     stopped.should be_false
 
-    runner.stop
+    elector.stop
     Fiber.yield
     stopped.should be_true
   end
