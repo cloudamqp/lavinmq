@@ -39,7 +39,10 @@ module LavinMQ
 
       def add_client(io, connection_info, user, packet)
         if prev_client = @clients[packet.client_id]?
-          prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
+          prev_client.close(
+            "New client #{connection_info.remote_address} " \
+            "(username=#{packet.username}) connected as #{packet.client_id}")
+          remove_client(prev_client)
         end
         client = MQTT::Client.new(io,
           connection_info,
@@ -49,12 +52,12 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will)
-        if session = sessions[client.client_id]?
-          if client.clean_session?
-            sessions.delete session
-          else
-            session.client = client
-          end
+        if client.clean_session?
+          sessions[client.client_id]?.try &.delete
+        else
+          # If an existing session exists, reuse it. If no session exists
+          # it will be created on first subscribe
+          sessions[client.client_id]?.try &.client = client
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -65,7 +68,7 @@ module LavinMQ
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
-            sessions.delete(client_id) if session.clean_session?
+            session.delete if session.clean_session?
           end
         end
         @clients.delete client_id

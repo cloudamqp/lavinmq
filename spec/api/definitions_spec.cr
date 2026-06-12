@@ -377,17 +377,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
-        res = Set(LavinMQ::Queue).new
+        res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
@@ -564,6 +564,40 @@ describe LavinMQ::HTTP::Server do
         body["queues"].as_a.empty?.should be_false
         keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
         body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
+    end
+
+    it "exports durable mqtt sessions but not transient ones" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.durable", true, false, mqtt_args)
+        s.vhosts["/"].declare_queue("mqtt.transient", false, true, mqtt_args)
+        s.vhosts["/"].session("mqtt.durable").durable?.should be_true
+        s.vhosts["/"].session("mqtt.transient").durable?.should be_false
+
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        queues = body["queues"].as_a
+        durable = queues.find { |v| v["name"] == "mqtt.durable" }
+        durable.should_not be_nil
+        durable.not_nil!["arguments"]["x-queue-type"].should eq "mqtt"
+        queues.find { |v| v["name"] == "mqtt.transient" }.should be_nil
+      end
+    end
+
+    it "re-imports an exported durable mqtt session as a session" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.roundtrip", true, false, mqtt_args)
+        body = http.get("/api/definitions").body
+        s.vhosts["/"].delete_queue("mqtt.roundtrip")
+        s.vhosts["/"].session?("mqtt.roundtrip").should be_nil
+
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].session?("mqtt.roundtrip").should_not be_nil
+        s.vhosts["/"].queue?("mqtt.roundtrip").should be_nil
       end
     end
 
@@ -783,17 +817,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
-        res = Set(LavinMQ::Queue).new
+        res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end

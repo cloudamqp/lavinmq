@@ -5,8 +5,10 @@ module LavinMQ
   module MQTT
     class SubscriptionTree(T)
       @wildcard_rest = Hash(T, UInt8).new
+      @wildcard_rest_filter : String?
       @plus : SubscriptionTree(T)?
       @leafs = Hash(T, UInt8).new
+      @leaf_filter : String?
       # Non wildcards may be an unnecessary "optimization". We store all subscriptions without
       # wildcard in the first level. No need to make a tree out of them.
       @non_wildcards = Hash(String, Hash(T, UInt8)).new do |h, k|
@@ -27,24 +29,26 @@ module LavinMQ
         subscribe(StringTokenIterator.new(filter), session, qos)
       end
 
-      protected def subscribe(filter : StringTokenIterator, session : T, qos : UInt8)
-        unless current = filter.next
+      protected def subscribe(iter : StringTokenIterator, session : T, qos : UInt8)
+        unless current = iter.next
+          @leaf_filter = iter.to_s
           @leafs[session] = qos
           return
         end
         if current == "#"
+          @wildcard_rest_filter = iter.to_s
           @wildcard_rest[session] = qos
           return
         end
         if current == "+"
           plus = (@plus ||= SubscriptionTree(T).new)
-          plus.subscribe filter, session, qos
+          plus.subscribe iter, session, qos
           return
         end
         if !(sublevels = @sublevels[current]?)
           sublevels = @sublevels[current] ||= SubscriptionTree(T).new
         end
-        sublevels.subscribe filter, session, qos
+        sublevels.subscribe iter, session, qos
         return
       end
 
@@ -101,33 +105,41 @@ module LavinMQ
         true
       end
 
-      def each_entry(topic : String, &block : (T, UInt8) -> _)
+      def each_entry(topic : String, &block : (T, UInt8, String) -> _)
         if subs = @non_wildcards[topic]?
-          subs.each &block
+          subs.each { |s, q| yield s, q, topic }
         end
         each_entry(StringTokenIterator.new(topic), &block)
       end
 
-      protected def each_entry(topic : StringTokenIterator, &block : (T, UInt8) -> _)
+      protected def each_entry(topic : StringTokenIterator, &block : (T, UInt8, String) -> _)
         unless current = topic.next
-          @leafs.each &block
+          if f = @leaf_filter
+            @leafs.each { |s, q| yield s, q, f }
+          end
           return
         end
-        @wildcard_rest.each &block
+        if f = @wildcard_rest_filter
+          @wildcard_rest.each { |s, q| yield s, q, f }
+        end
         @plus.try &.each_entry topic, &block
         if sublevel = @sublevels.fetch(current, nil)
           sublevel.each_entry topic, &block
         end
       end
 
-      def each_entry(&block : (T, UInt8) -> _)
-        @non_wildcards.each do |_, entries|
-          entries.each &block
+      def each_entry(&block : (T, UInt8, String) -> _)
+        @non_wildcards.each do |filter, entries|
+          entries.each { |s, q| yield s, q, filter }
         end
-        @leafs.each &block
-        @wildcard_rest.each &block
+        if f = @leaf_filter
+          @leafs.each { |s, q| yield s, q, f }
+        end
+        if f = @wildcard_rest_filter
+          @wildcard_rest.each { |s, q| yield s, q, f }
+        end
         @plus.try &.each_entry &block
-        @sublevels.each do |_, sublevel|
+        @sublevels.each_value do |sublevel|
           sublevel.each_entry &block
         end
       end
