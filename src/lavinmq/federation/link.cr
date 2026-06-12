@@ -461,10 +461,6 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
-          # @consumer_ex must be set before the observer is registered:
-          # bind/unbind events are dropped while it's nil, and a binding made
-          # in that window would never be propagated to the upstream exchange.
-          @consumer_ex = consumer_ex
           replay_bindings(consumer_ex)
           upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
           {ch, upstream_q}
@@ -482,6 +478,10 @@ module LavinMQ
             @replay_queue.clear
             @replaying = true
           end
+          # On reconnect the observer is still registered, so expose the
+          # upstream exchange to the event handler only after queueing is on —
+          # a direct RPC here would race the replay below on the same channel.
+          @consumer_ex = consumer_ex
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
             apply_binding_event(consumer_ex, ExchangeEvent::Bind, binding)
