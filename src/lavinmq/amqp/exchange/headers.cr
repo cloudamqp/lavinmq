@@ -7,13 +7,7 @@ module LavinMQ
       # routing doesn't have to re-parse the arguments table (which allocates
       # a String per key and a Field per value) on every published message.
       private class Binding
-        private struct Pair
-          getter key : String
-          getter value : AMQP::Field
-
-          def initialize(@key, @value)
-          end
-        end
+        private record Pair, key : String, value : AMQP::Field
 
         getter destinations = Set({Destination, BindingKey}).new
         @match_any : Bool

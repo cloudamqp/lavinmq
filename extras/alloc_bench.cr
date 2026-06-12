@@ -4,7 +4,7 @@
 # in-process (no sockets), so numbers are attributable to LavinMQ itself.
 #
 # Usage:
-#   crystal run --release bench/alloc_bench.cr
+#   crystal run --release -Dpreview_mt -Dexecution_context extras/alloc_bench.cr
 require "../src/lavinmq/config"
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
