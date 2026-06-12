@@ -34,6 +34,7 @@ module LavinMQ
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
+      validate!
       setup_logger
       if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
         Log.warn { oauth_mgmt_ui_disabled_reason }
@@ -61,6 +62,12 @@ module LavinMQ
         return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
       end
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
+    end
+
+    private def validate!
+      unless @stats_interval.positive?
+        raise OptionParser::Exception.new("stats_interval must be positive (got #{@stats_interval})")
+      end
     end
 
     private def parse_config_from_cli(argv)
@@ -299,6 +306,7 @@ module LavinMQ
     def reload
       @sni_manager.clear
       parse_ini(@config_file)
+      validate!
       setup_logger
     end
 
