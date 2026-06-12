@@ -24,3 +24,7 @@ shards:
     git: https://github.com/84codes/systemd.cr.git
     version: 3.0.1
 
+  time_control:
+    git: https://github.com/84codes/time_control.cr.git
+    version: 0.1.0+git.commit.f45b50811f1e9230ae9a3031d59d746f50bcc971
+

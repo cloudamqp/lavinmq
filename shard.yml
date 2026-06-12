@@ -38,6 +38,9 @@ dependencies:
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
+  time_control:
+    github: 84codes/time_control.cr
+    branch: fiber-name-filter
 
 crystal: 1.20.1
 
