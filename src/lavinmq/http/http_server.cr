@@ -17,13 +17,27 @@ module LavinMQ
     class Server
       Log = LavinMQ::Log.for "http.server"
 
+      # Resolved once and reused for this server's lifetime so a later config
+      # reload (SIGHUP) can't make us delete or authenticate against a path
+      # different from the one we actually bound.
+      @internal_unix_socket_path : String = Config.instance.control_unix_path
+
       def initialize(@amqp_server : LavinMQ::Server)
+        oauth_authenticator =
+          case auth = @amqp_server.authenticator
+          when Auth::Chain
+            auth.backends.select(Auth::OAuthAuthenticator).first?
+          when Auth::OAuthAuthenticator
+            auth
+          end
         handlers = [
+          (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
-          StaticController.new,
-          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
           WebsocketProxy.new(@amqp_server),
           ViewsController.new,
+          StaticController.new,
+          oauth_authenticator && OAuthController.new(oauth_authenticator),
+          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
           PrometheusController.new(@amqp_server, require_authentication: true),
@@ -44,8 +58,7 @@ module LavinMQ
           ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
-        ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
+        ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @http = ::HTTP::Server.new(handlers)
       end
 
@@ -70,9 +83,9 @@ module LavinMQ
       end
 
       def bind_internal_unix
-        File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = @http.bind_unix(INTERNAL_UNIX_SOCKET)
-        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+        File.delete?(@internal_unix_socket_path)
+        addr = @http.bind_unix(@internal_unix_socket_path)
+        File.chmod(@internal_unix_socket_path, 0o660)
         Log.info { "Bound to #{addr}" }
         addr
       end
@@ -83,21 +96,22 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(INTERNAL_UNIX_SOCKET)
+        File.delete?(@internal_unix_socket_path)
       end
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
       # The server returns 503 to signal that the node is a follower and can not handle the request.
       def self.follower_internal_socket_http_server
+        path = Config.instance.control_unix_path
         http_server = ::HTTP::Server.new do |context|
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."
         end
 
-        File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
-        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+        File.delete?(path)
+        addr = http_server.bind_unix(path)
+        File.chmod(path, 0o660)
         Log.info { "Bound to #{addr}" }
 
         spawn(name: "HTTP listener") do

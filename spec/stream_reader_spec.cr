@@ -15,7 +15,7 @@ describe LavinMQ::AMQP::StreamReader do
           x.publish_confirm("test message #{i}", q.name)
         end
 
-        iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Stream)
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
         stream = iq.reader 5
 
         count = 0
@@ -40,7 +40,7 @@ describe LavinMQ::AMQP::StreamReader do
           x.publish_confirm("test message #{i}", q.name)
         end
 
-        iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Stream)
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
         stream = iq.reader "first"
 
         count = 0
@@ -62,11 +62,13 @@ describe LavinMQ::AMQP::StreamReader do
           "x-queue-type" => "stream",
         }))
         q.bind(x.name, q.name)
+        ch.confirm_select
         400.times do |i|
-          x.publish_confirm("test message #{i}" * 100, q.name)
+          x.publish("test message #{i}" * 100, q.name)
         end
+        ch.wait_for_confirms
 
-        iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Stream)
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
         stream = iq.reader 0
 
         count = 0

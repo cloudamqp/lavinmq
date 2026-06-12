@@ -44,6 +44,20 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose the number of bindings" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthb")
+        vhost.declare_queue("bq", true, false)
+        vhost.bind_queue("bq", "amq.topic", "rk1")
+        vhost.bind_queue("bq", "amq.topic", "rk2")
+        raw = http.get("/metrics").body
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+        bindings = parsed_metrics.find { |m| m[:key] == "lavinmq_bindings" }
+        bindings.should_not be_nil
+        bindings.try(&.[:value].should eq 2)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -100,6 +114,27 @@ describe LavinMQ::HTTP::PrometheusController do
         response = http.get("/metrics?prefix=#{prefix}")
         response.status_code.should eq 400
         response.body.should match /Prefix too long/
+      end
+    end
+
+    it "should include mfile count metric" do
+      with_metrics_server do |http, _|
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
+        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
+        mfile_metric.should_not be_nil
+        mfile_metric.not_nil![:value].should be >= 0
+      end
+    end
+
+    it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
+      uptime1 = uninitialized Time::Span
+      with_metrics_server do |_, server|
+        uptime1 = server.uptime
+      end
+      with_metrics_server do |_, server|
+        server.uptime.should be > uptime1
       end
     end
   end
@@ -172,6 +207,66 @@ describe LavinMQ::HTTP::PrometheusController do
           parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
           parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_opened_total" }[:value].should eq 2
           parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_closed_total" }[:value].should eq 1
+        end
+      end
+    end
+
+    it "should expose per-vhost message stats" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vms_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("q2", true, false)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("q1", durable: true)
+          q.publish_confirm "msg-a"
+          q.publish_confirm "msg-b"
+          q.publish_confirm "msg-c"
+          q.get(no_ack: true).should_not be_nil
+        end
+
+        raw = http.get("/metrics/detailed?family=vhost_message_stats").body
+        parsed = PrometheusSpecHelper.parse_prometheus(raw)
+
+        publishes = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_messages_published_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        publishes[:value].should eq 3
+
+        deliveries = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_messages_delivered_total" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        deliveries[:value].should eq 1
+
+        queues = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_queues" &&
+            m[:attrs]["vhost"] == "vms_test"
+        end
+        queues[:value].should eq 2
+      end
+    end
+
+    it "should label channel metrics with vhost and connection" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("ch_label_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("ch_q", durable: false, auto_delete: true)
+          q.subscribe(no_ack: false) { |_| }
+          wait_for { !ch.@consumers.empty? }
+
+          raw = http.get("/metrics/detailed?family=channel_metrics").body
+          lines = raw.lines.select(&.starts_with?("lavinmq_detailed_channel_consumers{"))
+
+          lines.size.should be > 0
+          relevant = lines.find(&.includes?(%(vhost="ch_label_test")))
+          relevant.should_not be_nil
+          line = relevant.not_nil!
+          # connection label is the server-generated "remote -> local" name; just verify it's present and non-empty
+          line.should match(/connection="[^"]+"/)
+          line.should match(/channel="[^"]+"/)
         end
       end
     end
@@ -254,6 +349,27 @@ describe LavinMQ::HTTP::PrometheusController do
           end
         end
       end
+    end
+  end
+end
+
+describe LavinMQ::HTTP::FollowerPrometheusController do
+  it "returns gc metrics on /metrics" do
+    with_follower_metrics_server do |http|
+      response = http.get("/metrics")
+      response.status_code.should eq 200
+      response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+    end
+  end
+
+  it "returns 200 on /metrics/detailed with only scrape telemetry" do
+    with_follower_metrics_server do |http|
+      response = http.get("/metrics/detailed?family=queue_coarse_metrics")
+      response.status_code.should eq 200
+      response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_false
+      response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
     end
   end
 end

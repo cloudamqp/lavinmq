@@ -36,7 +36,11 @@ module LavinMQ::AMQP
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value - 1
+      # to_i64 first: when the trailing segment was opened but has no messages
+      # yet (4-byte schema header only) @segment_msg_count is 0_u32 and the
+      # subtraction would underflow UInt32. -1 here means "one before this
+      # segment's first offset", which is the last assigned offset.
+      offset += @segment_msg_count.last_value.to_i64 - 1
       offset
     end
 
@@ -173,7 +177,7 @@ module LavinMQ::AMQP
       @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
       @consumer_offsets.write_bytes new_offset
       len = 1 + consumer_tag.bytesize + 8
-      @replicator.try &.append(@consumer_offsets.path, @consumer_offsets.to_slice(start_pos, len))
+      @replicator.try &.append(@consumer_offsets.path, start_pos, len)
     end
 
     def consumer_offset_file_full?(consumer_tag)
@@ -201,16 +205,12 @@ module LavinMQ::AMQP
     end
 
     def replace_offsets_file(capacity : Int, &)
-      deletion_replicated = WaitGroup.new
-      @replicator.try &.delete_file(@consumer_offsets.path, deletion_replicated) # FIXME: this is not entirely safe, but replace_file is worse
+      @replicator.try &.delete_file(@consumer_offsets.path) # FIXME: this is not entirely safe, but replace_file is worse
       old_consumer_offsets = @consumer_offsets
       @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
       yield # fill the new file with correct data in this block
       @consumer_offsets.rename(old_consumer_offsets.path)
-      spawn(name: "wait for consumeroffset deletion to be replicated") do
-        deletion_replicated.wait
-        old_consumer_offsets.close(truncate_to_size: false)
-      end
+      old_consumer_offsets.close(truncate_to_size: false)
     end
 
     def read(segment : UInt32, position : UInt32) : Envelope?
@@ -306,6 +306,7 @@ module LavinMQ::AMQP
     end
 
     def drop_overflow
+      return if @closed
       if max_length = @max_length
         drop_segments_while do
           @size >= max_length
@@ -367,8 +368,13 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
-        @segment_first_offset[seg] = @last_offset + 1
+      if empty? || @segment_msg_count[seg].zero?
+        # Whole queue empty, or this trailing segment was opened (4-byte
+        # Schema::VERSION header written by open_new_segment) but no message
+        # was written before shutdown — don't parse a msg out of an empty file.
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
+        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else

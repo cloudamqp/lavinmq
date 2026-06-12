@@ -57,7 +57,7 @@ module LavinMQ
         count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos|
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
+          if queue.publish(msg).ok?
             count += 1
             msg.body_io.rewind
           end
@@ -67,12 +67,16 @@ module LavinMQ
         count
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |binding_key, ds|
-          ds.each.map do |d|
+      def bindings_details : Array(BindingDetails)
+        @bindings.flat_map do |binding_key, ds|
+          ds.map do |d|
             BindingDetails.new(name, vhost.name, binding_key.inner, d)
           end
         end
+      end
+
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
       end
 
       # Only here to make superclass happy

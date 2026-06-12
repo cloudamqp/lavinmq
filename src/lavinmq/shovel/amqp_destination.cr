@@ -1,3 +1,4 @@
+require "amqp-client"
 require "./destination"
 
 module LavinMQ

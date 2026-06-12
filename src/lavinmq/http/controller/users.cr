@@ -36,16 +36,16 @@ module LavinMQ
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.each_value.reject(&.hidden?)
+          page(context, @amqp_server.users.values.reject(&.hidden?)
             .map { |u| UserView.new(u) })
         end
 
         get "/api/users/without-permissions" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          itr = @amqp_server.users.each_value.reject(&.hidden?)
+          arr = @amqp_server.users.values.reject(&.hidden?)
             .select(&.permissions.empty?)
             .map { |u| UserView.new(u) }
-          page(context, itr)
+          page(context, arr)
         end
 
         post "/api/users/bulk-delete" do |context, _params|
@@ -76,6 +76,9 @@ module LavinMQ
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
           body = parse_body(context)
+          if raw_ph = body["password_hash"]?
+            bad_request(context, "Field 'password_hash' must be a string or null") unless raw_ph.raw.nil? || raw_ph.raw.is_a?(String)
+          end
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq

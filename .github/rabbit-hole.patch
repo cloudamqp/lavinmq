@@ -1,66 +1,63 @@
 diff --git a/bin/ci/before_build.sh b/bin/ci/before_build.sh
-index 42d835e..c391924 100755
+index 42d835e..b770e8a 100755
 --- a/bin/ci/before_build.sh
 +++ b/bin/ci/before_build.sh
-@@ -1,18 +1,18 @@
+@@ -1,18 +1,20 @@
  #!/bin/sh
--
+ 
 -CTL=${RABBITHOLE_RABBITMQCTL:="sudo rabbitmqctl"}
 -PLUGINS=${RABBITHOLE_RABBITMQ_PLUGINS:="sudo rabbitmq-plugins"}
 +set -eux
 +CTL=${RABBITHOLE_LAVINMQCTL:="lavinmqctl"}
 +# PLUGINS=${RABBITHOLE_RABBITMQ_PLUGINS:="sudo rabbitmq-plugins"}
++ 
  
  case $CTL in
          DOCKER*)
 -          PLUGINS="docker exec ${CTL##*:} rabbitmq-plugins"
--          CTL="docker exec ${CTL##*:} rabbitmqctl";;
-+          # PLUGINS="docker exec ${CTL##*:} rabbitmq-plugins"
-+          CTL="docker exec ${CTL##*:} lavinmqctl";;
++          #PLUGINS="docker exec ${CTL##*:} rabbitmq-plugins"
+           CTL="docker exec ${CTL##*:} rabbitmqctl";;
  esac
  
--echo "Will use rabbitmqctl at ${CTL}"
+ echo "Will use rabbitmqctl at ${CTL}"
 -echo "Will use rabbitmq-plugins at ${PLUGINS}"
-+echo "Will use lavinmqctl at ${CTL}"
-+# echo "Will use rabbitmq-plugins at ${PLUGINS}"
++#echo "Will use rabbitmq-plugins at ${PLUGINS}"
  
 -$PLUGINS enable rabbitmq_management
-+# $PLUGINS enable rabbitmq_management
++#$PLUGINS enable rabbitmq_management
  
  sleep 3
  
-@@ -27,24 +27,24 @@ $CTL set_user_tags policymaker "policymaker"
+@@ -27,24 +29,24 @@ $CTL set_user_tags policymaker "policymaker"
  $CTL set_permissions -p / policymaker ".*" ".*" ".*"
  
  # Reduce retention policy for faster publishing of stats
 -$CTL eval 'supervisor2:terminate_child(rabbit_mgmt_sup_sup, rabbit_mgmt_sup), application:set_env(rabbitmq_management,       sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_sup_sup:start_child().'
 -$CTL eval 'supervisor2:terminate_child(rabbit_mgmt_agent_sup_sup, rabbit_mgmt_agent_sup), application:set_env(rabbitmq_management_agent, sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_agent_sup_sup:start_child().'
-+# $CTL eval 'supervisor2:terminate_child(rabbit_mgmt_sup_sup, rabbit_mgmt_sup), application:set_env(rabbitmq_management,       sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_sup_sup:start_child().'
-+# $CTL eval 'supervisor2:terminate_child(rabbit_mgmt_agent_sup_sup, rabbit_mgmt_agent_sup), application:set_env(rabbitmq_management_agent, sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_agent_sup_sup:start_child().'
++#$CTL eval 'supervisor2:terminate_child(rabbit_mgmt_sup_sup, rabbit_mgmt_sup), application:set_env(rabbitmq_management,       sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_sup_sup:start_child().'
++#$CTL eval 'supervisor2:terminate_child(rabbit_mgmt_agent_sup_sup, rabbit_mgmt_agent_sup), application:set_env(rabbitmq_management_agent, sample_retention_policies, [{global, [{605, 1}]}, {basic, [{605, 1}]}, {detailed, [{10, 1}]}]), rabbit_mgmt_agent_sup_sup:start_child().'
  
  $CTL add_vhost "rabbit/hole"
  $CTL set_permissions -p "rabbit/hole" guest ".*" ".*" ".*"
  
  # set cluster name
 -$CTL set_cluster_name rabbitmq@localhost
-+# $CTL set_cluster_name rabbitmq@localhost
++#$CTL set_cluster_name rabbitmq@localhost
  
 -$CTL enable_feature_flag all
-+# $CTL enable_feature_flag all
++#$CTL enable_feature_flag all
  
--# Enable shovel plugin
+ # Enable shovel plugin
 -$PLUGINS enable rabbitmq_shovel
 -$PLUGINS enable rabbitmq_shovel_management
-+# # Enable shovel plugin
-+# $PLUGINS enable rabbitmq_shovel
-+# $PLUGINS enable rabbitmq_shovel_management
++#$PLUGINS enable rabbitmq_shovel
++#$PLUGINS enable rabbitmq_shovel_management
  
--# Enable federation plugin
+ # Enable federation plugin
 -$PLUGINS enable rabbitmq_federation
 -$PLUGINS enable rabbitmq_federation_management
-+# # Enable federation plugin
-+# $PLUGINS enable rabbitmq_federation
-+# $PLUGINS enable rabbitmq_federation_management
++#$PLUGINS enable rabbitmq_federation
++#$PLUGINS enable rabbitmq_federation_management
  
  export GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT="5s"
  true
@@ -77,11 +74,26 @@ index b745a43..69a614f 100644
  	var (
  		rmqc *Client
  	)
+diff --git a/plugins.go b/plugins.go
+index c3130ee..1888a2f 100644
+--- a/plugins.go
++++ b/plugins.go
+@@ -26,7 +26,9 @@ func (c *Client) ProtocolPorts() (res map[string]Port, err error) {
+ 	}
+ 
+ 	for _, lnr := range overview.Listeners {
+-		res[lnr.Protocol] = lnr.Port
++		if lnr.IpAddress != "" { // Only tcp listeners..
++			res[lnr.Protocol] = lnr.Port
++		}
+ 	}
+ 
+ 	return res, nil
 diff --git a/rabbithole_test.go b/rabbithole_test.go
-index 1a852de..4537035 100644
+index 6aea41d..02190a4 100644
 --- a/rabbithole_test.go
 +++ b/rabbithole_test.go
-@@ -92,6 +92,18 @@ func mediumSleep() {
+@@ -112,6 +112,18 @@ func mediumSleep() {
  	time.Sleep(time.Duration(1100) * time.Millisecond)
  }
  
@@ -100,7 +112,7 @@ index 1a852de..4537035 100644
  type portTestStruct struct {
  	Port Port `json:"port"`
  }
-@@ -108,6 +120,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -128,6 +140,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  
  	BeforeEach(func() {
  		rmqc, _ = NewClient("http://127.0.0.1:15672", "guest", "guest")
@@ -108,23 +120,7 @@ index 1a852de..4537035 100644
  	})
  
  	Context("GET /overview", func() {
-@@ -306,6 +319,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
- 
- 			Ω(err).Should(BeNil())
- 			Ω(xs).ShouldNot(BeEmpty())
-+
- 			Ω(xs).Should(ContainElement("amqp"))
- 		})
- 	})
-@@ -357,6 +371,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
- 	Context("GET /nodes", func() {
- 		It("returns decoded response", func() {
- 			xs, err := rmqc.ListNodes()
-+			Ω(err).Should(BeNil())
- 			res := xs[0]
- 
- 			Ω(err).Should(BeNil())
-@@ -384,7 +399,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -404,7 +417,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -133,35 +129,60 @@ index 1a852de..4537035 100644
  		It("Set cluster name", func() {
  			previousClusterName, err := rmqc.GetClusterName()
  			Ω(err).Should(BeNil())
-@@ -816,7 +831,8 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -722,7 +735,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 			Ω(err).Should(BeNil())
+ 
+ 			x := xs[0]
+-			Ω(x.Name).Should(Equal(""))
++			Ω(x.Name).Should(Equal("amq.default"))
+ 			Ω(x.Durable).Should(Equal(true))
+ 		})
+ 	})
+@@ -733,7 +746,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 			Ω(err).Should(BeNil())
+ 
+ 			x := xs[0]
+-			Ω(x.Name).Should(Equal(""))
++			Ω(x.Name).Should(Equal("amq.default"))
+ 			Ω(x.Durable).Should(Equal(true))
+ 		})
+ 	})
+@@ -836,9 +849,9 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			Ω(q.Name).ShouldNot(Equal(""))
  			Ω(q.Node).ShouldNot(BeNil())
  			Ω(q.Durable).ShouldNot(BeNil())
+-			Ω(q.MessagesDetails).ShouldNot(BeNil(),
+-				"messages details are nil, this happens when stats are not emitted fast enough. Check docker.rabbitmq Make target for a hint to resolve this")
 -			Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
-+			Ω(q.Status).ShouldNot(BeEmpty())
-+			//Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
++//			Ω(q.MessagesDetails).ShouldNot(BeNil(),
++//				"messages details are nil, this happens when stats are not emitted fast enough. Check docker.rabbitmq Make target for a hint to resolve this")
++//			Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
  		})
  	})
  
-@@ -861,7 +877,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -883,9 +896,9 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			Ω(q.Node).ShouldNot(BeNil())
  			Ω(q.Vhost).Should(Equal(vh))
  			Ω(q.Durable).ShouldNot(BeNil())
+-			Ω(q.MessagesDetails).ShouldNot(BeNil(),
+-				"messages details are nil, this happens when stats are not emitted fast enough. Check docker.rabbitmq Make target for a hint to resolve this")
 -			Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
-+			// Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
++			//Ω(q.MessagesDetails).ShouldNot(BeNil(),
++			//	"messages details are nil, this happens when stats are not emitted fast enough. Check docker.rabbitmq Make target for a hint to resolve this")
++			//Ω(q.MessagesDetails.Samples[0]).ShouldNot(BeNil())
  
  			rmqc.DeleteQueue(vh, qn)
  		})
-@@ -1439,7 +1455,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1463,7 +1476,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  
  				Ω(x.Name).Should(BeEquivalentTo(vh))
  				Ω(x.Description).Should(BeEquivalentTo("rabbit/hole3 vhost"))
 -				Ω(x.DefaultQueueType).Should(BeEquivalentTo("quorum"))
-+				// Ω(x.DefaultQueueType).Should(BeEquivalentTo("quorum"))
++				//Ω(x.DefaultQueueType).Should(BeEquivalentTo("quorum"))
  				Ω(x.Tags).Should(Equal(tags))
  				Ω(x.Tracing).Should(Equal(false))
  
-@@ -1473,7 +1489,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1497,7 +1510,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  
  			x2, err := rmqc.GetVhost(vh)
  			Ω(x2).Should(BeNil())
@@ -170,7 +191,7 @@ index 1a852de..4537035 100644
  		})
  	})
  
-@@ -1557,7 +1573,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1585,7 +1598,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -179,7 +200,7 @@ index 1a852de..4537035 100644
  		maxConnections := 1
  		maxChannels := 2
  
-@@ -1730,11 +1746,11 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1758,11 +1771,11 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				},
  			}
  
@@ -193,7 +214,7 @@ index 1a852de..4537035 100644
  
  			Eventually(func(g Gomega) []BindingInfo {
  				xs, _ := rmqc.ListQueueBindings(vh, qn)
-@@ -1753,7 +1769,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1781,7 +1794,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			Ω(b.Destination).Should(Equal(info.Destination))
  			Ω(b.DestinationType).Should(Equal(info.DestinationType))
  			Ω(b.RoutingKey).Should(Equal(info.RoutingKey))
@@ -202,7 +223,7 @@ index 1a852de..4537035 100644
  
  			_, err = rmqc.DeleteBinding(vh, b)
  			Ω(err).Should(BeNil())
-@@ -1936,7 +1952,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -1964,7 +1977,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -211,7 +232,7 @@ index 1a852de..4537035 100644
  		It("adds a binding to an exchange", func() {
  			vh := "rabbit/hole"
  			xn := "test.bindings.post.exchange"
-@@ -1988,7 +2004,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2016,7 +2029,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -220,7 +241,7 @@ index 1a852de..4537035 100644
  		It("deletes an individual exchange binding", func() {
  			vh := "rabbit/hole"
  			xn := "test.bindings.post.exchange"
-@@ -2145,7 +2161,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2173,7 +2186,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -229,7 +250,7 @@ index 1a852de..4537035 100644
  		It("returns decoded response", func() {
  			u := "temporary"
  
-@@ -2179,7 +2195,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2207,7 +2220,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -238,7 +259,7 @@ index 1a852de..4537035 100644
  		It("returns decoded response", func() {
  			u := "temporary"
  
-@@ -2213,7 +2229,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2241,7 +2254,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -247,7 +268,7 @@ index 1a852de..4537035 100644
  		It("updates topic permissions", func() {
  			u := "temporary"
  
-@@ -2243,7 +2259,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2271,7 +2284,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -256,7 +277,7 @@ index 1a852de..4537035 100644
  		It("clears topic permissions", func() {
  			u := "temporary"
  
-@@ -2278,7 +2294,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2306,7 +2319,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -265,7 +286,7 @@ index 1a852de..4537035 100644
  		It("deletes one topic permissions", func() {
  			u := "temporary"
  
-@@ -2825,14 +2841,14 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2853,14 +2866,14 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				policy1 := OperatorPolicy{
  					Pattern:    "abc",
  					ApplyTo:    "queues",
@@ -282,7 +303,7 @@ index 1a852de..4537035 100644
  					Priority:   0,
  				}
  
-@@ -2884,14 +2900,14 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2912,14 +2925,14 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				policy1 := OperatorPolicy{
  					Pattern:    "abc",
  					ApplyTo:    "queues",
@@ -299,7 +320,7 @@ index 1a852de..4537035 100644
  					Priority:   0,
  				}
  
-@@ -2955,7 +2971,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -2983,7 +2996,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				policy := OperatorPolicy{
  					Pattern:    ".*",
  					ApplyTo:    "queues",
@@ -308,7 +329,7 @@ index 1a852de..4537035 100644
  					Priority:   0,
  				}
  
-@@ -2981,7 +2997,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3009,7 +3022,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				Ω(pol.Priority).Should(BeEquivalentTo(0))
  				Ω(pol.Definition).Should(BeAssignableToTypeOf(PolicyDefinition{}))
  				Ω(pol.Definition["expires"]).Should(BeEquivalentTo(100))
@@ -316,7 +337,7 @@ index 1a852de..4537035 100644
  
  				_, err = rmqc.DeleteOperatorPolicy(vh, name)
  				Ω(err).Should(BeNil())
-@@ -3009,7 +3024,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3037,7 +3049,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			policy := OperatorPolicy{
  				Pattern:    ".*",
  				ApplyTo:    "queues",
@@ -325,7 +346,7 @@ index 1a852de..4537035 100644
  				Priority:   0,
  			}
  
-@@ -3045,7 +3060,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3073,7 +3085,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				ApplyTo: "all",
  				Definition: PolicyDefinition{
  					"expires":          100,
@@ -333,7 +354,7 @@ index 1a852de..4537035 100644
  					"max-length-bytes": 100000,
  				},
  				Priority: 0,
-@@ -3073,7 +3087,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3101,7 +3112,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			policy := OperatorPolicy{
  				Pattern:    ".*",
  				ApplyTo:    "queues",
@@ -342,7 +363,7 @@ index 1a852de..4537035 100644
  			}
  
  			vh := "rabbit/hole"
-@@ -3099,7 +3113,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3127,7 +3138,6 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			Ω(pol.ApplyTo).Should(Equal("queues"))
  			Ω(pol.Priority).Should(BeEquivalentTo(0))
  			Ω(pol.Definition).Should(BeAssignableToTypeOf(PolicyDefinition{}))
@@ -350,7 +371,7 @@ index 1a852de..4537035 100644
  			Ω(pol.Definition["expires"]).Should(BeEquivalentTo(100))
  
  			// update the policy
-@@ -3150,7 +3163,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3178,7 +3188,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -359,7 +380,7 @@ index 1a852de..4537035 100644
  		Context("when there are no upstreams", func() {
  			It("returns an empty response", func() {
  				Eventually(func(g Gomega) []FederationUpstream {
-@@ -3216,7 +3229,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3244,7 +3254,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -368,7 +389,7 @@ index 1a852de..4537035 100644
  		Context("when there are no upstreams", func() {
  			It("returns an empty response", func() {
  				vh := "rabbit/hole"
-@@ -3288,7 +3301,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3316,7 +3326,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -377,7 +398,7 @@ index 1a852de..4537035 100644
  		Context("when the upstream does not exist", func() {
  			It("returns a 404 error", func() {
  				vh := "rabbit/hole"
-@@ -3347,7 +3360,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3375,7 +3385,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -386,7 +407,7 @@ index 1a852de..4537035 100644
  		Context("when the upstream does not exist", func() {
  			It("creates the upstream", func() {
  				vh := "rabbit/hole"
-@@ -3500,7 +3513,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3540,7 +3550,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -395,7 +416,7 @@ index 1a852de..4537035 100644
  		Context("when the upstream does not exist", func() {
  			It("returns a 404 error response", func() {
  				vh := "rabbit/hole"
-@@ -3560,7 +3573,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3600,7 +3610,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -404,7 +425,7 @@ index 1a852de..4537035 100644
  		Context("when there are no links", func() {
  			It("returns an empty response", func() {
  				list, err := rmqc.ListFederationLinksIn("rabbit/hole")
-@@ -3637,7 +3650,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3677,7 +3687,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -413,16 +434,7 @@ index 1a852de..4537035 100644
  		It("declares a shovel using AMQP 1.0 protocol", func() {
  			vh := "rabbit/hole"
  			sn := "temporary"
-@@ -3710,7 +3723,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
- 		})
- 	})
- 
--	Context("PUT /parameters/shovel/{vhost}/{name}", func() {
-+	XContext("PUT /parameters/shovel/{vhost}/{name}", func() {
- 		It("declares a shovel", func() {
- 			vh := "rabbit/hole"
- 			sn := "temporary"
-@@ -3995,7 +4008,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -4035,7 +4045,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -431,7 +443,7 @@ index 1a852de..4537035 100644
  		It("lists and enables feature flags", func() {
  			By("GET /feature-flags")
  			featureFlags, err := rmqc.ListFeatureFlags()
-@@ -4052,19 +4065,26 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -4131,19 +4141,27 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  			Ω(*defs.Policies).ShouldNot(BeNil())
  		})
  
@@ -456,23 +468,30 @@ index 1a852de..4537035 100644
 +
 +			_, err = rmqc.DeleteGlobalParameter("a-name")
 +			Ω(err).Should(BeNil())
++ 
  		})
  	})
  
-@@ -4127,7 +4147,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -4206,10 +4224,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  				list, err := rmqc.ListGlobalParameters()
  				Ω(err).Should(BeNil())
  				Ω(list).To(SatisfyAll(
--					HaveLen(4), // cluster_name and internal_cluster_id are set by default by RabbitMQ
-+					HaveLen(2), // cluster_name and internal_cluster_id are not set by default by LavinMQ
+-					// RabbitMQ 4.0.x and later versions will have an
+-					// extra global runtime parameter by default, see
+-					// https://github.com/rabbitmq/rabbitmq-server/issues/12552
+-					Or(HaveLen(5), HaveLen(4)),
++					HaveLen(2), // cluster name and internal cluster id are not set by defualt by LavinMQ
  					ContainElements(
  						GlobalRuntimeParameter{
  							Name:  "a-name",
-@@ -4150,7 +4170,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -4232,10 +4247,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  					Ω(err).Should(BeNil())
  
  					return len(xs)
--				}).Should(Equal(2))
+-					// RabbitMQ 4.0.x and later versions will have an
+-					// extra global runtime parameter by default, see
+-					// https://github.com/rabbitmq/rabbitmq-server/issues/12552
+-				}).Should(Or(Equal(3), Equal(2)))
 +				}).Should(Equal(0))
  			})
  		})

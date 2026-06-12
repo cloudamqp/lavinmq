@@ -6,8 +6,8 @@ module LavinMQ
     class VHostLimitsController < Controller
       private def register_routes
         get "/api/vhost-limits" do |context, _params|
-          vhosts = vhosts(user(context)).compact_map { |v| VHostLimitsView.new(v).self_if_limited }
-          page(context, vhosts)
+          arr = vhosts(user(context)).compact_map { |v| VHostLimitsView.new(v).self_if_limited }
+          page(context, arr)
         end
 
         get "/api/vhost-limits/:vhost" do |context, params|
@@ -40,10 +40,10 @@ module LavinMQ
           context
         end
 
-        delete "/api/vhost-limits/:name/:type" do |context, params|
+        delete "/api/vhost-limits/:vhost/:type" do |context, params|
           context.response.status_code = 400
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params, vhost_key: "name") do |vhost|
+          with_vhost(context, params) do |vhost|
             case params["type"]
             when "max-connections"
               context.response.status_code = 204

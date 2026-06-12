@@ -11,7 +11,7 @@ module LavinMQ::AMQP
     def each(&)
       stream = @stream
       store = stream.stream_msg_store
-      offset, segment, position = store.find_offset(@start_offset)
+      offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
         env = store.read(segment, position)

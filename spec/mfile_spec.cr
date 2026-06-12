@@ -31,4 +31,19 @@ describe MFile do
       file.delete
     end
   end
+
+  it "tracks mmap count" do
+    file = File.tempfile "mfile_spec"
+    file.print "test"
+    file.flush
+    begin
+      count_before = MFile.mmap_count
+      mfile = MFile.new file.path
+      MFile.mmap_count.should eq(count_before + 1)
+      mfile.close
+      MFile.mmap_count.should eq(count_before)
+    ensure
+      file.delete
+    end
+  end
 end

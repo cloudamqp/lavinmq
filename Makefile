@@ -2,9 +2,10 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
-VIEW_SOURCES := $(wildcard views/*.ecr)
-VIEW_TARGETS := $(patsubst views/%.ecr,static/%.html,$(VIEW_SOURCES))
-VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
+VIEW_SOURCES := $(wildcard views/*.shtml)
+VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
+VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
+VERSION := $(patsubst v%,%,$(or $(version),$(shell git describe --tags 2>/dev/null || shards version)))
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
@@ -18,13 +19,13 @@ all: $(BINS)
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
@@ -32,6 +33,17 @@ bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 
 bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+bin/stress: extras/stress.cr lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+.PHONY: stress
+stress: bin/stress
+	$<
+
+.PHONY: benchmark
+benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
+	$<
 
 lib: shard.yml shard.lock
 	shards install --production
@@ -84,12 +96,14 @@ man: $(MANPAGES)
 js: $(JS)
 
 .PHONY: deps
-deps: js lib
+deps: js lib views
 
+lib/ameba/bin/ameba:
+	shards install
 
 .PHONY: lint
-lint: lib
-	lib/ameba/bin/ameba src/ spec/
+lint: lib/ameba/bin/ameba
+	$< src/ spec/
 
 .PHONY: lint-js
 lint-js:
@@ -97,10 +111,10 @@ lint-js:
 
 .PHONY: lint-openapi
 lint-openapi:
-	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
+	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
-test: lib
+test: lib views
 	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
@@ -158,9 +172,13 @@ views: $(VIEW_TARGETS)
 watch-views:
 	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
 
-static/%.html: views/%.ecr $(VIEW_PARTIALS)
-	INPUT=$< crystal run views/_render.cr > $@
+static/%.html: views/%.shtml $(VIEW_PARTIALS) views/render.sh
+	views/render.sh $< "$(VERSION)" > $@
 
 .PHONY: clean-views
 clean-views:
 	$(RM) $(VIEW_TARGETS)
+
+.PHONY: optimize-assets
+optimize-assets:
+	npx svgo --multipass --pretty --indent 2 --recursive static/

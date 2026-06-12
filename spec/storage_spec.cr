@@ -1,5 +1,26 @@
 require "./spec_helper"
 
+def fill_segment_with_one_extra_byte(q, queue_name : String, mfile : MFile) : Nil
+  body = "a" * 4096
+  message_size = LavinMQ::Message.new("", queue_name, body).bytesize.to_i64
+  message_overhead = message_size - body.bytesize
+  segment_size = LavinMQ::Config.instance.segment_size.to_i64
+
+  while mfile.size < (segment_size - message_size * 2)
+    q.publish_confirm body
+  end
+  remaining_body_size = segment_size - mfile.size - message_overhead - 1
+  remaining_body_size.should be > 0
+  q.publish_confirm "a" * remaining_body_size.to_i
+
+  # Publish one more message to create a new segment, then pad the first
+  # segment by one byte to emulate a preallocated file after a crash.
+  q.publish_confirm body
+  File.open(mfile.path, "r+") do |f|
+    f.truncate(segment_size)
+  end
+end
+
 describe LavinMQ::AMQP::DurableQueue do
   context "after migration between index version 2 to 3" do
     before_each do
@@ -14,7 +35,7 @@ describe LavinMQ::AMQP::DurableQueue do
       config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
       server = LavinMQ::Server.new(config)
       begin
-        q = server.vhosts["/"].queues["queue"].as(LavinMQ::AMQP::DurableQueue)
+        q = server.vhosts["/"].queue("queue").as(LavinMQ::AMQP::DurableQueue)
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "message"
         end.should be_true
@@ -31,7 +52,7 @@ describe LavinMQ::AMQP::DurableQueue do
           vhost = s.vhosts.create("corrupt_vhost")
           with_channel(s, vhost: vhost.name) do |ch|
             q = ch.queue("corrupt_q")
-            queue = vhost.queues["corrupt_q"].as(LavinMQ::AMQP::DurableQueue)
+            queue = vhost.queue("corrupt_q").as(LavinMQ::AMQP::DurableQueue)
             q.publish_confirm "test message"
 
             sleep 10.milliseconds
@@ -48,7 +69,7 @@ describe LavinMQ::AMQP::DurableQueue do
             should_eventually(be_true) { queue.state.closed? }
           end
 
-          vhost.queues["corrupt_q"].try &.delete
+          vhost.queue?("corrupt_q").try &.delete
         end
       end
     end
@@ -59,7 +80,7 @@ describe LavinMQ::AMQP::DurableQueue do
         enq_path = ""
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
-          queue = vhost.queues["corrupt_q2"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("corrupt_q2").as(LavinMQ::AMQP::DurableQueue)
           enq_path = queue.@msg_store.@segments.last_value.path
           2.times do |i|
             q.publish_confirm "test message #{i}"
@@ -84,7 +105,7 @@ describe LavinMQ::AMQP::DurableQueue do
       with_channel(s) do |ch|
         q = ch.queue("corruption_test", durable: true)
         q.publish_confirm "Hello world"
-        queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::AMQP::DurableQueue)
+        queue = s.vhosts["/"].queue("corruption_test").as(LavinMQ::AMQP::DurableQueue)
         enq_path = queue.@msg_store.@segments.last_value.path
       end
       s.stop
@@ -97,7 +118,7 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "Hello world"
       end
       s.restart
-      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::AMQP::DurableQueue)
+      queue = s.vhosts["/"].queue("corruption_test").as(LavinMQ::AMQP::DurableQueue)
       queue.message_count.should eq 2
     end
   end
@@ -108,24 +129,10 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
-        queue = vhost.queues[queue_name].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
-        # fill up one segment
-        message_size = 41
-        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
-          q.publish_confirm "a"
-        end
-        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
-        q.publish_confirm "a" * remaining_size
-
-        # publish one more message to create a new segment
-        q.publish_confirm "a"
-
-        # resize first segment to LavinMQ::Config.instance.segment_size
-        File.open(mfile.path, "r+") do |f|
-          f.truncate(LavinMQ::Config.instance.segment_size)
-        end
+        fill_segment_with_one_extra_byte(q, queue_name, mfile)
 
         # read messages, should not raise any error
         q.subscribe(tag: "tag", no_ack: false, &.ack)
@@ -140,24 +147,10 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
-        queue = vhost.queues[queue_name].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(queue_name).as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
-        # fill up one segment
-        message_size = 41
-        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
-          q.publish_confirm "a"
-        end
-        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
-        q.publish_confirm "a" * remaining_size
-
-        # publish one more message to create a new segment
-        q.publish_confirm "a"
-
-        # resize first segment to LavinMQ::Config.instance.segment_size
-        File.open(mfile.path, "r+") do |f|
-          f.truncate(LavinMQ::Config.instance.segment_size)
-        end
+        fill_segment_with_one_extra_byte(q, queue_name, mfile)
 
         store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
         mfile = store.@segments.first_value
@@ -179,7 +172,7 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(rk, durable: true)
-        queue = vhost.queues[rk].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(rk).as(LavinMQ::AMQP::DurableQueue)
         q.publish_confirm "a"
         store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
 
@@ -201,8 +194,8 @@ describe LavinMQ::VHost do
   pending "GC segments" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
-      vhost.queues.each_value &.delete
-      vhost.queues.clear
+      vhost.each_queue &.delete
+      vhost.queues_clear
 
       msg_size = 5120
       overhead = 21

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Login | LavinMQ</title>
+    <link href="main.css" rel="stylesheet">
+    <meta name="google" content="notranslate">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" sizes="32x32" href="favicon.ico">
+    <link rel="icon" sizes="180x180" href="img/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="img/favicon.png">
+    <script type="module" src="js/login.js"></script>
+    <script>
+      try {
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.classList.add('theme-dark')
+        } else {
+          document.documentElement.classList.add('theme-light')
+        }
+      } catch(e) { console.warn(e) }
+    </script>
+  </head>
+  <body class="login">
+    <main>
+      <section class="col-2 login-card login-col">
+        <img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" class="login-logo dark">
+        <img alt="LavinMQ logo" id="logo-light" src="img/logo-lavinmq-all-dark.svg" class="login-logo light">
+        <div id="login-error" role="alert"></div>
+        <form id="login" class="form login-form">
+          <label>
+            <span class="field-label login-label">Username</span>
+            <input class="login-input" type="text" id="username" placeholder="Username">
+          </label>
+          <label>
+            <span class="field-label login-label">Password</span>
+            <input class="login-input" type="password" id="password" placeholder="Password">
+          </label>
+          <button type="submit" class="btn btn-green login-btn">Log in</button>
+          <div id="sso-separator" class="login-divider hide">
+            <span>or</span>
+          </div>
+          <a href="#" id="sso-btn" class="btn btn-secondary login-btn hide">Sign in with SSO</a>
+        </form>
+      </section>
+      <section class="login-col login-bg">
+      </section>
+    </main>
+  </body>
+</html>

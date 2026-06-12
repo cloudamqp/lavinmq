@@ -1,5 +1,6 @@
 require "./mfile"
 require "./segment_position"
+require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
@@ -28,21 +29,24 @@ module LavinMQ
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @durable = durable
+      # Non-durable queues unlink their files at creation, so they cannot be
+      # replicated by reading from disk. Skip replication entirely for them.
+      @replicator = durable ? replicator : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
-      unless @closed
-        load_stats_from_segments
-        delete_unused_segments
-      end
-
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
+      unless @closed
+        load_stats_from_segments
+        prune_orphaned_acks
+        delete_unused_segments
+      end
       @empty.set empty? unless @closed
     end
 
@@ -100,6 +104,7 @@ module LavinMQ
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
       rescue ex
+        @log.error(exception: ex) { "first? failed: #{state_snapshot}" }
         raise Error.new(@rfile, cause: ex)
       end
     end
@@ -107,15 +112,22 @@ module LavinMQ
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
-        segment = @segments[sp.segment]
         begin
+          segment = @segments[sp.segment]
           msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
           return Envelope.new(sp, msg, redelivered: true)
         rescue ex
-          raise Error.new(segment, cause: ex)
+          # sp has already been removed from @requeued; drop its accounting too
+          # so @size/@bytesize don't leak when the segment is gone or the
+          # payload can't be parsed. Without this, future shift? calls can hit
+          # EOF with @size > 0 because the requeued entry can never be re-read.
+          @bytesize -= sp.bytesize
+          @size -= 1
+          @empty.set true if @size.zero?
+          raise Error.new(@segments[sp.segment]? || @rfile, cause: ex)
         end
       end
 
@@ -146,6 +158,7 @@ module LavinMQ
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
       rescue ex
+        @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
         raise Error.new(@rfile, cause: ex)
       end
     end
@@ -172,7 +185,7 @@ module LavinMQ
         ack_count = afile.size // sizeof(UInt32)
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
-          @log.debug { "Deleting segment #{sp.segment}" }
+          @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
           if a = @acks.delete(sp.segment)
             delete_file(a)
@@ -202,13 +215,22 @@ module LavinMQ
     end
 
     def purge_all
+      # Drain @requeued and decrement @size/@bytesize for each entry
+      while sp = @requeued.shift?
+        @size -= 1
+        @bytesize -= sp.bytesize
+      end
+
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
         delete_file(file, including_meta: true)
+        # Only decrement @size for unread segments. Read segments don't
+        # contribute to @size: their msgs are either acked, in-flight, or
+        # were drained from @requeued above.
         if msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count
+          @size -= msg_count if seg_id > @rfile_id
         end
         if afile = @acks.delete(seg_id)
           delete_file(afile)
@@ -217,13 +239,20 @@ module LavinMQ
         true
       end
 
-      # Purge @rfile and @wfile
-      while env = shift?
-        delete(env.segment_position)
+      # Purge @rfile and @wfile. Swallow any inconsistency between @size and the
+      # on-disk segments — purge_all's postcondition is an empty store, so we
+      # force the counters to zero below regardless of how the loop exits.
+      begin
+        while env = shift?
+          delete(env.segment_position)
+        end
+      rescue ex : IO::EOFError | Error
+        @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
       end
 
-      @requeued.clear
       @bytesize = 0_u64
+      @size = 0_u32
+      @empty.set true
     end
 
     def delete
@@ -237,21 +266,11 @@ module LavinMQ
     private def delete_file(file : MFile, including_meta = false)
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        wg = WaitGroup.new
-        replicator.delete_file(meta_file_name(file), wg) if including_meta
-        replicator.delete_file(file.path, wg)
-        spawn(name: "wait for file deletion is replicated") do
-          replicator.wait_for_sync do
-            wg.wait
-          ensure
-            File.delete?(meta_file_name(file)) if including_meta
-            file.close
-          end
-        end
-      else
-        File.delete?(meta_file_name(file)) if including_meta
-        file.close
+        replicator.delete_file(meta_file_name(file)) if including_meta
+        replicator.delete_file(file.path)
       end
+      File.delete?(meta_file_name(file)) if including_meta
+      file.close
     end
 
     def empty?
@@ -262,27 +281,14 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
-      # To make sure that all replication actions for the segments
-      # have finished wait for a delete action of a nonexistent file
       if replicator = @replicator
-        wg = WaitGroup.new
-        replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
-        spawn(name: "wait for file deletion is replicated") do
-          wg.wait
-          # Wait for any full sync to be done before we close mfiles, else we
-          # may get a SEGFAULT or an aborted sync because MFile closed is raised.
-          replicator.wait_for_sync do
-            # "Re-register" the files with path only so replicator won't
-            # use closed mfiles.
-            @segments.each_value do |segment|
-              replicator.register_file segment.path
-              segment.close
-            end
-            @acks.each_value do |ackfile|
-              replicator.register_file ackfile.path
-              ackfile.close
-            end
-          end
+        @segments.each_value do |segment|
+          replicator.register_file segment.path
+          segment.close
+        end
+        @acks.each_value do |ackfile|
+          replicator.register_file ackfile.path
+          ackfile.close
         end
       else
         @segments.each_value &.close
@@ -295,14 +301,31 @@ module LavinMQ
       (@bytesize / @size).to_u32
     end
 
+    private def state_snapshot : String
+      String.build do |io|
+        io << "store_closed=" << @closed
+        io << " rfile_id=" << @rfile_id
+        io << " rfile=" << @rfile.path << "(closed=" << @rfile.closed? << " pos=" << @rfile.pos << " size=" << @rfile.size << ")"
+        io << " wfile_id=" << @wfile_id
+        io << " segments=" << @segments.keys
+        io << " size=" << @size
+      end
+    end
+
     private def select_next_read_segment : MFile?
       @rfile.dontneed unless @rfile.closed?
+      prev_id = @rfile_id
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
         rfile.advise(MFile::Advice::Sequential)
         @rfile_id = id
         @rfile = rfile
+        @log.debug { "select_next_read_segment: #{prev_id} -> #{id}, segments=#{@segments.keys}" }
+        rfile
+      else
+        @log.debug { "select_next_read_segment: no segment > #{prev_id}, segments=#{@segments.keys}, rfile_closed=#{@rfile.closed?}" }
+        nil
       end
     end
 
@@ -314,7 +337,7 @@ module LavinMQ
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
-      @replicator.try &.append(wfile.path, wfile.to_slice(sp.position, wfile.size - sp.position))
+      @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -367,7 +390,13 @@ module LavinMQ
     private def load_acks_from_disk : Nil
       count = 0u32
       Dir.each_child(@msg_dir) do |f|
-        next unless f.starts_with? "acks."
+        if f.starts_with?("tmp.acks.")
+          stale = File.join(@msg_dir, f)
+          @log.debug { "Deleting stale ack rewrite tempfile: #{stale}" }
+          File.delete?(stale)
+          next
+        end
+        next unless f.starts_with?("acks.")
         seg = f[5, 10].to_u32
         path = File.join(@msg_dir, f)
 
@@ -376,7 +405,7 @@ module LavinMQ
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
           File.delete(path)
-          @replicator.try &.delete_file(path, WaitGroup.new)
+          @replicator.try &.delete_file(path)
           next
         end
 
@@ -479,6 +508,7 @@ module LavinMQ
       else
         @log.debug { "Loading #{@segments.size} segments" }
       end
+      log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
         begin
           read_metadata_file(seg, mfile)
@@ -488,10 +518,11 @@ module LavinMQ
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
 
+        counter &+= 1
         if is_long_queue
-          @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          log_limiter.do { @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } }
         else
-          @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if counter % 128 == 0
         end
       end
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
@@ -535,6 +566,65 @@ module LavinMQ
       # Used in subclasses of MessageStore to read additional metadata fields
     end
 
+    # Removes ack positions referencing data past the reconstructed segment size.
+    # Such orphaned acks can survive an unclean shutdown when kernel page-cache
+    # flushes the acks file but not the corresponding msgs file, and would
+    # otherwise cause shift? to skip over brand-new messages as if acked.
+    private def prune_orphaned_acks : Nil
+      # Snapshot keys — prune_orphaned_acks_for_segment mutates @deleted.
+      @deleted.keys.each do |seg|
+        next unless positions = @deleted[seg]?
+        next unless mfile = @segments[seg]?
+        prune_orphaned_acks_for_segment(seg, mfile, positions)
+      end
+    end
+
+    private def prune_orphaned_acks_for_segment(seg : UInt32, mfile : MFile, positions : Array(UInt32)) : Nil
+      data_end = mfile.size.to_u32
+      valid = positions.select { |p| p < data_end }
+      orphan_count = positions.size - valid.size
+      return if orphan_count.zero?
+
+      @log.warn {
+        "Msgs/acks files for segment #{seg} are out of sync (possibly because of " \
+        "an unclean shutdown). Removing #{orphan_count} orphaned ack position(s)."
+      }
+
+      if valid.empty?
+        @deleted.delete(seg)
+      else
+        @deleted[seg] = valid
+      end
+
+      rewrite_ack_file(seg, valid)
+    end
+
+    private def rewrite_ack_file(seg : UInt32, positions : Array(UInt32)) : Nil
+      return unless @durable
+
+      basename = "acks.#{seg.to_s.rjust(10, '0')}"
+      final_path = File.join(@msg_dir, basename)
+      tmp_path = File.join(@msg_dir, "tmp.#{basename}")
+
+      File.open(tmp_path, "w") do |f|
+        positions.each { |p| f.write_bytes(p, IO::ByteFormat::SystemEndian) }
+        f.fsync
+      end
+
+      # Unmap the old file before renaming so mmap stops pinning the old inode.
+      if old = @acks.delete(seg)
+        old.close(truncate_to_size: false)
+      end
+
+      File.rename(tmp_path, final_path)
+
+      # Ship the rewritten (short) file to followers before reopening, so
+      # ReplaceAction captures the post-rename file size rather than the
+      # capacity-sized file produced by open_ack_file's ftruncate.
+      @replicator.try &.replace_file(final_path)
+      @acks[seg] = open_ack_file(seg)
+    end
+
     private def produce_metadata(seg, mfile)
       count = 0u32
       mfile.pos = 4
@@ -567,7 +657,8 @@ module LavinMQ
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
-          @log.debug { "Deleting unused segment #{seg}" }
+          @log.debug { "Deleting unused segment #{seg}: #{state_snapshot}" }
+          select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
           if ack = @acks.delete(seg)

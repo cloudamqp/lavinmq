@@ -1,4 +1,5 @@
 require "../controller.cr"
+require "../stats_helper"
 
 module LavinMQ
   module HTTP
@@ -7,15 +8,15 @@ module LavinMQ
 
       private def register_routes
         get "/api/shovels" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |v|
-            v.shovels.each_value
+          arr = vhosts(user(context)).flat_map do |v|
+            v.shovels.values
           end
-          page(context, itrs)
+          page(context, arr)
         end
 
         get "/api/shovels/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            page(context, vhost.shovels.each_value)
+            page(context, vhost.shovels.values)
           end
         end
 

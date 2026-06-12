@@ -1,0 +1,90 @@
+name: Docs Check
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "src/**/*.cr"
+      - "docs/**/*.md"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to check"
+        required: true
+        type: string
+
+jobs:
+  docs-check:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      - name: Load review config
+        id: config
+        run: |
+          source .review-config
+          if [[ -z "$MODEL" || -z "$DOCS_CRITERIA" ]]; then
+            echo "::error::.review-config must define MODEL and DOCS_CRITERIA"
+            exit 1
+          fi
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "criteria<<$DELIM"
+            cat "$DOCS_CRITERIA"
+            echo "$DELIM"
+            echo "model=$MODEL"
+          } >> "$GITHUB_OUTPUT"
+      - name: Run docs check
+        uses: anthropics/claude-code-action@v1
+        id: claude
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: '*'
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+
+            Keep this check small and finish within the 15-turn budget:
+            1. Inspect the PR diff with `gh pr diff`.
+            2. Decide whether the changed user-facing behavior needs a docs update.
+            3. Return only the JSON object matching the schema.
+
+            Do not review unrelated code quality or run tests.
+
+            ${{ steps.config.outputs.criteria }}
+          claude_args: |
+            --model ${{ steps.config.outputs.model }}
+            --max-turns 15
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
+      - name: Apply verdict
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          if [[ -z "$STRUCTURED_OUTPUT" ]]; then
+            echo "::error::Docs check did not return structured output"
+            exit 1
+          fi
+          verdict=$(jq -er .verdict <<< "$STRUCTURED_OUTPUT")
+          reason=$(jq -er .reason <<< "$STRUCTURED_OUTPUT")
+          case "$verdict" in
+            pass)
+              echo "Docs check passed: $reason"
+              ;;
+            fail)
+              echo "::error::$reason"
+              exit 1
+              ;;
+            *)
+              echo "::error::Could not produce a verdict (got: '$verdict')"
+              exit 1
+              ;;
+          esac

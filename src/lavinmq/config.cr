@@ -14,25 +14,53 @@ module LavinMQ
     include Options
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    @io : IO = STDERR
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize
+    private def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
-        File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
+        File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
       parse_config_from_cli(argv)
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
       setup_logger
+      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
+        Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    def oauth_mgmt_ui_enabled? : Bool
+      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
+      oauth_mgmt_base_url_allowed?(base_url)
+    end
+
+    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
+      return true if uri.scheme == "https"
+      return false unless uri.scheme == "http"
+      host = uri.host.try(&.downcase)
+      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+    end
+
+    private def oauth_mgmt_ui_disabled_reason : String
+      missing = [] of String
+      missing << "oauth.client_id" unless @oauth_client_id
+      missing << "oauth.issuer" unless @oauth_issuer_url
+      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
+      unless missing.empty?
+        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+      end
+      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
     private def parse_config_from_cli(argv)
@@ -49,10 +77,12 @@ module LavinMQ
 
     private def parse_env
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
-        {% env_name, transform = ivar.annotation(EnvOpt).args %}
-        if v = ENV.fetch({{env_name}}, nil)
-          @{{ivar}} = parse_value(v, {{transform || ivar.type}})
-        end
+        {% for ann in ivar.annotations(EnvOpt) %}
+          {% env_name, transform = ann.args %}
+          if v = ENV.fetch({{env_name}}, nil)
+            @{{ivar}} = parse_value(v, {{transform || ivar.type}})
+          end
+        {% end %}
       {% end %}
     end
 
@@ -82,7 +112,10 @@ module LavinMQ
           %}
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
-          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
+          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}) do |value|
+            {% if cli_opt[:deprecated] %}
+              @io.puts "WARNING: {{cli_opt[:deprecated].id}}"
+            {% end %}
             self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
           end
         {% end %}
@@ -112,6 +145,9 @@ module LavinMQ
         when {{section}}
           parse_section({{section}}, settings)
         {% end %}
+        when "http"
+          @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
+          parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
           abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
@@ -127,7 +163,7 @@ module LavinMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def parse_sni(hostname : String, settings)
-      host = @sni_manager.get_host(hostname) || SNIHost.new(hostname)
+      host = @sni_manager.get_exact_host(hostname) || SNIHost.new(hostname)
       settings.each do |config, v|
         case config
         # Default TLS settings
@@ -163,11 +199,11 @@ module LavinMQ
         when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         else
-          STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
+          @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
       end
       if host.tls_cert.empty?
-        STDERR.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
+        @io.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
       else
         @sni_manager.add_host(host)
       end
@@ -200,15 +236,15 @@ module LavinMQ
         {% for var in ivars_in_section %}
          when "{{var[:ini_name]}}"
          {% if (deprecated = var[:deprecated]) %}
-           STDERR.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
+           @io.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
          {% end %}
          self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
      else
-       STDERR.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
+       @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      STDERR.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
+      @io.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
       abort
     end
   {% end %}
@@ -257,6 +293,7 @@ module LavinMQ
     private def parse_bind(value)
       @amqp_bind = value
       @http_bind = value
+      @mqtt_bind = value
     end
 
     def reload
@@ -280,6 +317,13 @@ module LavinMQ
       broadcast_backend.append(in_memory_backend, @log_level)
 
       ::Log.setup(@log_level, broadcast_backend)
+      # Federation and shovels use the embedded amqp-client, whose connection
+      # read loop logs routine teardown (EOF / failed CloseOk) at ERROR whenever
+      # a connection drops — unavoidable on broker shutdown and under connection
+      # churn. LavinMQ already reports those events through its own
+      # federation/shovel layers (lmq.*), so keep the library's redundant
+      # connection log out of the broker log.
+      ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
@@ -331,11 +375,11 @@ module LavinMQ
     struct Option
       include Comparable(Option)
 
-      def self.new(short_flag : String, long_flag : String, description : String, deprecation_warn_msg : String?, &block : Proc(String, Nil))
-        new(short_flag, long_flag, description, deprecation_warn_msg, block)
+      def self.new(short_flag : String, long_flag : String, description : String, &block : Proc(String, Nil))
+        new(short_flag, long_flag, description, block)
       end
 
-      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @deprecation_warn_msg : String?, @set_value : Proc(String, Nil))
+      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @set_value : Proc(String, Nil))
       end
 
       def <=>(other : Option)
@@ -362,9 +406,6 @@ module LavinMQ
 
       private def do_setup_parser(parser, *args)
         parser.on(*args) do |val|
-          if msg = @deprecation_warn_msg
-            STDERR.puts "WARNING: #{msg}"
-          end
           @set_value.call(val)
         end
       end

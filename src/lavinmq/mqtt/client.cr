@@ -14,7 +14,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter channels, log, name, user, client_id, socket, connection_info
+      getter log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -24,6 +24,23 @@ module LavinMQ
 
       def vhost
         @broker.vhost
+      end
+
+      # Stub channel accessors for polymorphic dispatch with AMQP::Client
+
+      def channel_count : Int32
+        0
+      end
+
+      def each_channel(& : LavinMQ::Client::Channel ->) : Nil
+      end
+
+      def channels : Array(LavinMQ::Client::Channel)
+        [] of LavinMQ::Client::Channel
+      end
+
+      def channel?(id : UInt16) : LavinMQ::Client::Channel?
+        nil
       end
 
       def initialize(@io : MQTT::IO,
@@ -107,6 +124,7 @@ module LavinMQ
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
         @recv_oct_count.add(packet.bytesize, :relaxed)
+        vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
         when MQTT::Publish     then recieve_publish(packet)
@@ -125,6 +143,7 @@ module LavinMQ
           @io.write_packet(packet)
           @io.flush
           @send_oct_count.add(packet.bytesize, :relaxed)
+          vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet
         when MQTT::Publish
@@ -164,7 +183,7 @@ module LavinMQ
 
       def recieve_subscribe(packet : MQTT::Subscribe)
         if Config.instance.mqtt_permission_check_enabled?
-          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             close_socket
             return
@@ -193,7 +212,11 @@ module LavinMQ
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
           client_properties: NamedTuple.new,
-        }.merge(stats_details)
+        }.merge(current_stats_details)
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge(stats_details).to_json(json)
       end
 
       def search_match?(value : String) : Bool

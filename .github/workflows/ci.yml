@@ -93,6 +93,7 @@ jobs:
   spec_osx:
     name: Spec macOS
     runs-on: macos-15-xlarge
+    if: github.repository == 'cloudamqp/lavinmq'
     timeout-minutes: 10
     steps:
       - name: Install dependencies
@@ -111,6 +112,55 @@ jobs:
       - name: Spec
         run: make test
 
+  compile-changed-files:
+    name: Compile changed *.cr files independently
+    runs-on: ubuntu-latest
+    container: 84codes/crystal:latest-ubuntu-24.04
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y liblz4-dev git
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install shards
+        run: shards install --without-development
+
+      - name: Determine changed *.cr files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse "$head^")"
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR "$base" "$head" -- 'src/**/*.cr' | tr '\n' ' ')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Changed files: $files"
+
+      - name: Compile each changed file independently
+        if: steps.changed.outputs.files != ''
+        run: |
+          status=0
+          for f in ${{ steps.changed.outputs.files }}; do
+            if [ -f "$f" ]; then
+              echo "::group::crystal build --no-codegen $f"
+              crystal build --no-codegen --error-on-warnings -Dpreview_mt -Dexecution_context "$f" || status=1
+              echo "::endgroup::"
+            fi
+          done
+          exit $status
+
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
@@ -122,9 +172,15 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build lavinmq
-        run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS="--error-on-warnings -Dbake_static"
+        run: make -j bin/lavinmq bin/lavinmqctl bin/stress DOCS= CRYSTAL_FLAGS="--release --error-on-warnings"
 
       - name: Print build info
         run: bin/lavinmq --build-info
@@ -143,12 +199,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: changes
         with:
           filters: |
             views:
-              - '**/*.ecr'
+              - 'views/**'
             js:
               - '**/*.js'
 
@@ -373,13 +429,13 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.22.3
+          go-version: 1.26.3
 
       - name: Clone http client
         uses: actions/checkout@v6
         with:
           repository: michaelklishin/rabbit-hole
-          ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
+          ref: 2ed025ce479a5dfeaa6493eaa05f50284eb97c88
           path: rabbit-hole
 
       - name: Get patch file
@@ -447,3 +503,56 @@ jobs:
           prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
           run: gmake test
         continue-on-error: true
+
+  stress:
+    name: Stress test
+    runs-on: ubuntu-24.04
+    needs: compile
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp --pidfile /tmp/lavinmq.pid >lavinmq.log 2>&1 &
+
+      - name: Run stress test
+        run: |
+          chmod +x bin/stress
+          bin/stress
+
+      - name: Shutdown LavinMQ
+        run: |
+          pid=$(cat /tmp/lavinmq.pid)
+          kill "$pid"
+          for _ in $(seq 1 10); do
+            kill -0 "$pid" 2>/dev/null || exit 0
+            sleep 1
+          done
+          echo "::warning::LavinMQ did not exit within 10s, sending SIGKILL"
+          kill -9 "$pid"
+          exit 1
+
+      - name: Print LavinMQ log
+        if: ${{ !cancelled() }}
+        run: cat lavinmq.log
+
+      - name: Check LavinMQ log for errors
+        if: ${{ !cancelled() }}
+        run: |
+          if grep -E '^[^ ]+ +(ERROR|FATAL) |^Unhandled exception' lavinmq.log; then
+            echo "::error::Found errors in LavinMQ log"
+            exit 1
+          fi

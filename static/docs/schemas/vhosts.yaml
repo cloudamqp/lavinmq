@@ -42,3 +42,12 @@ vhost:
           type: integer
         return_unroutable:
           type: integer
+PutVhostRequestBody:
+  type: object
+  properties:
+    description:
+      type: string
+      description: Optional description of the vhost.
+    tags:
+      type: string
+      description: Optional comma-separated list of tags.

@@ -18,13 +18,12 @@ module LavinMQ
 
       private abstract def register_routes
 
-      private def page(context, iterator : Iterator(SortableJSON))
+      private def page(context, items : Array(SortableJSON))
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
-        total_count = 0
-        all_items = iterator.compact_map do |i|
-          total_count += 1
+        total_count = items.size
+        all_items = items.compact_map do |i|
           next unless i.search_match?(search_term) if search_term
           i.details_tuple
         rescue ex
@@ -59,29 +58,35 @@ module LavinMQ
 
       private def sort(all_items, context)
         if sort_by = context.request.query_params.fetch("sort", nil).try &.split(".")
-          sorted_items = all_items.to_a
           begin
-            if first_element = sorted_items.first?
-              case v = dig(first_element, sort_by)
-              when Number
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
-              when String
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
-              when QueueState
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
-              else
-                bad_request(context, "Can't sort on type #{v.class}")
-              end
-            end
+            sort_by_key!(all_items, sort_by, context)
           rescue KeyError | TypeCastError
             bad_request(context, "Sort key #{sort_by.join(".")} is not valid")
           end
           if context.request.query_params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
-            sorted_items.reverse!
+            all_items.reverse!
           end
-          sorted_items.each
+        end
+        all_items
+      end
+
+      private def sort_by_key!(sorted_items, sort_by, context)
+        # Find first non-nil value to determine the sort type
+        sample_value = sorted_items.each do |item|
+          v = dig(item, sort_by)
+          break v unless v.nil?
+        end
+        case sample_value
+        when Number
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
+        when String
+          sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
+        when QueueState
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
+        when Nil
+          nil # all values are nil, nothing to sort
         else
-          all_items
+          bad_request(context, "Can't sort on type #{sample_value.class}")
         end
       end
 
@@ -90,12 +95,12 @@ module LavinMQ
           nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          tuple[keys.first]? || 0
+          tuple[keys.first]?
         end
       end
 
-      # Writes the items to the json, but also counts all items by iterating the whole iterator
-      # Reruns the number of number of written to the json and the total items in the iterator
+      # Writes the items to the json, but also counts all items
+      # Returns the number of items written to json and the total item count
       private def array_iterator_to_json(json, iterator, columns : Array(String)?, start : Int, page_size : Int) : Tuple(Int32, Int32)
         size = 0
         total = 0
@@ -214,8 +219,8 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : Auth::BaseUser)
-        @amqp_server.vhosts.each_value.select do |v|
+      def vhosts(user : Auth::BaseUser) : Array(VHost)
+        @amqp_server.vhosts.values.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
           full_view_vhosts_access || (amqp_access && !user.tags.empty?)

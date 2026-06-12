@@ -67,11 +67,20 @@ module LavinMQ
           loop { @state_changed.try_send?(state) || break }
         end
 
-        # Does not trigger reconnect, but a graceful close
-        def terminate
+        # Graceful close of the link without removing any upstream resources.
+        # Use on broker shutdown — the upstream queue/exchange must survive a
+        # restart so buffered messages aren't lost.
+        def stop
           return if @state.terminated?
           state(State::Terminating)
           @upstream_connection.try &.close
+        end
+
+        # Permanently remove the link, including any resources it created on
+        # the upstream broker. Use when the federation, federated resource or
+        # upstream itself is being deleted.
+        def delete
+          stop
         end
 
         private def run_loop
@@ -119,7 +128,7 @@ module LavinMQ
           state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, exchange, routing_key, *, immediate = false)
+        private def federate(msg, exchange, routing_key, *, immediate = false) : Bool
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           @upstream.vhost.publish(
             Message.new(
@@ -127,7 +136,7 @@ module LavinMQ
               msg.body_io.bytesize.to_u64, msg.body_io,
             ),
             immediate
-          )
+          ).routed?
         end
 
         private def try_passive(client, ch = nil, &)
@@ -250,7 +259,7 @@ module LavinMQ
           @federated_q.name
         end
 
-        def terminate
+        def stop
           @federated_q.unregister_observer(self)
           super
           @consumer_available.close
@@ -388,9 +397,13 @@ module LavinMQ
           end
         end
 
-        def terminate
+        def stop
           super
           @federated_ex.unregister_observer(self)
+        end
+
+        def delete
+          stop
           cleanup
         end
 
@@ -438,6 +451,12 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
+          # @consumer_ex must be set before the observer is registered:
+          # bind/unbind events are dropped while it's nil, and a binding made
+          # in that window would never be propagated to the upstream exchange.
+          # Bindings made before registration are covered by the snapshot
+          # below (exchanges store bindings before notifying observers).
+          @consumer_ex = consumer_ex
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
@@ -446,12 +465,12 @@ module LavinMQ
             end
           end
           upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
-          {ch, consumer_ex, upstream_q}
+          {ch, upstream_q}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_ex, upstream_q = setup(upstream_connection)
+            upstream_channel, upstream_q = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)

@@ -27,8 +27,8 @@ module LavinMQPerf
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
           @publishers = v.to_i
         end
@@ -41,7 +41,7 @@ module LavinMQPerf
         @parser.on("-V", "--verify", "Verify the message body") do
           @verify = true
         end
-        @parser.on("-q qos", "--qos=level", "QoS level (0 or 1)") do |v|
+        @parser.on("--qos=level", "QoS level (0 or 1)") do |v|
           @qos = v.to_i
         end
         @parser.on("-t topic", "--topic=name", "Topic name (default perf-test)") do |v|
@@ -233,7 +233,7 @@ module LavinMQPerf
 
         start = Time.instant
         pubs_this_second = 0
-        packet_id_generator = (1_u16..).each
+        packet_id_generator = (1_u16..UInt16::MAX).cycle
         wait_until_all_are_connected(connected)
         until @stopped
           @random.random_bytes(data) if @random_bodies

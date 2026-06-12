@@ -6,12 +6,16 @@ module LavinMQ
       details_tuple.to_json(json)
     end
 
+    protected def search_value
+      @name
+    end
+
     def search_match?(value : String)
-      @name.includes? value
+      search_value.includes? value
     end
 
     def search_match?(value : Regex)
-      value === @name
+      value === search_value
     end
   end
 end

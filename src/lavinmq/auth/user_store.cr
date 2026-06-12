@@ -8,20 +8,36 @@ module LavinMQ
       private DIRECT_USER = "__direct"
       Log         = LavinMQ::Log.for "user_store"
 
-      def direct_user
-        @users[DIRECT_USER]
-      end
-
       def self.hidden?(name)
         DIRECT_USER == name
       end
+
+      @save_lock = Mutex.new
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
         @users = Hash(String, User).new
         load!
       end
 
-      forward_missing_to @users
+      def []?(name : String) : User?
+        @users[name]?
+      end
+
+      def [](name : String) : User
+        @users[name]
+      end
+
+      def each_value(& : User ->) : Nil
+        @users.each_value { |u| yield u }
+      end
+
+      def size : Int32
+        @users.size
+      end
+
+      def values : Array(User)
+        @users.values
+      end
 
       def each(&)
         @users.each do |kv|
@@ -48,18 +64,18 @@ module LavinMQ
         user
       end
 
-      def add_permission(user : User, vhost, config, read, write)
-        add_permission(user.name, vhost, config, read, write)
+      def add_permission(user : User, vhost, config, read, write, save = true)
+        add_permission(user.name, vhost, config, read, write, save)
       end
 
-      def add_permission(user, vhost, config, read, write)
+      def add_permission(user, vhost, config, read, write, save = true)
         perm = {config: config, read: read, write: write}
         if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
           return perm
         end
         @users[user].permissions[vhost] = perm
         @users[user].clear_permissions_cache
-        save!
+        save! if save
         perm
       end
 
@@ -128,7 +144,7 @@ module LavinMQ
             end
             @replicator.try &.register_file f
           end
-        else
+        elsif Config.instance.load_definitions.empty?
           Log.debug { "Loading default users" }
           create_default_user
         end
@@ -155,8 +171,12 @@ module LavinMQ
         Log.debug { "Saving users to file" }
         path = File.join(@data_dir, "users.json")
         tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename tmpfile, path
+        # Serialize saves so concurrent user add/delete don't race on the shared
+        # `.tmp` file and fail the rename.
+        @save_lock.synchronize do
+          File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
+          File.rename tmpfile, path
+        end
         @replicator.try &.replace_file path
       end
     end

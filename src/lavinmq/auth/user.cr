@@ -7,6 +7,7 @@ module LavinMQ
   module Auth
     class User < BaseUser
       include SortableJSON
+      Log = LavinMQ::Log.for "user"
       getter name : String
       getter permissions : Hash(String, Permissions) = Hash(String, Permissions).new
       property tags : Array(Tag)
@@ -26,9 +27,9 @@ module LavinMQ
           when "name"
             name = pull.read_string
           when "password_hash"
-            hash = pull.read_string
+            hash = read_password_hash(pull)
           when "hashing_algorithm"
-            hash_algo = pull.read_string
+            hash_algo = pull.read_string_or_null
           when "permissions"
             parse_permissions(pull)
           when "tags"
@@ -39,7 +40,11 @@ module LavinMQ
         raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
         raise JSON::ParseException.new("Missing json attribute: password_hash", *loc) if hash.nil?
         @name = name
-        @password = parse_password(hash, hash_algo, loc)
+        if hash.empty?
+          @password = nil
+        else
+          @password = parse_password(hash, hash_algo || "MD5", loc)
+        end
       end
 
       def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
@@ -57,12 +62,22 @@ module LavinMQ
         end
       end
 
+      private def read_password_hash(pull : JSON::PullParser) : String
+        hash = pull.read_string_or_null
+        if hash.nil?
+          Log.warn { "Possibly malformed JSON: 'password_hash' was null" }
+          return ""
+        end
+        hash
+      end
+
       private def parse_password(hash, hash_algorithm, loc = nil)
+        return nil unless hash_algorithm
         case hash_algorithm
-        when /bcrypt$/i   then Password::BcryptPassword.new(hash)
-        when /sha256$/i   then Password::SHA256Password.new(hash)
-        when /sha512$/i   then Password::SHA512Password.new(hash)
-        when /md5$/i, nil then Password::MD5Password.new(hash)
+        when /bcrypt$/i then Password::BcryptPassword.new(hash)
+        when /sha256$/i then Password::SHA256Password.new(hash)
+        when /sha512$/i then Password::SHA512Password.new(hash)
+        when /md5$/i    then Password::MD5Password.new(hash)
         else
           if loc
             raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
@@ -96,7 +111,7 @@ module LavinMQ
           @password = nil
           return
         end
-        @password = parse_password(password_hash, hash_algorithm)
+        @password = parse_password(password_hash, hash_algorithm || "MD5")
       end
 
       def update_password(password, hash_algorithm = "sha256")
@@ -107,7 +122,7 @@ module LavinMQ
       def user_details
         {
           name:              @name,
-          password_hash:     @password,
+          password_hash:     @password || "",
           hashing_algorithm: @password.try &.hash_algorithm,
           tags:              @tags.map(&.to_s.downcase).join(","),
         }

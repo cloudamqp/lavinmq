@@ -58,6 +58,11 @@ test.describe("queue", _ => {
     await page.locator('#table tbody tr').getByRole('button', { name: /cancel/i }).click()
     await expect(cancelRequest).toBeRequested()
   })
+
+  test('move messages form is visible for basic-auth users', async ({ page }) => {
+    await expect(page.locator('#moveMessages')).toBeVisible()
+  })
+
   test('binding can be unbound', async ({ page }) => {
     const binding = bindingResponse.items[1] // amq.topic
     const vhost = encodeURIComponent(binding.vhost)

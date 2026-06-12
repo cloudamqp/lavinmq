@@ -225,16 +225,17 @@ describe LavinMQ::AMQP::Stream do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("stream-ts-across-segments", args: stream_queue_args)
-        # Use half-segment messages so exactly 1 fits per segment
+        # Half-segment payload so each publish lands in its own segment.
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
-        # Fill segment 1 — two half-segment messages won't fit, so second triggers new segment
         q.publish_confirm data
-        # Sleep to create a timestamp gap
-        sleep 1.seconds
-        target_time = Time.utc
-        # This publish can't fit in current segment, creates a new one with first_ts > target
+        # Sleep > 1s so the two messages land in distinct whole seconds
+        sleep 1.2.seconds
         q.publish_confirm data
-        # Consume from timestamp in the gap — find_offset_in_segments must cross segment boundary
+        # Derive target from msg1's stored timestamp; Time.utc here would race RoughTime's
+        # 100ms coarsening and could land inside segment 2's bucket, hanging the consumer.
+        store = s.vhosts["/"].queue("stream-ts-across-segments").as(LavinMQ::AMQP::Stream).stream_msg_store
+        msg1_ts = store.@segment_last_ts.values.first
+        target_time = Time.unix(msg1_ts // 1000 + 1)
         ch.prefetch 1
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": target_time})) do |msg|
@@ -348,6 +349,72 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # Regression: a `delivery-limit` policy matching a stream queue used to
+    # fall through to AMQP::Queue#apply_policy_argument, which spawned a
+    # drop_redelivered fiber. That fiber called the inherited
+    # MessageStore#first? and dereferenced the legacy `@rfile` — which
+    # streams don't maintain through `drop_segments_while` — pointing at
+    # a closed mfile from a long-dropped segment. The spawn died with
+    # IO::Error("Closed mfile"). Stream now rejects the policy key
+    # alongside the declare-time validation.
+    it "ignores delivery-limit policy on streams" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-delivery-limit-policy", args: AMQP::Client::Arguments.new(args))
+          # Roll a few segments, then drop them via max-length-bytes so the
+          # inherited @rfile is left dangling at a closed mfile — the same
+          # state observed in the production crash.
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          s.vhosts["/"].add_policy("mlb", "stream-delivery-limit-policy", "queues",
+            {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+          q.message_count.should eq 1
+          # Now apply delivery-limit. Pre-fix this spawned drop_redelivered
+          # and crashed; post-fix it's skipped entirely.
+          s.vhosts["/"].add_policy("dl", "stream-delivery-limit-policy", "queues",
+            {"delivery-limit" => JSON::Any.new(5_i64)}, 1i8)
+          stream = s.vhosts["/"].queue("stream-delivery-limit-policy").as(LavinMQ::AMQP::Stream)
+          stream.effective_policy_args.should_not contain "delivery-limit"
+          # Give the (non-existent post-fix) spawn fiber a chance to run and
+          # verify the queue is still functional.
+          Fiber.yield
+          q.publish_confirm "ok"
+          q.message_count.should eq 2
+        end
+      end
+    end
+
+    it "does not start the expire fiber when the last consumer leaves" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-expire-after-drop", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          4.times { q.publish_confirm data }
+
+          stream = s.vhosts["/"].queue("stream-expire-after-drop").as(LavinMQ::AMQP::Stream)
+          # Pin the inherited @rfile onto a populated segment, then drop that
+          # segment via max-length-bytes so @rfile dangles at a closed mfile —
+          # the same state observed in the production crash.
+          stream.@msg_store.first?
+          s.vhosts["/"].add_policy("mlb", "stream-expire-after-drop", "queues",
+            {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+
+          ch.prefetch 1
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "next"})) { }
+          should_eventually(eq 1) { stream.consumers.size }
+
+          # Pre-fix this ran ensure_expire_fiber -> should_start_expire_fiber? ->
+          # MessageStore#first?, dereferencing the dropped+closed read segment
+          # and crashing the connection's read_loop fiber. Post-fix the check is
+          # skipped for streams, so removing the last consumer must not raise.
+          stream.rm_consumer(stream.consumers.first)
+          stream.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
+
     it "meta files should be removed when segment is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -355,7 +422,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          dir = s.vhosts["/"].queues["stream-max-length"].as(LavinMQ::AMQP::Stream).@data_dir
+          dir = s.vhosts["/"].queue("stream-max-length").as(LavinMQ::AMQP::Stream).@data_dir
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
           q.message_count.should eq 1
@@ -373,7 +440,7 @@ describe LavinMQ::AMQP::Stream do
           3.times { q.publish_confirm data }
           q.message_count.should eq 3
 
-          stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
           stream.close
           stream.restart!
           stream.message_count.should eq 3
@@ -390,6 +457,21 @@ describe LavinMQ::AMQP::Stream do
         expect_raises(AMQP::Client::Channel::ClosedException, /NOT_IMPLEMENTED.*basic_get/) do
           ch.basic_get(q.name, no_ack: false)
         end
+      end
+    end
+  end
+
+  it "drops a publish when the store is closed concurrently" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("stream-closed-store-publish", args: stream_queue_args)
+        stream = s.vhosts["/"].queue("stream-closed-store-publish").as(LavinMQ::AMQP::Stream)
+        # Simulate a delete racing publish_internal: the store is closed after
+        # the @state.closed? check but before push, so push raises ClosedError.
+        # The publish must report Dropped, not raise (mirrors the queue spec).
+        stream.@msg_store.close
+        msg = LavinMQ::Message.new("", "stream-closed-store-publish", "body", LavinMQ::AMQP::Properties.new)
+        stream.publish(msg).dropped?.should be_true
       end
     end
   end
@@ -613,6 +695,19 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "drop_overflow does not raise after the store has been deleted" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag", 1_i64)
+        msg_store.delete
+        msg_store.drop_overflow
+      end
+    end
+
     it "cleanup_consumer_offsets removes outdated offset" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, -10_i64]
@@ -733,7 +828,7 @@ describe LavinMQ::AMQP::Stream do
           ch.prefetch 1
           args = {"x-queue-type": "stream"}
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
           q.publish_confirm "test message"
           stream.message_count.should eq 1
 
@@ -772,7 +867,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
         stream.close
         stream.closed?.should be_true
         stream.restart!
@@ -781,6 +876,35 @@ describe LavinMQ::AMQP::Stream do
         # should continue from tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
+      end
+    end
+
+    it "loads when trailing segment has only the 4-byte schema header" do
+      with_datadir do |data_dir|
+        # Push 2 large msgs so segment 1 fills and segment 2 is opened.
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        2.times { store.push(msg) }
+        store.@segments.size.should be >= 2
+        last_seg_path = store.@segments.last_value.path
+        store.close
+
+        # Simulate "killed after open_new_segment but before first message":
+        # truncate the trailing segment to its 4-byte schema header and remove
+        # its meta file so produce_metadata runs on reload.
+        File.open(last_seg_path, "r+", &.truncate(4))
+        meta_path = last_seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        # Reload must not raise IndexError on the empty trailing segment.
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        last_seg_id = store.@segments.last_key
+        store.@segment_msg_count[last_seg_id].should eq 0
+        store.push(msg) # the trailing segment should still be writable
+        store.@segment_msg_count[last_seg_id].should eq 1
+        store.close
       end
     end
   end

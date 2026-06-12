@@ -1,5 +1,3 @@
-require "wait_group"
-
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -30,6 +28,11 @@ class MFile < IO
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
+  @@mmap_count = Atomic(Int64).new(0)
+
+  def self.mmap_count : Int64
+    @@mmap_count.get(:relaxed)
+  end
 
   def closed?
     @closed.get(:acquire)
@@ -102,6 +105,7 @@ class MFile < IO
     ptr = LibC.mmap(nil, length, protection, flags, fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
+    @@mmap_count.add(1, :relaxed)
     advise(Advice::DontDump, addr, length)
     addr
   end
@@ -120,6 +124,7 @@ class MFile < IO
     return if @closed.swap(true, :acquire_release)
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
+    @@mmap_count.sub(1, :relaxed)
     if truncate_to_size && !@readonly && !@deleted.get(:acquire)
       code = LibC.truncate(@path.check_no_null_byte, @size)
       # Ignore ENOENT - file may have been deleted by another process
@@ -175,10 +180,6 @@ class MFile < IO
 
   def flush
     msync(@buffer, @size, LibC::MS_ASYNC)
-  end
-
-  def msync
-    msync(@buffer, @size, LibC::MS_SYNC)
   end
 
   private def msync(addr, len, flag) : Nil

@@ -11,8 +11,10 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
-                           NamedTuple(exchange: String, vhost: String)
+                           NamedTuple(exchange: String, vhost: String) |
+                           NamedTuple(channel: String, vhost: String, connection: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
@@ -188,6 +190,14 @@ module LavinMQ
           end
           context
         end
+
+        # Followers have no AMQP state for per-family samples. Respond 200 with only the
+        # scrape telemetry so Prometheus doesn't mark `/metrics/detailed` targets as failed.
+        get "/metrics/detailed" do |context, _|
+          context.response.content_type = "text/plain"
+          report(context.response) { }
+          context
+        end
       end
     end
 
@@ -251,6 +261,8 @@ module LavinMQ
                 detailed_channel_metrics(vhosts, writer)
               when "exchange_metrics"
                 detailed_exchange_metrics(vhosts, writer)
+              when "vhost_message_stats"
+                detailed_vhost_message_stats(vhosts, writer)
               end
             end
           end
@@ -298,7 +310,7 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open file descriptors"})
         writer.write({name:  "process_open_tcp_sockets",
-                      value: @amqp_server.vhosts.sum { |_, v| v.connections.size },
+                      value: @amqp_server.vhosts.sum { |_, v| v.connections_size },
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
@@ -344,19 +356,20 @@ module LavinMQ
       end
 
       private def overview_queue_metrics(vhosts, writer)
-        ready = unacked = connections = channels = consumers = queues = 0_u64
+        ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
-          connections += vhost.connections.size
-          vhost.connections.each do |conn|
-            channels += conn.channels.size
-            conn.channels.each_value do |ch|
-              consumers += ch.consumers.size
+          connections += vhost.connections_size
+          vhost.each_connection do |conn|
+            channels += conn.channel_count
+            conn.each_channel do |ch|
+              consumers += ch.consumers_size
             end
           end
-          queues += vhost.queues.size
+          queues += vhost.queues_size
+          vhost.each_exchange { |e| bindings += e.binding_count }
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -374,6 +387,10 @@ module LavinMQ
                       value: queues,
                       type:  "gauge",
                       help:  "Queues available"})
+        writer.write({name:  "bindings",
+                      value: bindings,
+                      type:  "gauge",
+                      help:  "Bindings currently configured"})
         writer.write({name:  "queue_messages_ready",
                       value: ready,
                       type:  "gauge",
@@ -423,6 +440,10 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+        writer.write({name:  "mfile_count",
+                      value: MFile.mmap_count,
+                      type:  "gauge",
+                      help:  "Number of MFile memory-mapped files"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
@@ -488,7 +509,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_ready", "gauge",
           "Messages ready to be delivered to consumers")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
           end
@@ -497,7 +518,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_unacked", "gauge",
           "Messages delivered to consumers but not yet acknowledged")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
           end
@@ -506,7 +527,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages", "gauge",
           "Sum of ready and unacknowledged messages - total queue depth")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
           end
@@ -515,7 +536,7 @@ module LavinMQ
         writer.write_header("detailed_queue_deduplication", "counter",
           "Number of deduplicated messages for this queue")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
@@ -546,9 +567,9 @@ module LavinMQ
 
         # Write values
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_consumers", q.consumers.size, labels)
+            writer.write_value("detailed_queue_consumers", q.consumers_size, labels)
           end
         end
       end
@@ -560,10 +581,33 @@ module LavinMQ
 
         # Write values
         vhosts.each do |vhost|
-          vhost.exchanges.each_value do |e|
+          vhost.each_exchange do |e|
             labels = {exchange: e.name, vhost: vhost.name}
             writer.write_value("detailed_exchange_deduplication", e.dedup_count, labels)
           end
+        end
+      end
+
+      private def detailed_vhost_message_stats(vhosts, writer)
+        writer.write_header("detailed_vhost_messages_published_total", "counter",
+          "Total messages published to a vhost (all protocols)")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_messages_published_total", vhost.publish_count, labels)
+        end
+
+        writer.write_header("detailed_vhost_messages_delivered_total", "counter",
+          "Total messages delivered to clients on a vhost (all protocols)")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_messages_delivered_total", vhost.deliver_get_count, labels)
+        end
+
+        writer.write_header("detailed_vhost_queues", "gauge",
+          "Number of queues on a vhost")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_queues", vhost.queues_size, labels)
         end
       end
 
@@ -572,7 +616,7 @@ module LavinMQ
         writer.write_header("detailed_connection_incoming_bytes_total", "counter",
           "Total number of bytes received on a connection")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
+          vhost.each_connection do |conn|
             labels = {channel: conn.name}
             writer.write_value("detailed_connection_incoming_bytes_total", conn.recv_oct_count, labels)
           end
@@ -581,7 +625,7 @@ module LavinMQ
         writer.write_header("detailed_connection_outgoing_bytes_total", "counter",
           "Total number of bytes sent on a connection")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
+          vhost.each_connection do |conn|
             labels = {channel: conn.name}
             writer.write_value("detailed_connection_outgoing_bytes_total", conn.send_oct_count, labels)
           end
@@ -590,9 +634,9 @@ module LavinMQ
         writer.write_header("detailed_connection_channels", "counter",
           "Channels on a connection")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
+          vhost.each_connection do |conn|
             labels = {channel: conn.name}
-            writer.write_value("detailed_connection_channels", conn.channels.size, labels)
+            writer.write_value("detailed_connection_channels", conn.channel_count, labels)
           end
         end
       end
@@ -601,9 +645,9 @@ module LavinMQ
         # Group TYPE, HELP and values together for each metric
         writer.write_header("detailed_channel_consumers", "gauge", "Consumers on a channel")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
-            conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+          vhost.each_connection do |conn|
+            conn.each_channel do |ch|
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_channel_consumers", ch.details_tuple[:consumer_count], labels)
             end
           end
@@ -612,9 +656,9 @@ module LavinMQ
         writer.write_header("detailed_messages_unacked", "gauge",
           "Delivered but not yet acknowledged messages")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
-            conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+          vhost.each_connection do |conn|
+            conn.each_channel do |ch|
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_messages_unacked", ch.details_tuple[:messages_unacknowledged], labels)
             end
           end
@@ -623,9 +667,9 @@ module LavinMQ
         writer.write_header("detailed_channel_prefetch", "gauge",
           "Total limit of unacknowledged messages for all consumers on a channel")
         vhosts.each do |vhost|
-          vhost.connections.each do |conn|
-            conn.channels.each_value do |ch|
-              labels = {channel: ch.name}
+          vhost.each_connection do |conn|
+            conn.each_channel do |ch|
+              labels = {channel: ch.name, vhost: vhost.name, connection: conn.name}
               writer.write_value("detailed_channel_prefetch", ch.details_tuple[:prefetch_count], labels)
             end
           end

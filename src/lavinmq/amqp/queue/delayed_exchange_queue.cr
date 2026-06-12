@@ -42,7 +42,7 @@ module LavinMQ::AMQP
     end
 
     def delay(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if @closed
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
@@ -85,7 +85,13 @@ module LavinMQ::AMQP
       end
     rescue ::Channel::ClosedError
     ensure
+      @message_expire_fiber_active.set(false, :release)
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Delayed exchange queues always need their expire fiber running
+    private def should_start_expire_fiber? : Bool
+      true
     end
 
     def expire_messages
@@ -126,7 +132,7 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+      @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
     end
@@ -142,9 +148,12 @@ module LavinMQ::AMQP
     private def queue_expire_loop
     end
 
-    def publish(message : Message) : Bool
-      # This queue should never be published too
-      false
+    def publish(message : Message) : PublishResult
+      PublishResult::Dropped
+    end
+
+    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+      PublishResult::Dropped
     end
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool

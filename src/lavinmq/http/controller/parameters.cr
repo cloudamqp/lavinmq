@@ -33,32 +33,32 @@ module LavinMQ
         get "/api/parameters" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = vhosts(user).flat_map do |v|
-            v.parameters.each_value.map { |p| map_parameter(v.name, p) }
+          arr = vhosts(user).flat_map do |v|
+            v.parameters.values.map { |p| map_parameter(v.name, p) }
           end
-          page(context, itr)
+          page(context, arr)
         end
 
         get "/api/parameters/:component" do |context, params|
           user = user(context)
           refuse_unless_policymaker(context, user)
           component = params["component"]
-          itr = vhosts(user).flat_map do |v|
-            v.parameters.each_value
+          arr = vhosts(user).flat_map do |v|
+            v.parameters.values
               .select { |p| p.component_name == component }
               .map { |p| map_parameter(v.name, p) }
           end
-          page(context, itr)
+          page(context, arr)
         end
 
         get "/api/parameters/:component/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
             component = params["component"]
-            itr = vhost.parameters.each_value
+            arr = vhost.parameters.values
               .select { |p| p.component_name == component }
               .map { |p| map_parameter(vhost.name, p) }
-            page(context, itr)
+            page(context, arr)
           end
         end
 
@@ -108,12 +108,12 @@ module LavinMQ
         end
 
         get "/api/global-parameters" do |context, _params|
-          refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.parameters.each_value.map { |p| map_parameter(nil, p) })
+          refuse_unless_policymaker(context, user(context))
+          page(context, @amqp_server.parameters.values.map { |p| map_parameter(nil, p) })
         end
 
         get "/api/global-parameters/:name" do |context, params|
-          refuse_unless_administrator(context, user(context))
+          refuse_unless_policymaker(context, user(context))
           name = params["name"]
           param = param(context, @amqp_server.parameters, {nil, name})
           map_parameter(nil, param).to_json(context.response)
@@ -121,7 +121,7 @@ module LavinMQ
         end
 
         put "/api/global-parameters/:name" do |context, params|
-          refuse_unless_administrator(context, user(context))
+          refuse_unless_policymaker(context, user(context))
           name = params["name"]
           body = parse_body(context)
           value = body["value"]?
@@ -147,14 +147,14 @@ module LavinMQ
         get "/api/policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(Policy).chain(vhosts(user).map(&.policies.each_value))
-          page(context, itr)
+          arr = vhosts(user).flat_map(&.policies.values)
+          page(context, arr)
         end
 
         get "/api/policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, vhost.policies.each_value)
+            page(context, vhost.policies.values)
           end
         end
 
@@ -205,14 +205,14 @@ module LavinMQ
         get "/api/operator-policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(OperatorPolicy).chain(vhosts(user).map(&.operator_policies.each_value))
-          page(context, itr)
+          arr = vhosts(user).flat_map(&.operator_policies.values)
+          page(context, arr)
         end
 
         get "/api/operator-policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, vhost.operator_policies.each_value)
+            page(context, vhost.operator_policies.values)
           end
         end
 

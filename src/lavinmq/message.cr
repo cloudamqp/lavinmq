@@ -29,12 +29,6 @@ module LavinMQ
       @properties.headers.try(&.fetch("x-dead-letter-routing-key", nil).as?(String))
     end
 
-    def delay : UInt32?
-      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
-    rescue OverflowError
-      nil
-    end
-
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format

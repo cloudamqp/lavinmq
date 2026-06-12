@@ -10,6 +10,54 @@ module ShovelSpecHelpers
     q2 = ch.queue("#{prefix}q2")
     {x, q2}
   end
+
+  class PauseRaceSource < LavinMQ::Shovel::Source
+    @each_count = Atomic(UInt32).new(0_u32)
+    @stopped = Channel(Bool).new(1)
+
+    getter delete_after = LavinMQ::Shovel::DeleteAfter::Never
+    getter first_each_entered = Channel(Bool).new(1)
+    getter second_each_entered = Channel(Bool).new(1)
+    getter release_first_each = Channel(Bool).new
+
+    def start
+      while @stopped.try_receive?
+      end
+    end
+
+    def stop
+      @stopped.try_send? true
+    end
+
+    def ack(delivery_tag, batch = true)
+    end
+
+    def each(&_blk : ::AMQP::Client::DeliverMessage -> Nil)
+      case @each_count.add(1_u32, :relaxed)
+      when 0
+        @first_each_entered.send true
+        @release_first_each.receive
+      when 1
+        @second_each_entered.send true
+        @stopped.receive?
+      end
+    end
+  end
+
+  class PauseRaceDestination < LavinMQ::Shovel::Destination
+    def start
+    end
+
+    def stop
+    end
+
+    def push(msg, source)
+    end
+
+    def started? : Bool
+      true
+    end
+  end
 end
 
 describe LavinMQ::Shovel do
@@ -26,10 +74,10 @@ describe LavinMQ::Shovel do
 
           source.start
 
-          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           expect_raises(AMQP::Client::Connection::ClosedException) do
             source.each do
-              s.vhosts["/"].connections.each &.close("spec")
+              s.vhosts["/"].each_connection &.close("spec")
             end
           end
           source.started?.should be_false
@@ -49,7 +97,7 @@ describe LavinMQ::Shovel do
 
           source.start
 
-          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           wg = WaitGroup.new(1)
           spawn { source.each { wg.done } }
           wg.wait
@@ -79,7 +127,7 @@ describe LavinMQ::Shovel do
 
           source.start
 
-          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           wg = WaitGroup.new(1)
           spawn { source.each { wg.done } }
           wg.wait
@@ -110,12 +158,12 @@ describe LavinMQ::Shovel do
 
           source.start
 
-          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           wg = WaitGroup.new(1)
           spawn { source.each { |m| source.ack(m.delivery_tag) && wg.done } }
           wg.wait
           sleep 1.millisecond
-          s.vhosts["/"].queues["source"].unacked_count.should eq 0
+          s.vhosts["/"].queue("source").unacked_count.should eq 0
           source.stop
         end
       end
@@ -219,7 +267,11 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me 1", "sf_q1"
           x.publish_confirm "shovel me 2", "sf_q1"
           spawn shovel.run
-          msgs = Channel(String).new
+          # Buffered so the delivery callback never blocks the connection's
+          # read fiber. q2 and x share this connection; if the callback blocked
+          # on an unbuffered send, the read fiber couldn't process the publisher
+          # confirm for "shovel me 3" below and the example would deadlock.
+          msgs = Channel(String).new(8)
           q2.subscribe(no_ack: true) do |msg|
             msgs.send(msg.body_io.to_s)
           end
@@ -230,6 +282,30 @@ describe LavinMQ::Shovel do
           end
           shovel.running?.should be_true
         end
+      ensure
+        shovel.try &.terminate
+      end
+    end
+
+    it "does not let a paused run terminate a resumed shovel" do
+      with_amqp_server do |s|
+        source = ShovelSpecHelpers::PauseRaceSource.new
+        dest = ShovelSpecHelpers::PauseRaceDestination.new
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pause-race", s.vhosts["/"])
+        spawn shovel.run
+
+        wait_for { source.first_each_entered.try_receive? }
+        wait_for { shovel.running? }
+        shovel.pause
+        shovel.resume
+        wait_for { source.second_each_entered.try_receive? }
+        wait_for { shovel.running? }
+
+        source.release_first_each.send true
+        10.times { Fiber.yield }
+        shovel.running?.should be_true
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -259,9 +335,11 @@ describe LavinMQ::Shovel do
           spawn shovel.run
           wait_for { shovel.running? }
           sleep 0.1.seconds # Give time for message to be shoveled
-          s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
+          s.vhosts["/"].queue("ap_q1").message_count.should eq 0
           q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
         end
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -288,10 +366,12 @@ describe LavinMQ::Shovel do
           x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
           x.publish_confirm "shovel me", "na_q1"
           spawn { shovel.run }
-          wait_for { s.vhosts["/"].queues["na_q1"].message_count.zero? }
-          wait_for { !s.vhosts["/"].queues["na_q2"].message_count.zero? }
+          wait_for { s.vhosts["/"].queue("na_q1").message_count.zero? }
+          wait_for { !s.vhosts["/"].queue("na_q2").message_count.zero? }
           q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
         end
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -314,15 +394,17 @@ describe LavinMQ::Shovel do
         )
         with_channel(s) do |ch|
           x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
+          ch.confirm_select
           100.times do
-            x.publish_confirm "shovel me", "prefetch_q1"
+            x.publish "shovel me", "prefetch_q1"
           end
-          wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
+          ch.wait_for_confirms
+          wait_for { s.vhosts["/"].queue("prefetch_q1").message_count == 100 }
           shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
           shovel.run
           wait_for { shovel.terminated? }
-          s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
-          s.vhosts["/"].queues["prefetch_q2"].message_count.should eq 100
+          s.vhosts["/"].queue("prefetch_q1").message_count.should eq 0
+          s.vhosts["/"].queue("prefetch_q2").message_count.should eq 100
         end
       end
     end
@@ -351,6 +433,8 @@ describe LavinMQ::Shovel do
           wait_for { rmsg = q2.get(no_ack: true) }
           rmsg.not_nil!.body_io.to_s.should eq "shovel me"
         end
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -376,7 +460,10 @@ describe LavinMQ::Shovel do
         with_channel(s) do |ch|
           q1 = ch.queue("rc_q1", durable: true)
           q2 = ch.queue("rc_q2", durable: true)
-          msgs = Channel(String).new
+          # Buffered: q1 and q2 share this connection, so a delivery callback
+          # blocking on an unbuffered send would stall the read fiber and
+          # deadlock the publish_confirms below.
+          msgs = Channel(String).new(8)
           q2.subscribe(no_ack: true) do |msg|
             msgs.send(msg.body_io.to_s)
           end
@@ -419,6 +506,8 @@ describe LavinMQ::Shovel do
           msg = msgs.receive
           msg.body_io.to_s.should eq "shovel me"
         end
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -449,14 +538,20 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           # Wait until four messages has been published to destination...
-          wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
+          wait_for { s.vhosts["/"].queue("prefetch2_q2").message_count == 4 }
           # ... but only three has been acked (because batching)
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 1 }
+          wait_for { s.vhosts["/"].queue("prefetch2_q1").unacked_count == 1 }
+          # The source only registers the last delivery as unacked once the
+          # destination's publish confirm round-trips back. Until then a
+          # terminate would (correctly) requeue the unconfirmed message rather
+          # than ack it, so wait for that confirm before terminating — otherwise
+          # this races under load and leaves a message on q1.
+          wait_for { source.last_unacked == 4_u64 }
           # Now when we terminate the shovel it should ack the last message(s)
           shovel.terminate
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 0 }
-          s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
-          s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
+          wait_for { s.vhosts["/"].queue("prefetch2_q1").unacked_count == 0 }
+          s.vhosts["/"].queue("prefetch2_q2").message_count.should eq 4
+          s.vhosts["/"].queue("prefetch2_q1").message_count.should eq 0
         end
       end
     end
@@ -512,10 +607,12 @@ describe LavinMQ::Shovel do
           10.times do
             x.publish_confirm "shovel me", "c_q1"
           end
-          wait_for { s.vhosts["/"].queues["c_q2"].message_count == 10 }
+          wait_for { s.vhosts["/"].queue("c_q2").message_count == 10 }
           shovel.details_tuple[:message_count].should eq 10
         end
         shovel.state.to_s.should eq "Running"
+      ensure
+        shovel.try &.terminate
       end
     end
 
@@ -624,9 +721,15 @@ describe LavinMQ::Shovel do
           q1.publish_confirm "shovel me 1", "#{queue_name}q1"
           q1.publish_confirm "shovel me 2", "#{queue_name}q1"
           spawn { shovel.run }
-          wait_for { s.vhosts["/"].queues["#{queue_name}q2"].message_count == 2 }
+          wait_for { s.vhosts["/"].queue("#{queue_name}q2").message_count == 2 }
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+          # Wait until the source has durably acked the two moved messages
+          # before pausing. With the default prefetch they're only batched as
+          # unacked until the dest confirms land; if pause closes the connection
+          # first they're (correctly) requeued and re-shoveled after resume,
+          # duplicating them on q2. This races under load on macOS CI.
+          wait_for { s.vhosts["/"].queue("#{queue_name}q1").unacked_count.zero? }
           shovel.pause
           shovel.paused?.should eq true
 
@@ -636,7 +739,7 @@ describe LavinMQ::Shovel do
 
           spawn shovel.resume
           wait_for { shovel.running? } # Ensure it gets back to Running state
-          wait_for { s.vhosts["/"].queues["#{queue_name}q2"].message_count == 2 }
+          wait_for { s.vhosts["/"].queue("#{queue_name}q2").message_count == 2 }
           shovel.terminate
           wait_for { shovel.terminated? }
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
@@ -672,7 +775,7 @@ describe LavinMQ::Shovel do
           shovel.pause
           wait_for { shovel.paused? }
 
-          vhost.queues["#{queue_name}q1"].message_count.should be > 0
+          vhost.queue("#{queue_name}q1").message_count.should be > 0
           shovel = vhost.shovels[queue_name]
           spawn shovel.resume
           wait_for { shovel.running? } # Ensure it gets back to Running state
@@ -796,6 +899,38 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds # better when than sleep?
           path.should eq "/some_path"
+        end
+      end
+    end
+  end
+
+  describe "Store.validate_config!" do
+    it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user", "pass")
+        s.users.add_permission("shovel_user", "test", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":    "amqp:///test",
+          "dest-uri":   "amqp:///test",
+          "src-queue":  "q1",
+          "dest-queue": "q2",
+        }.to_json)
+        LavinMQ::Shovel::Store.validate_config!(config, user)
+      end
+    end
+
+    it "raises when user lacks permission on the named vhost" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user2", "pass")
+        s.users.add_permission("shovel_user2", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":    "amqp:///test",
+          "dest-uri":   "amqp:///test",
+          "src-queue":  "q1",
+          "dest-queue": "q2",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError) do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
         end
       end
     end

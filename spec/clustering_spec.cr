@@ -58,15 +58,16 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         with_channel(s) do |ch|
-          q = ch.queue("repli")
-          q.publish_confirm "hello world"
+          q = ch.queue("repli", durable: true)
+          q.publish_confirm "hello world", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
         end
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
         cluster.stop
       end
 
       server = LavinMQ::Server.new(cluster.follower_config)
       begin
-        q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
+        q = server.vhosts["/"].queue("repli").as(LavinMQ::AMQP::DurableQueue)
         q.message_count.should eq 1
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "hello world"
@@ -82,12 +83,13 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   # files are registered in the new replicator (verifies that meta files are registered and replicated).
   it "registers meta files on startup" do
     etcd = LavinMQ::Etcd.new("localhost:12379")
+    coordinator = LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, etcd)
     msg_dir = File.join(LavinMQ::Config.instance.data_dir, "meta_test_queue")
     FileUtils.mkdir_p(msg_dir)
     node_id = 0
 
     begin
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       segment_size = LavinMQ::Config.instance.segment_size
       msg_size = 1000_u64
@@ -102,7 +104,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       replicator.close
 
       # Re-open the message store and verify the same files are registered
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id + 1)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id + 1)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       msg_store.close
       files_after = replicator.@file_index.shared { |files, _| files.keys }.sort!
@@ -199,9 +201,11 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     sleep 0.5.seconds
     spawn(name: "failover1") do
       controller1.run { }
+    rescue SpecExit
     end
     spawn(name: "failover2") do
       controller2.run { }
+    rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
@@ -232,9 +236,13 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
     spawn do
       etcd.elect_listen("lavinmq/leader") { election_done.close }
+    rescue SpecExit
     end
 
-    spawn { launcher.run }
+    spawn do
+      launcher.run
+    rescue SpecExit
+    end
 
     # Wait until our "launcher" is leader
     election_done.receive?
@@ -262,7 +270,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
 
   it "won't deadlock under high load when a follower disconnects [#926]" do
     LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
@@ -291,37 +299,44 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       client_io.flush
     end
 
+    test_path = "#{LavinMQ::Config.instance.data_dir}/path"
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator.register_file(test_path)
+    payload = "ABCD".to_slice
+
     appended = Channel(Bool).new
     spawn do
-      # Fill the action queue
+      # Fill the socket buffer
       loop do
-        replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
+        replicator.append(test_path, payload)
         appended.send true
-      rescue Channel::ClosedError
+      rescue IO::Error | Socket::Error | Channel::ClosedError
         break
       end
     end
 
-    # Wait for the action queue to fill up
+    # Wait for lag to increase
     loop do
       select
       when appended.receive?
       when timeout 0.1.seconds
-        # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
-        break if action_queue.size == action_queue.@capacity # full?
       end
+      break if replicator.@followers.first?.try &.lag_in_bytes.>(0)
     end
 
-    # Now disconnect the follower. Our "fill action queue" fiber should continue
+    # Now disconnect the follower. Our "fill" fiber should continue or exit
     client_io.close
 
     select
     when appended.receive?
-    when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
+    when timeout 5.seconds
       deadlock = true
     end
+
+    # If the fiber is blocked on a write to a closed socket, it might never send to 'appended'
+    # but we want to make sure the replicator can still be closed
+    replicator.try &.close
+    deadlock = false if !deadlock # if it didn't deadlock yet, we're good
 
     appended.close
     if deadlock
@@ -429,7 +444,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "succeeds when message store is already closed before sync" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -449,7 +464,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "is not aborted when message store is closed concurrently" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -467,6 +482,110 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       replicator.try &.close
       tcp_server.try &.close
       FileUtils.rm_rf msg_dir if msg_dir
+    end
+  end
+
+  it "replicates .queue file when queue is created" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.queue("dotqueue_test", durable: true)
+        end
+        vhost = s.vhosts["/"]
+        dotqfile = File.join(vhost.queue("dotqueue_test").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+        replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
+        wait_for { File.exists?(replicated_dotqfile) }
+        File.exists?(replicated_dotqfile).should be_true
+      end
+    end
+  end
+
+  it "removes .queue file from follower when queue is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("dotqueue_test", durable: true)
+          vhost = s.vhosts["/"]
+          dotqfile = File.join(vhost.queue("dotqueue_test").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+          dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+          replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
+          wait_for { File.exists?(replicated_dotqfile) }
+          q.delete
+          wait_for { !File.exists?(replicated_dotqfile) }
+          File.exists?(replicated_dotqfile).should be_false
+        end
+      end
+    end
+  end
+
+  it "removes empty queue dir from follower when queue is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("dirdelete_test", durable: true)
+          q.publish_confirm "hello"
+          qdir = s.vhosts["/"].queue("dirdelete_test").as(LavinMQ::AMQP::Queue).@data_dir
+          qdir_relative = qdir[(s.data_dir.size + 1)..]
+          replicated_qdir = File.join(cluster.follower_config.data_dir, qdir_relative)
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+          wait_for { Dir.exists?(replicated_qdir) }
+          q.delete
+          wait_for { !Dir.exists?(replicated_qdir) }
+        end
+      end
+    end
+  end
+
+  it "keeps the queue dir on follower when a segment is deleted but the queue isn't" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("segdelete_test", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 100)
+          # publish enough to span more than one segment, so an older fully-acked
+          # segment can be deleted while the active write segment + .queue remain
+          101.times { q.publish_confirm body }
+
+          dq = s.vhosts["/"].queue("segdelete_test").as(LavinMQ::AMQP::DurableQueue)
+          dq.@msg_store.@segments.size.should be > 1
+          repl_qdir = File.join(cluster.follower_config.data_dir, dq.@data_dir[(s.data_dir.size + 1)..])
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+          files_before = Dir.children(repl_qdir).size
+
+          # consume and ack everything; fully-acked non-write segments get deleted
+          q.subscribe(no_ack: false, &.ack)
+          wait_for { dq.message_count == 0 && dq.@msg_store.@segments.size == 1 }
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+          # a segment file was deleted, but the queue dir exists
+          Dir.exists?(repl_qdir).should be_true
+          Dir.children(repl_qdir).size.should be < files_before
+        end
+      end
+    end
+  end
+
+  it "does not replicate .queue file for non-durable queue" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.queue("dotqueue_transient", durable: false)
+        end
+        vhost = s.vhosts["/"]
+        dotqfile = File.join(vhost.queue("dotqueue_transient").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+        wait_for { File.exists?(dotqfile) }
+        Fiber.yield
+        cluster.replicator.with_file(dotqfile_relative) do |f, _size|
+          f.should be_nil
+        end
+      end
     end
   end
 end

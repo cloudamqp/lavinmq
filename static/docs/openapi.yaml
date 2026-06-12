@@ -1,7 +1,7 @@
 ---
 openapi: 3.0.3
 info:
-  version: v2.7.0-rc.2
+  version: v2.9.0-rc.1
   title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
@@ -9,9 +9,9 @@ info:
     url: https://www.lavinmq.com/
     email: contact@lavinmq.com
 servers:
-- url: /api
+  - url: /api
 security:
-- BasicAuth: []
+  - BasicAuth: []
 components:
   securitySchemes:
     BasicAuth:
@@ -35,6 +35,8 @@ components:
       "$ref": "./schemas/channels.yaml#/channel-with-consumer-details"
     channels:
       "$ref": "./schemas/channels.yaml#/channels"
+    channels-PutChannelRequestBody:
+      "$ref": "./schemas/channels.yaml#/PutChannelRequestBody"
     connection:
       "$ref": "./schemas/connections.yaml#/connection"
     connections:
@@ -83,12 +85,14 @@ components:
       "$ref": "./schemas/nodes.yaml#/node"
     nodes:
       "$ref": "./schemas/nodes.yaml#/nodes"
+    gc_stats:
+      "$ref": "./schemas/nodes.yaml#/gc_stats"
     parameter:
       "$ref": "./schemas/parameters.yaml#/parameter"
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
     parameters-PutParameterRequestBody:
-      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody" 
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
     parameters-shovel-value:
       "$ref": "./schemas/parameters.yaml#/shovel-value"
     parameters-federation-upstream-value:
@@ -125,6 +129,8 @@ components:
       "$ref": "./schemas/queues.yaml#/PutQueueRequestBody"
     queues-GetQueueMessagesRequestBody:
       "$ref": "./schemas/queues.yaml#/GetQueueMessagesRequestBody"
+    queues-StreamQueueMessagesRequestBody:
+      "$ref": "./schemas/queues.yaml#/StreamQueueMessagesRequestBody"
     user:
       "$ref": "./schemas/users.yaml#/user"
     users:
@@ -137,10 +143,14 @@ components:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
       "$ref": "./schemas/vhosts.yaml#/vhosts"
+    vhosts-PutVhostRequestBody:
+      "$ref": "./schemas/vhosts.yaml#/PutVhostRequestBody"
     auth-PutHashPasswordRequestBody:
       "$ref": "./schemas/auth.yaml#/PutHashPasswordRequestBody"
     auth-PasswordHash:
       "$ref": "./schemas/auth.yaml#/PasswordHash"
+    vhost-limits:
+      "$ref": "./schemas/vhost-limits.yaml#/vhost-limits"
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"
@@ -168,7 +178,7 @@ paths:
     "$ref": "./paths/connections.yaml#/~1connections~1{name}"
   "/connections/{name}/channels":
     "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
-  "/api/connections/username/{username}":
+  "/connections/username/{username}":
     "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
   "/consumers":
     "$ref": "./paths/consumers.yaml#/~1consumers"
@@ -202,16 +212,16 @@ paths:
     "$ref": "./paths/main.yaml#/~1whoami"
   "/aliveness-test/{vhost}":
     "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
-  "/api/shovels":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels"
-  "/api/shovels/{vhost}":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}"
-  "/api/shovels/{vhost}/{name}":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}"
-  "/api/shovels/{vhost}/{name}/pause":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1pause"
-  "/api/shovels/{vhost}/{name}/resume":
-    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1resume"
+  "/shovels":
+    "$ref": "./paths/shovels.yaml#/~1shovels"
+  "/shovels/{vhost}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}"
+  "/shovels/{vhost}/{name}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}"
+  "/shovels/{vhost}/{name}/pause":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1pause"
+  "/shovels/{vhost}/{name}/resume":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1resume"
   "/federation-links":
     "$ref": "./paths/main.yaml#/~1federation-links"
   "/federation-links/{vhost}":
@@ -220,8 +230,14 @@ paths:
     "$ref": "./paths/main.yaml#/~1extensions"
   "/nodes":
     "$ref": "./paths/nodes.yaml#/~1nodes"
+  "/nodes/gc_stats":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1gc_stats"
+  "/nodes/gc_collect":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1gc_collect"
   "/nodes/{name}":
     "$ref": "./paths/nodes.yaml#/~1nodes~1{name}"
+  "/nodes/{name}/gc_collect":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1{name}~1gc_collect"
   "/parameters":
     "$ref": "./paths/parameters.yaml#/~1parameters"
   "/parameters/{component}":
@@ -240,6 +256,12 @@ paths:
     "$ref": "./paths/policies.yaml#/~1policies~1{vhost}"
   "/policies/{vhost}/{name}":
     "$ref": "./paths/policies.yaml#/~1policies~1{vhost}~1{name}"
+  "/operator-policies":
+    "$ref": "./paths/operator-policies.yaml#/~1operator-policies"
+  "/operator-policies/{vhost}":
+    "$ref": "./paths/operator-policies.yaml#/~1operator-policies~1{vhost}"
+  "/operator-policies/{vhost}/{name}":
+    "$ref": "./paths/operator-policies.yaml#/~1operator-policies~1{vhost}~1{name}"
   "/permissions":
     "$ref": "./paths/permissions.yaml#/~1permissions"
   "/permissions/{vhost}/{user}":
@@ -262,6 +284,8 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1contents"
   "/queues/{vhost}/{name}/get":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1get"
+  "/queues/{vhost}/{name}/stream":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1stream"
   "/queues/{vhost}/{name}/unacked":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1unacked"
   "/users":
@@ -289,37 +313,39 @@ paths:
   "/vhost-limits/{vhost}/{type}":
     "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}~1{type}"
 tags:
-- name: bindings
-  description: Manage bindings.
-- name: channels
-  description: Get information about open channels.
-- name: connections
-  description: Manage open connections.
-- name: consumers
-  description: Manage connected consumers.
-- name: definitions
-  description: Import and export server definitions.
-- name: exchanges
-  description: Manage exchanges.
-- name: main
-  description: Query the server for various information (e.g. federation links, extensions).
-- name: shovels
-  description: Manage shovels.
-- name: nodes
-  description: Get node statistics.
-- name: parameters
-  description: Manage parameters.
-- name: policies
-  description: Manage policies.
-- name: permissions
-  description: Manage permissions.
-- name: queues
-  description: Manage queues.
-- name: users
-  description: Manage users.
-- name: vhosts
-  description: Manage vhosts.
-- name: auth
-  description: Hash a password.
-- name: vhost-limits
-  description: Manage vhost limits.
+  - name: bindings
+    description: Manage bindings.
+  - name: channels
+    description: Get information about open channels.
+  - name: connections
+    description: Manage open connections.
+  - name: consumers
+    description: Manage connected consumers.
+  - name: definitions
+    description: Import and export server definitions.
+  - name: exchanges
+    description: Manage exchanges.
+  - name: main
+    description: Query the server for various information (e.g. federation links, extensions).
+  - name: shovels
+    description: Manage shovels.
+  - name: nodes
+    description: Get node statistics.
+  - name: parameters
+    description: Manage parameters.
+  - name: policies
+    description: Manage policies.
+  - name: operator-policies
+    description: Manage operator policies.
+  - name: permissions
+    description: Manage permissions.
+  - name: queues
+    description: Manage queues.
+  - name: users
+    description: Manage users.
+  - name: vhosts
+    description: Manage vhosts.
+  - name: auth
+    description: Hash a password.
+  - name: vhost-limits
+    description: Manage vhost limits.

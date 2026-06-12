@@ -1,3 +1,5 @@
+require "http/server/handler"
+
 module LavinMQ
   module HTTP
     class RequireUserHandler
