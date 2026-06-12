@@ -158,7 +158,7 @@ describe LavinMQ::HTTP::ParametersController do
       end
     end
 
-    it "should reject shovel without destination" do
+    it "should allow shovel without destination" do
       with_http_server do |http, s|
         s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
         body = %({
@@ -169,9 +169,7 @@ describe LavinMQ::HTTP::ParametersController do
           }
         })
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
-        response.status_code.should eq 400
-        body = JSON.parse(response.body)
-        body["reason"].as_s.should contain("destination requires queue and/or exchange")
+        response.status_code.should eq 201
       end
     end
 
@@ -225,7 +223,6 @@ describe LavinMQ::HTTP::ParametersController do
             "src-uri": "amqp://",
             "dest-uri": "amqp://",
             "src-queue": "source-queue",
-            "dest-exchange": "dest-exchange",
             "dest-queue": "dest-queue"
           }
         })
@@ -299,15 +296,14 @@ describe LavinMQ::HTTP::ParametersController do
     it "should reject shovel when user lacks config permission on source exchange" do
       with_http_server do |http, s|
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
-        s.users.add_permission("limited", "/", /^$/, /.*/, /.*/)
+        s.users.add_permission("limited", "/", /^(?!source-exchange$).*/, /.*/, /.*/)
         hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
         body = %({
           "value": {
             "src-uri": "amqp://",
             "dest-uri": "amqp://",
-            "src-queue": "source-queue",
             "src-exchange": "source-exchange",
-            "dest-queue": "dest-queue"
+            "dest-exchange": "dest-exchange"
           }
         })
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
@@ -328,8 +324,7 @@ describe LavinMQ::HTTP::ParametersController do
             "dest-uri": "amqp://",
             "src-queue": "source-queue",
             "src-exchange": "source-exchange",
-            "dest-exchange": "dest-exchange",
-            "dest-queue": "dest-queue"
+            "dest-exchange": "dest-exchange"
           }
         })
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)

@@ -245,7 +245,7 @@
         <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
-          <input type="text" name="shovel-destination" list="queue-list">
+          <input type="text" name="shovel-destination" required list="queue-list">
           <datalist id="queue-list">
           </datalist>
         </label>

@@ -20,12 +20,19 @@ module LavinMQ
         params = @uri.query_params
         params["name"] ||= "Shovel #{@name} sink"
         @uri.query = params.to_s
-        if queue
+        @exchange_key = @exchange_key.presence
+        @queue = @queue.presence
+
+        # @exchange == "" (the default exchange) is kept distinct from nil (unset), so
+        # "dest-exchange": "" with a routing key publishes to the default exchange.
+        # If neither a queue nor an exchange is configured, @exchange stays nil and
+        # push falls back to the source message's original exchange and routing key.
+        # dest-exchange-key only applies when dest-exchange is set
+        if q = @queue
           @exchange = ""
-          @exchange_key = queue
-        end
-        if @exchange.nil?
-          raise ArgumentError.new("Shovel destination requires an exchange")
+          @exchange_key = q
+        elsif @exchange.nil?
+          @exchange_key = nil
         end
       end
 
