@@ -367,12 +367,23 @@ module LavinMQ
       private def delete_empty_dirs(dir)
         while dir != "."
           path = File.join(@data_dir, dir)
-          Dir.delete?(path) || break
+          rmdir(path) || break
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
       rescue ex : File::Error
         Log.error(exception: ex) { "Could not delete #{dir}: #{ex.message}" }
+      end
+
+      # rmdir returns false if the dir isn't empty, true if it was removed, and raises on other errors (e.g. permissions).
+      private def rmdir(path)
+        if LibC.rmdir(path.check_no_null_byte) == 0
+          true
+        elsif Errno.value.in?(Errno::ENOTEMPTY, Errno::EEXIST, Errno::ENOENT)
+          false
+        else
+          raise ::File::Error.from_errno("Unable to remove directory", file: path)
+        end
       end
 
       private def replace(filename, len, lz4)
