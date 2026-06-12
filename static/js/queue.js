@@ -278,7 +278,11 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
+const moveMessagesForm = document.querySelector('#moveMessages')
+if (Auth.getPassword() === null) {
+  moveMessagesForm.classList.add('hide')
+}
+moveMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const username = Auth.getUsername()
   const password = Auth.getPassword()

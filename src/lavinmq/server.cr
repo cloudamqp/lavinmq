@@ -50,7 +50,7 @@ module LavinMQ
     @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = nil)
+    def initialize(@config : Config, @replicator = nil, authenticator : Auth::Authenticator? = nil)
       # Seed from rusage so counters survive Server re-creation on leader transitions.
       rusage = System.resource_usage
       @user_time = rusage.user_time.total_milliseconds.to_i64
@@ -67,7 +67,7 @@ module LavinMQ
       @vhosts.load!
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @authenticator = Auth::Chain.create(@config, @users)
+      @authenticator = authenticator || Auth::Chain.create(@config, @users)
       if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
         Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
       end

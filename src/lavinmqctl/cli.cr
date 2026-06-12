@@ -86,6 +86,9 @@ class LavinMQCtl
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
     end
+    if path = ENV["LAVINMQCTL_CONTROL_UNIX_PATH"]?
+      @options["control_unix_path"] = path
+    end
     global_options
     parse_cmd
   end
@@ -363,14 +366,15 @@ class LavinMQCtl
       uri = URI.new(scheme, hostname, port)
       client_from_uri(uri)
     else
+      path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
       begin
-        unless File.exists? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
-          abort "#{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET} not found. Is LavinMQ running?"
+        unless File.exists? path
+          abort "#{path} not found. Is LavinMQ running?"
         end
-        unless File::Info.writable? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
+        unless File::Info.writable? path
           abort "Please run lavinmqctl as root or as the same user as LavinMQ."
         end
-        socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
+        socket = UNIXSocket.new(path)
         HTTP::Client.new(socket)
       rescue ex : Socket::ConnectError
         abort "Can't connect to LavinMQ: #{ex.message}"
@@ -429,6 +433,9 @@ class LavinMQCtl
     end
     @parser.on("--scheme=scheme", "Specify scheme (http)") do |v|
       @options["scheme"] = v
+    end
+    @parser.on("--control-unix-path=PATH", "Path to the LavinMQ control socket (default: #{LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH})") do |v|
+      @options["control_unix_path"] = v
     end
     @parser.on("-n node", "--node=node", "Specify node") do |v|
       # Only used by tests in cloudamqp/rabbitmq-java-client

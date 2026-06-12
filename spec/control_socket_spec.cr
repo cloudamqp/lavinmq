@@ -1,0 +1,60 @@
+require "./spec_helper"
+
+describe "control socket" do
+  # Regression test for running multiple instances on one host: the control
+  # socket path must be configurable, and both the bind and the no-auth bypass
+  # must follow the configured path rather than a hardcoded one.
+  it "authenticates connections over the configured control socket as the direct user" do
+    config = LavinMQ::Config.instance
+    original_path = config.control_unix_path
+    socket_path = File.tempname("lavinmqctl-spec", ".sock")
+    config.control_unix_path = socket_path
+    begin
+      with_amqp_server do |s|
+        h = LavinMQ::HTTP::Server.new(s)
+        h.bind_internal_unix
+        spawn(name: "control socket listen") { h.listen }
+        Fiber.yield
+        begin
+          client = HTTP::Client.new(UNIXSocket.new(socket_path))
+          response = client.get("/api/whoami")
+          response.status_code.should eq 200
+          response.body.should contain "__direct"
+        ensure
+          h.close
+        end
+      end
+    ensure
+      config.control_unix_path = original_path
+      File.delete?(socket_path)
+    end
+  end
+
+  it "uses the socket bound at startup even after the config is reloaded" do
+    config = LavinMQ::Config.instance
+    original_path = config.control_unix_path
+    socket_path = File.tempname("lavinmqctl-spec", ".sock")
+    config.control_unix_path = socket_path
+    begin
+      with_amqp_server do |s|
+        h = LavinMQ::HTTP::Server.new(s) # captures socket_path
+        h.bind_internal_unix
+        spawn(name: "control socket listen") { h.listen }
+        Fiber.yield
+        # Simulate a SIGHUP reload that changes the configured path
+        config.control_unix_path = File.tempname("lavinmqctl-reloaded", ".sock")
+        begin
+          client = HTTP::Client.new(UNIXSocket.new(socket_path))
+          response = client.get("/api/whoami")
+          response.status_code.should eq 200
+          response.body.should contain "__direct"
+        ensure
+          h.close
+        end
+      end
+    ensure
+      config.control_unix_path = original_path
+      File.delete?(socket_path)
+    end
+  end
+end

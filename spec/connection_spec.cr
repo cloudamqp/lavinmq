@@ -110,6 +110,58 @@ describe LavinMQ::Server do
         end
       end
     end
+
+    it "does not close the connection for a settlement frame on an already-closed channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # Client closes the channel; the broker removes it and replies CloseOk.
+          io.write_bytes AMQ::Protocol::Frame::Channel::Close.new(1_u16, 200_u16, "", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::CloseOk)
+
+          # A delivery settled in another fiber races the close and arrives after
+          # the channel is gone. The broker must discard it, not kill the whole
+          # connection. Open a second channel to prove the connection survived.
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(1_u16, 1_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
+    it "does not close the connection for a settlement frame on a never-opened channel" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # A stray settlement (here on a channel that was never opened) is
+          # discarded with a warning, not treated as a fatal protocol error.
+          # Open another channel to prove the connection survived.
+          io.write_bytes AMQ::Protocol::Frame::Basic::Ack.new(5_u16, 1_u64, false), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
   end
 
   describe "channel_max" do
