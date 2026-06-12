@@ -288,7 +288,7 @@ module LavinMQ
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
-          buffer = uninitialized UInt8[65536]
+          buffer = uninitialized UInt8[BUFFER_SIZE]
           remaining = length
           sha1 = Digest::SHA1.new
           while (len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
@@ -422,14 +422,14 @@ module LavinMQ
         buffer = uninitialized UInt8[BUFFER_SIZE]
         remaining = length
         while remaining > 0
-          read_len = Math.min(remaining, buffer.size)
-          bytes = buffer.to_slice[0, read_len]
-          lz4.read_fully(bytes)
+          len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, remaining)])
+          raise IO::EOFError.new if len.zero?
+          bytes = buffer.to_slice[0, len]
           file.write(bytes)
           sha1.update(bytes)
-          remaining -= read_len
-          return read_len.to_i64 if remaining.zero? && defer_final_ack
-          ack(read_len)
+          remaining -= len
+          return len.to_i64 if remaining.zero? && defer_final_ack
+          ack(len)
         end
         0i64
       end
