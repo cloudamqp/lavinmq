@@ -286,6 +286,28 @@ describe "Delayed Message Exchange" do
     end
   end
 
+  it "should treat publish as unroutable when the internal delayed queue is closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.exchange(x_name, "topic", args: x_args)
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
+        delayed_q = ex.@delayed_queue.should_not be_nil
+        delayed_q.close
+
+        returns = Channel(Tuple(UInt16, String)).new
+        ch.on_return { |msg| returns.send({msg.reply_code, msg.reply_text}) }
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 10_000})
+        ch.basic_publish_confirm("test", x_name, "rk", mandatory: true,
+          props: AMQP::Client::Properties.new(headers: hdrs))
+        ex.unroutable_count.should eq 1
+        ex.publish_out_count.should eq 0
+        reply_code, reply_text = returns.receive
+        reply_code.should eq 312
+        reply_text.should eq "NO_ROUTE"
+      end
+    end
+  end
+
   it "should prevent binding delayed exchange to its own internal queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
