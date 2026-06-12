@@ -31,7 +31,11 @@ module LavinMQ
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
-      @password : String
+      # Lazily fetched from @coordinator on first call to `password`. The raft
+      # coordinator can't answer at construction time (the raft node isn't
+      # leader yet — bootstrap happens later, inside Runner#run). By the time a
+      # follower connects, raft has elected and the secret has been proposed.
+      @password : String? = nil
       @dirty_isr = true
       @id : Int32
       @config : Config
@@ -47,7 +51,6 @@ module LavinMQ
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
-        @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
       end
 
@@ -203,7 +206,7 @@ module LavinMQ
       end
 
       def password : String
-        @coordinator.password
+        @password ||= @coordinator.password
       end
 
       @listeners = Array(TCPServer).new(1)
@@ -224,7 +227,7 @@ module LavinMQ
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
         follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
+        follower.negotiate!(password)
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return

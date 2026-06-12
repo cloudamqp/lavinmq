@@ -2,6 +2,7 @@ require "http/client"
 require "json"
 require "option_parser"
 require "../lavinmq/version"
+require "./raft"
 require "../lavinmq/http/constants"
 require "../lavinmq/shovel/constants"
 require "../lavinmq/federation/constants"
@@ -282,6 +283,32 @@ class LavinMQCtl
       @cmd = "cluster_status"
     end
 
+    @parser.separator("\nRaft")
+    @parser.on("raft_status", "Show raft state (role, term, leader, peers, ISR) of the local node") do
+      @cmd = "raft_status"
+      self.banner = "Usage: #{PROGRAM_NAME} raft_status"
+    end
+    @parser.on("raft_reset", "Wipe raft state and signal lavinmq to restart fresh") do
+      @cmd = "raft_reset"
+      self.banner = "Usage: #{PROGRAM_NAME} raft_reset [--force] [--data-dir=DIR]"
+      @parser.on("--force", "Allow reset on a multi-node cluster (destructive)") do
+        @options["force"] = "true"
+      end
+      @parser.on("--data-dir=DIR", "Data directory (overrides config)") do |v|
+        @options["data_dir"] = v
+      end
+    end
+    @parser.on("raft_join", "Reset raft state and configure this node to join a cluster on restart") do
+      @cmd = "raft_join"
+      self.banner = "Usage: #{PROGRAM_NAME} raft_join <leader-http-uri> [--force] [--data-dir=DIR]"
+      @parser.on("--force", "Allow reset on a multi-node cluster (destructive)") do
+        @options["force"] = "true"
+      end
+      @parser.on("--data-dir=DIR", "Data directory (overrides config)") do |v|
+        @options["data_dir"] = v
+      end
+    end
+
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
 
@@ -339,6 +366,9 @@ class LavinMQCtl
     when "list_federations"      then list_federations
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
+    when "raft_status"           then raft_status
+    when "raft_reset"            then raft_reset
+    when "raft_join"             then raft_join
     when "stop_app"
     when "start_app"
     else

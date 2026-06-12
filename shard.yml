@@ -34,6 +34,9 @@ dependencies:
     github: 84codes/lz4.cr
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
+  raft:
+    github: 84codes/raft.cr
+    branch: main
 
 development_dependencies:
   ameba:

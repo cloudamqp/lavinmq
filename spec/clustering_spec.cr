@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/controller"
+require "../src/lavinmq/clustering/etcd_elector"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
@@ -178,7 +178,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     config1.clustering_port = 5681
     config1.amqp_port = 5671
     config1.http_port = 15671
-    controller1 = LavinMQ::Clustering::Controller.new(config1)
+    elector1 = LavinMQ::Clustering::EtcdElector.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -187,7 +187,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     config2.clustering_port = 5682
     config2.amqp_port = 5672
     config2.http_port = 15672
-    controller2 = LavinMQ::Clustering::Controller.new(config2)
+    elector2 = LavinMQ::Clustering::EtcdElector.new(config2)
 
     listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
@@ -200,28 +200,62 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      controller1.run { }
+      elector1.campaign { }
     rescue SpecExit
     end
     spawn(name: "failover2") do
-      controller2.run { }
+      elector2.campaign { }
     rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
-      controller1.stop
+      elector1.stop
       listen.receive.should match /2$/
       sleep 0.1.seconds
-      controller2.stop
+      elector2.stop
     when /2$/
-      controller2.stop
+      elector2.stop
       listen.receive.should match /1$/
       sleep 0.1.seconds
-      controller1.stop
+      elector1.stop
     else fail("no leader elected")
     end
+  end
+
+  it "ensures the clustering secret exists even when another node is already leader" do
+    config = LavinMQ::Config.new
+    config.data_dir = "/tmp/secret-follower"
+    config.clustering_etcd_endpoints = "localhost:12379"
+    config.clustering_advertised_uri = "tcp://localhost:5683"
+    config.clustering_port = 5683
+    config.amqp_port = 0
+    config.http_port = 0
+    config.mqtt_port = 0
+    config.metrics_http_port = 0
+    config.control_unix_path = File.tempname("secret-follower-ctl")
+    elector = LavinMQ::Clustering::EtcdElector.new(config)
+
+    # Simulate an elected leader that has not (yet) written the clustering
+    # secret — the window a starting follower can race into.
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    etcd.lease_grant(id: 4711)
+    etcd.election_campaign("lavinmq/leader", "tcp://fake-leader:5679", lease: 4711)
+
+    spawn(name: "elector secret spec") do
+      elector.campaign { }
+    rescue SpecExit
+    end
+
+    deadline = Time.instant + 5.seconds
+    until etcd.get("lavinmq/clustering_secret")
+      fail "elector never ensured the clustering secret" if Time.instant > deadline
+      Fiber.yield
+    end
+  ensure
+    elector.try &.stop
+    FileUtils.rm_rf("/tmp/secret-follower")
   end
 
   it "will release lease on shutdown" do

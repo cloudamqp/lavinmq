@@ -1,6 +1,8 @@
+require "systemd"
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
+require "../raft/elector"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -22,7 +24,7 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_elector : ::LavinMQ::Raft::Elector? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -50,7 +52,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_elector: @raft_elector)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
@@ -89,6 +91,9 @@ module LavinMQ
         if unix_mqtt_proxy = @unix_mqtt_proxy
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
+        # Signal systemd that the follower is set up and the proxies are
+        # forwarding client traffic to the leader.
+        SystemD.notify_ready
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
@@ -241,10 +246,17 @@ module LavinMQ
         Dir.each_child(dir) do |child|
           path = File.join(dir, child)
           if File.directory? path
+            # raft/ and raft-transport/ hold raft.cr's persistent state
+            # (log segments, raft_meta, transport_peers). They live in the
+            # same data_dir as AMQP files but aren't part of the leader's
+            # AMQP file manifest. Without skipping, the follower's
+            # "delete files not on leader" pass deletes them mid-flight,
+            # which crashes the raft tick fiber on the next persist_state.
+            next if child.in?("raft", "raft-transport")
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id")
+            next if child.in?(".lock", ".clustering_id", ".join_target")
             yield path
           end
         end

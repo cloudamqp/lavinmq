@@ -1,8 +1,10 @@
 require "../etcd"
+require "./elector"
 require "./client"
+require "./etcd_coordinator"
 
-class LavinMQ::Clustering::Controller
-  Log = LavinMQ::Log.for "clustering.controller"
+class LavinMQ::Clustering::EtcdElector < LavinMQ::Clustering::Elector
+  Log = LavinMQ::Log.for "clustering.etcd_elector"
 
   getter id : Int32
 
@@ -25,7 +27,14 @@ class LavinMQ::Clustering::Controller
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
 
-  def run(&)
+  def campaign(& : ->)
+    # Every node ensures the clustering secret exists before campaigning or
+    # following (put_or_get — first writer wins). If only the elected leader
+    # wrote it, a follower could miss the leader's first write:
+    # #follow_leader's get-then-watch loses a put that lands while the watch
+    # stream is being established (Etcd#watch has no start_revision), leaving
+    # the follower waiting for the secret forever.
+    EtcdCoordinator.new(@config, @etcd).password
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
@@ -111,7 +120,6 @@ class LavinMQ::Clustering::Controller
       end
       @repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
-      SystemD.notify_ready
     end
   rescue ex : Error
     Log.fatal { ex.message }
