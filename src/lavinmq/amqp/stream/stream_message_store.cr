@@ -1,8 +1,13 @@
 require "./stream"
 require "./stream_consumer"
+require "./consumer_offsets"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
+    # Size bounds for the compacted consumer_offsets file.
+    MAX_CONSUMER_OFFSETS_FILE_SIZE = 64_i64 * 1024 * 1024 # 64 MiB
+    MIN_CONSUMER_OFFSETS_FILE_SIZE = 8_i64 * 1024         # 8 KiB
+
     getter new_messages = ::Channel(Bool).new
     property max_length : Int64?
     property max_length_bytes : Int64?
@@ -172,34 +177,48 @@ module LavinMQ::AMQP
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
       cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
+      write_consumer_offset(consumer_tag, new_offset)
+    end
+
+    private def write_consumer_offset(consumer_tag : String, new_offset : Int64)
       start_pos = @consumer_offsets.size
       @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
       @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
       @consumer_offsets.write_bytes new_offset
-      len = 1 + consumer_tag.bytesize + 8
-      @replicator.try &.append(@consumer_offsets.path, start_pos, len)
+      @replicator.try &.append(@consumer_offsets.path, start_pos, ConsumerOffsets.entry_size(consumer_tag))
     end
 
     def consumer_offset_file_full?(consumer_tag)
-      (@consumer_offsets.size + 1 + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
+      (@consumer_offsets.size + ConsumerOffsets.entry_size(consumer_tag)) >= @consumer_offsets.capacity
     end
 
     def cleanup_consumer_offsets
       return if @consumer_offsets.size.zero?
 
-      offsets_to_save = Hash(String, Int64).new
       lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
-      capacity = 0
-      @consumer_offset_positions.each do |ctag, _pos|
-        if offset = last_offset_by_consumer_tag(ctag)
-          offsets_to_save[ctag] = offset if offset >= lowest_offset_in_stream
-          capacity += ctag.bytesize + 1 + 8
+
+      # Offsets still within the stream (higher position == more recently committed).
+      tracked_offsets = Array(Tuple(String, Int64, Int64)).new
+      @consumer_offset_positions.each do |ctag, pos|
+        if (offset = last_offset_by_consumer_tag(ctag)) && offset >= lowest_offset_in_stream
+          tracked_offsets << {ctag, offset, pos}
         end
       end
       @consumer_offset_positions = Hash(String, Int64).new
-      replace_offsets_file(capacity * 1000) do
-        offsets_to_save.each do |ctag, offset|
-          store_consumer_offset(ctag, offset)
+
+      # Reserve room for one max-length entry so the append that triggered
+      # cleanup always fits in the rewritten file.
+      budget = MAX_CONSUMER_OFFSETS_FILE_SIZE - ConsumerOffsets::MAX_ENTRY_SIZE
+      offsets_to_save = ConsumerOffsets.trim_to_size(tracked_offsets, budget)
+      if (dropped = tracked_offsets.size - offsets_to_save.size) > 0
+        Log.warn { "Consumer offsets file for #{@msg_dir} is full, dropped #{dropped} oldest consumer offset(s)" }
+      end
+      used_bytes = offsets_to_save.sum { |ctag, _offset, _pos| ConsumerOffsets.entry_size(ctag) }
+      # Allocate 1000x the used size as headroom for future appends, bounded by the min/max file size.
+      new_capacity = (used_bytes * 1000).clamp(MIN_CONSUMER_OFFSETS_FILE_SIZE, MAX_CONSUMER_OFFSETS_FILE_SIZE)
+      replace_offsets_file(new_capacity) do
+        offsets_to_save.each do |ctag, offset, _pos|
+          write_consumer_offset(ctag, offset)
         end
       end
     end
