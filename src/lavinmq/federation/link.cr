@@ -338,6 +338,13 @@ module LavinMQ
         @replay_queue = Deque({BindingChange, AMQP::BindingDetails}).new
         @replay_lock = Mutex.new
         @replaying = false
+        # The upstream bindings this link has created, keyed by the downstream
+        # binding's properties_key, holding the routing key and transformed
+        # arguments needed to unbind upstream. Bindings removed downstream
+        # while the link is disconnected are never seen by #unbound, so this
+        # is what lets a reconnect unbind them upstream. Guarded by
+        # @replay_lock.
+        @upstream_bindings = Hash(String, {String, ::AMQP::Client::Arguments}).new
         getter federated_ex
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
@@ -396,9 +403,14 @@ module LavinMQ
         private def apply_binding_change(ex, change : BindingChange, b)
           updated, args = update_bound_from?(b.arguments)
           return unless updated
+          key = b.binding_key.properties_key
           case change
-          in .bind?   then ex.bind(@upstream_exchange, b.routing_key, args: args)
-          in .unbind? then ex.unbind(@upstream_exchange, b.routing_key, args: args)
+          in .bind?
+            ex.bind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings[key] = {b.routing_key, args} }
+          in .unbind?
+            ex.unbind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
           end
         end
 
@@ -471,7 +483,9 @@ module LavinMQ
             @replaying = true
             @consumer_ex = consumer_ex
           end
-          @federated_ex.bindings_details.each do |binding|
+          snapshot = @federated_ex.bindings_details
+          unbind_removed_bindings(consumer_ex, snapshot)
+          snapshot.each do |binding|
             apply_binding_change(consumer_ex, BindingChange::Bind, binding)
           end
           loop do
@@ -494,6 +508,22 @@ module LavinMQ
           @replay_lock.synchronize do
             @replaying = false
             @replay_queue.clear
+          end
+        end
+
+        # Unbind upstream bindings this link created that are no longer in the
+        # downstream snapshot: they were removed while the link was
+        # disconnected, so #unbound never saw them, and they would otherwise
+        # stay bound upstream forever, forwarding messages the downstream no
+        # longer wants.
+        private def unbind_removed_bindings(consumer_ex, snapshot)
+          desired = snapshot.map(&.binding_key.properties_key).to_set
+          removed = @replay_lock.synchronize do
+            @upstream_bindings.reject { |key, _| desired.includes?(key) }
+          end
+          removed.each do |key, (routing_key, args)|
+            consumer_ex.unbind(@upstream_exchange, routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
           end
         end
 

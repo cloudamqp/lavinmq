@@ -846,6 +846,45 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should remove bindings removed while the link is disconnected" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.with_gated_proxy(s) do |url, accepted, gate|
+          upstream_vhost = s.vhosts.create("upstream")
+          downstream_vhost = s.vhosts.create("downstream")
+          upstream = LavinMQ::Federation::Upstream.new(downstream_vhost,
+            "ef resync on reconnect", "#{url}/upstream", "upstream_ex",
+            reconnect_delay: 1.millisecond)
+          downstream_vhost.upstreams.add(upstream)
+          with_channel(s, vhost: "downstream") do |downstream_ch|
+            downstream_ch.exchange("downstream_ex", "topic")
+            downstream_q = downstream_ch.queue("downstream_q")
+            downstream_q.bind("downstream_ex", "keep")
+            downstream_q.bind("downstream_ex", "remove")
+
+            UpstreamSpecHelpers.start_link(upstream)
+            accepted.receive
+            gate.send nil # let the first connect through
+            link = wait_for { upstream.links.first?.try { |l| l if l.state.running? } }
+            upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
+            wait_for { upstream_ex.bindings_details.size == 2 }
+
+            upstream_vhost.each_connection do |conn|
+              conn.close if conn.client_name.starts_with?("Federation link")
+            end
+            accepted.receive # the link is parked in its reconnect
+            # (Regression: an unbind while the link is disconnected never
+            # reached the upstream, and the reconnect only added bindings.)
+            downstream_q.unbind("downstream_ex", "remove")
+            downstream_q.bind("downstream_ex", "added")
+            gate.close # let the reconnect through
+
+            wait_for { link.state.running? }
+            upstream_ex.bindings_details.map(&.routing_key).sort!.should eq ["added", "keep"]
+          end
+        end
+      end
+    end
+
     it "stops the link when the federated exchange is deleted" do
       with_amqp_server do |s|
         upstream, _, downstream_vhost =
