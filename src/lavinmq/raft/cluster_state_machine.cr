@@ -33,15 +33,19 @@ module LavinMQ::Raft
     end
 
     def apply(entry : ClusterCommand) : Nil
+      isr_changed = false
       @mutex.synchronize do
         case entry
         in ClusterCommand::SetSecret then @secret = entry.secret
         in ClusterCommand::SetIsr
           @isr = entry.node_ids.dup
-          signal_isr_changed
+          isr_changed = true
         in ClusterCommand then raise "BUG: unhandled ClusterCommand variant: #{entry.class}"
         end
       end
+      # Signal after releasing the mutex — a woken waiter immediately reads
+      # through it, and would otherwise block on the lock we still hold.
+      signal_isr_changed if isr_changed
     end
 
     # Wake every consumer currently blocked on @isr_changed.receive — and,
@@ -69,17 +73,15 @@ module LavinMQ::Raft
       version = io.read_bytes(UInt8, fmt)
       raise InvalidSnapshotVersion.new(version) unless version == SNAPSHOT_VERSION
       secret_len = io.read_bytes(UInt32, fmt)
-      buf = Bytes.new(secret_len)
-      io.read_fully(buf)
-      secret = String.new(buf)
+      secret = io.read_string(secret_len)
       isr_count = io.read_bytes(UInt32, fmt)
       isr = Set(Int32).new(initial_capacity: isr_count.to_i32)
       isr_count.times { isr.add(io.read_bytes(Int32, fmt)) }
       @mutex.synchronize do
         @secret = secret
         @isr = isr
-        signal_isr_changed
       end
+      signal_isr_changed
     end
 
     class InvalidSnapshotVersion < Exception
