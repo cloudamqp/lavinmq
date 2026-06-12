@@ -545,7 +545,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_delivered_total", "counter",
           "Total number of messages delivered to consumers for this queue")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_delivered_total", q.deliver_get_count, labels)
           end
@@ -554,7 +554,7 @@ module LavinMQ
         writer.write_header("detailed_queue_messages_acked_total", "counter",
           "Total number of messages acknowledged for this queue")
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_acked_total", q.ack_count, labels)
           end
