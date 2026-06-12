@@ -304,9 +304,8 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
-        @ack_loops.add # before spawn, so a concurrent #close can't miss the fiber
-        spawn send_ack_loop(@acks, socket), name: "Send ack loop"
+        acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -449,8 +448,6 @@ module LavinMQ
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
-      ensure
-        @ack_loops.done
       end
 
       # Make all replicated writes durable before acking the leader.

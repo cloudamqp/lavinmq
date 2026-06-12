@@ -557,6 +557,50 @@ module FollowerSpec
     end
   end
 
+  describe "#request_flush" do
+    # Regression: @flush_requested was a Channel(Nil), and receive? returns
+    # nil both for a delivered message and for a closed channel, so
+    # flush_loop exited on the first request without ever flushing — every
+    # confirm then waited for ack_loop's 100ms fallback flush instead.
+    it "pushes buffered bytes to the follower without waiting for the ack-loop fallback flush" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        spawn { follower.ack_loop }
+
+        # A small append stays in the LZ4 writer's buffer (auto_flush is
+        # off); only a flush moves it to the socket.
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+
+        received = Channel(String).new(1)
+        spawn do
+          client_lz4 = Compress::LZ4::Reader.new(client_socket)
+          read_filename(client_lz4)
+          size = read_data_size(client_lz4)
+          buf = Bytes.new(size.abs)
+          client_lz4.read_fully(buf)
+          received.send String.new(buf)
+        rescue IO::Error
+          # socket closed at spec end
+        end
+
+        follower.request_flush
+        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
+        select
+        when payload = received.receive
+          payload.should eq "hello world"
+        when timeout(50.milliseconds)
+          fail "request_flush did not flush buffered bytes to the follower"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
   describe "#close" do
     # Regression: a follower whose join failed after mark_synced! (e.g. the
     # ISR commit raised) never runs ack_loop, so ack_loop's ensure never

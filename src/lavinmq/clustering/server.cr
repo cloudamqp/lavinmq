@@ -120,10 +120,11 @@ module LavinMQ
       def append_value(path : String, value : UInt32 | Int32, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
+        size = sizeof(Int32).to_i64 # value is 4 bytes on the wire (Int32 or UInt32)
         each_follower do |f|
-          case skip = f.already_synced(path, offset, 4i64)
-          when 0 then f.append(path, value)
-          when 4 then next # entirely within the follower's full_sync snapshot
+          case skip = f.already_synced(path, offset, size)
+          when 0    then f.append(path, value)
+          when size then next # entirely within the follower's full_sync snapshot
           else
             # A 4-byte value is written in a single call, so a cut inside it
             # shouldn't happen; stay byte-exact anyway and send the tail.
@@ -252,13 +253,13 @@ module LavinMQ
 
       def followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.synced?) # for thread safety
+          @followers.select(&.synced?) # select returns new array => thread safe
         end
       end
 
       def syncing_followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.syncing?) # for thread safety
+          @followers.select(&.syncing?) # select returns new array => thread safe
         end
       end
 
@@ -303,59 +304,7 @@ module LavinMQ
           end
           @followers << follower # Starts in Syncing state
         end
-        begin
-          # Only allow one follower to do full sync at a time
-          # The bandwidth between nodes should be very high, so
-          # better with one fully synced than 2 partially synced followers
-          # @sync_lock is always acquired before @lock to avoid deadlock
-          @sync_lock.synchronize do
-            follower.full_sync # sync the bulk
-            @lock.synchronize do
-              # Capture the per-file cut BEFORE the last sync and cap the sync to
-              # it, so what full_sync sends equals the baseline exactly. A larger
-              # mfile.size from an in-flight write (local write done, replication
-              # dispatch still pending) is excluded here and delivered via the
-              # stream instead of being duplicated — wholly, or just the record's
-              # tail if the cut landed mid-record (Follower#already_synced).
-              cut = snapshot_sizes
-              follower.full_sync(cut) # sync the last, capped at the cut
-              follower.capture_synced_baseline(cut)
-              follower.mark_synced! # Change state to Synced
-              update_isr
-            end
-          end
-          # Wait for follower to disconnect or be closed
-          follower.ack_loop
-        ensure
-          # Covers everything after registration, including a full_sync that
-          # raised or an update_isr that failed right after mark_synced! — a
-          # follower left in @followers as Synced with no ack_loop running
-          # would hang every wait_for_confirm forever.
-          @lock.synchronize do
-            @followers.delete(follower)
-            if follower.synced?
-              # If the follower was behind (unacked replicated data) when it
-              # dropped, it may be missing data that's about to be confirmed via
-              # the surviving followers, so it must leave the etcd ISR now rather
-              # than lazily — otherwise it could be promoted on failover lacking
-              # already-confirmed data. A caught-up follower (no lag) still has
-              # everything confirmed so far, so we leave it in the ISR as a valid
-              # failover candidate; the dirty ISR is flushed before the next
-              # replicated durable operation returns (each_follower) and before
-              # the next publish confirm (Persister), so nothing it lacks is
-              # ever acknowledged while it remains listed.
-              behind = follower.lag_in_bytes > 0
-              @dirty_isr = true
-              if behind
-                begin
-                  update_isr # @dirty_isr stays set, so the lazy path retries on failure
-                rescue ex
-                  Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
-                end
-              end
-            end
-          end
-        end
+        sync_and_serve(follower)
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
@@ -366,6 +315,62 @@ module LavinMQ
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
+      end
+
+      # Full-sync an already-registered follower into the Synced state, then
+      # serve its ack loop until it disconnects or is closed.
+      private def sync_and_serve(follower : Follower) : Nil
+        # Only allow one follower to do full sync at a time
+        # The bandwidth between nodes should be very high, so
+        # better with one fully synced than 2 partially synced followers
+        # @sync_lock is always acquired before @lock to avoid deadlock
+        @sync_lock.synchronize do
+          follower.full_sync # sync the bulk
+          @lock.synchronize do
+            # Capture the per-file cut BEFORE the last sync and cap the sync to
+            # it, so what full_sync sends equals the baseline exactly. A larger
+            # mfile.size from an in-flight write (local write done, replication
+            # dispatch still pending) is excluded here and delivered via the
+            # stream instead of being duplicated — wholly, or just the record's
+            # tail if the cut landed mid-record (Follower#already_synced).
+            cut = snapshot_sizes
+            follower.full_sync(cut) # sync the last, capped at the cut
+            follower.capture_synced_baseline(cut)
+            follower.mark_synced! # Change state to Synced
+            update_isr
+          end
+        end
+        # Wait for follower to disconnect or be closed
+        follower.ack_loop
+      ensure
+        # Covers everything after registration, including a full_sync that
+        # raised or an update_isr that failed right after mark_synced! — a
+        # follower left in @followers as Synced with no ack_loop running
+        # would hang every wait_for_confirm forever.
+        @lock.synchronize do
+          @followers.delete(follower)
+          if follower.synced?
+            # If the follower was behind (unacked replicated data) when it
+            # dropped, it may be missing data that's about to be confirmed via
+            # the surviving followers, so it must leave the etcd ISR now rather
+            # than lazily — otherwise it could be promoted on failover lacking
+            # already-confirmed data. A caught-up follower (no lag) still has
+            # everything confirmed so far, so we leave it in the ISR as a valid
+            # failover candidate; the dirty ISR is flushed before the next
+            # replicated durable operation returns (each_follower) and before
+            # the next publish confirm (Persister), so nothing it lacks is
+            # ever acknowledged while it remains listed.
+            behind = follower.lag_in_bytes > 0
+            @dirty_isr = true
+            if behind
+              begin
+                update_isr # @dirty_isr stays set, so the lazy path retries on failure
+              rescue ex
+                Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
+              end
+            end
+          end
+        end
       end
 
       private def update_isr

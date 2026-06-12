@@ -26,8 +26,9 @@ module LavinMQ
       # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
       # Wakes flush_loop; capacity 1 so a burst of requests coalesces into one
-      # flush. Closed when ack_loop ends, stopping flush_loop.
-      @flush_requested = ::Channel(Nil).new(1)
+      # flush. Closed when ack_loop ends, stopping flush_loop. Carries Bool
+      # (not Nil) so receive? distinguishes a request (true) from close (nil).
+      @flush_requested = ::Channel(Bool).new(1)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -72,7 +73,7 @@ module LavinMQ
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
-        spawn(name: "Clustering follower flush loop") { flush_loop }
+        @running.spawn(name: "Clustering follower flush loop") { flush_loop }
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
@@ -140,19 +141,16 @@ module LavinMQ
       # (ack_loop keeps a read pending on it), and a write that blocks from
       # another context raises instead of waiting.
       private def flush_loop
-        @running.add
         while @flush_requested.receive?
           flush
         end
-      ensure
-        @running.done
       end
 
       # Ask flush_loop to push buffered bytes to the follower. Never blocks
       # and never touches the socket, so it's safe to call from any execution
       # context (see flush_loop).
       def request_flush : Nil
-        @flush_requested.try_send(nil)
+        @flush_requested.try_send(true)
       rescue ::Channel::ClosedError
       end
 
