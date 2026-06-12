@@ -26,6 +26,29 @@ module MessageRoutingSpec
         matches(x, "foo").should be_empty
       end
     end
+
+    it "doesn't grow bindings storage when routing unbound routing keys" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        x.bind(q1, "bound", LavinMQ::AMQP::Table.new)
+        10.times do |i|
+          matches(x, "unbound#{i}").should be_empty
+        end
+        x.@bindings.size.should eq 1
+      end
+    end
+
+    it "returns false when unbinding a never-bound routing key" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        x.unbind(q1, "never-bound").should be_false
+        x.@bindings.size.should eq 0
+      end
+    end
   end
 
   describe LavinMQ::AMQP::FanoutExchange do
@@ -60,6 +83,12 @@ module MessageRoutingSpec
         x.bind(q1, "*.test")
         matches(x, "rk2.test").should eq(Set{q1})
         x.unbind(q1, "*.test")
+      end
+
+      it "returns false when unbinding a never-bound routing key" do
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        x.unbind(q1, "never.bound").should be_false
+        x.@bindings.size.should eq 0
       end
 
       it "matches exact rk" do
@@ -376,6 +405,48 @@ module MessageRoutingSpec
           x.bind(q13, "", nil)
           matches(x, "", nil).size.should eq 1
         end
+      end
+
+      describe "x-match default" do
+        it "defaults to all when binding has no x-match" do
+          q = LavinMQ::QueueFactory.make(vhost, "q")
+          bind_hdrs = LavinMQ::AMQP::Table.new({"org" => "84codes", "user" => "test"})
+          x.bind(q, "", bind_hdrs)
+          matches(x, "", LavinMQ::AMQP::Table.new({"org" => "84codes", "user" => "test"})).should eq Set{q}
+          matches(x, "", LavinMQ::AMQP::Table.new({"org" => "84codes"})).should be_empty
+        end
+
+        it "uses x-match from exchange arguments as default" do
+          ex_args = LavinMQ::AMQP::Table.new({"x-match" => "any"})
+          x2 = LavinMQ::AMQP::HeadersExchange.new(vhost, "h2", false, false, true, ex_args)
+          q = LavinMQ::QueueFactory.make(vhost, "q")
+          bind_hdrs = LavinMQ::AMQP::Table.new({"org" => "84codes", "user" => "test"})
+          x2.bind(q, "", bind_hdrs)
+          matches(x2, "", LavinMQ::AMQP::Table.new({"org" => "84codes"})).should eq Set{q}
+        end
+
+        it "binding x-match overrides exchange argument default" do
+          ex_args = LavinMQ::AMQP::Table.new({"x-match" => "any"})
+          x2 = LavinMQ::AMQP::HeadersExchange.new(vhost, "h2", false, false, true, ex_args)
+          q = LavinMQ::QueueFactory.make(vhost, "q")
+          bind_hdrs = LavinMQ::AMQP::Table.new({"x-match" => "all", "org" => "84codes", "user" => "test"})
+          x2.bind(q, "", bind_hdrs)
+          matches(x2, "", LavinMQ::AMQP::Table.new({"org" => "84codes"})).should be_empty
+        end
+      end
+
+      it "matches any non-empty headers but not empty headers when args only have x- keys" do
+        q = LavinMQ::QueueFactory.make(vhost, "q")
+        x.bind(q, "", LavinMQ::AMQP::Table.new({"x-match" => "all"}))
+        matches(x, "", LavinMQ::AMQP::Table.new({"any" => "thing"})).should eq Set{q}
+        matches(x, "", nil).should be_empty
+        matches(x, "", LavinMQ::AMQP::Table.new).should be_empty
+      end
+
+      it "returns false when unbinding never-bound arguments" do
+        q = LavinMQ::QueueFactory.make(vhost, "q")
+        x.unbind(q, "", LavinMQ::AMQP::Table.new({"never" => "bound"})).should be_false
+        x.@bindings.size.should eq 0
       end
     end
   end
