@@ -1,15 +1,14 @@
 module LavinMQ
   module HTTP
     module StatsHelpers
+      # logs_b is a read-only view, so pad only logs_a and right-align the sum.
       def add_logs!(logs_a, logs_b)
         until logs_a.size >= logs_b.size
           logs_a.unshift 0
         end
-        until logs_b.size >= logs_a.size
-          logs_b.unshift 0
-        end
-        logs_a.size.times do |i|
-          logs_a[i] += logs_b[i]
+        offset = logs_a.size - logs_b.size
+        logs_b.size.times do |i|
+          logs_a[offset + i] += logs_b[i]
         end
         logs_a
       end
