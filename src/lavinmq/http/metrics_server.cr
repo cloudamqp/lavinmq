@@ -4,7 +4,6 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/prometheus"
-require "./raft_handler_wrapper"
 require "../raft/cluster_command"
 require "../raft/elector"
 

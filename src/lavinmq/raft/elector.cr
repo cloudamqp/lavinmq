@@ -5,7 +5,6 @@ require "http/headers"
 require "json"
 require "../clustering/client"
 require "../clustering/elector"
-require "../http/raft_handler_wrapper"
 require "./server"
 require "./coordinator"
 
@@ -49,17 +48,15 @@ module LavinMQ::Raft
 
     # Read-only /raft/status|log|metrics surface. Safe to mount without
     # authentication (e.g. on the metrics port).
-    def status_handler : LavinMQ::HTTP::RaftHandlerWrapper
-      LavinMQ::HTTP::RaftHandlerWrapper.new(
-        ::Raft::HTTP::StatusHandler(ClusterCommand).new(@server.node, @transport, advertised_address))
+    def status_handler : ::Raft::HTTP::StatusHandler
+      ::Raft::HTTP::StatusHandler.new(@server.node, @transport, advertised_address)
     end
 
     # Mutating POST /raft/admin/* surface. Mount only behind authentication.
     # Hands the raw Node to the handler for now; mutations should be marshaled
-    # through Server#run_on_tick once the handler accepts an interface.
-    def admin_handler : LavinMQ::HTTP::RaftHandlerWrapper
-      LavinMQ::HTTP::RaftHandlerWrapper.new(
-        ::Raft::HTTP::AdminHandler(ClusterCommand).new(@server.node, @transport))
+    # through Server#run_on_tick once the handler accepts a thread-safe facade.
+    def admin_handler : ::Raft::HTTP::AdminHandler
+      ::Raft::HTTP::AdminHandler.new(@server.node, @transport)
     end
 
     def campaign(& : ->)
@@ -120,28 +117,22 @@ module LavinMQ::Raft
     def perform_join(leader_uri : String) : Nil
       uri = URI.parse(leader_uri)
       raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
-      path = "/raft/admin/add_server/#{@server.node_id}"
-      body = {"address" => build_advertised_address}.to_json
-      headers = ::HTTP::Headers{"Content-Type" => "application/json"}
+      address = build_advertised_address
       last_error = "unknown error"
-      user = uri.user
-      password = uri.password
       JOIN_MAX_ATTEMPTS.times do |attempt|
-        client = ::HTTP::Client.new(uri)
-        client.basic_auth(user, password) if user
         begin
-          response = client.post(path, headers: headers, body: body)
-          if response.status_code == 200
+          # The route and payload format are raft.cr's contract; AdminClient
+          # keeps them in the shard. We own retry policy here.
+          status = ::Raft::HTTP::AdminClient.add_server(uri, @server.node_id.to_u64, address)
+          if status.ok?
             Log.info { "Joined cluster via #{leader_uri} on attempt #{attempt + 1}" }
             return
           end
-          last_error = "HTTP #{response.status_code} #{response.body}"
+          last_error = "HTTP #{status.code}"
           Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} got #{last_error}" }
         rescue ex
           last_error = ex.message.to_s
           Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} failed: #{ex.message}" }
-        ensure
-          client.close rescue nil
         end
         sleep JOIN_RETRY_INTERVAL unless attempt == JOIN_MAX_ATTEMPTS - 1
       end

@@ -9,7 +9,6 @@ require "../amqp/server"
 require "../auth/user"
 require "../mqtt/server"
 require "../raft/elector"
-require "./raft_handler_wrapper"
 
 class HTTP::Server::Context
   property user : LavinMQ::Auth::BaseUser? = nil
