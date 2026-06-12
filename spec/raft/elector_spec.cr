@@ -3,7 +3,6 @@ require "file_utils"
 require "http/server"
 require "json"
 require "../../src/lavinmq/raft/elector"
-require "../../src/lavinmq/http/raft_handler_wrapper"
 
 private def tmp_data_dir : String
   dir = File.tempname("raft-elector-spec")

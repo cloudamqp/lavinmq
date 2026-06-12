@@ -7,7 +7,6 @@ require "./controller"
 require "./controller/*"
 require "../auth/user"
 require "../raft/elector"
-require "./raft_handler_wrapper"
 
 class HTTP::Server::Context
   property user : LavinMQ::Auth::BaseUser? = nil
