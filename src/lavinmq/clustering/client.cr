@@ -2,7 +2,7 @@ require "systemd"
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
-require "../raft/runner"
+require "../raft/elector"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -24,7 +24,7 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_runner : ::LavinMQ::Raft::Runner? = nil)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_elector : ::LavinMQ::Raft::Elector? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -52,7 +52,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_runner: @raft_runner)
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_elector: @raft_elector)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen

@@ -6,7 +6,7 @@ require "./handler/*"
 require "./controller"
 require "./controller/*"
 require "../auth/user"
-require "../raft/runner"
+require "../raft/elector"
 require "./raft_handler_wrapper"
 
 class HTTP::Server::Context
@@ -62,10 +62,10 @@ module LavinMQ
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
-        if raft_runner = runner.as?(LavinMQ::Raft::Runner)
-          handlers << raft_runner.status_handler
+        if raft_elector = runner.as?(LavinMQ::Raft::Elector)
+          handlers << raft_elector.status_handler
           handlers << AdminGuard.new("/raft/admin/")
-          handlers << raft_runner.admin_handler
+          handlers << raft_elector.admin_handler
         end
         @http = ::HTTP::Server.new(handlers)
       end

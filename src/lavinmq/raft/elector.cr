@@ -4,13 +4,14 @@ require "http/client"
 require "http/headers"
 require "json"
 require "../clustering/client"
+require "../clustering/elector"
 require "../http/raft_handler_wrapper"
 require "./server"
 require "./coordinator"
 
 module LavinMQ::Raft
-  class Runner
-    Log = LavinMQ::Log.for "raft.runner"
+  class Elector < Clustering::Elector
+    Log = LavinMQ::Log.for "raft.elector"
 
     getter server : Server
     getter coordinator : Coordinator
@@ -61,7 +62,7 @@ module LavinMQ::Raft
         ::Raft::HTTP::AdminHandler(ClusterCommand).new(@server.node, @transport))
     end
 
-    def run(&)
+    def campaign(& : ->)
       @transport.start
       @server.start
       # Callback fires on the tick fiber; never block it. Enqueue
@@ -73,7 +74,7 @@ module LavinMQ::Raft
           # Channel full — drop; next change will reconcile.
         end
       end
-      spawn(name: "raft.runner follow_leader") { follow_leader_loop }
+      spawn(name: "raft.elector follow_leader") { follow_leader_loop }
 
       maybe_bootstrap_or_join
 
@@ -218,7 +219,7 @@ module LavinMQ::Raft
       data_uri = lookup_data_uri(new_leader_id)
       return unless data_uri
       @repli_client = client = ::LavinMQ::Clustering::Client.new(
-        @config, @server.node_id, @coordinator.password, raft_runner: self)
+        @config, @server.node_id, @coordinator.password, raft_elector: self)
       spawn(name: "Clustering client #{data_uri}") { client.follow(data_uri) }
     end
 

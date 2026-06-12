@@ -1,9 +1,10 @@
 require "../etcd"
+require "./elector"
 require "./client"
 require "./etcd_coordinator"
 
-class LavinMQ::Clustering::Controller
-  Log = LavinMQ::Log.for "clustering.controller"
+class LavinMQ::Clustering::EtcdElector < LavinMQ::Clustering::Elector
+  Log = LavinMQ::Log.for "clustering.etcd_elector"
 
   getter id : Int32
 
@@ -26,7 +27,7 @@ class LavinMQ::Clustering::Controller
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
 
-  def run(&)
+  def campaign(& : ->)
     # Every node ensures the clustering secret exists before campaigning or
     # following (put_or_get — first writer wins). If only the elected leader
     # wrote it, a follower could miss the leader's first write:
