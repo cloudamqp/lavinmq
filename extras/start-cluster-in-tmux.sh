@@ -13,7 +13,7 @@ NODES=${1:-3}
 
 node_cmd() {
   local n=$1
-  echo "bin/lavinmq --data-dir=/tmp/amqp$n --bind=127.$n --metrics-http-bind=127.$n --control-unix-path=/tmp/lavinmqctl$n.sock --clustering --clustering-bind=127.$n --clustering-advertised-uri=tcp://127.$n:5679"
+  echo "bin/lavinmq --data-dir=/tmp/amqp$n --bind=127.$n --metrics-http-bind=127.$n --clustering --clustering-bind=127.$n --clustering-advertised-uri=tcp://127.$n:5679"
 }
 
 # Create new window with first node
