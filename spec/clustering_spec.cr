@@ -51,7 +51,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
-describe LavinMQ::Clustering::Client, tags: "etcd" do
+describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
   add_etcd_around_each
 
   it "can stream changes" do
@@ -170,7 +170,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "will failover" do
+  it "will failover", tags: "slow" do
     config1 = LavinMQ::Config.new
     config1.data_dir = "/tmp/failover1"
     config1.clustering_etcd_endpoints = "localhost:12379"
@@ -224,7 +224,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "will release lease on shutdown" do
+  it "will release lease on shutdown", tags: "slow" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"
     config.clustering = true
@@ -502,7 +502,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "removes .queue file from follower when queue is deleted" do
+  it "removes .queue file from follower when queue is deleted", tags: "slow" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         wait_for { cluster.replicator.followers.first?.try &.synced? }

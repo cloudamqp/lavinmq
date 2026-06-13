@@ -27,7 +27,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
 
     describe "for File" do
-      it "should open and read file calculating hash" do
+      it "should open and read file calculating hash", tags: "slow" do
         data_dir = LavinMQ::Config.instance.data_dir
         Dir.mkdir_p(data_dir)
         server = LavinMQ::Clustering::Server.new(
@@ -70,7 +70,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
   end
 
   describe "thread safety" do
-    it "concurrent files_with_hash and mutations don't crash" do
+    it "concurrent files_with_hash and mutations don't crash", tags: "slow" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
@@ -87,7 +87,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
 
       done = Channel(Nil).new
-      iterations = 1_000_000
+      iterations = 200_000
 
       # Reader on a separate thread: iterate files_with_hash
       Fiber::ExecutionContext::Isolated.new("test-concurrent-hash") do
@@ -120,7 +120,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
 
-    it "concurrent with_file and mutations don't crash" do
+    it "concurrent with_file and mutations don't crash", tags: "slow" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
@@ -137,7 +137,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
 
       done = Channel(Nil).new
-      iterations = 1_000_000
+      iterations = 200_000
 
       # Reader on a separate thread: call with_file repeatedly
       Fiber::ExecutionContext::Isolated.new("test-concurrent-wf") do

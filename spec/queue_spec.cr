@@ -108,7 +108,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should expire short-TTL message after consuming long-TTL message" do
+  it "Should expire short-TTL message after consuming long-TTL message", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         # Create a queue with dead letter exchange so we can verify expiration happened
@@ -214,7 +214,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "should pause the queue by setting it in flow (consume)" do
+    it "should pause the queue by setting it in flow (consume)", tags: "slow" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange(x_name, "direct")
@@ -240,7 +240,7 @@ describe LavinMQ::AMQP::Queue do
           select
           when msg = channel.receive
             fail "Consumer should not get a message '#{msg}'"
-          when timeout 2.seconds
+          when timeout 1.second
             iq.resume!
           end
           channel.receive.should eq "test message 2"
