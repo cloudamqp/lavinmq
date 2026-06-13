@@ -13,8 +13,8 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
-      @acked_bytes = 0_i64
-      @sent_bytes = 0_i64
+      getter acked_bytes = 0_i64
+      getter sent_bytes = 0_i64
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing

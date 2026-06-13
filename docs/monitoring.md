@@ -67,6 +67,9 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `stats_system_collection_duration_seconds` | gauge | Time to collect system metrics |
 | `total_connected_followers` | gauge | Number of follower nodes connected |
 | `follower_lag_in_bytes` | gauge | Bytes not yet synchronized to a follower (labeled by `id`) |
+| `follower_bytes_sent_total` | counter | Total bytes sent to a follower for replication (labeled by `id`), served on the leader |
+| `follower_bytes_acked_total` | counter | Total bytes acknowledged as received by a follower (labeled by `id`), served on the leader |
+| `cluster_received_bytes_total` | counter | Total bytes received from the leader for replication (labeled by `leader` address), served on a follower |
 | `mfile_count` | gauge | Number of memory-mapped files (`MFile` instances) currently open |
 
 #### Garbage collection

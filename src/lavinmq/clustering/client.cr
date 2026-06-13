@@ -18,7 +18,7 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
-      @streamed_bytes = 0_u64
+      getter streamed_bytes = 0_u64
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
 
@@ -50,10 +50,19 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
+        end
+      end
+
+      # Address of the leader this follower is currently replicating from, or
+      # nil before `follow` has connected. Used as the `leader` label on the
+      # `cluster_received_bytes_total` metric.
+      def leader_address : String?
+        if (host = @host) && (port = @port)
+          "#{host}:#{port}"
         end
       end
 

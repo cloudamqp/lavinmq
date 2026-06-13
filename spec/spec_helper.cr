@@ -205,6 +205,18 @@ def with_follower_metrics_server(&)
   end
 end
 
+def serve_follower_metrics(clustering_client, &)
+  h = LavinMQ::HTTP::MetricsServer.new(clustering_client: clustering_client)
+  begin
+    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    spawn(name: "follower metrics listen") { h.listen }
+    Fiber.yield
+    yield HTTPSpecHelper.new(addr)
+  ensure
+    h.close
+  end
+end
+
 struct HTTPSpecHelper
   def initialize(@addr : Socket::IPAddress)
   end
