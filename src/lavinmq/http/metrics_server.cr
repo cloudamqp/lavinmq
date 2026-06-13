@@ -10,12 +10,12 @@ module LavinMQ
     class MetricsServer
       Log = LavinMQ::Log.for "metrics.server"
 
-      def initialize(amqp_server : LavinMQ::Server? = nil)
+      def initialize(amqp_server : LavinMQ::Server? = nil, clustering_client : LavinMQ::Clustering::Client? = nil)
         @closed = false
         controller = if s = amqp_server
                        PrometheusController.new(s, require_authentication: false)
                      else
-                       FollowerPrometheusController.new
+                       FollowerPrometheusController.new(clustering_client)
                      end
         handlers = [
           ApiErrorHandler.new,
