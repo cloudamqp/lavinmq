@@ -15,15 +15,28 @@ module LavinMQ
 
       def self.from_parameters(parameters : JSON::Any)
         new(
-          jitter: parameters["dest-jitter"]?.try &.as_f? || 1.0,
-          backoff: parameters["dest-backoff"]?.try &.as_f? || 2.0,
-          timeout: parameters["dest-timeout"]?.try &.as_f? || 30.0,
-          max_retries: parameters["dest-max-retries"]?.try &.as_i? || 0
+          jitter: as_float(parameters["dest-jitter"]?) || 1.0,
+          backoff: as_float(parameters["dest-backoff"]?) || 2.0,
+          timeout: as_float(parameters["dest-timeout"]?) || 30.0,
+          max_retries: as_int(parameters["dest-max-retries"]?) || 0
         )
+      end
+
+      # Accept both JSON integer and float forms (e.g. `2` and `2.0`).
+      private def self.as_float(value : JSON::Any?) : Float64?
+        return nil unless value
+        value.as_f? || value.as_i?.try(&.to_f)
+      end
+
+      private def self.as_int(value : JSON::Any?) : Int32?
+        return nil unless value
+        value.as_i? || value.as_f?.try(&.to_i)
       end
     end
 
     class HTTPDestination < Destination
+      Log = LavinMQ::Log.for "shovel.http_destination"
+
       @client : ::HTTP::Client?
 
       def initialize(@name : String, @uri : URI, @parameters : HTTPDestinationParameters, @ack_mode = DEFAULT_ACK_MODE)
@@ -32,7 +45,7 @@ module LavinMQ
       def start
         return if started?
         client = ::HTTP::Client.new @uri
-        client.connect_timeout = 10.seconds
+        client.connect_timeout = @parameters.timeout.seconds
         client.read_timeout = @parameters.timeout.seconds
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
@@ -68,6 +81,13 @@ module LavinMQ
         success = push_and_maybe_retry(@ack_mode) do
           msg.body_io.rewind
           c.post(path, headers: headers, body: msg.body_io).success?
+        rescue ex : IO::Error | OpenSSL::SSL::Error
+          # Timeouts, connection resets/refused etc. count as a failed attempt
+          # so the retry loop applies; close the client to force a clean
+          # reconnect on the next attempt.
+          Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
+          c.close
+          false
         end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish

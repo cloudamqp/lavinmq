@@ -49,7 +49,7 @@ A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message 
 | `dest-max-retries` | `0` | Number of times to retry a failed delivery (non-2xx response or timeout) before the delivery fails. `0` disables retries. Only applies to the `on-confirm` and `on-publish` ack modes. |
 | `dest-backoff` | `2.0` | Base, in seconds, for the exponential backoff between retries; the delay before retry _n_ is `backoff`<sup>_n_</sup> seconds. |
 | `dest-jitter` | `1.0` | Maximum random delay, in seconds, added to each backoff to spread out retries. |
-| `dest-timeout` | `30.0` | Per-request HTTP read timeout, in seconds. |
+| `dest-timeout` | `30.0` | HTTP connect and read timeout, in seconds, applied to each attempt. |
 
 The AMQP message is mapped to the HTTP request as follows:
 
