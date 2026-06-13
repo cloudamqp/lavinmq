@@ -4,11 +4,23 @@ require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
+require "wait_group"
 
 module LavinMQ
   module Clustering
     class Client
       Log = LavinMQ::Log.for "clustering.client"
+
+      # Buffer used when streaming replicated file changes to disk. Matches
+      # LZ4::Reader's internal 64 KiB buffer.
+      BUFFER_SIZE = 64 * 1024
+
+      # Capacity of the channel buffering acks from the stream-reading fiber to
+      # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
+      # drains and coalesces it continuously), so a fixed size is fine; the
+      # leader's ack deadline, not this, governs how far a follower may lag.
+      ACK_BUFFER_CAPACITY = 8192
+
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
@@ -21,6 +33,13 @@ module LavinMQ
       @streamed_bytes = 0_u64
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
+      # Buffers acks from the stream-reading fiber to the ack-sending fiber.
+      # Replaced with a fresh channel on each (re)connect in #stream_changes.
+      @acks = Channel(Int64).new
+      # Tracks the ack-sending fiber: #close must wait for it to finish before
+      # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
+      # it sends — even acks still buffered in @acks after the stream ends.
+      @ack_loops = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -31,6 +50,8 @@ module LavinMQ
           h[k] = File.open(path, "a").tap &.sync = true
         end
         Dir.mkdir_p @data_dir
+        @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
+        raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
@@ -267,7 +288,7 @@ module LavinMQ
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
-          buffer = uninitialized UInt8[65536]
+          buffer = uninitialized UInt8[BUFFER_SIZE]
           remaining = length
           sha1 = Digest::SHA1.new
           while (len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
@@ -283,8 +304,8 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
-        spawn send_ack_loop(acks, socket), name: "Send ack loop"
+        acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -292,20 +313,28 @@ module LavinMQ
           filename = lz4.read_string(filename_len)
 
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          # For append/replace the framing bytes (length headers + filename)
+          # are acked up front and the payload is acked incrementally as it's
+          # written (see stream_with_checksum), so a single large action keeps
+          # the leader's progress deadline reset instead of going silent until
+          # it's done. For a delete the framing is the entire record — acking
+          # it tells the leader the deletion is durable — so it's only acked
+          # once the deletion has been applied.
+          framing = sizeof(Int32) + filename_len + sizeof(Int64)
           case len
           when .negative? # append bytes to file
+            ack(framing)
             append(filename, len, lz4)
           when .zero? # file is deleted
             delete(filename)
+            ack(framing)
           when .positive? # replace file
+            ack(framing)
             replace(filename, len, lz4)
           end
-          ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
-          @streamed_bytes &+= ack_bytes
-          acks.send(ack_bytes)
         end
       ensure
-        acks.try &.close
+        @acks.close
       end
 
       private def append(filename, len, lz4)
@@ -338,12 +367,23 @@ module LavinMQ
       private def delete_empty_dirs(dir)
         while dir != "."
           path = File.join(@data_dir, dir)
-          Dir.delete?(path) || break
+          rmdir(path) || break
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
       rescue ex : File::Error
         Log.error(exception: ex) { "Could not delete #{dir}: #{ex.message}" }
+      end
+
+      # rmdir returns false if the dir isn't empty, true if it was removed, and raises on other errors (e.g. permissions).
+      private def rmdir(path)
+        if LibC.rmdir(path.check_no_null_byte) == 0
+          true
+        elsif Errno.value.in?(Errno::ENOTEMPTY, Errno::EEXIST, Errno::ENOENT)
+          false
+        else
+          raise ::File::Error.from_errno("Unable to remove directory", file: path)
+        end
       end
 
       private def replace(filename, len, lz4)
@@ -357,41 +397,89 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          stream_with_checksum(filename, lz4, f, len)
+          # The record's final ack tells the leader the replace is durable, so
+          # it must not be sent while the new content only exists as the .tmp
+          # file; hold it back until the rename has installed the file.
+          deferred = stream_with_checksum(filename, lz4, f, len, defer_final_ack: true)
           f.rename f.path[0..-5]
+          ack(deferred)
         end
       end
 
-      # Read from lz4, update SHA1, and write to file incrementally
-      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
+      # Read from lz4, update SHA1, and write to file incrementally.
+      # Returns the number of bytes received but not yet acked (see below).
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false) : Int64
         # Get or create SHA1 digest for this file
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
-        # Read, hash, and write incrementally
-        buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]
+        # Read, hash, and write incrementally. Each chunk is acked as soon as
+        # it's persisted so the leader sees continuous progress within a large
+        # action and won't evict us on its ack deadline (a 128 MiB message would
+        # otherwise stream for >10s with no ack on a 100 Mbit/s link).
+        # With defer_final_ack the last chunk is not acked but its size
+        # returned, for callers that must apply the action (replace's rename)
+        # before the leader may consider it durable.
+        buffer = uninitialized UInt8[BUFFER_SIZE]
         remaining = length
         while remaining > 0
-          read_len = Math.min(remaining, buffer.size)
-          bytes = buffer.to_slice[0, read_len]
-          lz4.read_fully(bytes)
+          len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, remaining)])
+          raise IO::EOFError.new if len.zero?
+          bytes = buffer.to_slice[0, len]
           file.write(bytes)
           sha1.update(bytes)
-          remaining -= read_len
+          remaining -= len
+          return len.to_i64 if remaining.zero? && defer_final_ack
+          ack(len)
         end
+        0i64
       end
 
-      # Concatenate as many acks as possible to generate few TCP packets
+      # Count streamed bytes and forward the count to the ack-sending fiber.
+      private def ack(bytes : Int) : Nil
+        n = bytes.to_i64
+        @streamed_bytes &+= n
+        @acks.send(n)
+      end
+
+      # Concatenate as many acks as possible to generate few TCP packets.
+      # Data is synced to disk before each ack is sent unless sync is disabled:
+      # the leader holds publish confirms until in-sync followers have acked,
+      # so an acked byte must be durable here in normal operation. Syncing once
+      # per coalesced batch makes batching emerge naturally — acks accumulate
+      # while the blocking syncfs runs.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
+          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
+      end
+
+      # Make all replicated writes durable before acking the leader.
+      private def sync_to_disk : Nil
+        return unless @config.sync?
+
+        sync_data_dir
+      rescue ex
+        # Can't ack data that isn't durable; die fast so the leader drops us
+        # from the in-sync set and stops confirming publishes on our acks.
+        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
+      end
+
+      private def sync_data_dir : Nil
+        {% if flag?(:linux) %}
+          ret = LibC.syncfs(@data_dir_fd)
+          raise IO::Error.from_errno("syncfs") if ret != 0
+        {% else %}
+          LibC.sync
+        {% end %}
       end
 
       private def log_streamed_bytes_loop
@@ -433,12 +521,21 @@ module LavinMQ
         when timeout(5.seconds)
           Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
         end
+        # The ack loop keeps draining acks buffered in @acks even after the
+        # channel is closed, syncing to disk before each send. Wait for it to
+        # finish before closing @data_dir_fd below, or its syncfs would hit a
+        # closed (or worse, reused) fd and the process would exit 1 mid
+        # shutdown/promotion. Closing @acks is normally done by stream_changes,
+        # but do it here too in case the follower loop is stuck.
+        @acks.close
+        @ack_loops.wait
         # Finalize all pending checksums
         @file_digests.each do |filename, sha1|
           @checksums[filename] = sha1.final
         end
         @file_digests.clear
         @checksums.store
+        LibC.close(@data_dir_fd) if @data_dir_fd >= 0
         @data_dir_lock.release
         @metrics_server.try &.close
       end

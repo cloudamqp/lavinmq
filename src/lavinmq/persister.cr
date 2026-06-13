@@ -1,6 +1,8 @@
 require "./config"
 require "./logger"
 require "./amqp/channel"
+require "./clustering/replicator"
+require "./clustering/follower"
 require "sync/exclusive"
 
 module LavinMQ
@@ -13,9 +15,14 @@ module LavinMQ
 
     @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
+    # Confirm acks accumulated since the last drain. The follower set is
+    # decided at drain time against the in-sync set as it exists then (see
+    # Clustering::Server#wait_for_followers), which is safe because a
+    # follower only reaches the in-sync set after a full_sync that includes
+    # every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
 
-    def initialize(data_dir : String)
+    def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
       # Run on a dedicated thread so the blocking syncfs(2) syscall only stalls
@@ -24,14 +31,13 @@ module LavinMQ
     end
 
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      if Config.instance.sync?
-        @pending_acks.lock do |acks|
-          acks[channel] = msgid
-        end
+      if Config.instance.sync? || @replicator
+        @pending_acks.lock { |acks| acks[channel] = msgid }
         @publish_confirm_requested.try_send true
       else
         # If sync is disabled, we can confirm immediately without waiting for
-        # the publish confirm loop to flush to disk.
+        # the publish confirm loop to flush to disk. Clustered nodes still use
+        # the loop so no-sync only skips local syncfs, not follower/ISR fences.
         channel.enqueue_confirm_ack(msgid)
       end
     rescue ::Channel::ClosedError
@@ -77,12 +83,28 @@ module LavinMQ
       end
       return unless acks
 
-      begin
-        sync
-      rescue ex
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-        exit 1
+      # Ask each follower's flush fiber to push the pending replicated bytes,
+      # so they persist and ack them while our own syncfs runs. Only a
+      # request: this loop runs on an isolated thread and must never write
+      # the follower sockets itself — their fds belong to the default
+      # execution context's event loop (see Follower#flush_loop).
+      @replicator.try &.followers.each &.request_flush
+      if Config.instance.sync?
+        begin
+          sync
+        rescue ex
+          Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+          exit 1
+        end
       end
+      # Block until every in-sync follower has acked the replicated bytes and
+      # any ISR shrink is committed to the coordinator, so a confirm means
+      # the data is durable on the leader (syncfs, done above) and on every
+      # node that could be promoted on failover. While the coordinator is
+      # unreachable confirms stall (publishers time out, message state stays
+      # uncertain — never falsely confirmed), and if it stays unreachable the
+      # leader's lease expires and the process exits.
+      @replicator.try &.wait_for_followers
 
       acks.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
