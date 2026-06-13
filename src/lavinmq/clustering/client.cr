@@ -37,8 +37,8 @@ module LavinMQ
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
       # Tracks the ack-sending fiber: #close must wait for it to finish before
-      # closing @data_dir_fd, since it syncs (syncfs on that fd) before every
-      # ack it sends — even acks still buffered in @acks after the stream ends.
+      # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
+      # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
@@ -442,11 +442,11 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent: the leader holds
-      # publish confirms until in-sync followers have acked, so an acked
-      # byte must be durable here. Syncing once per coalesced
-      # batch makes batching emerge naturally — acks accumulate while the
-      # blocking syncfs runs.
+      # Data is synced to disk before each ack is sent unless sync is disabled:
+      # the leader holds publish confirms until in-sync followers have acked,
+      # so an acked byte must be durable here in normal operation. Syncing once
+      # per coalesced batch makes batching emerge naturally — acks accumulate
+      # while the blocking syncfs runs.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
@@ -463,17 +463,23 @@ module LavinMQ
 
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
+        return unless @config.sync?
+
+        sync_data_dir
+      rescue ex
+        # Can't ack data that isn't durable; die fast so the leader drops us
+        # from the in-sync set and stops confirming publishes on our acks.
+        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
+      end
+
+      private def sync_data_dir : Nil
         {% if flag?(:linux) %}
           ret = LibC.syncfs(@data_dir_fd)
           raise IO::Error.from_errno("syncfs") if ret != 0
         {% else %}
           LibC.sync
         {% end %}
-      rescue ex
-        # Can't ack data that isn't durable; die fast so the leader drops us
-        # from the in-sync set and stops confirming publishes on our acks.
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-        exit 1
       end
 
       private def log_streamed_bytes_loop

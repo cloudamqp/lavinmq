@@ -51,6 +51,29 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
+class SelfLeaderEtcd < LavinMQ::Etcd
+  getter observed = Channel(Nil).new(1)
+
+  def initialize(@uri : String)
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    @observed.send nil
+    yield @uri
+  end
+end
+
+class SelfLeaderController < LavinMQ::Clustering::Controller
+  def follow_leader_public
+    follow_leader
+  end
+
+  def mark_elected_for_spec
+    @elected_leader.set(true)
+  end
+end
+
 describe LavinMQ::Clustering::Client, tags: "etcd" do
   add_etcd_around_each
 
@@ -349,6 +372,35 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   ensure
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
+  end
+
+  it "does not reject its own URI while leadership is validating ISR" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://localhost:5685"
+      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!)
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      controller = SelfLeaderController.new(config, etcd, coordinator)
+      done = Channel(Exception?).new(1)
+
+      spawn(name: "self leader follower monitor spec") do
+        controller.follow_leader_public
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+
+      etcd.observed.receive
+      controller.mark_elected_for_spec
+
+      select
+      when ex = done.receive
+        ex.should be_nil
+      when timeout(500.milliseconds)
+        fail "follower monitor kept waiting after this node won the election"
+      end
+    end
   end
 
   it "will release lease on shutdown" do

@@ -31,12 +31,13 @@ module LavinMQ
     end
 
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      if Config.instance.sync?
+      if Config.instance.sync? || @replicator
         @pending_acks.lock { |acks| acks[channel] = msgid }
         @publish_confirm_requested.try_send true
       else
         # If sync is disabled, we can confirm immediately without waiting for
-        # the publish confirm loop to flush to disk.
+        # the publish confirm loop to flush to disk. Clustered nodes still use
+        # the loop so no-sync only skips local syncfs, not follower/ISR fences.
         channel.enqueue_confirm_ack(msgid)
       end
     rescue ::Channel::ClosedError
@@ -88,11 +89,13 @@ module LavinMQ
       # the follower sockets itself — their fds belong to the default
       # execution context's event loop (see Follower#flush_loop).
       @replicator.try &.followers.each &.request_flush
-      begin
-        sync
-      rescue ex
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-        exit 1
+      if Config.instance.sync?
+        begin
+          sync
+        rescue ex
+          Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+          exit 1
+        end
       end
       # Block until every in-sync follower has acked the replicated bytes and
       # any ISR shrink is committed to the coordinator, so a confirm means

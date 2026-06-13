@@ -317,6 +317,88 @@ describe LavinMQ::Clustering::Server do
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
 
+    it "flushes a dirty ISR before delivering a publish confirm when sync is disabled" do
+      LavinMQ::Config.instance.sync = false
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr no-sync confirm flush spec")
+
+      follower_id = 9
+      client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+      wait_for { server.followers.any? &.id.== follower_id }
+
+      client_io.close # caught-up disconnect: stays in the ISR, marks it dirty
+      wait_for { server.followers.empty? }
+      coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
+
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("isr_no_sync_confirm_flush", durable: true)
+          q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
+        end
+      end
+      coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "waits for in-sync follower acks before confirming when sync is disabled" do
+      LavinMQ::Config.instance.sync = false
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr no-sync confirm ack spec")
+
+      follower_id = 8
+      client_io = nil.as(TCPSocket?)
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("isr_no_sync_confirm_ack", durable: true)
+          client_io = sync_follower(server, tcp_server.local_address.port, follower_id)
+          wait_for { server.followers.any? &.id.== follower_id }
+
+          q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+          wait_for { server.followers.find(&.id.== follower_id).try { |f| f.lag_in_bytes > 0 } }
+
+          confirmed = Channel(Bool).new(1)
+          spawn(name: "no-sync wait_for_confirms spec") do
+            confirmed.send(ch.wait_for_confirms)
+          rescue
+            confirmed.close
+          end
+
+          select
+          when confirmed.receive
+            fail "confirm delivered before the in-sync follower acked"
+          when timeout(300.milliseconds)
+          end
+
+          follower = server.followers.find!(&.id.== follower_id)
+          client_io.not_nil!.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+          select
+          when ok = confirmed.receive
+            ok.should be_true
+          when timeout(5.seconds)
+            fail "confirm never delivered after the in-sync follower acked"
+          end
+        end
+      end
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
     it "stalls publish confirms until a dead follower's ISR removal is committed" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)

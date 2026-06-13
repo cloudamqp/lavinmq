@@ -18,7 +18,7 @@ class LavinMQ::Clustering::Controller
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
-    @is_leader = BoolChannel.new(false)
+    @elected_leader = BoolChannel.new(false)
   end
 
   # This method is called by the Launcher#run.
@@ -31,8 +31,8 @@ class LavinMQ::Clustering::Controller
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
+    @elected_leader.set(true)
     ensure_in_isr!
-    @is_leader.set(true)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     yield
@@ -92,9 +92,9 @@ class LavinMQ::Clustering::Controller
       end
       if uri == @advertised_uri # if this instance has become leader
         select
-        when @is_leader.when_true.receive
-          Log.debug { "Is leader, don't replicate from self" }
-          @is_leader.close
+        when @elected_leader.when_true.receive
+          Log.debug { "Elected leader, don't replicate from self" }
+          @elected_leader.close
           return
         when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")

@@ -18,7 +18,7 @@ module ClientSyncSpec
     getter syncs_started = 0
     getter? synced_on_closed_fd = false
 
-    private def sync_to_disk : Nil
+    private def sync_data_dir : Nil
       @syncs_started += 1
       sleep @sync_delay unless @sync_delay.zero?
       if LibC.fcntl(@data_dir_fd, LibC::F_GETFD, 0) == -1
@@ -29,9 +29,10 @@ module ClientSyncSpec
     end
   end
 
-  def self.make_client(data_dir : String) : TestClient
+  def self.make_client(data_dir : String, sync = true) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
+    config.sync = sync
     config.metrics_http_port = -1
     TestClient.new(config, 1, "password", proxy: false)
   end
@@ -118,6 +119,42 @@ module ClientSyncSpec
           acked.should eq(framing + payload_size)
 
           File.size(File.join(data_dir, filename)).should eq payload_size
+          client_socket.close
+        end
+      end
+
+      it "skips local sync before acking streamed bytes when sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "no_sync_stream_file"
+          payload = "replicated bytes"
+          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+
+          spawn(name: "client no-sync stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          lz4_writer.write filename.to_slice
+          lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          lz4_writer.write payload.to_slice
+          lz4_writer.flush
+
+          leader_io.read_timeout = 2.seconds
+          acked = 0i64
+          while acked < framing + payload.bytesize
+            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+          end
+
+          acked.should eq framing + payload.bytesize
+          client.syncs_started.should eq 0
+          File.read(File.join(data_dir, filename)).should eq payload
           client_socket.close
         end
       end
