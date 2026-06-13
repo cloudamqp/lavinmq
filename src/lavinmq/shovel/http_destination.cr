@@ -1,19 +1,52 @@
 require "http/client"
 require "./destination"
+require "./retrier"
 
 module LavinMQ
   module Shovel
+    struct HTTPDestinationParameters
+      getter jitter : Float64
+      getter backoff : Float64
+      getter timeout : Float64
+      getter max_retries : Int32
+
+      def initialize(@jitter, @backoff, @timeout, @max_retries)
+      end
+
+      def self.from_parameters(parameters : JSON::Any)
+        new(
+          jitter: as_float(parameters["dest-jitter"]?) || 1.0,
+          backoff: as_float(parameters["dest-backoff"]?) || 2.0,
+          timeout: as_float(parameters["dest-timeout"]?) || 30.0,
+          max_retries: as_int(parameters["dest-max-retries"]?) || 0
+        )
+      end
+
+      # Accept both JSON integer and float forms (e.g. `2` and `2.0`).
+      private def self.as_float(value : JSON::Any?) : Float64?
+        return nil unless value
+        value.as_f? || value.as_i?.try(&.to_f)
+      end
+
+      private def self.as_int(value : JSON::Any?) : Int32?
+        return nil unless value
+        value.as_i? || value.as_f?.try(&.to_i)
+      end
+    end
+
     class HTTPDestination < Destination
+      Log = LavinMQ::Log.for "shovel.http_destination"
+
       @client : ::HTTP::Client?
 
-      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE)
+      def initialize(@name : String, @uri : URI, @parameters : HTTPDestinationParameters, @ack_mode = DEFAULT_ACK_MODE)
       end
 
       def start
         return if started?
         client = ::HTTP::Client.new @uri
-        client.connect_timeout = 10.seconds
-        client.read_timeout = 30.seconds
+        client.connect_timeout = @parameters.timeout.seconds
+        client.read_timeout = @parameters.timeout.seconds
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
       end
@@ -45,13 +78,33 @@ module LavinMQ
                else
                  "/"
                end
-        response = c.post(path, headers: headers, body: msg.body_io)
+        success = push_and_maybe_retry(@ack_mode) do
+          msg.body_io.rewind
+          c.post(path, headers: headers, body: msg.body_io).success?
+        rescue ex : IO::Error | OpenSSL::SSL::Error
+          # Timeouts, connection resets/refused etc. count as a failed attempt
+          # so the retry loop applies; close the client to force a clean
+          # reconnect on the next attempt.
+          Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
+          c.close
+          false
+        end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
-          raise FailedDeliveryError.new unless response.success?
+          raise FailedDeliveryError.new unless success
           source.ack(msg.delivery_tag)
         in AckMode::NoAck
         end
+      end
+
+      private def push_and_maybe_retry(ack_mode, &push : -> Bool)
+        return Retrier.push_with_retry(
+          @parameters.max_retries,
+          @parameters.jitter,
+          @parameters.backoff,
+          &push
+        ) unless ack_mode == AckMode::NoAck
+        push.call
       end
     end
   end

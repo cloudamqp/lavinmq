@@ -43,9 +43,13 @@ A shovel consists of:
 
 A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message to the endpoint instead of republishing it over AMQP. Useful for delivering broker traffic to webhook receivers, serverless handlers, or any HTTP service.
 
-| Parameter | Description |
-|-----------|-------------|
-| `dest-uri` | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `dest-uri` | (required) | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
+| `dest-max-retries` | `0` | Number of times to retry a failed delivery (non-2xx response or timeout) before the delivery fails. `0` disables retries. Only applies to the `on-confirm` and `on-publish` ack modes. |
+| `dest-backoff` | `2.0` | Base, in seconds, for the exponential backoff between retries; the delay before retry _n_ is `backoff`<sup>_n_</sup> seconds. |
+| `dest-jitter` | `1.0` | Maximum random delay, in seconds, added to each backoff to spread out retries. |
+| `dest-timeout` | `30.0` | HTTP connect and read timeout, in seconds, applied to each attempt. |
 
 The AMQP message is mapped to the HTTP request as follows:
 
@@ -60,7 +64,7 @@ The AMQP message is mapped to the HTTP request as follows:
 | `X-<header>` | One header per AMQP header on the message |
 | `User-Agent` | `LavinMQ` |
 
-For `on-confirm` and `on-publish` ack modes, the source delivery is acked only when the destination returns a 2xx response; any other status triggers the shovel's reconnect/retry path. `no-ack` skips the check.
+For `on-confirm` and `on-publish` ack modes, a delivery is considered successful only when the endpoint returns a 2xx response. A non-2xx response (or a timeout) is retried in place up to `dest-max-retries` times with exponential backoff (`dest-backoff` plus `dest-jitter`) before the delivery fails and the shovel's reconnect path takes over; the full message body is resent on every attempt. `no-ack` makes a single POST and never retries, regardless of the response.
 
 ## Multi-Destination
 
