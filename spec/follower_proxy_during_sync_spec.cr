@@ -7,8 +7,8 @@ require "../src/lavinmq/proxy_protocol"
 # Create a custom slow clustering server for testing
 class SlowClusteringServer < LavinMQ::Clustering::Server
   # Override files_with_hash to add delays during sync to simulate slow network
-  def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-    super do |tuple|
+  def files_with_hash(caps : Hash(String, Int64)? = nil, & : Tuple(String, Bytes) -> Nil)
+    super(caps) do |tuple|
       sleep 0.1.seconds
       yield tuple
     end
@@ -32,7 +32,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
-    slow_replicator = SlowClusteringServer.new(leader_config, LavinMQ::Clustering::EtcdCoordinator.new(leader_config, LavinMQ::Etcd.new("localhost:12379")), 0)
+    slow_replicator = SlowClusteringServer.new(leader_config, NullCoordinator.new, 0)
     leader_tcp_server = TCPServer.new("localhost", 0)
     spawn(slow_replicator.listen(leader_tcp_server), name: "slow leader clustering")
 

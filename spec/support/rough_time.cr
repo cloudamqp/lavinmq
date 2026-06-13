@@ -34,7 +34,7 @@ module RoughTime
 
   def self.travel(time : Time::Span)
     @@paused_utc += time
-    @@paused_unix_ms += @@paused_utc.to_unix_ms // 100 * 100
+    @@paused_unix_ms = @@paused_utc.to_unix_ms // 100 * 100
     @@paused_instant += time
   end
 

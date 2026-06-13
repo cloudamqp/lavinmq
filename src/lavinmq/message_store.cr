@@ -177,8 +177,9 @@ module LavinMQ
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
       begin
+        ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
-        @replicator.try &.append(afile.path, sp.position)
+        @replicator.try &.append_value(afile.path, sp.position, ack_offset)
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -355,7 +356,7 @@ module LavinMQ
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
-      @replicator.try &.append path, Schema::VERSION
+      @replicator.try &.append_value path, Schema::VERSION, 0i64
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
       delete_unused_segments
@@ -463,7 +464,7 @@ module LavinMQ
 
         if was_empty
           file.write_bytes Schema::VERSION
-          @replicator.try &.append path, Schema::VERSION
+          @replicator.try &.append_value path, Schema::VERSION, 0i64
         else
           begin
             SchemaVersion.verify(file, :message)
@@ -474,7 +475,7 @@ module LavinMQ
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = MFile.new(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
-              @replicator.try &.append path, Schema::VERSION
+              @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
               @segments.delete seg
               next

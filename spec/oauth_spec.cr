@@ -527,3 +527,20 @@ describe LavinMQ::Auth::OAuthUser do
     end
   end
 end
+
+describe LavinMQ::HTTP::OAuthController do
+  it "is not registered when no OAuth authenticator is configured" do
+    with_http_server do |http, _|
+      response = http.get "/oauth/enabled"
+      response.status_code.should eq 404
+    end
+  end
+
+  it "is registered when a bare OAuth authenticator is used" do
+    oauth = create_oauth_test_authenticator
+    with_http_server(authenticator: oauth) do |http, _|
+      response = http.get "/oauth/enabled"
+      response.status_code.should eq 200
+    end
+  end
+end

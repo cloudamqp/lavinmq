@@ -451,6 +451,12 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
+          # @consumer_ex must be set before the observer is registered:
+          # bind/unbind events are dropped while it's nil, and a binding made
+          # in that window would never be propagated to the upstream exchange.
+          # Bindings made before registration are covered by the snapshot
+          # below (exchanges store bindings before notifying observers).
+          @consumer_ex = consumer_ex
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
@@ -459,12 +465,12 @@ module LavinMQ
             end
           end
           upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
-          {ch, consumer_ex, upstream_q}
+          {ch, upstream_q}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_ex, upstream_q = setup(upstream_connection)
+            upstream_channel, upstream_q = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)

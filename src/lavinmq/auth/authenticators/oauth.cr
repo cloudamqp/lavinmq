@@ -8,14 +8,12 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
+      getter token_verifier : JWT::TokenVerifier
+
       def initialize(@token_verifier : JWT::TokenVerifier)
       end
 
       def authenticate(context : Context) : BaseUser?
-        if @token_verifier.fetcher.public_keys.empty?
-          Log.warn { "OAuth authenticator isn't initialized correctly, missing public keys" }
-          return nil
-        end
         claims = @token_verifier.parse_token(String.new(context.password))
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, @token_verifier)
       rescue ex : JWT::PasswordFormatError
