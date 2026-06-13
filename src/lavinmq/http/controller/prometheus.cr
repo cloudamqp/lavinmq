@@ -543,7 +543,7 @@ module LavinMQ
         end
 
         writer.write_header("detailed_queue_messages_delivered_total", "counter",
-          "Total number of messages delivered to consumers for this queue")
+          "Total number of messages delivered to consumers or fetched via basic.get for this queue")
         vhosts.each do |vhost|
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
