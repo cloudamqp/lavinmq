@@ -6,8 +6,6 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
-# Parses the value of a single labeled Prometheus sample from a /metrics body.
-# Returns nil if no line matches the metric name and all given labels.
 private def metric_value(body : String, name : String, labels : Hash(String, String)) : Float64?
   body.each_line do |line|
     next unless line.starts_with?("#{name}{")
@@ -180,7 +178,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
-  it "exposes inter-node replication byte counters [#2049]" do
+  it "exposes inter-node replication byte counters" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         with_channel(s) do |ch|
@@ -191,7 +189,6 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
         follower_id = cluster.replicator.followers.first.id.to_s(36)
 
-        # Leader exposes per-follower sent/acked byte counters
         serve_metrics(s) do |http|
           body = http.get("/metrics").body
           sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id})
@@ -202,7 +199,6 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           acked.not_nil!.should be > 0
         end
 
-        # Follower exposes bytes received from the leader, labeled by leader address
         serve_follower_metrics(cluster.repli) do |http|
           body = http.get("/metrics").body
           leader = cluster.repli.leader_address.not_nil!
