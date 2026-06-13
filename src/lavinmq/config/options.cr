@@ -311,10 +311,17 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"
 
-      @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions", section: "clustering")]
+      # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
+      # but has no effect. The follower ack buffer is a fixed size now and how far
+      # a follower may lag is governed by the leader's ack deadline, not this.
+      @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "(Deprecated) No longer used", section: "clustering")]
       @[IniOpt(ini_name: max_unsynced_actions, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
-      property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
+      @clustering_max_unsynced_actions = 8192 # deprecated, no longer used
+
+      def clustering_max_unsynced_actions=(_value)
+        @io.puts "WARNING: clustering_max_unsynced_actions is deprecated and has no effect"
+      end
 
       @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)", section: "clustering")]
       @[IniOpt(ini_name: port, section: "clustering")]
@@ -394,6 +401,10 @@ module LavinMQ
       property oauth_audience : String? = nil
       @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
       property oauth_jwks_cache_ttl : Time::Span = 1.hours
+      @[IniOpt(section: "oauth", ini_name: client_id)]
+      property oauth_client_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: mgmt_base_url)]
+      property oauth_mgmt_base_url : URI? = nil
 
       # Internal: not exposed as configurable, only used for testing
       property deliver_loop_idle_timeout : Time::Span = 30.seconds

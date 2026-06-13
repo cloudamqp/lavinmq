@@ -111,9 +111,10 @@ module LavinMQ
       private def add_to_index(topic : String, file_name : String) : Nil
         @index.insert topic, file_name
         line = "#{topic}\n".to_slice
+        offset = @index_file.size.to_i64
         @index_file.write line
         @index_file.flush
-        @replicator.try &.append(@index_file_name, line)
+        @replicator.try &.append_bytes(@index_file_name, line, offset)
       end
 
       private def delete_from_index(topic : String) : Nil

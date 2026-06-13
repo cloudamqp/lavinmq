@@ -108,7 +108,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
-| `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | Max unsynced actions before sync |
+| `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |
 
@@ -117,12 +117,14 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | INI Key | Type | Default | Description |
 |---------|------|---------|-------------|
 | `issuer` | URI | (none) | OAuth2/OIDC issuer URL |
+| `client_id` | String | (none) | OAuth2 client ID. Required to enable management UI SSO login |
+| `mgmt_base_url` | URI | (none) | Public base URL of the management UI. Setting it together with `issuer` and `client_id` enables the SSO login button. Must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host. When `verify_aud` is true, SSO tokens must match `audience` or `resource_server_id` |
 | `resource_server_id` | String | (none) | Resource server identifier |
 | `preferred_username_claims` | Array | `["sub", "client_id"]` | JWT claims for username extraction |
 | `additional_scopes_keys` | Array | `[]` | Additional JWT claims to check for scopes |
 | `scope_prefix` | String | (none) | Prefix to strip from scope strings |
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
-| `audience` | String | (none) | Expected JWT audience |
+| `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
 ## [experimental] Section

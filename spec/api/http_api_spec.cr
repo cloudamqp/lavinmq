@@ -300,7 +300,7 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
-    it "should sort results by nested keys" do
+    it "should sort results by nested keys", tags: "slow" do
       stats_interval = LavinMQ::Config.instance.stats_interval
       LavinMQ::Config.instance.stats_interval = 1000
       with_http_server do |http, s|

@@ -124,10 +124,11 @@ end
 
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     authenticator : LavinMQ::Auth::Authenticator? = nil,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
-  s = LavinMQ::Server.new(config, replicator)
+  s = LavinMQ::Server.new(config, replicator, authenticator)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
@@ -162,8 +163,9 @@ def with_amqp_server(tls = false, replicator = nil,
   end
 end
 
-def with_http_server(file = __FILE__, line = __LINE__, &)
-  with_amqp_server(file: file, line: line) do |s|
+def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     file = __FILE__, line = __LINE__, &)
+  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
     h = LavinMQ::HTTP::Server.new(s)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)

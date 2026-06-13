@@ -41,6 +41,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `channels` | gauge | Channels currently open |
 | `consumers` | gauge | Consumers currently connected |
 | `queues` | gauge | Queues available |
+| `bindings` | gauge | Bindings currently configured |
 | `queue_messages_ready` | gauge | Messages ready to be delivered to consumers |
 | `queue_messages_unacked` | gauge | Messages delivered to consumers but not yet acknowledged |
 | `queue_messages` | gauge | Sum of ready and unacknowledged messages (total queue depth) |
