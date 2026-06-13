@@ -15,7 +15,7 @@ describe "clustering join-during-publish race", tags: "etcd" do
     follower_dir = File.tempname
     Dir.mkdir follower_dir
     config = LavinMQ::Config.instance # leader uses the example's data dir
-    replicator = LavinMQ::Clustering::Server.new(config, LavinMQ::Clustering::EtcdCoordinator.new(config, LavinMQ::Etcd.new("localhost:12379")), 0)
+    replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     port = tcp_server.local_address.port
     spawn(replicator.listen(tcp_server), name: "repli server spec")
@@ -93,7 +93,7 @@ describe "clustering join-during-publish race", tags: "etcd" do
     follower_dir = File.tempname
     Dir.mkdir follower_dir
     config = LavinMQ::Config.instance
-    replicator = LavinMQ::Clustering::Server.new(config, LavinMQ::Clustering::EtcdCoordinator.new(config, LavinMQ::Etcd.new("localhost:12379")), 0)
+    replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     port = tcp_server.local_address.port
     spawn(replicator.listen(tcp_server), name: "repli server spec")

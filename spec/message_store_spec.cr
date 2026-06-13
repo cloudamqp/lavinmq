@@ -368,7 +368,7 @@ describe LavinMQ::MessageStore do
 
         # With a replicator (no followers), close spawns a fiber that races
         # with the constructor — this should close gracefully, not crash
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
           store.closed.should be_true
@@ -396,7 +396,7 @@ describe LavinMQ::MessageStore do
 
         # With a replicator (no followers), this should close gracefully
         # even though valid segments before the corrupt one were already loaded
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
           store.closed.should be_true

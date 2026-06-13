@@ -1,5 +1,6 @@
 require "../etcd"
 require "./client"
+require "./etcd_coordinator"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
@@ -10,10 +11,10 @@ class LavinMQ::Clustering::Controller
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
-    new(config, etcd)
+    new(config, etcd, EtcdCoordinator.new(config, etcd))
   end
 
-  def initialize(@config : Config, @etcd : Etcd)
+  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
@@ -29,7 +30,7 @@ class LavinMQ::Clustering::Controller
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
-    @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
+    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     ensure_in_isr!
     @is_leader.set(true)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
@@ -129,10 +130,10 @@ class LavinMQ::Clustering::Controller
   # releases the lease, withdraws the candidacy and lets an in-sync candidate
   # win; on restart wait_to_be_insync blocks until this node is re-synced.
   private def ensure_in_isr! : Nil
-    isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
+    isr = @coordinator.isr
     return if isr.nil? # no ISR recorded yet (fresh cluster)
-    return if isr.split(",").map(&.to_i(36)).includes?(@id)
-    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr}), stepping down" }
+    return if isr.includes?(@id)
+    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
     # Release the lease explicitly: the election key is bound to it, so this
     # revokes the just-won leadership at once instead of leaving the cluster
     # leaderless until the lease TTL expires.
@@ -145,14 +146,14 @@ class LavinMQ::Clustering::Controller
   end
 
   def wait_to_be_insync(lease)
-    if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
-      unless isr.split(",").map(&.to_i(36)).includes?(@id)
-        Log.info { "ISR: #{isr}" }
+    if isr = @coordinator.isr
+      unless isr.includes?(@id)
+        Log.info { "ISR: #{isr.to_a}" }
         Log.info { "Not in sync, waiting for a leader" }
         in_sync = Channel(Nil).new
         spawn do
-          @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
-            if value.try &.split(",").map(&.to_i(36)).includes?(@id)
+          @coordinator.watch_isr do |members|
+            if members.try &.includes?(@id)
               in_sync.close
               break
             end
