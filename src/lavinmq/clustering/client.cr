@@ -4,6 +4,7 @@ require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
+require "http/server"
 
 module LavinMQ
   module Clustering
@@ -18,6 +19,7 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
+      @internal_http_server : ::HTTP::Server?
       @streamed_bytes = 0_u64
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
@@ -46,7 +48,7 @@ module LavinMQ
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         start_metrics_server unless @config.metrics_http_port == -1
-        HTTP::Server.follower_internal_socket_http_server
+        @internal_http_server = HTTP::Server.follower_internal_socket_http_server
       end
 
       private def start_metrics_server
@@ -419,6 +421,7 @@ module LavinMQ
       def close
         return if @closed
         @closed = true
+        @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
