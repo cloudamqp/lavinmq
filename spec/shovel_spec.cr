@@ -983,7 +983,7 @@ describe LavinMQ::Shovel do
           spawn shovel.run
           should_eventually(eq 3) { http_server.get_fail_count(target_path) }
           http_server.received_bodies(target_path).should eq [payload, payload, payload]
-          should_eventually(eq 0) { s.vhosts["/"].queues[queue_name].message_count }
+          should_eventually(eq 0) { s.vhosts["/"].queue(queue_name).message_count }
         end
       end
     end
@@ -1025,7 +1025,7 @@ describe LavinMQ::Shovel do
           spawn shovel.run
           should_eventually(eq 3) { http_server.get_fail_count(target_path) }
           http_server.received_bodies(target_path).should eq [payload, payload, payload]
-          should_eventually(eq 0) { s.vhosts["/"].queues[queue_name].message_count }
+          should_eventually(eq 0) { s.vhosts["/"].queue(queue_name).message_count }
         end
       end
     end
