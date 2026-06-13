@@ -3,12 +3,13 @@ require "./file_index"
 require "./replicator"
 require "./follower"
 require "./checksums"
+require "./coordinator"
 require "../config"
 require "../message"
 require "../mfile"
 require "crypto/subtle"
 require "lz4"
-require "../etcd"
+require "sync/shared"
 
 module LavinMQ
   module Clustering
@@ -28,100 +29,158 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.server"
 
       @lock = Mutex.new(:unchecked)
+      @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
-      @files = Hash(String, MFile?).new
       @dirty_isr = true
       @id : Int32
       @config : Config
+      # Maps relative paths to their MFile (for sparse, mmap-backed files) or
+      # nil (for regular files where File.size is authoritative). MFile-backed
+      # segments are sparse: ftruncate'd to capacity then appended from the
+      # beginning, so we need mfile.size to know the real data length and
+      # mfile.to_slice to read from the mmap. Full-sync paths always read from
+      # disk via fresh File handles; only the append hot path reads the mmap.
+      @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      def initialize(config : Config, @etcd : Etcd, @id : Int32)
+      def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
-        @checksums = Checksums.new(@data_dir)
+        @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
       end
 
       def clear
-        @files.clear
-        @checksums.clear
+        @file_index.lock do |files, checksums|
+          files.clear
+          checksums.clear
+        end
+      end
+
+      def register_file(path : String)
+        path = strip_datadir path
+        @file_index.lock do |files, checksums|
+          files[path] = nil
+          checksums.delete(path)
+        end
       end
 
       def register_file(file : File)
-        path = strip_datadir file.path
-        @files[path] = nil
+        register_file file.path
       end
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
-        @files[path] = mfile
+        @file_index.lock do |files, checksums|
+          files[path] = mfile
+          checksums.delete(path)
+        end
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
         path = strip_datadir path
-        @files[path] = nil
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files[path] = nil
+          checksums.delete(path)
+        end
         each_follower &.replace(path)
       end
 
-      def append(path : String, obj)
+      # Replicate `length` bytes from `path` starting at `pos`. The bytes are
+      # read from the registered MFile's mmap — zero syscalls. Callers must
+      # have registered the path as an MFile first; for regular Files use the
+      # `append(path, bytes)` overload instead.
+      def append(path : String, pos : Int, length : Int)
         path = strip_datadir path
-        @checksums.delete(path)
-        each_follower &.append(path, obj)
+        mfile = @file_index.lock do |files, checksums|
+          checksums.delete(path)
+          files[path]?
+        end
+        raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
+        bytes = mfile.to_slice(pos.to_i64, length.to_i64)
+        each_follower &.append(path, bytes)
       end
 
-      def delete_file(path : String, wg)
+      # Replicate a small in-memory integer (e.g. Schema::VERSION, ack
+      # position). The follower writes it directly to its LZ4 stream — no
+      # heap allocation.
+      def append(path : String, value : UInt32 | Int32)
         path = strip_datadir path
-        @files.delete(path)
-        @checksums.delete(path)
-        each_follower &.delete(path, wg)
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        each_follower &.append(path, value)
+      end
+
+      # Replicate an in-memory byte buffer. Caller owns the buffer.
+      def append(path : String, bytes : Bytes)
+        path = strip_datadir path
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        each_follower &.append(path, bytes)
+      end
+
+      def delete_file(path : String)
+        path = strip_datadir path
+        @file_index.lock do |files, checksums|
+          files.delete(path)
+          checksums.delete(path)
+        end
+        each_follower &.delete(path)
       end
 
       def nr_of_files
-        @files.size
+        @file_index.shared { |files, _checksums| files.size }
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+        # Snapshot the index to allow safe iteration without holding the lock.
+        # Files are read from disk via File handles (no MFile mmap reads), so
+        # concurrent close of the MFile is harmless. For sparse MFile-backed
+        # files, we cap the hash at mfile.size to match the follower's
+        # contiguous (non-sparse) copy.
+        snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
-        @files.each do |path, mfile|
-          if calculated_hash = @checksums[path]?
-            yield({path, calculated_hash})
+        snapshot.each do |path, mfile|
+          cached_hash = @file_index.shared { |_files, checksums| checksums[path]? }
+          if cached_hash
+            yield({path, cached_hash})
           else
-            if file = mfile
-              sha1.update file.to_slice
-              file.dontneed
-            else
-              filename = File.join(@data_dir, path)
-              next unless File.exists? filename
-              sha1.file filename
+            filename = File.join(@data_dir, path)
+            begin
+              File.open(filename) do |f|
+                size = mfile ? mfile.size : f.size.to_i64
+                sha1.update IO::Sized.new(f, size)
+              end
+              hash = sha1.final
+              sha1.reset
+              @file_index.lock { |_files, checksums| checksums[path] = hash }
+              yield({path, hash})
+            rescue File::NotFoundError
+              next # File disappeared since we took the snapshot, just skip it.
             end
-            hash = sha1.final
-            @checksums[path] = hash
-            sha1.reset
-            Fiber.yield # CPU bound so allow other fibers to run here
-            yield({path, hash})
           end
         end
       end
 
-      def with_file(filename, & : MFile | File | Nil -> _)
-        if @files.has_key? filename
-          if mfile = @files[filename]
-            yield mfile
-          else
-            path = File.join(@data_dir, filename)
-            if File.exists? path
-              File.open(path) do |f|
-                f.read_buffering = false
-                yield f
-              end
-            else
-              yield nil
+      # Yields the file (or nil if missing) along with its real data size in
+      # bytes. For MFile-backed sparse files the size comes from mfile.size,
+      # not from File.size which would be the capacity.
+      def with_file(filename, & : File?, Int64 -> _)
+        # has_key? needed because a registered path with a nil MFile is
+        # different from a path that's not in the index at all.
+        has_key, mfile = @file_index.shared { |files, _checksums| {files.has_key?(filename), files[filename]?} }
+        if has_key
+          path = File.join(@data_dir, filename)
+          begin
+            File.open(path) do |f|
+              f.read_buffering = false
+              size = mfile ? mfile.size : f.size.to_i64
+              yield f, size
             end
+          rescue File::NotFoundError
+            yield nil, 0i64
           end
         else
-          yield nil
+          yield nil, 0i64
         end
       end
 
@@ -144,27 +203,21 @@ module LavinMQ
       end
 
       def password : String
-        key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        secret = Random::Secure.base64(32)
-        stored_secret = @etcd.put_or_get(key, secret)
-        if stored_secret == secret
-          Log.info { "Generated new clustering secret" }
-        end
-        stored_secret
+        @coordinator.password
       end
 
       @listeners = Array(TCPServer).new(1)
-      @mt = Fiber::ExecutionContext::Parallel.new("clustering-followers", 4)
 
       def listen(server : TCPServer)
         server.listen
-        @checksums.restore
+        # called before accepting followers, no lock needed
+        @file_index.lock { |_files, checksums| checksums.restore }
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
         loop do
           socket = server.accept? || break
-          @mt.spawn(name: "Clustering follower") { handle_socket(socket) }
+          spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
 
@@ -184,14 +237,21 @@ module LavinMQ
           end
           @followers << follower # Starts in Syncing state
         end
-        follower.full_sync # sync the bulk
-        @lock.synchronize do
-          follower.full_sync    # sync the last
-          follower.mark_synced! # Change state to Synced
-          update_isr
+        # Only allow one follower to do full sync at a time
+        # The bandwidth between nodes should be very high, so
+        # better with one fully synced than 2 partially synced followers
+        # @sync_lock is always acquired before @lock to avoid deadlock
+        @sync_lock.synchronize do
+          follower.full_sync # sync the bulk
+          @lock.synchronize do
+            follower.full_sync    # sync the last
+            follower.mark_synced! # Change state to Synced
+            update_isr
+          end
         end
         begin
-          follower.action_loop
+          # Wait for follower to disconnect or be closed
+          follower.ack_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
@@ -211,17 +271,13 @@ module LavinMQ
       end
 
       private def update_isr
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
-          @followers.each do |f|
-            next unless f.synced?
-            f.id.to_s(str, 36)
-            str << ","
-          end
-          @id.to_s(str, 36)
+        ids = Set(Int32).new
+        @followers.each do |f|
+          ids.add(f.id) if f.synced?
         end
-        Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
+        ids.add(@id)
+        Log.info { "In-sync replicas: #{ids.to_a}" }
+        @coordinator.update_isr(ids)
         @dirty_isr = false
       end
 
@@ -232,7 +288,7 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
-        @checksums.store
+        @file_index.lock { |_files, checksums| checksums.store }
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
@@ -241,7 +297,7 @@ module LavinMQ
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
-          rescue Channel::ClosedError
+          rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end

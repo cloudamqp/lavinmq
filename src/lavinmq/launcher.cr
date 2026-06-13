@@ -9,7 +9,10 @@ require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
+require "./clustering/etcd_coordinator"
 require "./standalone_runner"
+require "./definitions"
+require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
@@ -39,7 +42,8 @@ module LavinMQ
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         @runner = controller = Clustering::Controller.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, etcd, controller.id)
+        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
+        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
       end
@@ -48,8 +52,8 @@ module LavinMQ
         @amqp_tls_context = create_tls_context
         @mqtt_tls_context = create_tls_context
         @http_tls_context = create_tls_context
+        warn_if_ktls_unavailable if @config.tls_ktls?
       end
-      reload_tls_context
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
@@ -60,6 +64,7 @@ module LavinMQ
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+      load_definitions(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
@@ -67,6 +72,8 @@ module LavinMQ
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     def run
@@ -88,24 +95,7 @@ module LavinMQ
       @runner.stop
     end
 
-    private def print_ascii_logo
-      logo = <<-LOGO
-
-            ██╗      █████╗ ██╗   ██╗██╗███╗   ██╗███╗   ███╗ ██████╗
-            ██║     ██╔══██╗██║   ██║██║████╗  ██║████╗ ████║██╔═══██╗
-            ██║     ███████║██║   ██║██║██╔██╗ ██║██╔████╔██║██║   ██║
-            ██║     ██╔══██║╚██╗ ██╔╝██║██║╚██╗██║██║╚██╔╝██║██║▄▄ ██║
-            ███████╗██║  ██║ ╚████╔╝ ██║██║ ╚████║██║ ╚═╝ ██║╚██████╔╝
-            ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚══▀▀═╝
-
-                     The message broker built for peaks
-
-        LOGO
-      STDOUT.puts logo
-    end
-
     private def print_environment_info
-      print_ascii_logo unless @config.journald_stream? || @config.log_file
       LavinMQ::BUILD_INFO.each_line do |line|
         Log.info { line }
       end
@@ -134,10 +124,31 @@ module LavinMQ
       {% end %}
     end
 
+    private def load_definitions(amqp_server)
+      path = @config.load_definitions
+      return if path.empty?
+      GlobalDefinitions.import_from_file(path, amqp_server)
+    rescue ex : File::NotFoundError
+      Log.error { "Failed to load definitions: file '#{path}' does not exist" }
+      exit 1
+    rescue ex : File::AccessDeniedError
+      Log.error { "Failed to load definitions: cannot read '#{path}': permission denied" }
+      exit 1
+    rescue ex : JSON::ParseException
+      Log.error { "Failed to load definitions: invalid JSON in '#{path}': #{ex.message}" }
+      exit 1
+    rescue ex
+      Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
+      exit 1
+    end
+
     private def setup_log_exchange(amqp_server)
       return unless @config.log_exchange?
       exchange_name = "amq.lavinmq.log"
-      vhost = amqp_server.vhosts["/"]
+      unless vhost = amqp_server.vhosts["/"]?
+        Log.warn { "log_exchange enabled but default vhost \"/\" is missing, skipping" }
+        return
+      end
       vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
         log_channel = ::Log::InMemoryBackend.instance.add_channel
@@ -276,55 +287,62 @@ module LavinMQ
     end
 
     private def create_tls_context
-      context = OpenSSL::SSL::Context::Server.new
-      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-      context
+      ctx = OpenSSL::SSL::Context::Server.new
+      configure_tls_context(ctx)
+      ctx
+    end
+
+    private def warn_if_ktls_unavailable
+      {% if flag?(:linux) && compare_versions(LibSSL::OPENSSL_VERSION, "3.0.0") >= 0 %}
+        unless File.exists?("/sys/module/tls")
+          Log.warn { "Kernel TLS module not loaded, kTLS will not be available (run: modprobe tls)" }
+        end
+      {% end %}
     end
 
     private def reload_tls_context
-      if amqp_tls = @amqp_tls_context
-        configure_tls_context(amqp_tls)
+      {@amqp_tls_context, @mqtt_tls_context, @http_tls_context}.each do |ctx|
+        next if ctx.nil?
+        configure_tls_context(ctx)
       end
-      if mqtt_tls = @mqtt_tls_context
-        configure_tls_context(mqtt_tls)
-      end
-      if http_tls = @http_tls_context
-        configure_tls_context(http_tls)
-      end
-      # Reload SNI host contexts
       @config.sni_manager.reload
     end
 
-    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
+    private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
                            OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
       else
         Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
-      tls.certificate_chain = @config.tls_cert_path
-      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
-      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-      reload_ssl_keylog(tls)
+      ctx.certificate_chain = @config.tls_cert_path
+      ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+      ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      if @config.tls_ktls?
+        {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+          ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS)
+        {% end %}
+      end
+      reload_ssl_keylog(ctx)
     end
 
-    private def reload_ssl_keylog(tls)
+    private def reload_ssl_keylog(ctx)
       keylog_file = @config.tls_keylog_file
       keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       if keylog_file.empty?
-        tls.keylog_file = nil
+        ctx.keylog_file = nil
       else
-        tls.keylog_file = keylog_file
+        ctx.keylog_file = keylog_file
         Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
       end
     end

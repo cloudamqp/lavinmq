@@ -1,11 +1,12 @@
 function parseJSON (data) {
   try {
+    data = data.trim()
     if (data.length) {
       return JSON.parse(data)
     }
     return {}
   } catch (e) {
-    if (e instanceof SyntaxError) { window.alert('Input must be JSON') }
+    if (e instanceof SyntaxError) { toast.error('Input must be JSON') }
     throw e
   }
 }

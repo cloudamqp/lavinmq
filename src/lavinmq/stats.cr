@@ -1,5 +1,3 @@
-require "./config"
-
 module LavinMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w[])

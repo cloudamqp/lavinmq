@@ -1,5 +1,6 @@
 require "log"
 require "./lavinmq/version"
+require "./lavinmqperf/ticker"
 require "./lavinmqperf/amqp/*"
 require "./lavinmqperf/mqtt/*"
 require "./stdlib/*"

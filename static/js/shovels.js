@@ -53,7 +53,7 @@ class ShovelsDataSource extends UrlDataSource {
   }
 }
 const dataSource = new ShovelsDataSource(url, statusUrl)
-const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, dataSource }
+const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: false, dataSource }
 Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)

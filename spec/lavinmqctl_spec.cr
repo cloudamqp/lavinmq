@@ -4,6 +4,7 @@ require "../src/lavinmqctl/cli"
 # Helper to run lavinmqctl commands against test server
 def run_lavinmqctl(http_addr : String, argv : Array(String))
   stdout_capture = IO::Memory.new
+  stderr_capture = IO::Memory.new
   stderr = ""
   exit_code = 0
 
@@ -12,7 +13,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
     ARGV.clear
     ARGV.concat(["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"]).concat(argv)
 
-    cli = LavinMQCtl.new(stdout_capture)
+    cli = LavinMQCtl.new(stdout_capture, stderr_capture)
     cli.run_cmd
   rescue ex
     stderr = ex.message.to_s
@@ -24,7 +25,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
 
   {
     stdout: stdout_capture.to_s,
-    stderr: stderr,
+    stderr: stderr_capture.to_s + stderr,
     exit:   exit_code,
   }
 end
@@ -88,6 +89,7 @@ describe "LavinMQCtl" do
         result[:stdout].should contain("Version")
         result[:stdout].should contain("Connections")
         result[:stdout].should contain("Queues")
+        result[:stdout].should contain("Bindings")
       end
     end
 
@@ -99,6 +101,17 @@ describe "LavinMQCtl" do
         json.as_h?.should_not be_nil
         json.as_h.has_key?("Version").should be_true
         json.as_h.has_key?("Queues").should be_true
+        json.as_h.has_key?("Bindings").should be_true
+      end
+    end
+
+    it "should trigger garbage collection and print stats" do
+      with_http_server do |(http, s)|
+        before = GC.prof_stats.gc_no
+        result = run_lavinmqctl(http.addr.to_s, ["gc_collect"])
+        result[:exit].should eq(0)
+        GC.prof_stats.gc_no.should be > before
+        result[:stdout].should contain("gc_no")
       end
     end
 
@@ -108,7 +121,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.queues.has_key?("new_queue").should be_true
+        vhost.queue_exists?("new_queue").should be_true
 
         result = run_lavinmqctl(http.addr.to_s, ["delete_queue", "new_queue"])
         result[:exit].should eq(0)
@@ -197,7 +210,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.exchanges.has_key?("test_exchange").should be_true
+        vhost.exchange_exists?("test_exchange").should be_true
 
         result = run_lavinmqctl(http.addr.to_s, ["delete_exchange", "test_exchange"])
         result[:exit].should eq(0)
@@ -210,7 +223,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.exchanges.has_key?("test_durable_exchange").should be_true
+        vhost.exchange_exists?("test_durable_exchange").should be_true
       end
     end
 
@@ -220,7 +233,7 @@ describe "LavinMQCtl" do
         result[:exit].should eq(0)
 
         vhost = s.vhosts["/"]
-        vhost.queues.has_key?("test_durable_queue").should be_true
+        vhost.queue_exists?("test_durable_queue").should be_true
       end
     end
 

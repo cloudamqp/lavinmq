@@ -30,7 +30,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
       s.restart
-      s.vhosts["test"].exchanges["e"].should_not be_nil
+      s.vhosts["test"].exchange("e").should_not be_nil
     end
   end
 
@@ -59,7 +59,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
       s.restart
-      s.vhosts["test"].queues["q"].should_not be_nil
+      s.vhosts["test"].queue("q").should_not be_nil
     end
   end
 
@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
-      s.vhosts["test"].exchanges["e"].bindings_details.first.destination.name.should eq "q"
+      s.vhosts["test"].exchange("e").bindings_details.first.destination.name.should eq "q"
     end
   end
 
@@ -82,9 +82,9 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      pos = v.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].bind_queue("q", "e", "q")
-      v.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -96,9 +96,9 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      pos = v.@definitions_file.pos
+      pos = v.@definitions.not_nil!.@definitions_file.pos
       s.vhosts["test"].unbind_queue("q", "e", "q")
-      v.@definitions_file.pos.should eq pos
+      v.@definitions.not_nil!.@definitions_file.pos.should eq pos
     end
   end
 
@@ -110,10 +110,10 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      file_size = v.@definitions_file.size
+      file_size = v.@definitions.not_nil!.@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.@definitions_file.size.should be < file_size
+      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
     end
   end
   describe "auto add permissions" do
@@ -173,6 +173,26 @@ describe LavinMQ::VHost do
         with_channel(s) do |_ch3|
         end
       end
+    end
+  end
+
+  it "serializes concurrent saves so they don't race on the tmp file" do
+    with_amqp_server do |s|
+      store = s.vhosts
+      # Concurrent vhost create/delete (e.g. under churn) all call save!, which
+      # shares one vhosts.json.tmp path. Without serialization two saves race
+      # and one's rename finds the tmp already moved by the other.
+      failures = Atomic(Int32).new(0)
+      WaitGroup.wait do |wg|
+        40.times do
+          wg.spawn do
+            store.save!
+          rescue
+            failures.add(1)
+          end
+        end
+      end
+      failures.get.should eq 0
     end
   end
 end

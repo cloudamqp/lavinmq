@@ -65,7 +65,7 @@ describe LavinMQ::HTTP::BindingsController do
         response = http.post("/api/bindings/%2f/e/be1/q/bindings_q1", body: body)
         response.status_code.should eq 201
         response.headers["Location"].should eq "bindings_q1/rk"
-        s.vhosts["/"].exchanges["be1"].bindings_details.first.routing_key.should eq "rk"
+        s.vhosts["/"].exchange("be1").bindings_details.first.routing_key.should eq "rk"
       end
     end
 
@@ -99,6 +99,21 @@ describe LavinMQ::HTTP::BindingsController do
         response.status_code.should eq 403
       end
     end
+
+    it "should return bad request for invalid routing key on consistent hash exchange" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("ch1", "x-consistent-hash", false, false)
+        s.vhosts["/"].declare_queue("bindings_q1", false, false)
+        body = %({
+        "routing_key": "",
+        "arguments": {}
+      })
+        response = http.post("/api/bindings/%2f/e/ch1/q/bindings_q1", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("number")
+      end
+    end
   end
 
   describe "GET /api/bindings/vhost/e/exchange/q/queue/props" do
@@ -127,7 +142,7 @@ describe LavinMQ::HTTP::BindingsController do
         props = binding[0]["properties_key"].as_s
         response = http.delete("/api/bindings/%2f/e/be1/q/bindings_q1/#{props}")
         response.status_code.should eq 204
-        s.vhosts["/"].exchanges["be1"].bindings_details.empty?.should be_true
+        s.vhosts["/"].exchange("be1").bindings_details.empty?.should be_true
       end
     end
   end

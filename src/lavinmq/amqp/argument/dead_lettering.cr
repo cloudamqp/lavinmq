@@ -12,14 +12,30 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
+      alias MessageRoutedCallback = Proc(Nil)
+      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
+
+      struct Tasks
+        @pending_tasks = Deque(Task).new
+
+        def enqueue(task : Task)
+          @pending_tasks << task
+        end
+
+        def dequeue? : Task?
+          @pending_tasks.shift?
+        end
+      end
+
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+        @tasks = Tasks.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
 
-        private def cycle?(props, reason) : Bool
+        private def cycle?(qname, props, reason) : Bool
           unless headers = props.headers
             return false
           end
@@ -33,7 +49,7 @@ module LavinMQ::AMQP
           xdeaths.each do |field|
             next unless xdeath = field.as?(AMQ::Protocol::Table)
             return false if xdeath["reason"]? == "rejected"
-            return true if xdeath["queue"]? == @queue_name && xdeath["reason"] == reason.to_s
+            return true if xdeath["queue"]? == qname && xdeath["reason"] == reason.to_s
           end
           false
         end
@@ -42,10 +58,12 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
+
+        # ameba:disable Metrics/CyclomaticComplexity
+        def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          return unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchanges[dlx.to_s]? || return
+          return routed.call unless dlx = (msg.dlx || dlx())
+          ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
 
           dlrk = msg.dlrk || dlrk()
 
@@ -67,22 +85,49 @@ module LavinMQ::AMQP
           # cycle detection and to not create a lot of faulty stats.
           # This means that no delay, consistent hash check or such is performed
           # if the dead letter exchange has any of these features enabled.
-          queues = Set(LavinMQ::Queue).new
+          queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return if queues.empty?
+          return routed.call if queues.empty?
 
-          is_cycle = cycle?(props, reason)
+          first_in_chain = dlx_tasks.nil?
+          ctx = dlx_tasks || @tasks
 
-          dead_lettered_msg = Message.new(
+          dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
 
           queues.each do |q|
-            next if is_cycle && q.name == @queue_name
-            @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-            q.publish(dead_lettered_msg)
-          rescue ex
-            @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
+            if cycle?(q.name, props, reason)
+              @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
+            else
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
+              ctx.enqueue({q, dead_letter_msg})
+            end
+          end
+          ctx.enqueue(routed)
+
+          drain_context if first_in_chain
+        end
+
+        private def drain_context
+          while task = @tasks.dequeue?
+            case task
+            when MessageRoutedCallback
+              begin
+                task.call
+              rescue ex
+                @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
+              end
+            else
+              dst_q, msg = task
+              begin
+                # Result intentionally discarded: if the destination queue is closed
+                # or rejects on overflow we drop the dead-lettered message.
+                dst_q.publish_internal(msg, dlx_tasks: @tasks)
+              rescue ex : Exception
+                @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
+              end
+            end
           end
         end
 

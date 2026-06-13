@@ -1,4 +1,4 @@
-require "spec"
+require "./spec_helper"
 require "../src/lavinmq/proxy_protocol"
 
 describe "ProxyProtocol" do
@@ -85,6 +85,151 @@ describe "ProxyProtocol" do
         0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
         0x92, 0x30, 0x16, 0x27
       ).to_slice
+    end
+  end
+
+  describe "auto-detection" do
+    it "auto-detects V1 protocol" do
+      r, w = IO.pipe
+      w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "1.2.3.4:34567"
+      conn_info.not_nil!.local_address.to_s.should eq "127.0.0.2:1234"
+    end
+
+    it "auto-detects V2 protocol" do
+      r, w = IO.pipe
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x4e,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27, 0x20, 0x00, 0x3f, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x21, 0x00, 0x07, 0x54,
+        0x4c, 0x53, 0x76, 0x31, 0x2e, 0x33, 0x25, 0x00,
+        0x07, 0x52, 0x53, 0x41, 0x32, 0x30, 0x34, 0x38,
+        0x24, 0x00, 0x0a, 0x52, 0x53, 0x41, 0x2d, 0x53,
+        0x48, 0x41, 0x32, 0x35, 0x36, 0x23, 0x00, 0x16,
+        0x54, 0x4c, 0x53, 0x5f, 0x41, 0x45, 0x53, 0x5f,
+        0x32, 0x35, 0x36, 0x5f, 0x47, 0x43, 0x4d, 0x5f,
+        0x53, 0x48, 0x41, 0x33, 0x38, 0x34, 0x41, 0x4d,
+        0x51, 0x50, 0x00, 0x00, 0x09, 0x01
+      )
+      w.write pp_bytes.to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
+      conn_info.not_nil!.ssl?.should be_true
+    end
+
+    it "returns nil for AMQP protocol header" do
+      r, w = IO.pipe
+      w.write "AMQP\x00\x00\x09\x01".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+
+    it "returns nil for MQTT protocol header" do
+      r, w = IO.pipe
+      w.write Bytes[0x10, 0x0e, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54]
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+
+    it "returns nil for HTTP request" do
+      r, w = IO.pipe
+      w.write "GET / HTTP/1.1\r\n".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+  end
+
+  describe "trusted sources" do
+    it "parses individual IPv4 addresses" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("192.168.1.1, 10.0.0.1")
+
+      config.proxy_protocol_trusted_sources.size.should eq 2
+      config.proxy_protocol_trusted_sources[0].matches?("192.168.1.1").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("192.168.1.2").should be_false
+    end
+
+    it "parses IPv4 CIDR notation" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("192.168.0.0/24")
+
+      config.proxy_protocol_trusted_sources.size.should eq 1
+      config.proxy_protocol_trusted_sources[0].matches?("192.168.0.1").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("192.168.0.255").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("192.168.1.1").should be_false
+    end
+
+    it "parses IPv6 CIDR notation" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("2001:db8::/32")
+
+      config.proxy_protocol_trusted_sources.size.should eq 1
+      config.proxy_protocol_trusted_sources[0].matches?("2001:db8::1").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("2001:db9::1").should be_false
+    end
+
+    it "parses mixed IPs and CIDR notation" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
+        "10.0.0.1, 192.168.0.0/24, 2001:db8::/32, ::1")
+
+      config.proxy_protocol_trusted_sources.size.should eq 4
+
+      # Exact IPv4
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.2").should be_false
+
+      # IPv4 CIDR
+      config.proxy_protocol_trusted_sources[1].matches?("192.168.0.50").should be_true
+      config.proxy_protocol_trusted_sources[1].matches?("192.168.1.50").should be_false
+
+      # IPv6 CIDR
+      config.proxy_protocol_trusted_sources[2].matches?("2001:db8::100").should be_true
+      config.proxy_protocol_trusted_sources[2].matches?("2001:db9::1").should be_false
+
+      # Exact IPv6
+      config.proxy_protocol_trusted_sources[3].matches?("::1").should be_true
+      config.proxy_protocol_trusted_sources[3].matches?("::2").should be_false
+    end
+
+    it "handles invalid entries gracefully" do
+      config = LavinMQ::Config.new
+      # This should print warnings to STDERR but not fail
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
+        "10.0.0.1, invalid-ip, 192.168.0.0/24, 300.0.0.1")
+
+      # Only valid entries should be parsed
+      config.proxy_protocol_trusted_sources.size.should eq 2
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
+      config.proxy_protocol_trusted_sources[1].matches?("192.168.0.50").should be_true
+    end
+
+    it "handles whitespace correctly" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
+        "  10.0.0.1  ,  192.168.0.0/24  ")
+
+      config.proxy_protocol_trusted_sources.size.should eq 2
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
+      config.proxy_protocol_trusted_sources[1].matches?("192.168.0.50").should be_true
+    end
+
+    it "returns empty array for empty config" do
+      config = LavinMQ::Config.new
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("")
+
+      config.proxy_protocol_trusted_sources.size.should eq 0
     end
   end
 end

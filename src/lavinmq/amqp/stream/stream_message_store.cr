@@ -36,7 +36,11 @@ module LavinMQ::AMQP
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value - 1
+      # to_i64 first: when the trailing segment was opened but has no messages
+      # yet (4-byte schema header only) @segment_msg_count is 0_u32 and the
+      # subtraction would underflow UInt32. -1 here means "one before this
+      # segment's first offset", which is the last assigned offset.
+      offset += @segment_msg_count.last_value.to_i64 - 1
       offset
     end
 
@@ -105,6 +109,7 @@ module LavinMQ::AMQP
         if rfile.nil? || pos == rfile.size
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
+            pos = 4u32
             msg_offset = @segment_first_offset[segment]
           else
             return last_offset_seg_pos
@@ -172,7 +177,7 @@ module LavinMQ::AMQP
       @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
       @consumer_offsets.write_bytes new_offset
       len = 1 + consumer_tag.bytesize + 8
-      @replicator.try &.append(@consumer_offsets.path, @consumer_offsets.to_slice(start_pos, len))
+      @replicator.try &.append(@consumer_offsets.path, start_pos, len)
     end
 
     def consumer_offset_file_full?(consumer_tag)
@@ -200,16 +205,12 @@ module LavinMQ::AMQP
     end
 
     def replace_offsets_file(capacity : Int, &)
-      deletion_replicated = WaitGroup.new
-      @replicator.try &.delete_file(@consumer_offsets.path, deletion_replicated) # FIXME: this is not entirely safe, but replace_file is worse
+      @replicator.try &.delete_file(@consumer_offsets.path) # FIXME: this is not entirely safe, but replace_file is worse
       old_consumer_offsets = @consumer_offsets
       @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
       yield # fill the new file with correct data in this block
       @consumer_offsets.rename(old_consumer_offsets.path)
-      spawn(name: "wait for consumeroffset deletion to be replicated") do
-        deletion_replicated.wait
-        old_consumer_offsets.close(truncate_to_size: false)
-      end
+      old_consumer_offsets.close(truncate_to_size: false)
     end
 
     def read(segment : UInt32, position : UInt32) : Envelope?
@@ -301,9 +302,11 @@ module LavinMQ::AMQP
       super
       io.write_bytes @segment_first_offset[seg]
       io.write_bytes @segment_first_ts[seg]
+      io.write_bytes @segment_last_ts[seg]
     end
 
     def drop_overflow
+      return if @closed
       if max_length = @max_length
         drop_segments_while do
           @size >= max_length
@@ -365,21 +368,39 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
-        @segment_first_offset[seg] = @last_offset + 1
+      if empty? || @segment_msg_count[seg].zero?
+        # Whole queue empty, or this trailing segment was opened (4-byte
+        # Schema::VERSION header written by open_new_segment) but no message
+        # was written before shutdown — don't parse a msg out of an empty file.
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
+        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
+        @segment_last_ts[seg] = RoughTime.unix_ms
       else
         previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = msg.timestamp
+        # NOTE: scan_last_ts re-scans the segment even though super already did.
+        # This path only runs when metadata files are missing, so the cost is acceptable.
+        @segment_last_ts[seg] = scan_last_ts(mfile)
       end
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
       stored_offset = file.read_bytes(Int64)
       @segment_first_ts[seg] = file.read_bytes(Int64)
+
+      begin
+        @segment_last_ts[seg] = file.read_bytes(Int64)
+      rescue IO::EOFError
+        # Old metadata format without last_ts, scan segment to find it
+        @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
+        @segment_last_ts[seg] = scan_last_ts(@segments[seg])
+        write_metadata_file(seg, @segments[seg])
+      end
 
       # Validate and fix (possibly) incorrect offsets from existing metadata
       @segment_first_offset[seg] = if seg == 1u32
@@ -391,6 +412,16 @@ module LavinMQ::AMQP
                                    else
                                      stored_offset # No previous segment info, use stored value
                                    end
+    end
+
+    private def scan_last_ts(mfile) : Int64
+      last_ts = 0i64
+      mfile.pos = 4
+      while mfile.pos < mfile.size
+        last_ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(mfile.pos, 8))
+        BytesMessage.skip(mfile)
+      end
+      last_ts
     end
 
     class OffsetError < Exception

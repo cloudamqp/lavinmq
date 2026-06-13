@@ -36,10 +36,27 @@ module LavinMQ::AMQP
         requeued = DelayedRequeuedStore.new
         count = 0u32
         bytesize = 0u64
-        while env = shift?
-          count += 1
-          bytesize += env.message.bytesize
-          requeued.insert(env.segment_position, env.message.timestamp)
+        @segments.each do |seg_id, mfile|
+          mfile.pos = 4
+          loop do
+            pos = mfile.pos.to_u32
+            break if pos == mfile.size
+            if deleted?(seg_id, pos)
+              BytesMessage.skip(mfile)
+              next
+            end
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+            break if ts.zero? # This means that the rest of the file is zero, so break.
+            msg = BytesMessage.from_bytes(mfile.to_slice + pos)
+            sp = SegmentPosition.make(seg_id, pos, msg)
+            mfile.seek(sp.bytesize, IO::Seek::Current)
+            count += 1
+            bytesize += msg.bytesize
+            requeued.insert(sp, msg.timestamp)
+          rescue ex : IO::EOFError | IndexError
+            @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
+            break
+          end
         end
         @requeued = requeued
         @size = count

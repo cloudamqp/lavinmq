@@ -1,7 +1,21 @@
 require "./spec_helper"
 require "benchmark"
+require "log/spec"
 
 describe LavinMQ::Server do
+  it "logs kTLS=off for TLS connections without kernel offload" do
+    with_amqp_server(tls: true) do |s|
+      uri = URI.parse(s.amqp_url)
+      Log.capture("lmq.server", :info) do |logs|
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!, port: uri.port.not_nil!, tls: client_ctx).connect
+        conn.close
+        logs.check(:info, /connected with .* kTLS=off/)
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -232,7 +246,7 @@ describe LavinMQ::Server do
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
@@ -250,7 +264,7 @@ describe LavinMQ::Server do
         msg.reject(requeue: true)
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(r_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
       end
     end
   end
@@ -278,7 +292,7 @@ describe LavinMQ::Server do
         tag = q.subscribe(no_ack: false) { |_| done.send nil }
         done.receive
         q.unsubscribe(tag)
-        s.vhosts["/"].queues["msg_q"].empty?.should be_true
+        s.vhosts["/"].queue("msg_q").empty?.should be_true
       end
     end
   end
@@ -369,25 +383,24 @@ describe LavinMQ::Server do
         args["x-max-length"] = 2
         q = ch.queue "", durable: false, exclusive: true, args: args
         mch = Channel(AMQP::Client::DeliverMessage).new(10)
+        ack = Channel(Nil).new
         ch.prefetch 1
         q.subscribe(no_ack: false) do |msg|
           mch.send msg
-          sleep 0.2.seconds
+          ack.receive
           msg.ack
         end
-        10.times do |i|
+        q.publish_confirm "0"
+        mch.receive.body_io.to_s.should eq "0"
+        1.upto(9) do |i|
           q.publish_confirm i.to_s
         end
-        mch.close
-        if m = mch.receive?
-          m.body_io.to_s.should eq "0"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "8"
-        end
-        if m = mch.receive?
-          m.body_io.to_s.should eq "9"
-        end
+        wait_for { s.vhosts["/"].queue(q.name).message_count == 2 }
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "8"
+        ack.send nil
+        mch.receive.body_io.to_s.should eq "9"
+        ack.send nil
       end
     end
   end
@@ -651,7 +664,7 @@ describe LavinMQ::Server do
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
         sleep 10.milliseconds
-        s.vhosts["/"].queues["mlq"].message_count.should eq 1
+        s.vhosts["/"].queue("mlq").message_count.should eq 1
       end
     end
   end
@@ -823,7 +836,7 @@ describe LavinMQ::Server do
         ch.queue("test", args: args)
         sleep 5.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_false
+        s.vhosts["/"].queue_exists?("test").should be_false
       end
     end
   end
@@ -837,7 +850,7 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |_| }
         sleep 50.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_true
+        s.vhosts["/"].queue_exists?("test").should be_true
       end
     end
   end
@@ -869,6 +882,19 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |msg| msgs << msg }
         wait_for { msgs.size == 1 }
         msgs.size.should eq 1
+      end
+    end
+  end
+
+  it "allows any Int64 message timestamp" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        props = AMQP::Client::Properties.new(timestamp: Int64::MAX)
+        q.publish "m1", props: props
+        msg = q.get(no_ack: true).not_nil!
+        msg.body_io.to_s.should eq "m1"
+        msg.properties.timestamp_raw.should eq Int64::MAX
       end
     end
   end
@@ -980,7 +1006,7 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
+        s.vhosts["/"].queue("delivery_limit").empty?.should be_true
       end
     end
   end
@@ -1116,8 +1142,8 @@ describe LavinMQ::Server do
         count.should eq 0
 
         Fiber.yield
-        s.vhosts["/"].queues[qname].message_count.should eq 1
-        s.vhosts["/"].queues[qname].unacked_count.should eq 0
+        s.vhosts["/"].queue(qname).message_count.should eq 1
+        s.vhosts["/"].queue(qname).unacked_count.should eq 0
       end
     end
   end

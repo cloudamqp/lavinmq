@@ -27,7 +27,7 @@ module LavinMQ
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
-        @vhost.exchanges[EXCHANGE] = @exchange
+        @vhost.register_exchange(@exchange)
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -63,8 +63,10 @@ module LavinMQ
       def remove_client(client)
         client_id = client.client_id
         if session = sessions[client_id]?
-          session.client = nil
-          sessions.delete(client_id) if session.clean_session?
+          if session.client.nil? || (session.client == client)
+            session.client = nil
+            sessions.delete(client_id) if session.clean_session?
+          end
         end
         @clients.delete client_id
         @vhost.rm_connection(client)

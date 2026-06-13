@@ -13,8 +13,6 @@ request() {
   [[ $body_size -eq 0 ]] && echo "FAIL: $path" && ((FAILURES += 1)) || :
 }
 
-request # request to /
-
 # test all static files, except empty ones like .gitkeep
 for path in $(find static -type f ! -path '*/.*' | sed 's/static\///')
 do

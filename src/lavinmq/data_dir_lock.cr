@@ -30,14 +30,5 @@ module LavinMQ
       @lock.truncate
       @lock.flock_unlock
     end
-
-    # Read from the lock file to detect lost lock on networked filesystems (NFS/SMB)
-    # See "Lost locks" in `man 2 fcntl`
-    def poll
-      @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
-    rescue ex : IO::Error | ArgumentError
-      Log.fatal(exception: ex) { "Lost data dir lock" }
-      exit 4 # 4 for D(dataDir)
-    end
   end
 end

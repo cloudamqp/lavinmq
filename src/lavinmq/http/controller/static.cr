@@ -19,12 +19,14 @@ module LavinMQ
       end
 
       {% if flag?(:release) || flag?(:bake_static) %}
-        Files = {
+        private def lookup(file_path)
+          case file_path
           {{ run("./static/bake", PUBLIC_DIR) }}
-        }
+          end
+        end
 
         private def serve(context, file_path)
-          if static_file = Files[file_path]?
+          if static_file = lookup(file_path)
             bytes, etag, deflated = static_file
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
@@ -89,13 +91,7 @@ module LavinMQ
             context
           end
         rescue File::NotFoundError
-          # To enable faster frontend development, we try to serve a views from static folder.
-          # Use `make dev-ui` to compile and watch for changes.
-          return if file_path.starts_with?("/views/")
-          view = file_path.lstrip("/")
-          view = "overview" if view.empty?
-          file_path = "/views/#{view}.html"
-          serve(context, file_path)
+          nil
         end
       {% end %}
 

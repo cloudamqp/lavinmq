@@ -15,6 +15,11 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./connection_store"
+require "./direct_reply_consumer_store"
+require "./definitions_store"
+require "./amqp/channel"
+require "./persister"
 
 module LavinMQ
   class VHost
@@ -23,36 +28,151 @@ module LavinMQ
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
-                "redeliver", "reject", "consumer_added", "consumer_removed"})
+                "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
-    property? flow = true
-    getter? closed = false
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
+    getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
-    @exchanges = Hash(String, Exchange).new
-    @queues = Hash(String, Queue).new
-    @direct_reply_consumers = Hash(String, Client::Channel).new
+    @flow = true
+    @direct_reply_consumers = DirectReplyConsumerStore.new
+    @definitions : DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
-    @connections = Array(Client).new(512)
-    @definitions_file : File
-    @definitions_lock = Mutex.new(:reentrant)
-    @definitions_file_path : String
-    @definitions_deletes = 0
+    @connections = ConnectionStore.new
+
+    # Bool accessors (later become Atomic)
+    def flow? : Bool
+      @flow
+    end
+
+    def flow=(active : Bool)
+      @flow = active
+    end
+
+    def closed? : Bool
+      @closed.value
+    end
+
+    # Exchange accessors
+
+    def exchange?(name : String) : Exchange?
+      definitions.exchange?(name)
+    end
+
+    def exchange(name : String) : Exchange
+      definitions.exchange(name)
+    end
+
+    def exchange_exists?(name : String) : Bool
+      definitions.exchange_exists?(name)
+    end
+
+    def each_exchange(& : Exchange ->) : Nil
+      definitions.each_exchange { |v| yield v }
+    end
+
+    def exchanges : Array(Exchange)
+      definitions.exchanges
+    end
+
+    def exchanges_size : Int32
+      definitions.exchanges_size
+    end
+
+    def exchanges_any?(& : {String, Exchange} -> Bool) : Bool
+      definitions.exchanges_any? { |kv| yield kv }
+    end
+
+    def register_exchange(exchange : Exchange) : Nil
+      definitions.register_exchange(exchange)
+    end
+
+    # Queue accessors
+
+    def queue?(name : String) : Queue?
+      definitions.queue?(name)
+    end
+
+    def queue(name : String) : Queue
+      definitions.queue(name)
+    end
+
+    def queue_exists?(name : String) : Bool
+      definitions.queue_exists?(name)
+    end
+
+    def each_queue(& : Queue ->) : Nil
+      definitions.each_queue { |v| yield v }
+    end
+
+    def queues : Array(Queue)
+      definitions.queues
+    end
+
+    def queues_size : Int32
+      definitions.queues_size
+    end
+
+    def register_queue(queue : Queue) : Nil
+      definitions.register_queue(queue)
+    end
+
+    def queues_clear : Nil
+      definitions.queues_clear
+    end
+
+    # Connection accessors
+
+    def each_connection(& : Client ->) : Nil
+      @connections.each { |c| yield c }
+    end
+
+    def connections : Array(Client)
+      @connections.to_a
+    end
+
+    def connections_size : Int32
+      @connections.size
+    end
+
+    def add_connection(client : Client)
+      event_tick(EventType::ConnectionCreated)
+      @connections.add client
+    end
+
+    def rm_connection(client : Client)
+      event_tick(EventType::ConnectionClosed)
+      @connections.delete client
+    end
+
+    # Direct reply consumer accessors
+
+    def direct_reply_consumer?(consumer_tag : String) : Client::Channel?
+      @direct_reply_consumers[consumer_tag]?
+    end
+
+    def direct_reply_consumer_set(consumer_tag : String, channel : Client::Channel) : Nil
+      @direct_reply_consumers[consumer_tag] = channel
+    end
+
+    def direct_reply_consumer_delete(consumer_tag : String) : Client::Channel?
+      @direct_reply_consumers.delete(consumer_tag)
+    end
+
+    def direct_reply_consumer_has_key?(consumer_tag : String) : Bool
+      @direct_reply_consumers.has_key?(consumer_tag)
+    end
+
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)
       FileUtils.rm_rf File.join(@data_dir, "transient")
-      @definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      @definitions_file = File.open(@definitions_file_path, "a+")
-      @replicator.try &.register_file(@definitions_file)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
@@ -60,20 +180,28 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
+      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
     private def check_consumer_timeouts_loop
       loop do
-        sleep Config.instance.consumer_timeout_loop_interval.seconds
-        return if @closed
-        @connections.each do |c|
-          c.channels.each_value do |ch|
+        select
+        when timeout Config.instance.consumer_timeout_loop_interval.seconds
+        when closed.when_true.receive?
+          return
+        end
+        each_connection do |c|
+          c.each_channel do |ch|
             ch.check_consumer_timeout
           end
         end
       end
+    end
+
+    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+      @persister.enqueue_ack(channel, msgid)
     end
 
     def max_connections=(value : Int32) : Nil
@@ -114,19 +242,22 @@ module LavinMQ
       io << "#<" << self.class << ": " << "@name=" << @name << ">"
     end
 
-    # Queue#publish can raise RejectPublish which should trigger a Nack. All other confirm scenarios
-    # should be Acks, apart from Exceptions.
-    # As long as at least one queue reject the publish due to overflow a Nack should be sent,
-    # even if other queues accepts the message. Behaviour confirmed with RabbitMQ.
-    # True if it also succesfully wrote to one or more queues
-    # False if no queue was able to receive the message because they're
-    # closed
+    # Routes a message through the named exchange.
+    # Returns an `AMQP::Exchange::PublishResult` describing whether the message
+    # was routed to at least one queue, and whether any matched queue rejected
+    # it due to a reject-publish overflow policy. As long as at least one queue
+    # rejects the publish, the caller should NACK the publisher on confirm
+    # channels, even if other queues accepted the message (behaviour confirmed
+    # with RabbitMQ).
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
-      ex = @exchanges[msg.exchange_name]? || return false
-      ex.publish(msg, immediate, found_queues, visited)
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : AMQP::Exchange::PublishResult
+      if ex = exchange?(msg.exchange_name)
+        ex.publish(msg, immediate, found_queues, visited)
+      else
+        AMQP::Exchange::PublishResult::None
+      end
     ensure
       visited.clear
       found_queues.clear
@@ -146,7 +277,7 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
-      @queues.each_value do |q|
+      each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
@@ -179,9 +310,9 @@ module LavinMQ
       }
     end
 
-    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
+    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-        auto_delete, false, arguments)
+        auto_delete, false, arguments), fsync: fsync
       @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -191,9 +322,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new)
+                         arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments)
+        auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -202,14 +333,14 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -222,101 +353,51 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false) : Bool
-      @definitions_lock.synchronize do
-        case f
-        when AMQP::Frame::Exchange::Declare
-          return false if @exchanges.has_key? f.exchange_name
-          e = @exchanges[f.exchange_name] =
-            make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
-          apply_policies([e] of Exchange) unless loading
-          store_definition(f) if !loading && f.durable
-        when AMQP::Frame::Exchange::Delete
-          if x = @exchanges.delete f.exchange_name
-            @exchanges.each_value do |ex|
-              ex.bindings_details.each do |binding|
-                next unless binding.destination == x
-                ex.unbind(x, binding.routing_key, binding.arguments)
-              end
-            end
-            x.delete
-            store_definition(f, dirty: true) if !loading && x.durable?
-          else
-            return false
-          end
-        when AMQP::Frame::Exchange::Bind
-          src = @exchanges[f.source]? || return false
-          dst = @exchanges[f.destination]? || return false
-          return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f) if !loading && src.durable? && dst.durable?
-        when AMQP::Frame::Exchange::Unbind
-          src = @exchanges[f.source]? || return false
-          dst = @exchanges[f.destination]? || return false
-          return false unless src.unbind(dst, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
-        when AMQP::Frame::Queue::Declare
-          return false if @queues.has_key? f.queue_name
-          q = @queues[f.queue_name] = QueueFactory.make(self, f)
-          apply_policies([q] of Queue) unless loading
-          store_definition(f) if !loading && f.durable && !f.exclusive
-          event_tick(EventType::QueueDeclared) unless loading
-        when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name)
-            @exchanges.each_value do |ex|
-              ex.bindings_details.each do |binding|
-                next unless binding.destination == q
-                ex.unbind(q, binding.routing_key, binding.arguments)
-              end
-            end
-            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
-            event_tick(EventType::QueueDeleted) unless loading
-            q.delete
-          else
-            return false
-          end
-        when AMQP::Frame::Queue::Bind
-          x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
-          return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
-        when AMQP::Frame::Queue::Unbind
-          x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
-          return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
-        else raise "Cannot apply frame #{f.class} in vhost #{@name}"
-        end
-        true
-      end
+    def apply(f, loading = false, fsync = true) : Bool
+      definitions.apply(f, loading, fsync)
     end
 
-    def queue_bindings(queue : Queue) : Iterator(BindingDetails)
-      default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
-      bindings = @exchanges.each_value.flat_map do |ex|
-        ex.bindings_details.select { |binding| binding.destination == queue }
-      end
-      {default_binding}.each.chain(bindings)
+    # Flush definitions written with fsync: false (e.g. during bulk import).
+    def fsync_definitions
+      definitions.fsync
+    end
+
+    def queue_bindings(queue : Queue) : Array(BindingDetails)
+      definitions.queue_bindings(queue)
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
-                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+                            definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : OperatorPolicy
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
-      @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @operator_policies.create(op, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}" if apply
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
 
     def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+                   definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
-      @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @policies.create(p, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}" if apply
       @log.info { "Policy=#{name} Created" }
       p
+    end
+
+    # Persist the policy/operator-policy/parameter stores; used to flush after a
+    # bulk import that created entries with save: false.
+    def save_policies!
+      @policies.save!
+    end
+
+    def save_operator_policies!
+      @operator_policies.save!
+    end
+
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_operator_policy(name)
@@ -331,25 +412,15 @@ module LavinMQ
       @log.info { "Policy=#{name} Deleted" }
     end
 
-    def add_connection(client : Client)
-      event_tick(EventType::ConnectionCreated)
-      @connections << client
-    end
-
-    def rm_connection(client : Client)
-      event_tick(EventType::ConnectionClosed)
-      @connections.delete client
-    end
-
     SHOVEL                  = "shovel"
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
-    def add_parameter(p : Parameter)
+    def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
-      @parameters.create(p)
+      @parameters.create(p, save: save)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -375,33 +446,8 @@ module LavinMQ
       upstreams.stop_all
     end
 
-    private def close_connections(reason)
-      WaitGroup.wait do |wg|
-        to_close = Channel(Client).new
-        fiber_count = 0
-        @connections.each do |client|
-          select
-          when to_close.send client
-          else # spawn another fiber closing channels
-            fiber_id = fiber_count &+= 1
-            @log.trace { "spawning close conn fiber #{fiber_id} " }
-            client_inner = client
-            wg.spawn do
-              client_inner.close(reason)
-              while client_to_close = to_close.receive?
-                client_to_close.close(reason)
-              end
-              @log.trace { "exiting close conn fiber #{fiber_id} " }
-            end
-            Fiber.yield
-          end
-        end
-        to_close.close
-      end
-    end
-
     def close(reason = "Broker shutdown")
-      @closed = true
+      return if @closed.swap(true)
       stop_shovels
       stop_upstream_links
 
@@ -409,7 +455,7 @@ module LavinMQ
       close_done = Channel(Nil).new
 
       spawn do
-        close_connections reason
+        @connections.close_all(reason, @log)
         @log.debug { "Close sent to all connections" }
         close_done.close
       end
@@ -418,15 +464,16 @@ module LavinMQ
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
       when timeout 15.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+        @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.each &.force_close
+      each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      @queues.each_value &.close
+      each_queue &.close
+      each_exchange &.close
       Fiber.yield
-      @definitions_file.close
+      definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
     end
 
@@ -436,12 +483,8 @@ module LavinMQ
       FileUtils.rm_rf @data_dir
     end
 
-    private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources = if resources
-                    resources.each
-                  else
-                    Iterator.chain({@queues.each_value, @exchanges.each_value})
-                  end
+    def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
+      resources ||= (queues.map(&.as(Queue | Exchange)) + exchanges.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       resources.each do |resource|
@@ -469,191 +512,19 @@ module LavinMQ
     end
 
     private def load!
-      load_definitions!
+      definitions.load!
       has_parameters = !@parameters.empty?
       has_policies = !@policies.empty? || !@operator_policies.empty?
       if has_parameters || has_policies
         spawn(name: "Load parameters") do
           sleep 10.milliseconds
-          next if @closed
+          next if closed?
           apply_parameters
           apply_policies
         end
       end
+      closed.set(false)
       Fiber.yield
-    end
-
-    # ameba:disable Metrics/CyclomaticComplexity
-    private def load_definitions!
-      exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
-      queues = Hash(String, AMQP::Frame::Queue::Declare).new
-      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
-      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
-      should_compact = false
-      io = @definitions_file
-      if io.size.zero?
-        load_default_definitions
-        compact!
-        return
-      end
-
-      @log.info { "Loading definitions" }
-      @definitions_lock.synchronize do
-        @log.debug { "Verifying schema" }
-        SchemaVersion.verify(io, :definition)
-        stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
-        loop do
-          f = stream.next_frame
-          @log.trace { "Reading frame #{f.inspect}" }
-          case f
-          when AMQP::Frame::Exchange::Declare
-            exchanges[f.exchange_name] = f
-          when AMQP::Frame::Exchange::Delete
-            exchanges.delete f.exchange_name
-            exchange_bindings.delete f.exchange_name
-            should_compact = true
-          when AMQP::Frame::Exchange::Bind
-            exchange_bindings[f.destination] << f
-          when AMQP::Frame::Exchange::Unbind
-            exchange_bindings[f.destination].reject! do |b|
-              b.source == f.source &&
-                b.routing_key == f.routing_key &&
-                b.arguments == f.arguments
-            end
-            should_compact = true
-          when AMQP::Frame::Queue::Declare
-            queues[f.queue_name] = f
-          when AMQP::Frame::Queue::Delete
-            queues.delete f.queue_name
-            queue_bindings.delete f.queue_name
-            should_compact = true
-          when AMQP::Frame::Queue::Bind
-            queue_bindings[f.queue_name] << f
-          when AMQP::Frame::Queue::Unbind
-            queue_bindings[f.queue_name].reject! do |b|
-              b.exchange_name == f.exchange_name &&
-                b.routing_key == f.routing_key &&
-                b.arguments == f.arguments
-            end
-            should_compact = true
-          else
-            raise "Cannot apply frame #{f.class} in vhost #{@name}"
-          end
-        rescue ex : IO::EOFError
-          break
-        end # loop
-      end   # synchronize
-
-      # apply definitions
-      @log.info { "Applying #{exchanges.size} exchanges" }
-      exchanges.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{queues.size} queues" }
-      queues.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{exchange_bindings.each_value.sum(0, &.size)} exchange bindings" }
-      exchange_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
-      @log.info { "Applying #{queue_bindings.each_value.sum(0, &.size)} queue bindings" }
-      queue_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
-
-      @log.info { "Definitions loaded" }
-      compact! if should_compact
-    end
-
-    protected def load_apply(frame : AMQP::Frame)
-      apply frame, loading: true
-    rescue ex : LavinMQ::Error
-      @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
-    end
-
-    private def load_default_definitions
-      @log.info { "Loading default definitions" }
-      @exchanges[""] = AMQP::DefaultExchange.new(self, "", true, false, false)
-      @exchanges["amq.direct"] = AMQP::DirectExchange.new(self, "amq.direct", true, false, false)
-      @exchanges["amq.fanout"] = AMQP::FanoutExchange.new(self, "amq.fanout", true, false, false)
-      @exchanges["amq.topic"] = AMQP::TopicExchange.new(self, "amq.topic", true, false, false)
-      @exchanges["amq.headers"] = AMQP::HeadersExchange.new(self, "amq.headers", true, false, false)
-      @exchanges["amq.match"] = AMQP::HeadersExchange.new(self, "amq.match", true, false, false)
-    end
-
-    private def compact!
-      @definitions_lock.synchronize do
-        @log.info { "Compacting definitions" }
-        io = File.open("#{@definitions_file_path}.tmp", "a+")
-        SchemaVersion.prefix(io, :definition)
-        @exchanges.each_value.select(&.durable?).each do |e|
-          f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-            false, e.durable?, e.auto_delete?, e.internal?,
-            false, e.arguments)
-          io.write_bytes f
-        end
-        @queues.each_value.select(&.durable?).each do |q|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, q.arguments)
-          io.write_bytes f
-        end
-        @exchanges.each_value.select(&.durable?).each do |e|
-          e.bindings_details.each do |binding|
-            args = binding.arguments || AMQP::Table.new
-            frame = case binding.destination
-                    when Queue
-                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
-                    when Exchange
-                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
-                    end
-            if f = frame
-              io.write_bytes f
-            end
-          end
-        end
-        io.fsync
-        File.rename io.path, @definitions_file_path
-        @replicator.try &.replace_file @definitions_file_path
-        @definitions_file.close
-        @definitions_file = io
-      end
-    end
-
-    private def store_definition(frame, dirty = false)
-      @log.debug { "Storing definition: #{frame.inspect}" }
-      bytes = frame.to_slice
-      @definitions_file.write bytes
-      @replicator.try &.append @definitions_file_path, bytes
-      @definitions_file.fsync
-      if dirty
-        if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
-          compact!
-          @definitions_deletes = 0
-        end
-      end
-    end
-
-    private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
-      case type
-      when "direct"
-        if name.empty?
-          AMQP::DefaultExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-        else
-          AMQP::DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-        end
-      when "fanout"
-        AMQP::FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "topic"
-        AMQP::TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "headers"
-        AMQP::HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "x-delayed-message", "x-delayed-exchange"
-        arguments = arguments.clone
-        type = arguments.delete("x-delayed-type")
-        raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type
-        arguments["x-delayed-exchange"] = true
-        make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
-      when "x-federation-upstream"
-        AMQP::FederationExchange.new(vhost, name, arguments)
-      when "x-consistent-hash"
-        AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      else raise Error::ExchangeTypeError.new("invalid exchange type '#{type}'")
-      end
     end
 
     def upstreams
@@ -694,13 +565,20 @@ module LavinMQ
       end
     end
 
+    def add_recv_bytes(bytes : UInt64) : Nil
+      @recv_oct_count.add(bytes, :relaxed)
+    end
+
+    def add_send_bytes(bytes : UInt64) : Nil
+      @send_oct_count.add(bytes, :relaxed)
+    end
+
     def sync : Nil
-      {% if flag?(:linux) %}
-        ret = LibC.syncfs(@definitions_file.fd)
-        raise IO::Error.from_errno("syncfs") if ret != 0
-      {% else %}
-        LibC.sync
-      {% end %}
+      @persister.sync
+    end
+
+    private def definitions : DefinitionsStore
+      @definitions.not_nil!
     end
   end
 end

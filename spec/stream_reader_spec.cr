@@ -15,7 +15,7 @@ describe LavinMQ::AMQP::StreamReader do
           x.publish_confirm("test message #{i}", q.name)
         end
 
-        iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Stream)
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
         stream = iq.reader 5
 
         count = 0
@@ -28,6 +28,32 @@ describe LavinMQ::AMQP::StreamReader do
       end
     end
   end
+  it "should include x-stream-offset header" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("streams", "direct")
+        q = ch.queue("", args: AMQP::Client::Arguments.new({
+          "x-queue-type" => "stream",
+        }))
+        q.bind(x.name, q.name)
+        3.times do |i|
+          x.publish_confirm("test message #{i}", q.name)
+        end
+
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        stream = iq.reader "first"
+
+        count = 0
+        stream.each do |env|
+          headers = env.message.properties.headers
+          headers.should_not be_nil
+          headers.not_nil!["x-stream-offset"].should eq (count + 1).to_i64
+          count += 1
+        end
+        count.should eq 3
+      end
+    end
+  end
   it "should read over multiple segments" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -36,11 +62,13 @@ describe LavinMQ::AMQP::StreamReader do
           "x-queue-type" => "stream",
         }))
         q.bind(x.name, q.name)
+        ch.confirm_select
         400.times do |i|
-          x.publish_confirm("test message #{i}" * 100, q.name)
+          x.publish("test message #{i}" * 100, q.name)
         end
+        ch.wait_for_confirms
 
-        iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Stream)
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
         stream = iq.reader 0
 
         count = 0

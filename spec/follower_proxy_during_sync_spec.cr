@@ -1,35 +1,16 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
+require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
 
 # Create a custom slow clustering server for testing
 class SlowClusteringServer < LavinMQ::Clustering::Server
   # Override files_with_hash to add delays during sync to simulate slow network
   def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-    sha1 = Digest::SHA1.new
-    @files.each do |path, mfile|
-      if calculated_hash = @checksums[path]?
-        yield({path, calculated_hash})
-      else
-        if file = mfile
-          sha1.update file.to_slice
-          file.dontneed
-        else
-          filename = File.join(@data_dir, path)
-          next unless File.exists? filename
-          sha1.file filename
-        end
-        hash = sha1.final
-        @checksums[path] = hash
-        sha1.reset
-
-        # Add delay to slow down sync when testing
-        sleep 0.1.seconds
-
-        Fiber.yield
-        yield({path, hash})
-      end
+    super do |tuple|
+      sleep 0.1.seconds
+      yield tuple
     end
   end
 
@@ -41,7 +22,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
       @followers.clear
     end
     Fiber.yield # required for follower/listener fibers to actually finish
-    # Skip @checksums.store to avoid file write errors in tests
+    # Skip checksums.store to avoid file write errors in tests
   end
 end
 
@@ -51,7 +32,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "etc
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
-    slow_replicator = SlowClusteringServer.new(leader_config, LavinMQ::Etcd.new("localhost:12379"), 0)
+    slow_replicator = SlowClusteringServer.new(leader_config, LavinMQ::Clustering::EtcdCoordinator.new(leader_config, LavinMQ::Etcd.new("localhost:12379")), 0)
     leader_tcp_server = TCPServer.new("localhost", 0)
     spawn(slow_replicator.listen(leader_tcp_server), name: "slow leader clustering")
 

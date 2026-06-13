@@ -1,0 +1,69 @@
+<!--#set var="TITLE" value="Users" -->
+<!DOCTYPE html>
+<html lang="en" class="users">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+    <script type="module" src="js/users.js"></script>
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-header">
+          <h2>Manage users</h2>
+        </div>
+        <div class="table-subheader">
+          <span class="table-page-info"></span>
+        </div>
+        <div id="users-error"></div>
+        <div class="table-wrapper">
+          <table id="users" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name" class="left">Name<span></span></th>
+                <th data-sort-key="tags" class="left">Tags<span></span></th>
+                <th class="left">Can access virtual hosts</th>
+                <th>Has password</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="createUser" class="form card">
+        <h3>Add user</h3>
+        <label>
+          <span>Username</span>
+          <input type="text" name="username" required>
+        </label>
+        <label class="has-btn">
+          <span>Password</span>
+          <input type="password" name="password">
+        </label>
+        <div class="flex">
+          <button type="button" id="generatePassword" class="btn-small btn-small-outlined">Generate Password</button>
+          <button type="button" class="password-toggle">
+            <img src="img/icon-eye.svg">
+          </button>
+        </div>
+        <label class="has-tags">
+          <span>Tags</span>
+          <input type="text" name="tags">
+        </label>
+        <div id="dataTags" class="label">
+          <a data-tag="administrator">Administrator</a> |
+          <a data-tag="policymaker">Policymaker</a> |
+          <a data-tag="monitoring">Monitoring</a> |
+          <a data-tag="management">Management</a> |
+          <a data-tag="impersonator">Impersonator</a> |
+          <a data-tag="">None</a>
+        </div>
+        <button type="submit" class="btn btn-green">Add user</button>
+      </form>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

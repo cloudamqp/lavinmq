@@ -1,4 +1,4 @@
-async function waitForPathRequest(page, path, {response = {}, method = 'GET', body = undefined} = {}) {
+async function waitForPathRequest (page, path, { response = {}, method = 'GET', body = undefined } = {}) {
   const matchUrl = new URL(path, 'http://example.com')
   const pathCondition = (url) => {
     const requestedUrl = new URL(url)
@@ -23,7 +23,7 @@ async function waitForPathRequest(page, path, {response = {}, method = 'GET', bo
   })
 }
 
-function deepEqual(obj1, obj2) {
+function deepEqual (obj1, obj2) {
   if (obj1 === obj2) return true
   if (obj1 == null || obj2 == null) return false
   if (typeof obj1 !== 'object' || typeof obj2 !== 'object') return false
@@ -37,4 +37,20 @@ function deepEqual(obj1, obj2) {
   return true
 }
 
-export { waitForPathRequest }
+async function trackCspViolations (page) {
+  await page.addInitScript(() => {
+    window.__cspViolations = []
+    document.addEventListener('securitypolicyviolation', (e) => {
+      window.__cspViolations.push({
+        directive: e.violatedDirective,
+        blockedURI: e.blockedURI,
+        sourceFile: e.sourceFile,
+        lineNumber: e.lineNumber,
+        sample: e.sample
+      })
+    })
+  })
+  return () => page.evaluate(() => window.__cspViolations || [])
+}
+
+export { waitForPathRequest, trackCspViolations }

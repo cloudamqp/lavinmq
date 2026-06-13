@@ -38,6 +38,34 @@ module MqttSpecs
         end
       end
 
+      it "should block subscribe when user has write-only permissions" do
+        with_server do |server|
+          server.users.create("write_only", "pass")
+          server.users.add_permission("write_only", "/", /.*/, /^$/, /.*/) # config: .*, read: ^$, write: .*
+
+          with_client_io(server) do |io|
+            connect(io, username: "write_only", password: "pass".to_slice)
+            topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 0u8)
+            subscribe(io, false, topic_filters: [topic_filter])
+            io.should be_closed
+          end
+        end
+      end
+
+      it "should block subscribe when user has read-only permissions" do
+        with_server do |server|
+          server.users.create("read_only", "pass")
+          server.users.add_permission("read_only", "/", /.*/, /.*/, /^$/) # config: .*, read: .*, write: ^$
+
+          with_client_io(server) do |io|
+            connect(io, username: "read_only", password: "pass".to_slice)
+            topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 0u8)
+            subscribe(io, false, topic_filters: [topic_filter])
+            io.should be_closed
+          end
+        end
+      end
+
       it "should allow operations when user has full permissions" do
         with_server do |server|
           server.users.create("full_user", "pass")

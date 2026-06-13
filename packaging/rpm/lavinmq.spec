@@ -3,9 +3,9 @@ Summary: Message queue server that implements the AMQP 0-9-1 protocol
 Version: %{getenv:version}
 Release: 1%{?dist}
 
-License: Apache 2.0
+License: Apache-2.0
 BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel
-Requires(pre): shadow-utils
+%{?sysusers_requires_compat}
 Suggests: etcd
 URL: https://github.com/cloudamqp/lavinmq
 Source: lavinmq.tar.gz
@@ -25,8 +25,7 @@ make
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
-getent passwd %{name} >/dev/null || \
-    useradd --system --user-group --home %{_sharedstatedir}/%{name} %{name}
+%sysusers_create_compat %{_sysusersdir}/%{name}.conf
 
 %post
 %systemd_post %{name}.service
@@ -43,6 +42,7 @@ getent passwd %{name} >/dev/null || \
 %license LICENSE
 %{_bindir}/%{name}*
 %{_unitdir}/%{name}.service
+%{_sysusersdir}/%{name}.conf
 %{_mandir}/man1/*
 %dir %attr(750, lavinmq, lavinmq) %{_sharedstatedir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/%{name}.ini

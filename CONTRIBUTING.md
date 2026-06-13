@@ -32,12 +32,18 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
 
+#### AI-assisted review
+
+PRs are reviewed by AI in CI. To run the same review locally, install [local-review](https://github.com/84codes/local-review) and run `local-review install` in the repo. This adds an optional pre-push hook and a CLI (`local-review`, `local-review 42`).
+
 #### Frontend development
 
-Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system. Combined with a live-reload server, this provides an efficient frontend development workflow. This is all available as a make target:
+Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system:
 
-1. Compile and start live-reload server: `make dev-ui`
+1. Build the debug binary: `make bin/lavinmq CRYSTAL_FLAGS=`
+1. Watch and recompile views on change: `make watch-views`
 1. Run lavinmq in another terminal: `./bin/lavinmq -D /tmp/amqp`
+1. Refresh the browser with Ctrl-R after making changes
 
 ### Release
 
@@ -54,44 +60,40 @@ Our project's core development happens on the main branch, where new feature bra
 gitGraph
     commit
     branch feature-1 order: 1
-    commit
-    checkout main
-    commit id:"b"
-    branch 2.4.x  order: 3
-    checkout 2.4.x
-    commit id: "v2.4.0-rc.1" tag:"v2.4.0-rc.1"
-    checkout main
-    commit
-    checkout 2.4.x
-    commit id:"bugfix 1" tag:"v2.4.0"
-    checkout main
-    cherry-pick id:"bugfix 1" tag:""
-    commit
-    branch feature-2 order: 0
-    checkout feature-2
-    commit
-    checkout 2.4.x
-    commit id:"bugfix 2" tag:"v2.4.1"
-    checkout 2.4.x
-    checkout main
-    merge 2.4.x
     checkout feature-1
     commit
     checkout main
-    merge feature-1
+    commit id:"v2.4.0-rc.1" tag:"v2.4.0-rc.1"
+    commit id:"rc-fix"
+    commit id:"v2.4.0" tag:"v2.4.0"
+    branch 2.4.x order: 3
     checkout main
+    commit id:"bugfix-1"
+    checkout 2.4.x
+    cherry-pick id:"bugfix-1" tag:"v2.4.1"
+    checkout feature-1
     commit
-    branch 2.5.x  order: 4
-    commit id:"2.5.0-rc-1" tag:"v2.5.0-rc.1"
+    checkout main
+    branch feature-2 order: 0
+    checkout feature-2
+    commit
+    checkout main
+    merge feature-1
+    commit id:"bugfix-2"
+    checkout 2.4.x
+    cherry-pick id:"bugfix-2" tag:"v2.4.2"
+    checkout main
+    commit id:"v2.5.0-rc.1" tag:"v2.5.0-rc.1"
+    commit id:"v2.5.0" tag:"v2.5.0"
+    branch 2.5.x order: 4
     checkout feature-2
     commit
     checkout main
     merge feature-2
+    commit id:"bugfix-3"
     checkout 2.5.x
-    commit id:"bugfix 3" tag:"v2.5.0"
-    commit id:"bugfix 4" tag:"v2.5.1"
+    cherry-pick id:"bugfix-3" tag:"v2.5.1"
     checkout main
-    merge 2.5.x
     commit
 ```
 

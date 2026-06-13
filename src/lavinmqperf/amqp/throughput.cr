@@ -44,8 +44,8 @@ module LavinMQPerf
       @latencies_count : UInt64 = 0
       @random = Random.new
 
-      def initialize(io : IO = STDOUT)
-        super(io)
+      def initialize(io : IO = STDOUT, err_io : IO = STDERR)
+        super(io, err_io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
           @publishers = v.to_i
         end
@@ -350,10 +350,10 @@ module LavinMQPerf
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
           wait_until_all_are_connected(connected)
-          start = Time.instant
-          pubs_this_second = 0
+          ticker = Ticker.new(@rate)
           queues = queue_names
           queue_idx = 0
+          local_pubs = 0_u64
           until @stopped
             if @measure_latency
               # Write timestamp at the beginning of the message
@@ -383,19 +383,10 @@ module LavinMQPerf
             end
             queue_idx += 1 if @queue_pattern
             pubs = @pubs.add(1, :relaxed) + 1
-            ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
+            local_pubs &+= 1
+            ch.tx_commit if @pub_in_transaction > 0 && (local_pubs % @pub_in_transaction) == 0
             break if pubs >= @pmessages > 0
-            unless @rate.zero?
-              pubs_this_second += 1
-              if pubs_this_second >= @rate
-                until_next_second = (start + 1.seconds) - Time.instant
-                if until_next_second > Time::Span.zero
-                  sleep until_next_second
-                end
-                start = Time.instant
-                pubs_this_second = 0
-              end
-            end
+            ticker.tick
           end
         end
       end
@@ -417,24 +408,26 @@ module LavinMQPerf
           end
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
-          rate_limiter = RateLimiter.new(@consume_rate)
+          ticker = Ticker.new(@consume_rate)
+          local_consumes = 0_u64
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-            handle_consumed_message(ch, m, data, rate_limiter)
+            local_consumes &+= 1
+            handle_consumed_message(ch, m, data, ticker, local_consumes)
           end
         end
       end
 
-      private def handle_consumed_message(ch, m, data, rate_limiter)
+      private def handle_consumed_message(ch, m, data, ticker : Ticker, local_consumes : UInt64)
         consumes = @consumes.add(1, :relaxed) + 1
         body = m.body_io.to_slice
         record_latency(body) if @measure_latency
         verify_message_body(body, data) if @verify
-        m.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
-        ch.tx_commit if @ack_in_transaction > 0 && (consumes % @ack_in_transaction) == 0
+        m.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (local_consumes % @ack_in_transaction) == 0
         if @stopped || consumes >= @cmessages > 0
           ch.close
         end
-        rate_limiter.limit(consumes)
+        ticker.tick
       end
 
       private def poll_consume(connected, queue_name : String)
@@ -452,14 +445,16 @@ module LavinMQPerf
           end
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
-          rate_limiter = RateLimiter.new(@consume_rate)
+          ticker = Ticker.new(@consume_rate)
+          local_consumes = 0_u64
           loop do
             if msg = q.get(no_ack: @ack.zero?)
               consumes = @consumes.add(1, :relaxed) + 1
+              local_consumes &+= 1
               record_latency(msg.body_io.to_slice) if @measure_latency
-              msg.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+              msg.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
               break if @stopped || consumes >= @cmessages > 0
-              rate_limiter.limit
+              ticker.tick
             end
           end
         end
@@ -483,32 +478,6 @@ module LavinMQPerf
         connected.wait
       rescue
         # when we reconnect a broker the waitgroup will have a negative counter
-      end
-
-      private class RateLimiter
-        def initialize(@rate : Int32)
-          @consumes_this_second = 0
-          @start = Time.instant
-          @total_consumes = 0_u64
-        end
-
-        def limit(consume_count : UInt64? = nil)
-          if @rate.zero?
-            # When no rate limiting, yield periodically to avoid blocking other fibers
-            count = consume_count || @total_consumes
-            Fiber.yield if count % (128*1024) == 0
-            return
-          end
-
-          @consumes_this_second += 1
-          @total_consumes += 1
-          if @consumes_this_second >= @rate
-            until_next_second = (@start + 1.seconds) - Time.instant
-            sleep until_next_second if until_next_second > Time::Span.zero
-            @start = Time.instant
-            @consumes_this_second = 0
-          end
-        end
       end
     end
   end

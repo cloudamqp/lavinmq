@@ -20,7 +20,24 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter consumers = Array(Consumer).new
+      @consumers = Array(Consumer).new
+
+      def consumers : Array(Consumer)
+        @consumers.dup
+      end
+
+      def consumers_size : Int32
+        @consumers.size
+      end
+
+      def find_consumer(& : Consumer -> Bool) : Consumer?
+        @consumers.find { |c| yield c }
+      end
+
+      def delete_consumer(consumer : Consumer) : Consumer?
+        @consumers.delete(consumer)
+      end
+
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
@@ -28,6 +45,7 @@ module LavinMQ
       @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
+      @confirm_ack_mailbox : ::Channel(UInt64)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -72,8 +90,15 @@ module LavinMQ
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
-          message_stats:           stats_details,
+          message_stats:           current_stats_details,
         }
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge({
+          message_stats:    stats_details,
+          consumer_details: consumers,
+        }).to_json(json)
       end
 
       def flow(active : Bool)
@@ -99,7 +124,11 @@ module LavinMQ
           @client.send_precondition_failed(frame, "Channel already in transactional mode")
           return
         end
-        @confirm = true
+        unless @confirm
+          @confirm_ack_mailbox = mailbox = ::Channel(UInt64).new(1)
+          spawn confirm_writer(mailbox), name: "Channel##{@id} confirm writer"
+          @confirm = true
+        end
         unless frame.no_wait
           send AMQP::Frame::Confirm::SelectOk.new(frame.channel)
         end
@@ -111,7 +140,7 @@ module LavinMQ
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if ex = @client.vhost.exchanges[frame.exchange]?
+        if ex = @client.vhost.exchange?(frame.exchange)
           if !ex.internal?
             @next_publish_exchange_name = frame.exchange
             @next_publish_routing_key = frame.routing_key
@@ -221,7 +250,7 @@ module LavinMQ
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
-        props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp?
+        props.timestamp = RoughTime.utc if props.timestamp_raw.nil? && Config.instance.set_timestamp?
         msg = Message.new(RoughTime.unix_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,
@@ -250,15 +279,15 @@ module LavinMQ
         end
 
         confirm do
-          ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
-          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
+          result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
+          result
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           code = ChannelReplyCode::PRECONDITION_FAILED
           send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
+          Exchange::PublishResult::None
         end
-      rescue Queue::RejectOverFlow
-        # nack but then do nothing
       end
 
       private def validate_user_id(user_id)
@@ -270,12 +299,22 @@ module LavinMQ
         end
       end
 
+      # Yields to the block which must return an `Exchange::PublishResult`, then
+      # sends a publisher confirm based on the outcome:
+      # * if the block raises, send NACK and re-raise
+      # * if any matched queue rejected on overflow, send NACK
+      # * otherwise send ACK
+      # When publisher confirms are disabled the block is just yielded.
       private def confirm(&)
         if @confirm
           msgid = @confirm_total &+= 1
           begin
-            yield
-            confirm_ack(msgid)
+            result = yield
+            if result.overflowed?
+              confirm_nack(msgid)
+            else
+              confirm_ack(msgid)
+            end
           rescue ex
             confirm_nack(msgid)
             raise ex
@@ -285,10 +324,30 @@ module LavinMQ
         end
       end
 
-      private def confirm_ack(msgid, multiple = false)
+      private def confirm_ack(msgid)
+        @client.vhost.enqueue_ack(self, msgid)
+      end
+
+      def do_confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
         @confirm_count.add(1, :relaxed)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
+      end
+
+      # Non-blocking; if the 1-slot mailbox is full, the stale msgid is dropped (acks are cumulative).
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = @confirm_ack_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def confirm_writer(mailbox : ::Channel(UInt64))
+        while msgid = mailbox.receive?
+          do_confirm_ack(msgid, multiple: true)
+        end
       end
 
       private def confirm_nack(msgid, multiple = false)
@@ -300,13 +359,15 @@ module LavinMQ
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
-        if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
+        if ch = @client.vhost.direct_reply_consumer?(consumer_tag)
           confirm do
             deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
               1_u64, false,
               msg.exchange_name,
               msg.routing_key)
             ch.deliver(deliver, msg)
+            # Direct reply delivery is always a routed publish with no overflow
+            Exchange::PublishResult::Routed
           end
           true
         else
@@ -363,11 +424,11 @@ module LavinMQ
           end
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @direct_reply_consumer = frame.consumer_tag
-          @client.vhost.direct_reply_consumers[frame.consumer_tag] = self
+          @client.vhost.direct_reply_consumer_set(frame.consumer_tag, self)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]?
+        elsif q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -393,7 +454,7 @@ module LavinMQ
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues.fetch(frame.queue, nil)
+        if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
@@ -413,7 +474,7 @@ module LavinMQ
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
-                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.instant)
+                q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
               end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
@@ -509,7 +570,7 @@ module LavinMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
       end
@@ -588,7 +649,7 @@ module LavinMQ
           c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
       end
@@ -649,20 +710,22 @@ module LavinMQ
       end
 
       def close
+        return unless @running
         @running = false
+        @confirm_ack_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close
           Fiber.yield if (i % 128) == 0
         end
         @consumers.clear
         if drc = @direct_reply_consumer
-          @client.vhost.direct_reply_consumers.delete(drc)
+          @client.vhost.direct_reply_consumer_delete(drc)
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
             unack.queue.reject(unack.sp, true)
-            unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+            unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear
         end
@@ -729,7 +792,7 @@ module LavinMQ
           c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
-          @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
+          @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
         end
         unless frame.no_wait
           send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)
@@ -768,8 +831,8 @@ module LavinMQ
         next_msg_body_file.rewind
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
-          ok = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
-          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless ok
+          result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
+          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed?
           # skip to next msg body in the next_msg_body_file
           tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)
         end

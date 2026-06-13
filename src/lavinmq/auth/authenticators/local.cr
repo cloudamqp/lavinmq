@@ -17,6 +17,9 @@ module LavinMQ
         Log.error(exception: ex) { "Local authentication failed: #{ex.message}" }
       end
 
+      def cleanup
+      end
+
       private def default_user_only_loopback?(context) : Bool
         return true unless context.username == Config.instance.default_user
         return true unless Config.instance.default_user_only_loopback?

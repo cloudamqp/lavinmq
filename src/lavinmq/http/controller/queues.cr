@@ -9,13 +9,13 @@ module LavinMQ
     module QueueHelpers
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
-        q = vhost.queues[name]?
+        q = vhost.queue?(name)
         not_found(context, "Not Found") unless q
         q
       end
 
       private def find_stream(context, vhost, name)
-        q = vhost.queues[name]?
+        q = vhost.queue?(name)
         not_found(context, "Not Found") unless q
         not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
         q.as(LavinMQ::AMQP::Stream)
@@ -29,14 +29,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
-          itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
+          itr = vhosts(user(context)).flat_map &.queues
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.queues.each_value)
+            page(context, vhost.queues)
           end
         end
 
@@ -74,7 +74,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = vhost.queues[name]?
+            q = vhost.queue?(name)
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
@@ -85,12 +85,8 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Queue name too long, can't exceed 255 characters")
             else
-              begin
-                vhost.declare_queue(name, durable, auto_delete, tbl)
-                context.response.status_code = 201
-              rescue e : LavinMQ::Error::PreconditionFailed
-                bad_request(context, e.message)
-              end
+              vhost.declare_queue(name, durable, auto_delete, tbl)
+              context.response.status_code = 201
             end
           end
         end
@@ -195,6 +191,10 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
+                    # Track vhost-level metrics for HTTP API consumption
+                    event_type = ack ? EventType::ClientGet : EventType::ClientGetNoAck
+                    vhost.event_tick(event_type)
+                    vhost.add_send_bytes(env.message.bodysize.to_u64)
                     j.object do
                       payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)

@@ -1,4 +1,6 @@
+require "../../../message_store"
 require "../../../message_store/requeued_store"
+require "../queue"
 
 module LavinMQ::AMQP
   class DelayedExchangeQueue < Queue

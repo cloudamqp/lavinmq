@@ -37,12 +37,13 @@ describe LavinMQ::AMQP::PriorityQueue do
                 fail("could not get message")
               end
             end
+            wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
             cluster.stop
           end
 
           server = LavinMQ::Server.new(cluster.follower_config)
           begin
-            q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurablePriorityQueue)
+            q = server.vhosts["/"].queue("repli").as(LavinMQ::AMQP::DurablePriorityQueue)
             q.message_count.should eq 1
             q.basic_get(true) do |env|
               env.message.properties.priority.should eq 1
@@ -70,6 +71,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           store.size.should eq 60
           store.close
 
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
           cluster.stop
 
           # Verify the replicated store

@@ -6,6 +6,8 @@ import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
 
+Helpers.disableUserMenuVhost()
+
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
@@ -199,7 +201,8 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(() => {
+    .then(res => {
+      if (res && res.is_error) return
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
@@ -275,7 +278,11 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
+const moveMessagesForm = document.querySelector('#moveMessages')
+if (Auth.getPassword() === null) {
+  moveMessagesForm.classList.add('hide')
+}
+moveMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const username = Auth.getUsername()
   const password = Auth.getPassword()

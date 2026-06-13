@@ -1,9 +1,15 @@
+require "log"
+require "../auth/password"
+require "../amqp/exchange/consistent_hash_algorithm"
+require "../ip_matcher"
+require "../http/constants"
+
 module LavinMQ
   class Config
     annotation CliOpt; end
     annotation IniOpt; end
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -13,11 +19,11 @@ module LavinMQ
       DEFAULT_PASSWORD_HASH = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
 
       @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
-      @[EnvOpt("LAVINMQ_CONFIGURATION_DIRECTORY")]
       property config_file = ""
 
       @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory", section: "options")]
       @[IniOpt(section: "main")]
+      @[EnvOpt("STATE_DIRECTORY")]
       @[EnvOpt("LAVINMQ_DATADIR")]
       property data_dir : String = "/var/lib/lavinmq"
 
@@ -25,10 +31,10 @@ module LavinMQ
       @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
       property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
 
-      @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
+      @[CliOpt("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
       property bind = "127.0.0.1"
 
-      @[CliOpt("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
+      @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQP_PORT")]
       property amqp_port = 5672
@@ -54,12 +60,15 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_AMQPS_PORT")]
       property amqps_port = 5671
 
+      @[CliOpt("", "--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mqtt")]
       property mqtt_bind = "127.0.0.1"
 
+      @[CliOpt("", "--mqtt-port=PORT", "MQTT port to listen on (default: 1883)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "mqtt")]
       property mqtt_port = 1883
 
+      @[CliOpt("", "--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mqtt")]
       property mqtts_port = 8883
 
@@ -67,11 +76,11 @@ module LavinMQ
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
 
-      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) ? 1u8 : v.to_u8? || 0u8 })]
-      property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
+      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) || v.to_u8? == 2 })]
+      property? tcp_proxy_protocol = false
 
-      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) ? 1u8 : v.to_u8? || 0u8 })]
-      property tcp_proxy_protocol = 0_u8 # PROXY protocol version on amqp tcp connections
+      @[IniOpt(section: "amqp", transform: ->IPMatcher.parse_list(String))]
+      property proxy_protocol_trusted_sources = Array(IPMatcher).new
 
       @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mgmt")]
@@ -86,6 +95,11 @@ module LavinMQ
       @[CliOpt("", "--http-unix-path=PATH", "HTTP UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mgmt")]
       property http_unix_path = ""
+
+      @[CliOpt("", "--control-unix-path=PATH", "UNIX socket lavinmqctl connects to (default: /tmp/lavinmqctl.sock)", section: "bindings")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_CONTROL_UNIX_PATH")]
+      property control_unix_path : String = HTTP::DEFAULT_CONTROL_UNIX_PATH
 
       @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mgmt")]
@@ -114,6 +128,10 @@ module LavinMQ
 
       @[IniOpt(section: "main")]
       property tls_keylog_file = ""
+
+      @[CliOpt("", "--tls-ktls=BOOL", "Enable kernel TLS (kTLS) offload (default: false)", section: "tls")]
+      @[IniOpt(section: "main")]
+      property? tls_ktls = false
 
       @[IniOpt(section: "main")]
       @[CliOpt("", "--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)")]
@@ -170,6 +188,11 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property segment_size : Int32 = 8 * 1024**2 # bytes
 
+      @[CliOpt("", "--no-sync", "Disable sync/syncfs to the data dir, leaving durability to the OS (unsafe, but speeds up e.g. CI)", ->(_v : String) { false }, section: "options")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_SYNC")]
+      property? sync : Bool = true
+
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 
@@ -198,6 +221,9 @@ module LavinMQ
       property free_disk_warn : Int64 = 0_i64 # bytes
 
       @[IniOpt(section: "main")]
+      property load_definitions = "" # path to a JSON definitions file to import on startup
+
+      @[IniOpt(section: "main")]
       property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
 
       @[IniOpt(section: "main")]
@@ -212,8 +238,8 @@ module LavinMQ
       @[IniOpt(section: "experimental")]
       property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
 
-      @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
-      property auth_backends : Array(String) = ["local"]
+      @[IniOpt(section: "main")]
+      property auth_backends : Array(String) = Array(String).new
 
       @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
       @[IniOpt(section: "main")]
@@ -225,6 +251,7 @@ module LavinMQ
         deprecated: "--default-password is deprecated, use --default-password-hash", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_password_hash")]
       @default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+
       def default_password=(value)
         # Forward value to the new property
         @default_password_hash = value
@@ -244,18 +271,22 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property? default_user_only_loopback : Bool = true
 
-      @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Use --default-user-only-loopback instead.", section: "options")]
+      @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Deprecated: Use --default-user-only-loopback instead.", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
-      property? guest_only_loopback : Bool = true
+      @guest_only_loopback : Bool = true
 
-      @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", section: "options")]
+      def guest_only_loopback=(value : Bool)
+        @default_user_only_loopback = value
+      end
+
+      @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", ->(_v : String) { false }, section: "options")]
       @[IniOpt(section: "main")]
       property? data_dir_lock : Bool = true
 
-      @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", section: "options")]
+      @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", ->(_v : String) { true }, section: "options")]
       property? raise_gc_warn : Bool = false
 
-      @[CliOpt("", "--clustering", "Enable clustering", section: "clustering")]
+      @[CliOpt("", "--clustering", "Enable clustering", ->(_v : String) { true }, section: "clustering")]
       @[IniOpt(ini_name: enabled, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
@@ -292,6 +323,9 @@ module LavinMQ
 
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
+
+      @[IniOpt(section: "main", transform: ->ConsistentHashAlgorithm.parse(String))]
+      property default_consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
 
       # Deprecated options - these forward to the primary option in [main]
 
@@ -343,6 +377,30 @@ module LavinMQ
       def amqp_default_consumer_prefetch=(value)
         @default_consumer_prefetch = value
       end
+
+      @[IniOpt(section: "oauth", ini_name: issuer)]
+      property oauth_issuer_url : URI? = nil
+      @[IniOpt(section: "oauth", ini_name: resource_server_id)]
+      property oauth_resource_server_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: preferred_username_claims)]
+      property oauth_preferred_username_claims : Array(String) = ["sub", "client_id"]
+      @[IniOpt(section: "oauth", ini_name: additional_scopes_keys)]
+      property oauth_additional_scopes_keys = Array(String).new
+      @[IniOpt(section: "oauth", ini_name: scope_prefix)]
+      property oauth_scope_prefix : String? = nil
+      @[IniOpt(section: "oauth", ini_name: verify_aud)]
+      property? oauth_verify_aud : Bool = true
+      @[IniOpt(section: "oauth", ini_name: audience)]
+      property oauth_audience : String? = nil
+      @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
+      property oauth_jwks_cache_ttl : Time::Span = 1.hours
+      @[IniOpt(section: "oauth", ini_name: client_id)]
+      property oauth_client_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: mgmt_base_url)]
+      property oauth_mgmt_base_url : URI? = nil
+
+      # Internal: not exposed as configurable, only used for testing
+      property deliver_loop_idle_timeout : Time::Span = 30.seconds
     end
   end
 end

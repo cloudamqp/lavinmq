@@ -110,9 +110,10 @@ module LavinMQ
 
       private def add_to_index(topic : String, file_name : String) : Nil
         @index.insert topic, file_name
-        @index_file.puts topic
+        line = "#{topic}\n".to_slice
+        @index_file.write line
         @index_file.flush
-        @replicator.try &.append(@index_file_name, "#{topic}\n".to_slice)
+        @replicator.try &.append(@index_file_name, line)
       end
 
       private def delete_from_index(topic : String) : Nil
@@ -122,7 +123,7 @@ module LavinMQ
             file.close
             file.delete
           end
-          @replicator.try &.delete_file(File.join(@dir, file_name), WaitGroup.new)
+          @replicator.try &.delete_file(File.join(@dir, file_name))
         end
       end
 

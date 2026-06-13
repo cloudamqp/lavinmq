@@ -4,11 +4,19 @@ require "./../src/lavinmq/policy"
 
 alias Policy = LavinMQ::Policy
 
+# A queue whose post-push expire-fiber bookkeeping raises ClosedError, as if a
+# delete closed the store right after the message was pushed.
+class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
+  private def ensure_expire_fiber
+    raise LavinMQ::MessageStore::ClosedError.new
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
     vhost.declare_queue("q", durable: true, auto_delete: false)
-    q = vhost.queues["q"]
+    q = vhost.queue("q")
     yield q
   ensure
     q.try &.delete
@@ -16,11 +24,39 @@ def with_queue(&)
 end
 
 describe LavinMQ::AMQP::Queue do
+  it "should not expire message before server is fully started" do
+    # https://github.com/cloudamqp/lavinmq/issues/1697
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Must go via a queue with binding keys
+        dlq = ch.queue("dlq")
+        dlq.bind(ch.topic_exchange.name, dlq.name)
+        q = ch.queue("ttl", args: AMQP::Client::Arguments.new(
+          {"x-message-ttl" => 1000, "x-dead-letter-exchange" => "amq.topic", "x-dead-letter-routing-key" => dlq.name}
+        ))
+        # declare a queue after ttl that will cause yields in its message store during load
+        other_queue = ch.queue("other")
+        x = ch.default_exchange
+        x.publish_confirm("foo", other_queue.name)
+        x.publish_confirm("ttl", q.name)
+      end
+      s.stop
+      RoughTime.paused do |t|
+        # Move time so message will be expired on startup
+        t.travel 2.seconds
+        s.restart
+        with_channel(s) do |ch|
+          ch.queue("dlq").get.should_not be_nil, failure_message: "Message not dead lettered?!"
+        end
+      end
+    end
+  end
+
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-        queue = s.vhosts["/"].queues["qexpires"]
+        queue = s.vhosts["/"].queue("qexpires")
         tag = q.subscribe { }
         sleep 110.milliseconds
         queue.closed?.should be_false
@@ -141,7 +177,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queue(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -155,12 +191,12 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
-        s.vhosts["/"].queues["q"].pause!
+        data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        s.vhosts["/"].queue("q").pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
-        s.vhosts["/"].queues["q"].state.paused?.should be_true
-        s.vhosts["/"].queues["q"].resume!
+        s.vhosts["/"].queue("q").state.paused?.should be_true
+        s.vhosts["/"].queue("q").resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
       end
     end
@@ -170,11 +206,11 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         File.touch(File.join(data_dir, ".paused"))
         s.restart
         File.exists?(File.join(data_dir, "paused")).should be_true
-        s.vhosts["/"].queues["q"].state.paused?.should be_true
+        s.vhosts["/"].queue("q").state.paused?.should be_true
       end
     end
 
@@ -188,7 +224,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queue(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -221,7 +257,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queue(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -253,7 +289,7 @@ describe LavinMQ::AMQP::Queue do
         tag = "consumer-to-be-canceled"
         with_channel(s) do |ch|
           q = ch.queue(q_name)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "m1"
 
           # Should get canceled
@@ -266,7 +302,7 @@ describe LavinMQ::AMQP::Queue do
         end
 
         # Queue is closed, delete to prevent spec failure because of closed queue
-        s.vhosts["/"].queues[q_name].try &.delete
+        s.vhosts["/"].queue(q_name).try &.delete
       end
     end
   end
@@ -277,7 +313,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Publish a message
           q.publish_confirm "test message"
@@ -302,7 +338,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "test message"
           queue.message_count.should eq 1
 
@@ -335,7 +371,7 @@ describe LavinMQ::AMQP::Queue do
           q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
             {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
           ))
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Publish a message
           q.publish_confirm "test message"
@@ -358,7 +394,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Close the queue
           queue.close
@@ -372,14 +408,59 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "should reapply policies after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+
+          # Apply a max-length policy
+          definition = {"max-length" => JSON::Any.new(2i64)}
+          policy = LavinMQ::Policy.new("test", "/", /.*/, LavinMQ::Policy::Target::Queues, definition, 0i8)
+          queue.apply_policy(policy, nil)
+
+          # Close and restart the queue
+          queue.close
+          queue.closed?.should be_true
+          queue.restart!.should be_true
+
+          # Publish 4 messages, only 2 should be kept
+          4.times { |i| q.publish_confirm "msg #{i}" }
+          queue.message_count.should eq 2
+        end
+      end
+    end
+
     it "should not restart if queue is still running" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Try to restart without closing
           queue.restart!.should be_false
+        end
+      end
+    end
+
+    it "should clear exclusive consumer flag after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+
+          q.subscribe(no_ack: true, exclusive: true) { }
+          should_eventually(be_true) { queue.has_exclusive_consumer? }
+
+          queue.close
+          queue.restart!.should be_true
+
+          queue.has_exclusive_consumer?.should be_false
+        end
+
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          q.subscribe(no_ack: true) { }
         end
       end
     end
@@ -399,7 +480,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message 3", q.name
           x.publish_confirm "test message 4", q.name
 
-          internal_queue = s.vhosts["/"].queues[q.name]
+          internal_queue = s.vhosts["/"].queue(q.name)
           internal_queue.message_count.should eq 4
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents")
@@ -421,7 +502,7 @@ describe LavinMQ::AMQP::Queue do
           end
 
           vhost = s.vhosts["/"]
-          internal_queue = vhost.queues[q.name]
+          internal_queue = vhost.queue(q.name)
           internal_queue.message_count.should eq 10
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents?count=5")
@@ -441,7 +522,7 @@ describe LavinMQ::AMQP::Queue do
 
         msg = q.get(no_ack: false)
         msg.should_not be_nil
-        sq = s.vhosts["/"].queues[q.name]
+        sq = s.vhosts["/"].queue(q.name)
         sq.unacked_count.should eq 1
         msg.not_nil!.ack
         sleep 10.milliseconds
@@ -461,7 +542,7 @@ describe LavinMQ::AMQP::Queue do
           done.send msg
         end
         msg = done.receive
-        sq = s.vhosts["/"].queues[q.name]
+        sq = s.vhosts["/"].queue(q.name)
         sq.unacked_count.should eq 1
         msg.ack
         sleep 10.milliseconds
@@ -475,7 +556,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queue("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       s.stop
       Dir.exists?(data_dir).should be_false
     end
@@ -486,7 +567,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queue("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       Dir.exists?(data_dir).should be_true
       File.exists?("#{data_dir}/msgs.0000000001").should be_false
     end
@@ -498,7 +579,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
-        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queue("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
@@ -518,7 +599,7 @@ describe LavinMQ::AMQP::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("q", auto_delete: true)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queue("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
@@ -641,7 +722,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
           "x-message-ttl" => 600,
         }))
-        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+        queue = s.vhosts["/"].queue("expire_test_queue").as(LavinMQ::AMQP::DurableQueue)
 
         10_000.times do
           queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
@@ -661,6 +742,50 @@ describe LavinMQ::AMQP::Queue do
         queue.@msg_store.@segments.each_key do |seg|
           acks = queue.@msg_store.@acks[seg]
           (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
+        end
+      end
+    end
+
+    it "drops a publish when the store is closed concurrently" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("closed_store_publish", durable: false)
+          queue = s.vhosts["/"].queue("closed_store_publish").as(LavinMQ::AMQP::Queue)
+          # Simulate a delete racing publish_internal: the store is closed after
+          # the @closed check but before push, so push raises ClosedError. The
+          # publish must report Dropped, not raise (which surfaced as an HTTP 500).
+          queue.@msg_store.close
+          msg = LavinMQ::Message.new("", "closed_store_publish", "body", LavinMQ::AMQP::Properties.new)
+          queue.publish(msg).dropped?.should be_true
+        end
+      end
+    end
+
+    it "reports a publish as Ok when the store is closed after the message is stored" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        queue = StoreClosedAfterPushQueue.create(vhost, "pushed_then_closed")
+        # The expiration makes publish run the post-push expire-fiber check, which
+        # here raises ClosedError *after* push already stored the message, so the
+        # publish must report Ok (not Dropped) and the message is kept.
+        props = LavinMQ::AMQP::Properties.new(expiration: "10000")
+        queue.publish(LavinMQ::Message.new("", queue.name, "body", props)).ok?.should be_true
+        queue.message_count.should eq 1
+      end
+    end
+
+    it "reports no message instead of erroring when its queue is deleted during a get" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("get_during_delete", durable: false)
+          queue = s.vhosts["/"].queue("get_during_delete").as(LavinMQ::AMQP::Queue)
+          # The queue is deleted out from under an in-flight basic_get, so
+          # Queue#get raises ClosedError. It must surface as Basic.GetEmpty
+          # (false), not escape into the connection's read loop as an error.
+          s.vhosts["/"].delete_queue("get_during_delete")
+          delivered = false
+          queue.basic_get(true) { delivered = true }.should be_false
+          delivered.should be_false
         end
       end
     end
@@ -691,7 +816,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue
-          sq = s.vhosts["/"].queues[q.name].should be_a LavinMQ::AMQP::Queue
+          sq = s.vhosts["/"].queue(q.name).should be_a LavinMQ::AMQP::Queue
 
           q.publish_confirm "a"
           q.publish_confirm "b"
@@ -733,7 +858,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queue("q")
           end
 
           effective_arguments = q.details_tuple[:effective_arguments]
@@ -753,7 +878,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queue("q")
           end
 
           effective_arguments = q.details_tuple[:effective_arguments]
@@ -789,7 +914,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queue("q")
           end
           definition = JSON.parse(policy_args.to_json).as_h
           policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
@@ -841,6 +966,165 @@ describe LavinMQ::AMQP::Queue do
           q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
           q.clear_policy
           q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
+        end
+      end
+    end
+  end
+
+  describe "Exclusive queue cleanup" do
+    it "drops the queue from Client#exclusive_queues when auto-deleted server-side" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("", exclusive: true, auto_delete: true)
+          tag = q.subscribe(no_ack: true) { }
+
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 1
+
+          ch.basic_cancel(tag) # last consumer leaves -> auto-delete fires
+
+          should_eventually(eq 0) { conn.@exclusive_queues.size }
+        end
+      end
+    end
+
+    it "still cleans up exclusive queues on connection close when many are open" do
+      # Regression for the iteration-mutation hazard: cleanup iterates
+      # @exclusive_queues while Queue#close fires the observer that mutates it.
+      with_amqp_server do |s|
+        ch = nil
+        with_channel(s) do |c|
+          ch = c
+          5.times { c.queue("", exclusive: true, auto_delete: true) }
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 5
+        end
+        # Connection closed by `with_channel`. All 5 queues should be gone,
+        # not just every other one.
+        should_eventually(eq 0) { s.vhosts["/"].queues_size }
+      end
+    end
+
+    it "drops the queue from Client#exclusive_queues when expired via x-expires" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("", exclusive: true,
+            args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+
+          conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+          conn.@exclusive_queues.size.should eq 1
+
+          should_eventually(eq 0) { conn.@exclusive_queues.size }
+        end
+      end
+    end
+  end
+
+  describe "Idle fiber management" do
+    it "should not start message_expire_loop for empty queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("empty_q", durable: false, auto_delete: false)
+        queue = vhost.queue("empty_q")
+        queue.message_expire_fiber_active?.should be_false
+      end
+    end
+
+    it "should not start message_expire_loop for queue with no TTL messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("no_ttl_test")
+          queue = s.vhosts["/"].queue("no_ttl_test")
+
+          # Publish message without TTL
+          q.publish_confirm("test message")
+
+          # Fiber should not start
+          queue.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
+
+    it "should start fiber when TTL message published and expire it" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_test", args: AMQP::Client::Arguments.new({"x-message-ttl" => 10}))
+          queue = s.vhosts["/"].queue("ttl_test")
+
+          # Should not have fiber initially (empty queue)
+          queue.message_expire_fiber_active?.should be_false
+
+          # Publish message with TTL
+          q.publish_confirm("test message")
+
+          # Fiber should start
+          queue.message_expire_fiber_active?.should be_true
+
+          # Message should be expired
+          should_eventually(be_true) { queue.empty? }
+        end
+      end
+    end
+
+    it "should start fiber when message with per-message TTL is published" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("per_msg_ttl_test")
+          queue = s.vhosts["/"].queue("per_msg_ttl_test")
+
+          # Should not have fiber initially
+          queue.message_expire_fiber_active?.should be_false
+
+          # Publish message with per-message TTL
+          props = AMQP::Client::Properties.new(expiration: "10")
+          ch.default_exchange.publish_confirm("test message", q.name, props: props)
+
+          # Fiber should start
+          queue.message_expire_fiber_active?.should be_true
+
+          # Message should be expired
+          should_eventually(be_true) { queue.empty? }
+        end
+      end
+    end
+
+    it "should not start expire fiber while consumers are active" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_with_consumer", args: AMQP::Client::Arguments.new({"x-message-ttl" => 60_000}))
+          queue = s.vhosts["/"].queue("ttl_with_consumer")
+          q.subscribe(no_ack: true) { }
+          should_eventually(eq 1) { queue.consumers.size }
+          q.publish_confirm("msg")
+          # rm_consumer will start the fiber once consumers disconnect; until then it stays idle
+          queue.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
+
+    it "should start fiber when a partial purge exposes a TTL message behind a no-TTL head" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("purge_expose_ttl", args: AMQP::Client::Arguments.new(
+            {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "purge_expose_dlq"}
+          ))
+          dlq = ch.queue("purge_expose_dlq")
+          queue = s.vhosts["/"].queue("purge_expose_ttl")
+
+          # Head message has no TTL, so the expire fiber never starts
+          q.publish_confirm("no ttl")
+          q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+          queue.message_expire_fiber_active?.should be_false
+
+          # Partial purge removes the no-TTL head, exposing the short-TTL message.
+          # The fiber must restart so the now-head message gets expired.
+          queue.purge(1).should eq 1
+          queue.message_expire_fiber_active?.should be_true
+
+          msg = wait_for { dlq.get(no_ack: true) }
+          msg.should_not be_nil
+          msg.not_nil!.body_io.to_s.should eq "short ttl"
+          q.get(no_ack: true).should be_nil
         end
       end
     end

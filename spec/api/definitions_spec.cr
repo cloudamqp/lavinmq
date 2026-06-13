@@ -1,7 +1,203 @@
 require "../spec_helper"
+require "../../src/lavinmq/definitions"
+
+describe LavinMQ::GlobalDefinitions do
+  describe ".import_from_file" do
+    it "does not overwrite existing users" do
+      defs = {
+        "users" => [
+          {"name" => "guest", "password_hash" => "$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
+           "hashing_algorithm" => "Bcrypt", "tags" => "administrator"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          original_hash = s.users["guest"].user_details["password_hash"]
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["guest"].user_details["password_hash"].should eq original_hash
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "does not overwrite existing permissions" do
+      defs = {
+        "permissions" => [
+          {"user" => "guest", "vhost" => "/", "configure" => "^new$", "read" => "^new$", "write" => "^new$"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          original_config = s.users["guest"].permissions["/"][:config]
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["guest"].permissions["/"][:config].should eq original_config
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "skips default vhost and user when load_definitions is configured" do
+      defs = {
+        "users" => [
+          {"name" => "admin", "password_hash" => "$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+           "hashing_algorithm" => "Bcrypt", "tags" => "administrator"},
+        ],
+        "vhosts" => [
+          {"name" => "production"},
+        ],
+        "permissions" => [
+          {"user" => "admin", "vhost" => "production", "configure" => ".*", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        config = LavinMQ::Config.new
+        config.load_definitions = tmpfile
+        with_amqp_server(config: config) do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.vhosts["/"]?.should be_nil
+          s.users["guest"]?.should be_nil
+          s.vhosts["production"]?.should_not be_nil
+          s.users["admin"]?.should_not be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+        LavinMQ::Config.instance.load_definitions = ""
+      end
+    end
+
+    it "imports definitions from a JSON file" do
+      defs = {
+        "queues" => [
+          {"name" => "load_def_q1", "vhost" => "/", "durable" => true, "auto_delete" => false, "arguments" => {} of String => String},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.vhosts["/"].queue_exists?("load_def_q1").should be_true
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises if definitions file not found" do
+      with_amqp_server do |s|
+        expect_raises(File::NotFoundError) do
+          LavinMQ::GlobalDefinitions.import_from_file("/tmp/nonexistent_#{rand(100000)}.json", s)
+        end
+      end
+    end
+
+    it "preserves admin permissions from definitions file on fresh boot" do
+      defs = {
+        "users" => [
+          {"name" => "myadmin", "password_hash" => "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+",
+           "hashing_algorithm" => "rabbit_password_hashing_sha256", "tags" => "administrator"},
+        ],
+        "vhosts"      => [{"name" => "restricted_vh"}],
+        "permissions" => [
+          {"user" => "myadmin", "vhost" => "restricted_vh",
+           "configure" => "^only$", "read" => "^only$", "write" => "^only$"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          perms = s.users["myadmin"].permissions["restricted_vh"]
+          perms[:config].should eq(/^only$/)
+          perms[:read].should eq(/^only$/)
+          perms[:write].should eq(/^only$/)
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "skips permissions for unknown users without crashing" do
+      defs = {
+        "permissions" => [
+          {"user" => "ghost", "vhost" => "/", "configure" => ".*", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["ghost"]?.should be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises on invalid regex in permissions" do
+      defs = {
+        "users" => [
+          {"name" => "regexuser", "password_hash" => "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+",
+           "hashing_algorithm" => "rabbit_password_hashing_sha256", "tags" => "administrator"},
+        ],
+        "permissions" => [
+          {"user" => "regexuser", "vhost" => "/", "configure" => "[", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          expect_raises(ArgumentError, /Invalid regex in configure permission/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises on invalid JSON" do
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, "not valid json")
+      begin
+        with_amqp_server do |s|
+          expect_raises(JSON::ParseException) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+  end
+end
 
 describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("policymaker_user", "guest", [LavinMQ::Tag::PolicyMaker], save: false)
+        headers = HTTP::Headers{"Authorization" => "Basic cG9saWN5bWFrZXJfdXNlcjpndWVzdA=="}
+        body = %({ "vhosts":[{ "name":"test" }] })
+        response = http.post("/api/definitions", headers: headers, body: body)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "imports users" do
       with_http_server do |http, s|
         body = %({
@@ -28,11 +224,85 @@ describe LavinMQ::HTTP::Server do
       })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-          u.should be_a(LavinMQ::Auth::User)
+        {"sha256", "sha512", "bcrypt", "md5"}.each do |name|
+          u = s.users[name]?
+          next unless u
+          u.should be_a(LavinMQ::Auth::BaseUser)
           ok = u.not_nil!.password.not_nil!.verify "hej"
           {u.name, ok}.should(eq({u.name, true}))
         end
+      end
+    end
+
+    it "imports passwordless user (password_hash empty string)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":"","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports passwordless user (password_hash null)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":null,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports user with valid MD5 hash and null hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"legacy","password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        u = s.users["legacy"]?
+        u.should_not be_nil
+        u.not_nil!.password.should_not be_nil
+        u.not_nil!.password.not_nil!.verify("hej").should be_true
+      end
+    end
+
+    it "round-trips passwordless user through export and import" do
+      with_http_server do |http, s|
+        http.put("/api/users/nopass", body: %({"password_hash": ""}))
+        export = http.get("/api/definitions")
+        export.status_code.should eq 200
+
+        s.users.delete("nopass")
+        s.users["nopass"]?.should be_nil
+
+        response = http.post("/api/definitions", body: export.body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "returns 400 when importing a user with missing password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"nopass","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":123,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":"","hashing_algorithm":42,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
       end
     end
 
@@ -68,7 +338,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -77,7 +347,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -106,19 +376,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges["import_x1"]
-        res << s.vhosts["/"].exchanges["import_x2"]
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues["import_q1"]
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -183,7 +453,7 @@ describe LavinMQ::HTTP::Server do
         sleep 0.1.seconds # Start the shovel
         wait_for do
           shovels = s.vhosts["/"].shovels.not_nil!
-          shovels.each_value.all? &.running?
+          shovels.values.all? &.running?
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true
@@ -249,6 +519,18 @@ describe LavinMQ::HTTP::Server do
   end
 
   describe "GET /api/definitions" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("management_user", "guest", [LavinMQ::Tag::Management], save: false)
+        headers = HTTP::Headers{"Authorization" => "Basic bWFuYWdlbWVudF91c2VyOmd1ZXN0"}
+        response = http.get("/api/definitions", headers: headers)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "exports users" do
       with_http_server do |http, _|
         response = http.get("/api/definitions")
@@ -428,15 +710,17 @@ describe LavinMQ::HTTP::Server do
       end
     end
     describe "user tags and vhost access" do
-      it "export vhost definitions as management user" do
+      it "should refuse management user even with vhost permissions" do
         with_http_server do |http, s|
           s.users.delete("guest")
-          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false)
           s.vhosts.create("new")
           s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
           headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
           response = http.get("/api/definitions/new", headers: headers)
-          response.status_code.should eq 200
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
         end
       end
 
@@ -460,7 +744,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -469,7 +753,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -498,19 +782,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges["import_x1"]
-        res << s.vhosts["/"].exchanges["import_x2"]
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues["import_q1"]
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -558,17 +842,18 @@ describe LavinMQ::HTTP::Server do
       end
     end
     describe "user tags and vhost access" do
-      it "import vhost definitions as policymaker user" do
+      it "should refuse policymaker user even with vhost permissions" do
         with_http_server do |http, s|
           s.users.delete("guest")
-          s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
+          s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false)
           s.vhosts.create("new")
           s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
           headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
           body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
           response = http.post("/api/definitions/new", headers: headers, body: body)
-          response.status_code.should eq 200
-          s.vhosts["new"].queues.has_key?("import_q1").should be_true
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
         end
       end
 
@@ -604,6 +889,22 @@ describe LavinMQ::HTTP::Server do
   end
 
   describe "POST /api/definitions/upload" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("management_user", "guest", [LavinMQ::Tag::Management], save: false)
+        headers = HTTP::Headers{
+          "Authorization" => "Basic bWFuYWdlbWVudF91c2VyOmd1ZXN0",
+          "Content-Type"  => "application/json",
+        }
+        body = %({ "vhosts":[{ "name":"test" }] })
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "imports definitions from uploaded file (no Referer)" do
       with_http_server do |http, s|
         file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
@@ -668,7 +969,7 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::Auth::User)
+      u.should be_a(LavinMQ::Auth::BaseUser)
       ok = u.not_nil!.password.not_nil!.verify "hej"
       {u.name, ok}.should eq({name, true})
 
@@ -683,7 +984,7 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::Auth::User)
+      u.should be_a(LavinMQ::Auth::BaseUser)
       ok = u.not_nil!.password.not_nil!.verify "test"
       {u.name, ok}.should eq({name, true})
     end
@@ -695,7 +996,7 @@ describe LavinMQ::HTTP::Server do
       args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
       vhost.declare_exchange "test", *args
       http.get("/api/definitions")
-      vhost.exchanges["test"].match?(*args).should be_true
+      vhost.exchange("test").match?(*args).should be_true
     end
   end
 
@@ -712,7 +1013,7 @@ describe LavinMQ::HTTP::Server do
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
       http.delete("/api/exchanges/%2f/test-delayed")
-      LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+      LavinMQ::GlobalDefinitions.new(s).import(body)
       response = http.get("/api/exchanges/%2f/test-delayed")
       response.status_code.should eq 200
     end

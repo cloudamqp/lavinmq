@@ -19,12 +19,12 @@ module LavinMQ
     class VHostsController < Controller
       private def register_routes
         get "/api/vhosts" do |context, _params|
-          vhosts = vhosts(user(context)).map { |v| VHostView.new(v) }
-          page(context, vhosts)
+          arr = vhosts(user(context)).map { |v| VHostView.new(v) }
+          page(context, arr)
         end
 
         get "/api/vhosts/:name" do |context, params|
-          with_vhost(context, params, "name") do |vhost|
+          with_vhost(context, params, vhost_key: "name") do |vhost|
             refuse_unless_management(context, user(context), vhost)
             VHostView.new(vhost).to_json(context.response)
           end
@@ -53,7 +53,7 @@ module LavinMQ
 
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params, "name") do |vhost|
+          with_vhost(context, params, vhost_key: "name") do |vhost|
             if deleted_vhost = @amqp_server.vhosts.delete(vhost.name)
               message_stats = deleted_vhost.message_details[:message_stats]
               # Add stats to global stats for accurate prometheus metrics counters
@@ -70,7 +70,7 @@ module LavinMQ
 
         get "/api/vhosts/:name/permissions" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params, "name") do |vhost|
+          with_vhost(context, params, vhost_key: "name") do |vhost|
             @amqp_server.users.compact_map do |_, u|
               next if u.hidden?
               u.permissions[vhost.name]?.try { |p| u.permissions_details(vhost.name, p) }

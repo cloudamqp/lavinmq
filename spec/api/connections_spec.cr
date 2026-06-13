@@ -57,10 +57,10 @@ describe LavinMQ::HTTP::ConnectionsController do
       end
     end
 
-    it "should return 404 if vhosts does not exist" do
+    it "should return 403 if vhosts does not exist" do
       with_http_server do |http, _|
         response = http.get("/api/vhosts/vhost/connections")
-        response.status_code.should eq 404
+        response.status_code.should eq 403
       end
     end
   end

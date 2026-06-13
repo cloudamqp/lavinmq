@@ -3,7 +3,7 @@ require "socket"
 require "./protocol"
 require "./client"
 require "./brokers"
-require "../auth/user"
+require "../auth/base_user"
 require "../client/connection_factory"
 require "../auth/authenticator"
 
@@ -66,8 +66,7 @@ module LavinMQ
 
         user = @authenticator.authenticate(context)
         return unless user
-        has_vhost_permissions = user.try &.permissions.has_key?(vhost)
-        return unless has_vhost_permissions
+        return unless user.find_permission(vhost)
         broker = @brokers[vhost]?
         return unless broker
 

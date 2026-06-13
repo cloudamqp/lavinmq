@@ -21,8 +21,6 @@ module LavinMQ
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
-      getter policy : Policy?
-      getter operator_policy : OperatorPolicy?
       getter? delayed = false
 
       @alternate_exchange : String?
@@ -107,9 +105,9 @@ module LavinMQ
         {
           name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
           internal: @internal, arguments: @arguments, vhost: @vhost.name,
-          policy: @policy.try &.name,
-          operator_policy: @operator_policy.try &.name,
-          effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
+          policy: policy.try &.name,
+          operator_policy: operator_policy.try &.name,
+          effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
           message_stats: current_stats_details,
           effective_arguments: @effective_args,
         }
@@ -135,7 +133,7 @@ module LavinMQ
 
       def in_use?
         return true unless bindings_details.empty?
-        @vhost.exchanges.any? do |_, x|
+        @vhost.exchanges_any? do |_, x|
           x.bindings_details.any? { |bd| bd.destination == self }
         end
       end
@@ -146,7 +144,7 @@ module LavinMQ
 
         @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
 
-        @vhost.queues[queue.name] = queue
+        @vhost.register_queue(queue)
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -198,17 +196,34 @@ module LavinMQ
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      abstract def bindings_details : Iterator(BindingDetails)
+      abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+
+      # Number of bindings on this exchange. Counted cheaply, without allocating
+      # the full `bindings_details` array.
+      abstract def binding_count : Int32
+
+      # Result of routing a message through an exchange.
+      # `Routed` is set if at least one queue accepted the message.
+      # `Overflowed` is set if at least one matched queue rejected the message
+      # due to a reject-publish overflow policy. The two flags are independent:
+      # a publish can be both routed (one queue accepted) and overflowed
+      # (another queue rejected), in which case the publisher should still be
+      # nack'ed on confirm channels.
+      @[Flags]
+      enum PublishResult
+        Routed
+        Overflowed
+      end
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Bool
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
             @dedup_count.add(1, :relaxed)
-            return false
+            return PublishResult::None
           end
           d.add(msg)
         end
@@ -216,37 +231,47 @@ module LavinMQ
           if q = @delayed_queue
             q.delay(msg)
             @publish_out_count.add(1, :relaxed)
-            return true
+            return PublishResult::Routed
           else
             @unroutable_count.add(1, :relaxed)
-            return false
+            return PublishResult::None
           end
         end
         route_msg(msg, immediate, queues, exchanges)
       end
 
-      def route_msg(msg : Message) : Bool
+      def route_msg(msg : Message) : PublishResult
         route_msg(msg, false, Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
           @unroutable_count.add(1, :relaxed)
-          return false
+          return PublishResult::None
         end
 
         count = 0u32
+        overflow = false
         queues.each do |queue|
-          if queue.publish(msg)
+          case queue.publish(msg)
+          in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+          in .overflow?
+            overflow = true
+          in .dropped?
+            # queue was closed or message was a duplicate; nothing to do
           end
         end
         @publish_out_count.add(count, :relaxed)
-        @unroutable_count.add(1, :relaxed) if count.zero?
-        count.positive?
+        @unroutable_count.add(1, :relaxed) if count.zero? && !overflow
+
+        result = PublishResult::None
+        result |= PublishResult::Routed if count.positive?
+        result |= PublishResult::Overflowed if overflow
+        result
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
@@ -270,8 +295,8 @@ module LavinMQ
           find_cc_queues(hdrs, "BCC", queues)
         end
 
-        if queues.empty? && alternate_exchange
-          @vhost.exchanges[alternate_exchange]?.try do |ae|
+        if queues.empty? && (ae_name = alternate_exchange)
+          @vhost.exchange?(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end
@@ -305,6 +330,10 @@ module LavinMQ
         x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
         return true if x_death.nil?
         q.name != x_death["queue"]?
+      end
+
+      def close
+        @delayed_queue.try &.close
       end
 
       def to_json(json : JSON::Builder)

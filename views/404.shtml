@@ -1,0 +1,16 @@
+<!--#set var="TITLE" value="Not Found" -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!--#include file="partials/head.shtml" -->
+  </head>
+  <body>
+    <!--#include file="partials/header.shtml" -->
+    <main>
+      <section class="card">
+        <h1>404 - Not Found</h1>
+      </section>
+    </main>
+    <!--#include file="partials/footer.shtml" -->
+  </body>
+</html>

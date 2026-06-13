@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "../src/stdlib/openssl_on_server_name"
 
 describe LavinMQ::SNIHost do
   it "creates TLS contexts with default settings" do
@@ -124,6 +125,22 @@ describe LavinMQ::SNIManager do
     manager.get_host("example.com").should be_nil
     manager.get_host("other.com").should be_nil
   end
+
+  it "get_exact_host does not resolve wildcards" do
+    manager = LavinMQ::SNIManager.new
+
+    wildcard_host = LavinMQ::SNIHost.new("*.example.com")
+    wildcard_host.tls_cert = "spec/resources/server_certificate.pem"
+    wildcard_host.tls_key = "spec/resources/server_key.pem"
+    manager.add_host(wildcard_host)
+
+    # get_host resolves wildcards
+    manager.get_host("foo.example.com").should eq(wildcard_host)
+    # get_exact_host does not
+    manager.get_exact_host("foo.example.com").should be_nil
+    # get_exact_host finds the wildcard by its literal name
+    manager.get_exact_host("*.example.com").should eq(wildcard_host)
+  end
 end
 
 describe LavinMQ::Config do
@@ -183,6 +200,45 @@ describe LavinMQ::Config do
       mtls_host = config.sni_manager.get_host("mtls.example.com").not_nil!
       mtls_host.tls_verify_peer?.should be_true
       mtls_host.http_tls_verify_peer.should eq(false)
+    ensure
+      File.delete(config_file)
+    end
+  end
+
+  it "exact-match section after wildcard does not corrupt wildcard host" do
+    config = LavinMQ::Config.new
+    config.data_dir = "/tmp/lavinmq-sni-spec"
+
+    config_content = <<-INI
+    [main]
+    data_dir = /tmp/lavinmq-sni-spec
+
+    [sni:*.example.com]
+    tls_cert = spec/resources/wildcard_example_certificate.pem
+    tls_key = spec/resources/wildcard_example_key.pem
+
+    [sni:test.example.com]
+    tls_cert = spec/resources/foobar_localhost_certificate.pem
+    tls_key = spec/resources/foobar_localhost_key.pem
+    INI
+
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+
+    begin
+      config.parse(["-c", config_file])
+
+      # Wildcard host keeps its own cert
+      wildcard = config.sni_manager.get_exact_host("*.example.com").should_not be_nil
+      wildcard.tls_cert.should eq("spec/resources/wildcard_example_certificate.pem")
+
+      # Exact-match host is registered separately
+      exact = config.sni_manager.get_exact_host("test.example.com").should_not be_nil
+      exact.tls_cert.should eq("spec/resources/foobar_localhost_certificate.pem")
+
+      # Runtime lookup: exact match takes precedence over wildcard
+      config.sni_manager.get_host("test.example.com").should eq(exact)
+      config.sni_manager.get_host("foo.example.com").should eq(wildcard)
     ensure
       File.delete(config_file)
     end
@@ -307,6 +363,113 @@ describe "SNI end-to-end" do
       ssl_client3.close
     ensure
       tcp_client3.close
+    end
+
+    tcp_server.close
+    server_done.receive
+  end
+
+  it "rejects connection without client cert when mTLS is enabled via SNI" do
+    sni_manager = LavinMQ::SNIManager.new
+    mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
+    mtls_host.tls_cert = "spec/resources/server_certificate.pem"
+    mtls_host.tls_key = "spec/resources/server_key.pem"
+    mtls_host.tls_verify_peer = true
+    mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    sni_manager.add_host(mtls_host)
+
+    mtls_host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+
+    default_ctx = OpenSSL::SSL::Context::Server.new
+    default_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    default_ctx.private_key = "spec/resources/server_key.pem"
+
+    default_ctx.on_server_name do |hostname|
+      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+    end
+
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    port = tcp_server.local_address.port
+
+    server_done = Channel(Nil).new
+
+    spawn do
+      if client = tcp_server.accept?
+        begin
+          ssl_socket = OpenSSL::SSL::Socket::Server.new(client, default_ctx)
+          ssl_socket.close
+        rescue
+        ensure
+          client.close
+        end
+      end
+      server_done.send(nil)
+    end
+
+    tcp_client = TCPSocket.new("127.0.0.1", port)
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    begin
+      expect_raises(Exception) do
+        ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "mtls.localhost")
+        ssl_client.gets
+      end
+    ensure
+      tcp_client.close
+    end
+
+    tcp_server.close
+    server_done.receive
+  end
+
+  it "accepts connection with valid client cert when mTLS is enabled via SNI" do
+    sni_manager = LavinMQ::SNIManager.new
+    mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
+    mtls_host.tls_cert = "spec/resources/server_certificate.pem"
+    mtls_host.tls_key = "spec/resources/server_key.pem"
+    mtls_host.tls_verify_peer = true
+    mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    sni_manager.add_host(mtls_host)
+
+    default_ctx = OpenSSL::SSL::Context::Server.new
+    default_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    default_ctx.private_key = "spec/resources/server_key.pem"
+
+    default_ctx.on_server_name do |hostname|
+      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+    end
+
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    port = tcp_server.local_address.port
+
+    server_done = Channel(Nil).new
+
+    spawn do
+      if client = tcp_server.accept?
+        begin
+          ssl_socket = OpenSSL::SSL::Socket::Server.new(client, default_ctx)
+          ssl_socket.close
+        rescue
+        ensure
+          client.close
+        end
+      end
+      server_done.send(nil)
+    end
+
+    tcp_client = TCPSocket.new("127.0.0.1", port)
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
+    client_ctx.private_key = "spec/resources/client_key.pem"
+    begin
+      ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "mtls.localhost")
+      ssl_client.gets
+      ssl_client.close
+    ensure
+      tcp_client.close
     end
 
     tcp_server.close

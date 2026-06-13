@@ -8,7 +8,7 @@ module LavinMQ
       private def exchange(context, params, vhost, key = "name")
         name = params[key]
         name = "" if name == "amq.default"
-        e = vhost.exchanges[name]?
+        e = vhost.exchange?(name)
         not_found(context) unless e
         e
       end
@@ -21,14 +21,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/exchanges" do |context, _params|
-          itr = vhosts(user(context)).flat_map &.exchanges.each_value
+          itr = vhosts(user(context)).flat_map &.exchanges
           page(context, itr)
         end
 
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.exchanges.each_value)
+            page(context, vhost.exchanges)
           end
         end
 
@@ -60,7 +60,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
-            e = vhost.exchanges[name]?
+            e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
@@ -145,8 +145,13 @@ module LavinMQ
               size,
               IO::Memory.new(content))
             Log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
-            ok = e.vhost.publish(msg)
-            {routed: ok}.to_json(context.response)
+            result = e.vhost.publish(msg)
+            e.vhost.event_tick(EventType::ClientPublish)
+            e.vhost.add_recv_bytes(size)
+            # Report overflow as not-routed so HTTP callers see the same signal a
+            # publisher-confirms client would: any reject-publish overflow turns
+            # the publish into "not routed", even if other bound queues accepted.
+            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
           end
         end
       end

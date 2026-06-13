@@ -7,14 +7,14 @@ RUN if grep -q 'PLATFORM_ID="platform:el9"' /etc/os-release; then \
       dnf config-manager --enable crb; \
     fi
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
-    rpmdevtools rpmlint systemd-rpm-macros make help2man lz4-devel
+    rpmdevtools rpmlint systemd-rpm-macros make help2man lz4-devel openssl
 RUN rpmdev-setuptree
 COPY packaging/rpm/lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
 RUN rpmlint /root/rpmbuild/SPECS/lavinmq.spec
 WORKDIR /usr/src/lavinmq
 COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
-COPY extras/lavinmq.service extras/lavinmq.ini extras/
+COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
@@ -27,6 +27,7 @@ FROM fedora:42 AS test
 COPY --from=builder /root/rpmbuild/RPMS /tmp/RPMS
 RUN find /tmp/RPMS -type f -exec dnf install -y {} \;
 RUN lavinmq --version
+RUN getent passwd lavinmq
 
 # Copy the deb package to a scratch image, that then can be exported
 FROM scratch

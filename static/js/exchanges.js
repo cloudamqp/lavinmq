@@ -32,9 +32,6 @@ const tableOptions = {
 }
 const exchangeTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
-    if (item.name === '') {
-      item.name = 'amq.default'
-    }
     const features = document.createElement('span')
     features.className = 'features'
     if (item.durable) {

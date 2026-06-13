@@ -1,4 +1,0 @@
-#!/bin/sh
-set -e
-adduser --system --group --home /var/lib/lavinmq --quiet lavinmq
-#DEBHELPER#

@@ -8,6 +8,8 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "parameter_store"
 
+    @save_lock = Mutex.new
+
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator?, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
       @log = Logger.new(Log, metadata)
@@ -15,7 +17,33 @@ module LavinMQ
       load!
     end
 
-    forward_missing_to @parameters
+    def []?(id) : T?
+      @parameters[id]?
+    end
+
+    def [](id) : T
+      @parameters[id]
+    end
+
+    def each_value(& : T ->) : Nil
+      @parameters.each_value { |p| yield p }
+    end
+
+    def has_key?(id) : Bool
+      @parameters.has_key?(id)
+    end
+
+    def size : Int32
+      @parameters.size
+    end
+
+    def values : Array(T)
+      @parameters.values
+    end
+
+    def empty? : Bool
+      @parameters.empty?
+    end
 
     def create(parameter : T, save = true)
       @parameters[parameter.name] = parameter
@@ -58,12 +86,16 @@ module LavinMQ
       end
     end
 
-    private def save!
+    def save!
       @log.debug { "Saving #{@file_name}" }
       path = File.join(@data_dir, @file_name)
       tmpfile = "#{path}.tmp"
-      File.open(tmpfile, "w") { |f| to_pretty_json(f) }
-      File.rename tmpfile, path
+      # Serialize saves so concurrent add/delete don't race on the shared `.tmp`
+      # file and fail the rename.
+      @save_lock.synchronize do
+        File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
+        File.rename tmpfile, path
+      end
       @replicator.try &.replace_file path
     end
 

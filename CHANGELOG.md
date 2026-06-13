@@ -5,39 +5,331 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.9.0-rc.1] - 2026-06-11
 
-### Fixed
-- Add Sec-WebSockets-Protocol to websocket responses [#1621](https://github.com/cloudamqp/lavinmq/pull/1621), [#1637](https://github.com/cloudamqp/lavinmq/pull/1637)
-- A delayed exchange didn't deliver messages on time [#1600](https://github.com/cloudamqp/lavinmq/pull/1600)
-
-## [2.7.0-alpha.1] - 2025-12-07
-
-This release introduces the ability to restart closed queues, enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and various performance optimizations.
+This release adds OAuth2/OIDC SSO login to the management UI, sends publish confirms only after messages are flushed to disk (with a `--no-sync` opt-out), verifies PROXY protocol trusted sources, switches to Crystal's native kTLS support and supports per-queue-type policy `apply-to` targets. It also brings a number of stream, clustering and HTTP API fixes.
 
 ### Added
+
+- OAuth2/OIDC SSO login to the management UI [#1768](https://github.com/cloudamqp/lavinmq/pull/1768)
+- `proxy_protocol_trusted_sources` config option supporting individual IPs and CIDR notation [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Startup warning when PROXY protocol is enabled without `proxy_protocol_trusted_sources` configured [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- `load_definitions` config option [#1828](https://github.com/cloudamqp/lavinmq/pull/1828)
+- Per-queue-type policy `apply-to` targets (`classic_queues`, `quorum_queues`, `streams`) for RabbitMQ definitions compatibility [#2015](https://github.com/cloudamqp/lavinmq/pull/2015)
+- Bindings count in overview, CLI status and Prometheus metrics [#2018](https://github.com/cloudamqp/lavinmq/pull/2018)
+- Per-vhost message stats and labeled channel metrics in `/metrics/detailed` [#1926](https://github.com/cloudamqp/lavinmq/pull/1926)
+- `--no-sync` option to disable syncfs on publish confirm [#1987](https://github.com/cloudamqp/lavinmq/pull/1987)
+- `control_unix_path` config option to make the lavinmqctl control socket path configurable [#2029](https://github.com/cloudamqp/lavinmq/pull/2029)
+- User tag classes to control management UI element visibility [#1892](https://github.com/cloudamqp/lavinmq/pull/1892)
+
+### Changed
+
+- Send publish confirms only after messages are flushed to disk with `syncfs` [#1891](https://github.com/cloudamqp/lavinmq/pull/1891)
+- Use Crystal's native kTLS support [#1937](https://github.com/cloudamqp/lavinmq/pull/1937)
+- Fiber-free synchronous replication [a011ec99](https://github.com/cloudamqp/lavinmq/commit/a011ec993089408d23c3b76e0cb008e2cda4b39a)
+- On-demand deliver_loop fibers for AMQP consumers [#1722](https://github.com/cloudamqp/lavinmq/pull/1722)
+- Idle fiber management for queue message expiration [#1614](https://github.com/cloudamqp/lavinmq/pull/1614)
+- Replace periodic GC.collect with on-demand GC [#2016](https://github.com/cloudamqp/lavinmq/pull/2016)
+- Batch persistence during definitions import [#2014](https://github.com/cloudamqp/lavinmq/pull/2014)
+- `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Print clean error messages on boot failures instead of stacktraces [aba7361b](https://github.com/cloudamqp/lavinmq/commit/aba7361b8a434f1ab2776ec0fbb393c73e94861d)
+- Group `lavinmqctl` help output by command category [#1830](https://github.com/cloudamqp/lavinmq/pull/1830)
+- Use `amq.default` in UI related operations [#1913](https://github.com/cloudamqp/lavinmq/pull/1913)
+- New action bar for tables with row counter and column selector [#1900](https://github.com/cloudamqp/lavinmq/pull/1900)
+- Bake static assets as string literals to reduce compile memory [#1944](https://github.com/cloudamqp/lavinmq/pull/1944)
+- Bump amq-protocol to 1.2.0 [#1996](https://github.com/cloudamqp/lavinmq/pull/1996)
+- Update amqp-client to 1.3.3, lz4 and systemd 3.0.1 dependencies [cd2f4c58](https://github.com/cloudamqp/lavinmq/commit/cd2f4c586dd55aae15d6223181c178a8e1025e71)
+
+### Removed
+
+- `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
+### Fixed
+
+- `GET /api/queues/:vhost/:name` no longer emits the `message_stats` field twice [#2031](https://github.com/cloudamqp/lavinmq/pull/2031)
+- `GET /api/channels` and `GET /api/connections` no longer include the per-metric rate-history `log` arrays in every list row, matching `GET /api/queues`. The logs are only needed by the per-object detail pages, so they are now returned solely by `GET /api/channels/:name` and `GET /api/connections/:name`, greatly reducing list response size and latency on large deployments [#2025](https://github.com/cloudamqp/lavinmq/pull/2025)
+- Skip the message-expire fiber on streams to avoid a `Closed mfile` crash when the last consumer disconnects after retention dropped segments [ded4b69b](https://github.com/cloudamqp/lavinmq/commit/ded4b69ba5b5a24c5a4aa09efc9695d22306caa9)
+- Discard settlement frames (`ack`/`nack`/`reject`) for an already-closed channel instead of closing the connection with `CHANNEL_ERROR` [f421d6e3](https://github.com/cloudamqp/lavinmq/commit/f421d6e3e8359a686453b45a33b423b5ea129a32)
+- Treat a publish to a concurrently-closed queue as dropped instead of raising, which previously surfaced as an HTTP publish `500` [93f88429](https://github.com/cloudamqp/lavinmq/commit/93f88429be1d9b3692d2d945c14964f0622a0db9)
+- Stop federation and shovel links before tearing down vhosts on shutdown, and keep the embedded amqp-client's routine connection-teardown logging (already reported via the `lmq.*` federation/shovel layers) out of the broker log [2b213d3c](https://github.com/cloudamqp/lavinmq/commit/2b213d3cbce52a1782dcec6143cc41e55cd816d3)
+- Reply with `Basic.GetEmpty` instead of erroring when a `basic_get` races a concurrent queue delete [9fbf4dc4](https://github.com/cloudamqp/lavinmq/commit/9fbf4dc472e76bcf773e637d35d49f02906ae15f)
+- Serialize store saves (vhosts, parameters, users) so concurrent create/delete (under churn) don't race on the shared `.tmp` file and fail the rename [f2316d0d](https://github.com/cloudamqp/lavinmq/commit/f2316d0d947d5ef8261153a991c20d1b26a04b3a)
+- Don't crash the MQTT brokers on a vhost `Closed` event for a vhost that was never registered (e.g. one whose create didn't finish) [fcf592c4](https://github.com/cloudamqp/lavinmq/commit/fcf592c44614d23f0823d72d6c553e62da557550)
+- Serialize per-resource policy application and run stream `drop_overflow` under the message-store lock, fixing a segfault when policies were applied to a queue concurrently (e.g. under policy churn) with publishing/consuming [7f4b8399](https://github.com/cloudamqp/lavinmq/commit/7f4b8399e1890e85a2404575397e2bb9831c3db2)
+- Race between stream queue delete and `drop_overflow` [#1939](https://github.com/cloudamqp/lavinmq/pull/1939)
+- Stream queue crash when delivery-limit policy is applied [d3667f99](https://github.com/cloudamqp/lavinmq/commit/d3667f995b2cb6deb2a4f03909111765f5dd93bf)
+- Handle empty trailing stream segment on load [4efe79c4](https://github.com/cloudamqp/lavinmq/commit/4efe79c4e4031a0352e69a8c71d9246e988966bd)
+- Serialize stream consumer-offset access under the message-store lock for MT safety [#1973](https://github.com/cloudamqp/lavinmq/pull/1973)
+- Skip `delete_message` after queue close [#1961](https://github.com/cloudamqp/lavinmq/pull/1961)
+- `MessageStore` size leaks in `purge_all` and requeued `shift?` [#1957](https://github.com/cloudamqp/lavinmq/pull/1957)
+- Handle reject-publish overflow in HTTP publish and multi-queue routes [#1958](https://github.com/cloudamqp/lavinmq/pull/1958)
+- Keep closing AMQP channels until close-ok [#1980](https://github.com/cloudamqp/lavinmq/pull/1980)
+- MQTT max inflight message flow control [#1935](https://github.com/cloudamqp/lavinmq/pull/1935)
+- Exit if etcd lease expires while waiting to be in sync [#1969](https://github.com/cloudamqp/lavinmq/pull/1969)
+- Wait lease TTL + 2 seconds before retrying etcd lease grant [57d898cd](https://github.com/cloudamqp/lavinmq/commit/57d898cd2802f3b05f16aa71bc19c87d4f75280b)
+- Delete empty queue directories on followers during streaming [#2005](https://github.com/cloudamqp/lavinmq/pull/2005)
+- Broker start failure for passwordless users with `null` hashing_algorithm [#1898](https://github.com/cloudamqp/lavinmq/pull/1898)
+- Anchor server uptime and CPU counters to OS process lifetime [#2012](https://github.com/cloudamqp/lavinmq/pull/2012)
+- Use `:vhost` named parameter for `DELETE` vhost-limits route [#1994](https://github.com/cloudamqp/lavinmq/pull/1994)
+- OpenAPI docs fixes [#2004](https://github.com/cloudamqp/lavinmq/pull/2004)
+- Log `kTLS=off` instead of `kTLS=` when offload is inactive [#2019](https://github.com/cloudamqp/lavinmq/pull/2019)
+- MQTT packet ID overflow in lavinmqperf [#1997](https://github.com/cloudamqp/lavinmq/pull/1997)
+- `-q` flag collision between QoS and quiet in mqttperf [#1951](https://github.com/cloudamqp/lavinmq/pull/1951)
+- Smooth pacing in lavinmqperf AMQP throughput [85711b32](https://github.com/cloudamqp/lavinmq/commit/85711b3290335c367908b0896c4e200bf1ba71f4)
+
+## [2.8.1] - 2026-05-18
+
+### Changed
+
+- Build deb packages for Ubuntu 26.04, RPM for Fedora 44, drop support for Fedora 41 [#1934](https://github.com/cloudamqp/lavinmq/pull/1934)
+
+### Fixed
+
+- Clear consumer flags on queue close to unblock restart [#1904](https://github.com/cloudamqp/lavinmq/pull/1904)
+- Advance `@rfile` in `delete_unused_segments` to prevent `Closed mfile` crash [#1910](https://github.com/cloudamqp/lavinmq/pull/1910)
+- Missing vhost-limits OpenAPI schema [#1915](https://github.com/cloudamqp/lavinmq/pull/1915)
+- Slow shutdown with many autodelete queues [#1922](https://github.com/cloudamqp/lavinmq/pull/1922)
+- Install libssl-dev for Ubuntu 26.04 builds [#1936](https://github.com/cloudamqp/lavinmq/pull/1936)
+- Double message read in `reject(requeue=true)` [#1921](https://github.com/cloudamqp/lavinmq/pull/1921)
+
+## [2.7.3] - 2026-05-08
+
+### Fixed
+
+- Advance `@rfile` in `delete_unused_segments` to prevent `Closed mfile` crash [#1910](https://github.com/cloudamqp/lavinmq/pull/1910)
+- Clear consumer flags on queue close to unblock restart [#1904](https://github.com/cloudamqp/lavinmq/pull/1904)
+
+## [2.8.0] - 2026-05-06
+
+This release adds Prometheus metrics for mfiles, vhost-level data rate aggregation across all protocols, a RateLimiter with reduced clustering sync log verbosity, sorting on bindings tables, and several management UI improvements. It also fixes a 404 on `/metrics/detailed` for follower nodes and prevents queue closure caused by orphaned ack positions after unclean shutdown.
+
+### Added
+
+- RateLimiter and reduced clustering sync log verbosity [#1807](https://github.com/cloudamqp/lavinmq/pull/1807)
+- Prometheus metrics for mfiles [#1627](https://github.com/cloudamqp/lavinmq/pull/1627)
+- Aggregate data rates at vhost level for all protocols [#1699](https://github.com/cloudamqp/lavinmq/pull/1699)
+- Sorting on bindings tables [#1823](https://github.com/cloudamqp/lavinmq/pull/1823)
+- Log "Deleting vhost" message when vhost deletion starts [#1886](https://github.com/cloudamqp/lavinmq/pull/1886)
+
+### Changed
+
+- Use policymaker role consistently for global-parameters endpoints [#1695](https://github.com/cloudamqp/lavinmq/pull/1695)
+- Store baked static assets in read-only memory [#1742](https://github.com/cloudamqp/lavinmq/pull/1742)
+- Align exchange type error message with RabbitMQ [#1811](https://github.com/cloudamqp/lavinmq/pull/1811)
+- Optimize all SVG assets using SVGO [#1769](https://github.com/cloudamqp/lavinmq/pull/1769)
+- Refactor menu to not need the active class (no JavaScript) [#1709](https://github.com/cloudamqp/lavinmq/pull/1709)
+- Show only `I` as feature for internal queue [#1857](https://github.com/cloudamqp/lavinmq/pull/1857)
+- Styling updates for tables [#1848](https://github.com/cloudamqp/lavinmq/pull/1848)
+- Use `segment_position.bytesize` in consumer deliver loop [#1786](https://github.com/cloudamqp/lavinmq/pull/1786)
+- Remove no longer needed media queries [#1873](https://github.com/cloudamqp/lavinmq/pull/1873)
+
+### Fixed
+
+- Prune orphaned ack positions on startup to prevent queue closure after unclean shutdown [#1866](https://github.com/cloudamqp/lavinmq/pull/1866)
+- Deprecated `--guest-only-loopback` flag silently ignored [#1824](https://github.com/cloudamqp/lavinmq/pull/1824)
+- CSP hash for login page inline theme script [#1876](https://github.com/cloudamqp/lavinmq/pull/1876)
+- 404 on `/metrics/detailed` for follower nodes [#1859](https://github.com/cloudamqp/lavinmq/pull/1859)
+- Sorting by columns with nil values [#1840](https://github.com/cloudamqp/lavinmq/pull/1840)
+
+## [2.8.0-rc.1] - 2026-04-29
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.8.0-rc.1> for changes in this pre-release
+
+## [2.7.2] - 2026-04-28
+
+### Fixed
+
+- Exclusive queue references leak on auto-delete [#1887](https://github.com/cloudamqp/lavinmq/pull/1887)
+
+## [2.8.0-beta.1] - 2026-04-24
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.8.0-beta.1> for changes in this pre-release
+
+## [2.7.1] - 2026-04-24
+
+### Fixed
+
+- User permission check to source and destinations vhosts when creating shovels [#1867](https://github.com/cloudamqp/lavinmq/pull/1867)
+- Replicate the .queue file [#1869](https://github.com/cloudamqp/lavinmq/pull/1869)
+- Clean up empty dirs on follower after full sync [#1870](https://github.com/cloudamqp/lavinmq/pull/1870)
+- Recognize IPv4-mapped IPv6 loopback addresses. Fixes default user loopback check. [#1871](https://github.com/cloudamqp/lavinmq/pull/1871)
+
+## [2.7.0] - 2026-04-16
+
+This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rewritten configuration system, Jump consistent hash exchange algorithm, and the ability to restart closed queues. It also brings enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and many bug fixes.
+
+### Added
+
+- OAuth2/OpenID Connect authentication support with JWT token validation (RS256), JWKS, scope-to-permission mapping, and token refresh via UpdateSecret [#1632](https://github.com/cloudamqp/lavinmq/pull/1632)
+- Jump consistent hash algorithm for Consistent Hash Exchange [#1604](https://github.com/cloudamqp/lavinmq/pull/1604)
+- kTLS (kernel TLS) support for OpenSSL servers, offloading TLS encryption to the kernel for improved performance [61bdb124](https://github.com/cloudamqp/lavinmq/commit/61bdb124)
 - Restart closed queues via API/UI/lavinmqctl [#1345](https://github.com/cloudamqp/lavinmq/pull/1345)
 - TLS keylog file (SSLKEYLOGFILE) support [#1531](https://github.com/cloudamqp/lavinmq/pull/1531)
 - TLS SNI and mTLS support [#1516](https://github.com/cloudamqp/lavinmq/pull/1516)
 - Shell command hooks for cluster leader transitions [#1491](https://github.com/cloudamqp/lavinmq/pull/1491)
-- Shovel and federation management commands to lavinmqctl [#1277](https://github.com/cloudamqp/lavinmq/pull/1277)
 - Cache checksums on followers for faster failover [#1554](https://github.com/cloudamqp/lavinmq/pull/1554)
+- `--pidfile` CLI option [#1570](https://github.com/cloudamqp/lavinmq/pull/1570)
+- Connection duration logged on disconnect [#1662](https://github.com/cloudamqp/lavinmq/pull/1662)
+- Collapsible sidebar menu in the management UI [#1553](https://github.com/cloudamqp/lavinmq/pull/1553)
+- Support for mqtts in `lavinmqperf` [#1702](https://github.com/cloudamqp/lavinmq/pull/1702)
 
 ### Changed
+
+- Configuration system rewritten with annotations and macros; clear precedence: CLI args > environment variables > INI file [#917](https://github.com/cloudamqp/lavinmq/pull/917)
+- Deprecated duplicate INI options in section-specific locations; these now forward to `[main]` with a deprecation warning [#1636](https://github.com/cloudamqp/lavinmq/pull/1636)
+- HTTP API permissions aligned with RabbitMQ: admin access required for definitions endpoints [#1687](https://github.com/cloudamqp/lavinmq/pull/1687)
+- Prometheus metrics grouped per metric with `# TYPE` and `# HELP` annotations [#1598](https://github.com/cloudamqp/lavinmq/pull/1598)
+- Server-side authentication validation for management UI views [#1641](https://github.com/cloudamqp/lavinmq/pull/1641)
+- Vhost selection disabled in vhost-specific management UI views [#1575](https://github.com/cloudamqp/lavinmq/pull/1575)
 - Convert queued message graph to stacked line graph [#1565](https://github.com/cloudamqp/lavinmq/pull/1565)
-- Federation improvements [#1492](https://github.com/cloudamqp/lavinmq/pull/1492)
 - Stream: Store offset only for first message per segment [#1479](https://github.com/cloudamqp/lavinmq/pull/1479)
 - Use parallel execution context for clustering followers [#1544](https://github.com/cloudamqp/lavinmq/pull/1544)
-- BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+- Graceful shutdown for StandaloneRunner [#1577](https://github.com/cloudamqp/lavinmq/pull/1577)
+- MQTT performance improved by flushing socket per packet instead of per write [#1651](https://github.com/cloudamqp/lavinmq/pull/1651)
+- Crystal 1.19 compatibility [#1620](https://github.com/cloudamqp/lavinmq/pull/1620)
+- `lavinmqctl --help` touchups [#1755](https://github.com/cloudamqp/lavinmq/pull/1755)
+
+### Fixed
+
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
+- MQTT sessions no longer deleted or cleared if a new client has already taken over the session [#1665](https://github.com/cloudamqp/lavinmq/pull/1665)
+- Honor `yield_each_delivered_bytes` setting for MQTT [#1783](https://github.com/cloudamqp/lavinmq/pull/1783)
+- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
+- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
+- Add `Sync::Shared` lock for `@files` and `@checksums` in `Clustering::Server` [#1753](https://github.com/cloudamqp/lavinmq/pull/1753)
+- Don't delete metadata files during full sync [#1814](https://github.com/cloudamqp/lavinmq/pull/1814)
+- Persist `segment_last_ts` to prevent message loss on restart in streams with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Reset position when crossing segment boundary in `find_offset_in_segments` [#1772](https://github.com/cloudamqp/lavinmq/pull/1772)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
+- Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Missing `x-stream-offset` header in StreamReader responses [#1774](https://github.com/cloudamqp/lavinmq/pull/1774)
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Use `openssl dgst` instead of `sha256sum` in Makefile for macOS portability [#1818](https://github.com/cloudamqp/lavinmq/pull/1818)
+- Consumer starvation in lavinmqperf throughput mode [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Print usage on unexpected arguments in lavinmqperf [#1796](https://github.com/cloudamqp/lavinmq/pull/1796)
+- Prefetch button icons in CSS [#1556](https://github.com/cloudamqp/lavinmq/pull/1556)
+- UI: Chart color consistency [#1756](https://github.com/cloudamqp/lavinmq/pull/1756)
+- UI: Tooltip sizing [#1700](https://github.com/cloudamqp/lavinmq/pull/1700)
+- UI: Tooltip z-index to appear above menus [#1729](https://github.com/cloudamqp/lavinmq/pull/1729)
+- UI: Collapse whitespace in client capabilities display [#1733](https://github.com/cloudamqp/lavinmq/pull/1733)
+- UI: Empty cells in connection details for consistent rendering [#1732](https://github.com/cloudamqp/lavinmq/pull/1732)
+- UI: Rename "Routing key" to "Binding key" in binding view [#1748](https://github.com/cloudamqp/lavinmq/pull/1748)
+- UI: Overlapping sources in logs [#1790](https://github.com/cloudamqp/lavinmq/pull/1790)
+- UI: Invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
+
+## [2.6.11] - 2026-04-15
+
+### Fixed
+
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Fix MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
+
+## [2.7.0-rc.3] - 2026-04-14
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.3> for changes in this pre-release
+
+## [2.7.0-rc.2] - 2026-03-24
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.2> for changes in this pre-release
+
+## [2.6.10] - 2026-03-09
+
+### Fixed
+
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
+- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
+- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
+
+## [2.6.9] - 2026-03-03
+
+### Fixed
+
+- Persist `segment_last_ts` to prevent message loss on restart with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Fix invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- Prevent consumer starvation in lavinmqperf throughput [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Fix delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Don't delete/clear MQTT session if new client exists [#1665](https://github.com/cloudamqp/lavinmq/pull/1665)
+
+## [2.7.0-rc.1] - 2026-02-11
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.1> for changes in this pre-release
+
+## [2.6.8] - 2026-02-10
+
+### Fixed
+
+- Align definitions API permisssion with RabbitMQ [#1686](https://github.com/cloudamqp/lavinmq/pull/1686)
+
+## [2.6.7] - 2026-02-06
+
+### Fixed
+
+- Fixed version numbering
+
+## [2.6.6] - 2026-02-06
+
+### Fixed
+
+- Better validation of shovel config [#1670](https://github.com/cloudamqp/lavinmq/pull/1670)
+- Refactor vhost access control in HTTP API [#1669](https://github.com/cloudamqp/lavinmq/pull/1669)
+
+## [2.6.5] - 2026-01-28
+
+### Fixed
+
+- Add Sec-WebSockets-Protocol to websocket responses [#1621](https://github.com/cloudamqp/lavinmq/pull/1621), [#1637](https://github.com/cloudamqp/lavinmq/pull/1637)
+- Resume expiration after consuming non-expiring msg [#1606](https://github.com/cloudamqp/lavinmq/pull/1606), [#1649](https://github.com/cloudamqp/lavinmq/pull/1649)
+
+## [2.6.4] - 2026-01-23
+
+### Fixed
+
+- Apply stream max-length and max-length-bytes from policy [#1631](https://github.com/cloudamqp/lavinmq/pull/1631)
+
+## [2.6.3] - 2026-01-16
+
+### Fixed
+
+- Fixed a bug in delayed exchange index build [#1619](https://github.com/cloudamqp/lavinmq/pull/1619)
+
+## [2.6.2] - 2026-01-15
+
+### Added
+
+- Add shovel and federation management commands to lavinmqctl [#1277](https://github.com/cloudamqp/lavinmq/pull/1277)
+
+### Changed
+
+- BoolChannel: Don't spawn fiber [#1603](https://github.com/cloudamqp/lavinmq/pull/1603)
 - Reduce etcd lease keepalive renewal interval to 1/3rd of TTL [#1573](https://github.com/cloudamqp/lavinmq/pull/1573)
 
 ### Fixed
-- Dead lettering refactord to have proper routing and death cycle detection. [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
-- Prefetch button icons in CSS [#1556](https://github.com/cloudamqp/lavinmq/pull/1556)
+
+- delay exchange message ordering [#1600](https://github.com/cloudamqp/lavinmq/pull/1600)
+- Removing too many bindings in Consistent hash exchange on unbind [#1594](https://github.com/cloudamqp/lavinmq/pull/1594)
+- Federation refactor/improvements [#1492](https://github.com/cloudamqp/lavinmq/pull/1492)
+- Bugfix and refactor dead lettering [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
+- BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+- Topic exchange # wildcard now matches zero segments [#1608](https://github.com/cloudamqp/lavinmq/pull/1608)
+
+## [2.7.0-alpha.1] - 2025-12-07
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-alpha.1> for changes in this pre-release
 
 ## [2.6.1] - 2025-12-07
 
 ### Fixed
+
 - lavinmqperf - correctly summarize throughput numbers [#1536](https://github.com/cloudamqp/lavinmq/pull/1536)
 
 ## [2.6.0] - 2025-12-05
@@ -45,6 +337,7 @@ This release introduces the ability to restart closed queues, enhanced TLS capab
 This release introduces Geographic Information System (GIS) filtering for streams, enhanced performance testing capabilities, as well as many other improvements and bugfixes.
 
 ### Added
+
 - GIS filtering for streams [#1397](https://github.com/cloudamqp/lavinmq/pull/1397)
 - SystemD memory pressure monitoring support [#1484](https://github.com/cloudamqp/lavinmq/pull/1484)
 - Latency measurement support in `lavinmqperf amqp throughput --measure-latency` [#1474](https://github.com/cloudamqp/lavinmq/pull/1474)
@@ -52,12 +345,13 @@ This release introduces Geographic Information System (GIS) filtering for stream
 - ASCII art logo on boot [#1482](https://github.com/cloudamqp/lavinmq/pull/1482)
 - UI improvements [#1470](https://github.com/cloudamqp/lavinmq/pull/1470), [#1454](https://github.com/cloudamqp/lavinmq/pull/1454), [#1463](https://github.com/cloudamqp/lavinmq/pull/1463)
 
-
 ### Changed
+
 - Better default config - Enable amqps/mqtts/https by default if tls_cert/key is supplied [#1487](https://github.com/cloudamqp/lavinmq/pull/1487)
 - New name format for queues for delayed messages: `amq.delayed-<exchange name>` [#1461](https://github.com/cloudamqp/lavinmq/pull/1461)
 
 ### Fixed
+
 - Regression in authorization for /metrics [#1521](https://github.com/cloudamqp/lavinmq/pull/1521)
 - Handle updated permissions while users are connected [#1526](https://github.com/cloudamqp/lavinmq/pull/1526)
 - Race condition when closing auto-delete queues [#1529](https://github.com/cloudamqp/lavinmq/pull/1529)
@@ -68,6 +362,7 @@ This release introduces Geographic Information System (GIS) filtering for stream
 - Sensible error message if trying to import definitions via the HTTP API with an invalid password_has field for users [#1496](https://github.com/cloudamqp/lavinmq/pull/1496)
 
 ### Removed
+
 - Don't save backups when failing over to new leader [#1508](https://github.com/cloudamqp/lavinmq/pull/1508)
 
 ## [2.6.0-rc.4] - 2025-12-02
@@ -81,6 +376,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.3> for changes 
 ## [2.5.5] - 2025-11-26
 
 ### Fixed
+
 - Don't raise when truncating deleted MFile [#1500](https://github.com/cloudamqp/lavinmq/pull/1500)
 - Abort on IO::Error in delivery_loop [#f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6](https://github.com/cloudamqp/lavinmq/commit/f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6)
 
@@ -91,6 +387,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.2> for changes 
 ## [2.5.4] - 2025-11-22
 
 ### Fixed
+
 - Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
 
 ## [2.6.0-rc.1] - 2025-11-19
@@ -100,6 +397,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.1> for changes 
 ## [2.5.3] - 2025-11-19
 
 ### Fixed
+
 - Improved packet size accounting in MQTT [#1477](https://github.com/cloudamqp/lavinmq/pull/1477)
 - Improved frame size accounting in AMQP [#1485](https://github.com/cloudamqp/lavinmq/pull/1485)
 - Replicate `limits.json` [#1466](https://github.com/cloudamqp/lavinmq/pull/1466)
@@ -107,6 +405,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.1> for changes 
 ## [2.5.2] - 2025-11-12
 
 ### Fixed
+
 - Prevent MFile leakage in clustering when follower disconnects [#1450](https://github.com/cloudamqp/lavinmq/pull/1450)
 - Don't keep FDs open for MFiles [#1428](https://github.com/cloudamqp/lavinmq/pull/1428)
 - Signal empty after purge all in Priority queue message store [#1442](https://github.com/cloudamqp/lavinmq/pull/1442)
@@ -118,6 +417,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.1> for changes 
 ## [2.5.1] - 2025-11-05
 
 ### Fixed
+
 - Boolean queue arguments validated as invalid if set to false [#1429](https://github.com/cloudamqp/lavinmq/pull/1429)
 - Use the correct path for meta files in streams [#1438](https://github.com/cloudamqp/lavinmq/pull/1438)
 - Remove meta files when segments are removed in streams [#1435](https://github.com/cloudamqp/lavinmq/pull/1435)
@@ -128,6 +428,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.1> for changes 
 This release brings significant improvements across multiple areas of LavinMQ. Key focus areas include major clustering and replication enhancements for better reliability and performance, a new light mode UI theme alongside numerous user interface improvements, substantial performance optimizations including faster boot times and improved memory management, and enhanced tooling with expanded MQTT support. The release also includes important bug fixes.
 
 ### Added
+
 - MQTT client now uses permissions to authorize write operations on publish and read/write operations on subscribe [#1275](https://github.com/cloudamqp/lavinmq/pull/1275)
 - Human friendly exchange type names in controller and exchanges.js [#1238](https://github.com/cloudamqp/lavinmq/pull/1238)
 - Icons added to sidebar navigation and divided sidebar into groups [#1268](https://github.com/cloudamqp/lavinmq/pull/1268)
@@ -150,6 +451,7 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 - Persist shovel pause state across broker restarts [#1151](https://github.com/cloudamqp/lavinmq/pull/1151)
 
 ### Changed
+
 - Crystal 1.18.0 compatibility [#1356](https://github.com/cloudamqp/lavinmq/pull/1356), [#1360](https://github.com/cloudamqp/lavinmq/pull/1360)
 - Sticky header on logs page [#1333](https://github.com/cloudamqp/lavinmq/pull/1333)
 - Less scary logging if cleaning up upstream resources fails [#1379](https://github.com/cloudamqp/lavinmq/pull/1379)
@@ -174,12 +476,13 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 - Add builds for Debian 13 & Fedora 43. Remove builds for Fedora 40 [#1410](https://github.com/cloudamqp/lavinmq/pull/1410)
 
 ### Fixed
+
 - Fixed a bug where LavinMQ could end up in an infinte loop in a priority queue [#1420](https://github.com/cloudamqp/lavinmq/pull/1420)
 - Remove meta files after priority queue store migration [#1421](https://github.com/cloudamqp/lavinmq/pull/1421)
 - Show all channels for a specific vhost in the GUI [#1413](https://github.com/cloudamqp/lavinmq/pull/1413)
 - Don't log 'NaN' during follower sync if bps is 0 [#1418](https://github.com/cloudamqp/lavinmq/pull/1418)
 - Fixed a flaky spec [#1383](https://github.com/cloudamqp/lavinmq/pull/1383)
-- Reset segment pos before producing metadata [#1417](https://github.com/cloudamqp/lavinmq/pull/1417) 
+- Reset segment pos before producing metadata [#1417](https://github.com/cloudamqp/lavinmq/pull/1417)
 - Remove leftover apostrophe after refactoring [#1415](https://github.com/cloudamqp/lavinmq/pull/1415)
 - Don't crash when reading metadata [#1416](https://github.com/cloudamqp/lavinmq/pull/1416)
 - Fix x-max-age not showing as effective argument for stream queues in UI [#1389](https://github.com/cloudamqp/lavinmq/pull/1389)
@@ -258,6 +561,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.4> for changes 
 ## [2.4.5] - 2025-10-22
 
 ### Fixed
+
 - Crystal 1.18.x compatibility [#1361](https://github.com/cloudamqp/lavinmq/pull/1361), [#1359](https://github.com/cloudamqp/lavinmq/pull/1359), [#1373](https://github.com/cloudamqp/lavinmq/pull/1373)
 
 ## [2.5.0-rc.3] - 2025-10-21
@@ -271,6 +575,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.2> for changes 
 ## [2.4.4] - 2025-09-16
 
 ### Fixed
+
 - Memory leak in StreamConsumer [#1266](https://github.com/cloudamqp/lavinmq/pull/1266)
 - Fixed some UI bugs [#1269](https://github.com/cloudamqp/lavinmq/pull/1269)
 - Prevent delayed exchanges to bind to its internal delayed queue [#1270](https://github.com/cloudamqp/lavinmq/pull/1270)
@@ -278,6 +583,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.2> for changes 
 ## [2.4.3] - 2025-09-11
 
 ### Fixed
+
 - Broken javascript dependency [#1247](https://github.com/cloudamqp/lavinmq/pull/1247)
 - Queue `unacked_bytesize` return `unacked_count` [#1250](https://github.com/cloudamqp/lavinmq/pull/1250)
 - Fix bug where only one consumer got notified about new messages in a stream [#1253](https://github.com/cloudamqp/lavinmq/pull/1253)
@@ -286,6 +592,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.2> for changes 
 ## [2.4.2] - 2025-09-10
 
 ### Fixed
+
 - Memory leak in `MQTT::Consumer` [#1242](https://github.com/cloudamqp/lavinmq/pull/1242)
 
 ## [2.5.0-rc.1] - 2025-08-12
@@ -295,17 +602,20 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 ## [2.4.1] - 2025-07-21
 
 ### Fixed
+
 - MQTT 3.1 client support
 - Allow publishing of MQTT messages larger than 64KiB
 
 ## [2.4.0] - 2025-06-11
 
 ### Added
+
 - Streams - Filtering on any header [#1053](https://github.com/cloudamqp/lavinmq/pull/1053)
 - Show active arguments on queues & exchanges [#1072](https://github.com/cloudamqp/lavinmq/pull/1072)
 - Install instructions for Archlinux [#1001](https://github.com/cloudamqp/lavinmq/pull/1001)
 
 ### Changed
+
 - Parts of LavinMQ is now multi threaded, many structures are now thread safe
 - Requires Crystal 1.16 and `-Dpreview_mt -Dexecution_context` to run
 - Purgeing a queue without unacked messages is now instant [#1083](https://github.com/cloudamqp/lavinmq/pull/1083)
@@ -315,6 +625,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 - Remove ws.html and ws-mqtt.html
 
 ### Fixed
+
 - Allow requeuing of MQTT messages when delivery fails [#1081](https://github.com/cloudamqp/lavinmq/pull/1081)
 - Fixed routing_key or exchange with length 255 causing an ArithmeticOverflow [#1094](https://github.com/cloudamqp/lavinmq/pull/1094)
 - Append to x-received-from instead of replacing [#1084](https://github.com/cloudamqp/lavinmq/pull/1084)
@@ -325,6 +636,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 ## [2.3.0] - 2025-04-17
 
 ### Added
+
 - MQTT websocket support [#1007](https://github.com/cloudamqp/lavinmq/pull/1007)
 - Ability to change channel prefetch in UI/API [#1033](https://github.com/cloudamqp/lavinmq/pull/1033)
 - Add Prometheus metrics for `global_message_*` counters [#1010](https://github.com/cloudamqp/lavinmq/pull/1010)
@@ -333,6 +645,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 - Log total startup time [#1056](https://github.com/cloudamqp/lavinmq/pull/1056)
 
 ### Fixed
+
 - Multiple nodes could generate and set clustering secret, causing the leader to use another secret than the followers. [#998](https://github.com/cloudamqp/lavinmq/pull/998)
 - A policy with delivery-limit is now properly applied to a queue if the value is lower than the existing argument. [#1000](https://github.com/cloudamqp/lavinmq/pull/1000)
 - Fix cluster ID and advertised URI collision handling, preventing confusing behavior when multiple nodes have the same identity [#1023](https://github.com/cloudamqp/lavinmq/pull/1023)
@@ -341,6 +654,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 - Stop existing federation links when applying a new policy [#1059](https://github.com/cloudamqp/lavinmq/pull/1059)
 
 ### Changed
+
 - Cleaner CLI output with separators [#1018](https://github.com/cloudamqp/lavinmq/pull/1018)
 - Default limit of 128 items in deduplication cache [#1019](https://github.com/cloudamqp/lavinmq/pull/1019)
 - Messages in stream queues now support multiple filter values [#1022](https://github.com/cloudamqp/lavinmq/pull/1022)
@@ -357,6 +671,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 ## [2.2.0] - 2025-03-13
 
 ### Added
+
 - Implemented support for MQTT 3.1.1. [#766](https://github.com/cloudamqp/lavinmq/pull/766)
 - Introduced message deduplication on exchanges and queues. [#854](https://github.com/cloudamqp/lavinmq/pull/854)
 - Added filtering capabilities for streams. [#893](https://github.com/cloudamqp/lavinmq/pull/893)
@@ -369,12 +684,14 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.5.0-rc.1> for changes 
 - Added tooltips for the details table to improve user experience. [#925](https://github.com/cloudamqp/lavinmq/pull/925)
 
 ### Changed
+
 - Ensured that `channel_max` negotiation is respected, treating a value of 0 as unlimited.
 - Implemented logging and re-raising of errors if loading unexpectedly fails. [#933](https://github.com/cloudamqp/lavinmq/pull/933)
 - Included priority settings in the journald log format. [#950](https://github.com/cloudamqp/lavinmq/pull/950)
 - Deprecated `guest_only_loopback` in favor of `default_user_only_loopback`; `guest_only_loopback` will be removed in the next major release. [#919](https://github.com/cloudamqp/lavinmq/pull/919)
 
 ### Fixed
+
 - Queues now expire `TTL` milliseconds after the last consumer disconnects. [#924](https://github.com/cloudamqp/lavinmq/pull/924)
 - Prevented LavinMQ from freezing when closing consumers and channels. [#947](https://github.com/cloudamqp/lavinmq/pull/947)
 - `x-delivery-count` is now excluded from the initial delivery of a message; the count accurately reflects the number of delivery attempts prior to the current delivery. [#977](https://github.com/cloudamqp/lavinmq/pull/977)
@@ -596,7 +913,7 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1> for changes 
 ### Fixed
 
 - Empty ack files created for all segments [#658](https://github.com/cloudamqp/lavinmq/pull/658)
-- UI: Set proper width (colspan) for pagination cell  [#662](https://github.com/cloudamqp/lavinmq/pull/662)
+- UI: Set proper width (colspan) for pagination cell [#662](https://github.com/cloudamqp/lavinmq/pull/662)
 - Provide better information about connections LavinMQ initiates [#613](https://github.com/cloudamqp/lavinmq/pull/613)
 - Bugfix: Make sure shovels reconnect after destination disconnects [#667](https://github.com/cloudamqp/lavinmq/pull/667)
 

@@ -21,6 +21,10 @@ describe LavinMQ::Config do
     config.log_level.to_s.should eq "Fatal"
   end
 
+  it "defaults the control socket path to /tmp/lavinmqctl.sock" do
+    LavinMQ::Config.new.control_unix_path.should eq "/tmp/lavinmqctl.sock"
+  end
+
   it "should prioritize CLI arguments over other arguments" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
@@ -96,6 +100,7 @@ describe LavinMQ::Config do
           socket_buffer_size = 32768
           tcp_nodelay = true
           segment_size = 16777216
+          sync = false
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
@@ -118,14 +123,15 @@ describe LavinMQ::Config do
           tls_keylog_file = /tmp/keylog.txt
           metrics_http_bind = 0.0.0.0
           metrics_http_port = 9090
+          control_unix_path = /tmp/lavinmqctl-ini.sock
 
           [amqp]
           bind = 0.0.0.0
           port = 5673
           tls_port = 5674
           unix_path = /tmp/lavinmq.sock
-          unix_proxy_protocol = 2
           tcp_proxy_protocol = 1
+          proxy_protocol_trusted_sources = 10.0.0.1
           heartbeat = 600
           frame_max = 262144
           channel_max = 4096
@@ -179,6 +185,7 @@ describe LavinMQ::Config do
       config.socket_buffer_size.should eq 32768
       config.tcp_nodelay?.should be_true
       config.segment_size.should eq 16777216
+      config.sync?.should be_false
       config.tcp_keepalive.should eq({120, 20, 5})
       config.tcp_recv_buffer_size.should eq 65536
       config.tcp_send_buffer_size.should eq 65536
@@ -200,14 +207,15 @@ describe LavinMQ::Config do
       config.tls_keylog_file.should eq "/tmp/keylog.txt"
       config.metrics_http_bind.should eq "0.0.0.0"
       config.metrics_http_port.should eq 9090
+      config.control_unix_path.should eq "/tmp/lavinmqctl-ini.sock"
 
       # AMQP section
       config.amqp_bind.should eq "0.0.0.0"
       config.amqp_port.should eq 5673
       config.amqps_port.should eq 5674
       config.unix_path.should eq "/tmp/lavinmq.sock"
-      config.unix_proxy_protocol.should eq 2
-      config.tcp_proxy_protocol.should eq 1
+      config.tcp_proxy_protocol?.should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
       config.heartbeat.should eq 600
       config.frame_max.should eq 262144
       config.channel_max.should eq 4096
@@ -264,6 +272,10 @@ describe LavinMQ::Config do
       "--http-bind=172.16.0.1",
       "--http-port=15673",
       "--http-unix-path=/tmp/http.sock",
+      "--control-unix-path=/tmp/lavinmqctl-cli.sock",
+      "--mqtt-bind=10.0.0.2",
+      "--mqtt-port=1884",
+      "--mqtts-port=8884",
       "--mqtt-unix-path=/tmp/mqtt.sock",
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
@@ -278,6 +290,9 @@ describe LavinMQ::Config do
       "--default-user=cliuser",
       "--default-user-only-loopback=false",
       "--no-data-dir-lock",
+      "--no-sync",
+      "--clustering",
+      "--raise-gc-warn",
       "--clustering-advertised-uri=lavinmq://test:5679",
       "--clustering-bind=0.0.0.0",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
@@ -297,6 +312,10 @@ describe LavinMQ::Config do
     config.http_bind.should eq "172.16.0.1"
     config.http_port.should eq 15673
     config.http_unix_path.should eq "/tmp/http.sock"
+    config.control_unix_path.should eq "/tmp/lavinmqctl-cli.sock"
+    config.mqtt_bind.should eq "10.0.0.2"
+    config.mqtt_port.should eq 1884
+    config.mqtts_port.should eq 8884
     config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
@@ -311,6 +330,9 @@ describe LavinMQ::Config do
     config.default_user.should eq "cliuser"
     config.default_user_only_loopback?.should be_false
     config.data_dir_lock?.should be_false
+    config.sync?.should be_false
+    config.clustering?.should be_true
+    config.raise_gc_warn?.should be_true
     config.clustering_advertised_uri.should eq "lavinmq://test:5679"
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
@@ -352,7 +374,8 @@ describe LavinMQ::Config do
       ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
       ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
       ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
-
+      ENV["LAVINMQ_SYNC"] = "false"
+      ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
       config = LavinMQ::Config.new
       config.parse([] of String)
 
@@ -376,6 +399,7 @@ describe LavinMQ::Config do
       config.clustering_etcd_prefix.should eq "env-prefix"
       config.clustering_max_unsynced_actions.should eq 2048
       config.clustering_port.should eq 5681
+      config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
     ensure
       ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
       ENV.delete("LAVINMQ_DATADIR")
@@ -398,7 +422,103 @@ describe LavinMQ::Config do
       ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
       ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
       ENV.delete("LAVINMQ_CLUSTERING_PORT")
+      ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
     end
+  end
+
+  it "uses systemd STATE_DIRECTORY as default for data_dir" do
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.data_dir.should eq "/var/lib/custom-state"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+    end
+  end
+
+  it "STATE_DIRECTORY takes precedence over INI data_dir" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        data_dir = /tmp/lavinmq-ini
+      CONFIG
+    end
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.data_dir.should eq "/var/lib/custom-state"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+    end
+  end
+
+  it "LAVINMQ_DATADIR takes precedence over STATE_DIRECTORY" do
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.data_dir.should eq "/var/lib/lavinmq-explicit"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+      ENV.delete("LAVINMQ_DATADIR")
+    end
+  end
+
+  it "uses systemd CONFIGURATION_DIRECTORY for config file lookup" do
+    config_dir = File.tempname("lavinmq-conf")
+    Dir.mkdir_p(config_dir)
+    File.write(File.join(config_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    begin
+      ENV["CONFIGURATION_DIRECTORY"] = config_dir
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.config_file.should eq File.join(config_dir, "lavinmq.ini")
+    ensure
+      ENV.delete("CONFIGURATION_DIRECTORY")
+      FileUtils.rm_rf(config_dir)
+    end
+  end
+
+  it "LAVINMQ_CONFIGURATION_DIRECTORY takes precedence over CONFIGURATION_DIRECTORY" do
+    config_dir = File.tempname("lavinmq-conf")
+    Dir.mkdir_p(config_dir)
+    File.write(File.join(config_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    systemd_dir = File.tempname("lavinmq-systemd")
+    Dir.mkdir_p(systemd_dir)
+    File.write(File.join(systemd_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    begin
+      ENV["CONFIGURATION_DIRECTORY"] = systemd_dir
+      ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = config_dir
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      # config_file should NOT point to the systemd_dir
+      config.config_file.should_not contain systemd_dir
+    ensure
+      ENV.delete("CONFIGURATION_DIRECTORY")
+      ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+      FileUtils.rm_rf(config_dir)
+      FileUtils.rm_rf(systemd_dir)
+    end
+  end
+
+  it "accepts deprecated [http] section as alias for [mgmt]" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        data_dir = /tmp/lavinmq-spec
+        [http]
+        port = 15699
+      CONFIG
+    end
+    io = IO::Memory.new
+    config = LavinMQ::Config.new(io)
+    argv = ["-c", config_file.path]
+    config.parse(argv)
+    config.http_port.should eq 15699
+    io.to_s.should match(/\[http\] is deprecated/)
   end
 
   it "will not parse ini sections that do not exist" do
@@ -420,7 +540,7 @@ describe LavinMQ::Config do
         invalid_option = value
       CONFIG
     end
-    config = LavinMQ::Config.new
+    config = LavinMQ::Config.new(IO::Memory.new)
     argv = ["-c", config_file.path]
     config.parse(argv)
   end
@@ -430,62 +550,6 @@ describe LavinMQ::Config do
     config = LavinMQ::Config.new
     argv = ["--nonexistent-flag=value"]
     expect_raises(OptionParser::InvalidOption) { config.parse(argv) }
-  end
-
-  describe "with deprecated options" do
-    it "should log warning for ini options" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-        default_password = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
-      CONFIG
-      end
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        argv = ["-c", config_file.path]
-        config.parse(argv)
-      end
-      logs.check(:warn, /is deprecated/)
-    end
-
-    it "should log warning for cli options" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-      CONFIG
-      end
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
-        config.parse(argv)
-      end
-      logs.check(:warn, /is deprecated/)
-    end
-
-    it "should forward ini option values to the new property" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-        default_password = 8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3
-      CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path]
-      config.parse(argv)
-      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
-    end
-
-    it "should forward cli option values to the new property" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-      CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
-      config.parse(argv)
-      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
-    end
   end
 
   it "parses pidfile from config" do
@@ -501,5 +565,31 @@ describe LavinMQ::Config do
     argv = ["-c", config_file.path]
     config.parse(argv)
     config.pidfile.should eq "/tmp/lavinmq.pid"
+  end
+
+  it "should set amqp, http and mqtt bind with -b flag" do
+    config = LavinMQ::Config.new
+    argv = ["-b", "0.0.0.0"]
+    config.parse(argv)
+    config.amqp_bind.should eq "0.0.0.0"
+    config.http_bind.should eq "0.0.0.0"
+    config.mqtt_bind.should eq "0.0.0.0"
+  end
+
+  describe "tcp_proxy_protocol" do
+    {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
+      it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+                [amqp]
+                tcp_proxy_protocol = {{value}}
+              CONFIG
+        end
+        config = LavinMQ::Config.new
+        argv = ["-c", config_file.path]
+        config.parse(argv)
+        config.tcp_proxy_protocol?.should eq {{expected}}
+      end
+    {% end %}
   end
 end
