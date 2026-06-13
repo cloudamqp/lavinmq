@@ -18,7 +18,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
   end
 
   describe "#put_or_get" do
-    it "should set and return value if key is non-existent" do
+    it "should set and return value if key is non-existent", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -28,7 +28,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       end
     end
 
-    it "should get existing value if key exists" do
+    it "should get existing value if key exists", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -39,7 +39,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can watch" do
+  it "can watch", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -64,7 +64,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can elect leader" do
+  it "can elect leader", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -144,7 +144,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will not lose leadership when only one etcd node is lost" do
+  it "will not lose leadership when only one etcd node is lost", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -156,7 +156,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "raises LeaseNotFound when using an invalid lease" do
+  it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -296,6 +296,7 @@ class EtcdCluster
   end
 
   def start : Array(Process)
+    ensure_etcd_in_path!
     @ports.map_with_index do |p, i|
       start_process(p, i)
     end

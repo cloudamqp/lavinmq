@@ -354,7 +354,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when segment has corrupt schema version with replicator" do
+  it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
@@ -379,7 +379,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when a middle segment is corrupt with replicator" do
+  it "closes gracefully when a middle segment is corrupt with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
