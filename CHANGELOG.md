@@ -32,6 +32,16 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 - Replace periodic GC.collect with on-demand GC [#2016](https://github.com/cloudamqp/lavinmq/pull/2016)
 - Batch persistence during definitions import [#2014](https://github.com/cloudamqp/lavinmq/pull/2014)
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline
+- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). When a follower disconnects mid-confirm, the confirm is held until the follower's removal from the etcd ISR is committed, so a leader crash right after the confirm can't elect a replica that lacks the data
+- Durable definition changes (queue/exchange declares, deletes, bindings) are likewise acknowledged only once every in-sync follower has acked them — or a non-acking follower's removal from the etcd ISR is committed — so a leader crash right after a Declare-Ok can't elect a replica that lacks the acknowledged definition
+
+### Fixed
+
+- A node that won the etcd leader election while no longer in the ISR (its candidacy was queued before it fell behind or disconnected) now releases the lease and exits instead of serving, preventing confirmed messages from being lost cluster-wide when an out-of-sync replica would otherwise be promoted
+- A follower joining the replica set while the leader was publishing could duplicate bytes in its segment files (the local write to a segment races the full sync); the join now snapshots a per-file cut, caps the sync to it, and skips already-synced bytes from the change stream
+- A replication append that straddles a joining follower's full-sync cut now streams only the unsynced tail. The cut is a live file size and can land inside a record a publisher has written locally but not yet dispatched; skipping the whole append (as before) tore the record on the follower
+- A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates and are removed before the next durable operation or publish confirm is acknowledged
 - Print clean error messages on boot failures instead of stacktraces [aba7361b](https://github.com/cloudamqp/lavinmq/commit/aba7361b8a434f1ab2776ec0fbb393c73e94861d)
 - Group `lavinmqctl` help output by command category [#1830](https://github.com/cloudamqp/lavinmq/pull/1830)
 - Use `amq.default` in UI related operations [#1913](https://github.com/cloudamqp/lavinmq/pull/1913)
@@ -43,6 +53,10 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 ### Removed
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+
+### Deprecated
+
+- `clustering_max_unsynced_actions` is now a no-op (still accepted to avoid breaking existing configs); the follower ack buffer is a fixed size and how far a follower may lag is governed by the leader's ack deadline
 
 ### Fixed
 
