@@ -65,6 +65,7 @@ module LavinMQ
                  "/"
                end
         success = push_and_maybe_retry(@ack_mode) do
+          msg.body_io.rewind
           c.post(path, headers: headers, body: msg.body_io).success?
         end
         case @ack_mode

@@ -834,9 +834,11 @@ describe LavinMQ::Shovel do
 
         with_channel(s) do |ch|
           exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
-          exchange.publish_confirm %({"fail": true}), queue_name
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
           spawn shovel.run
-          should_eventually(eq 1) { http_server.get_fail_count(target_path) } # doesn't really address no_ack not being retried?
+          should_eventually(eq 1) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload]
         end
       end
     end
@@ -844,9 +846,9 @@ describe LavinMQ::Shovel do
     it "should retry in on_confirm mode" do
       prefix = "ql_"
       queue_name = "#{prefix}q1"
-      http_server = FailServer.new
-      http_server.start
       target_path = "/path-for-api"
+      http_server = FailServer.new({target_path => 2})
+      http_server.start
       target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
 
       with_amqp_server do |s|
@@ -869,13 +871,16 @@ describe LavinMQ::Shovel do
           }))),
           LavinMQ::Shovel::AckMode::OnConfirm
         )
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "no_ack_shovel", vhost)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "on_confirm_shovel", vhost)
 
         with_channel(s) do |ch|
           exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
-          exchange.publish_confirm %({"fail": true}), queue_name
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
           spawn shovel.run
           should_eventually(eq 3) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload, payload, payload]
+          should_eventually(eq 0) { s.vhosts["/"].queues[queue_name].message_count }
         end
       end
     end
@@ -883,9 +888,9 @@ describe LavinMQ::Shovel do
     it "should retry in on_publish" do
       prefix = "ql_"
       queue_name = "#{prefix}q1"
-      http_server = FailServer.new
-      http_server.start
       target_path = "/path-for-api"
+      http_server = FailServer.new({target_path => 2})
+      http_server.start
       target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
 
       with_amqp_server do |s|
@@ -908,13 +913,16 @@ describe LavinMQ::Shovel do
           }))),
           LavinMQ::Shovel::AckMode::OnPublish
         )
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "no_ack_shovel", vhost)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "on_publish_shovel", vhost)
 
         with_channel(s) do |ch|
           exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
-          exchange.publish_confirm %({"fail": true}), queue_name
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
           spawn shovel.run
           should_eventually(eq 3) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload, payload, payload]
+          should_eventually(eq 0) { s.vhosts["/"].queues[queue_name].message_count }
         end
       end
     end
@@ -923,10 +931,11 @@ end
 
 class FailServer
   @state : Hash(String, Int32) = Hash(String, Int32).new
+  @received_bodies : Hash(String, Array(String)) = Hash(String, Array(String)).new
   @server : HTTP::Server
   getter addr : Int32
 
-  def initialize
+  def initialize(@fail_until : Hash(String, Int32) = Hash(String, Int32).new)
     @server = create_fail_server()
     @addr = @server.bind_unused_port.port
   end
@@ -940,6 +949,10 @@ class FailServer
     @state[path]? || 0
   end
 
+  def received_bodies(path : String) : Array(String)
+    @received_bodies[path]? || [] of String
+  end
+
   def state
     @state
   end
@@ -947,11 +960,15 @@ class FailServer
   private def create_fail_server
     server = HTTP::Server.new do |context|
       path = context.request.path
-      @state[path] ||= 0
-      @state[path] += 1
 
-      parsed_body = JSON.parse(context.request.body.not_nil!)
-      context.response.status_code = 500 unless parsed_body["fail"].nil?
+      body = context.request.body.try(&.gets_to_end) || ""
+      (@received_bodies[path] ||= [] of String) << body
+
+      count = (@state[path]? || 0) + 1
+      @state[path] = count
+
+      fail_until = @fail_until[path]? || Int32::MAX
+      context.response.status_code = 500 if count <= fail_until
       context.response.content_type = "text/plain"
       context.response.print "ok"
       context
