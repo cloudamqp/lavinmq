@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../../clustering/client"
 
 module LavinMQ
   module HTTP

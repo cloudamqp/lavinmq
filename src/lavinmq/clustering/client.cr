@@ -57,9 +57,6 @@ module LavinMQ
         end
       end
 
-      # Address of the leader this follower is currently replicating from, or
-      # nil before `follow` has connected. Used as the `leader` label on the
-      # `cluster_received_bytes_total` metric.
       def leader_address : String?
         if (host = @host) && (port = @port)
           "#{host}:#{port}"
