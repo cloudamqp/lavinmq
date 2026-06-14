@@ -160,9 +160,9 @@ module LavinMQ
     end
 
     private def start_listeners(amqp_server, mqtt_server, http_server)
-      bind_amqp_listeners(amqp_server)
-      bind_mqtt_listeners(mqtt_server)
-      bind_http_listeners(http_server)
+      bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
+      bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
+      bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
       http_server.bind_internal_unix
 
       unless amqp_server.listeners.empty?
@@ -192,46 +192,15 @@ module LavinMQ
       abort "Error: #{ex.message}"
     end
 
-    private def bind_amqp_listeners(amqp_server)
-      if @config.amqp_port > 0
-        amqp_server.bind_tcp(@config.amqp_bind, @config.amqp_port)
+    # Binds the plain TCP, TLS and unix listeners a server is configured for.
+    # Works for any server exposing bind_tcp/bind_tls/bind_unix (the protocol
+    # servers and the HTTP server).
+    private def bind_listeners(server, bind, port, tls_port, tls_context, unix_path)
+      server.bind_tcp(bind, port) if port > 0
+      if tls_port > 0 && (ctx = tls_context)
+        server.bind_tls(bind, tls_port, ctx)
       end
-      if @config.amqps_port > 0
-        if ctx = @amqp_tls_context
-          amqp_server.bind_tls(@config.amqp_bind, @config.amqps_port, ctx)
-        end
-      end
-      unless @config.unix_path.empty?
-        amqp_server.bind_unix(@config.unix_path)
-      end
-    end
-
-    private def bind_mqtt_listeners(mqtt_server)
-      if @config.mqtt_port > 0
-        mqtt_server.bind_tcp(@config.mqtt_bind, @config.mqtt_port)
-      end
-      if @config.mqtts_port > 0
-        if ctx = @mqtt_tls_context
-          mqtt_server.bind_tls(@config.mqtt_bind, @config.mqtts_port, ctx)
-        end
-      end
-      unless @config.mqtt_unix_path.empty?
-        mqtt_server.bind_unix(@config.mqtt_unix_path)
-      end
-    end
-
-    private def bind_http_listeners(http_server)
-      if @config.http_port > 0
-        http_server.bind_tcp(@config.http_bind, @config.http_port)
-      end
-      if @config.https_port > 0
-        if ctx = @http_tls_context
-          http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
-        end
-      end
-      unless @config.http_unix_path.empty?
-        http_server.bind_unix(@config.http_unix_path)
-      end
+      server.bind_unix(unix_path) unless unix_path.empty?
     end
 
     private def dump_debug_info
