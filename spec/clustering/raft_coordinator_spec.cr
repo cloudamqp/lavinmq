@@ -152,6 +152,63 @@ describe LavinMQ::Clustering::RaftCoordinator do
     end
   end
 
+  describe "configuration" do
+    it "reads and strips the replication secret from disk" do
+      with_datadir do |dir|
+        File.write(File.join(dir, ".replication_secret"), "  s3cr3t\n")
+        config = raft_config(dir, 1, "")
+        coord = LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+        coord.password.should eq "s3cr3t"
+      end
+    end
+
+    it "rejects a peer entry without a port" do
+      with_datadir do |dir|
+        config = raft_config(dir, 1, "1@host-without-port")
+        expect_raises(ArgumentError, /raft peer/) do
+          LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+        end
+      end
+    end
+
+    it "rejects a non-numeric peer id" do
+      with_datadir do |dir|
+        config = raft_config(dir, 1, "x@127.0.0.1:5680")
+        expect_raises(ArgumentError, /raft peer id/) do
+          LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+        end
+      end
+    end
+
+    it "accepts bracketed IPv6 peers" do
+      with_datadir do |dir|
+        config = raft_config(dir, 1, "1@[::1]:5681,2@[::1]:5682")
+        # parse_peers runs in the constructor; bracketed IPv6 must not raise.
+        LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+      end
+    end
+  end
+
+  describe "not leader" do
+    it "update_isr raises StaleLeadership when this node never wins" do
+      with_datadir do |dir|
+        # Two configured peers but a standalone transport that can't reach peer
+        # 2, so this node campaigns forever and never becomes leader.
+        config = raft_config(dir, 1, "1@127.0.0.1:5681,2@127.0.0.1:5682")
+        coord = LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+        begin
+          coord.start
+          became_leader?(coord, 1.second).should be_false
+          expect_raises(LavinMQ::Clustering::RaftCoordinator::StaleLeadership) do
+            coord.update_isr(Set{1})
+          end
+        ensure
+          coord.release
+        end
+      end
+    end
+  end
+
   describe "multi node" do
     it "elects exactly one leader and fails over on release", tags: "slow" do
       with_datadir do |dir1|

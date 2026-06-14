@@ -5,10 +5,15 @@ module LavinMQ::Clustering
   # `Clustering::Server` (the leader side) only needs `update_isr` and
   # `password`, so those are the only abstract methods — that keeps the
   # Server-only test doubles (NullCoordinator, SpyCoordinator) tiny. The
-  # lifecycle/election methods below are used solely by `Clustering::Controller`
-  # and have base implementations so a Server-only double doesn't have to
-  # implement them; the real backends (EtcdCoordinator, RaftCoordinator)
-  # override what they need.
+  # lifecycle/election methods below are used solely by `Clustering::Controller`.
+  # They are *not* abstract (so the Server-only doubles don't have to implement
+  # them) but their base implementations raise `NotImplementedError` rather than
+  # silently no-op: a real backend that forgets to override one fails loudly the
+  # first time the Controller calls it, instead of, say, never discovering a
+  # leader and silently never replicating. The two genuinely-optional hooks
+  # (`start`, `release`) keep a no-op default; `membership_lost`/`isr` keep a
+  # safe-value default. The real backends (EtcdCoordinator, RaftCoordinator)
+  # override everything they use.
   #
   # All methods are safe to call from any thread/fiber.
   abstract class Coordinator
@@ -60,17 +65,20 @@ module LavinMQ::Clustering
     # Yield the parsed ISR set on every change (nil when no ISR is recorded),
     # until the block breaks. Blocks like a watch.
     def watch_isr(& : Set(Int32)? -> Nil) : Nil
+      raise NotImplementedError.new("watch_isr")
     end
 
     # Yield the current leader's advertised URI on every change (nil when there
     # is no leader), until the block breaks. Used by the follower monitor to
     # know where to replicate from.
     def watch_leader_uri(& : String? -> Nil) : Nil
+      raise NotImplementedError.new("watch_leader_uri")
     end
 
     # Publish this node's advertised URI as the current leader's URI. Called by
     # the Controller right after `await_leadership` returns.
     def publish_leader_uri(advertised_uri : String) : Nil
+      raise NotImplementedError.new("publish_leader_uri")
     end
 
     # Raised by `start`/`await_leadership` when this node's id is already in use

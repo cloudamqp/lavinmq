@@ -25,9 +25,20 @@ module LavinMQ::Clustering
     @is_leader = BoolChannel.new(false)
     @closing = Atomic(Bool).new(false)
     @tick_interval : Time::Span
-    # Pending "wait until index N is committed+applied" requests. Only touched
-    # on the driver fiber (added by an op, resolved by the loop), so no lock.
-    @commit_waiters = [] of {UInt64, Channel(Symbol)}
+    # How long await_leadership_lost rides out a momentary step-down before
+    # treating leadership as truly lost (≈ one election cycle).
+    @election_grace : Time::Span
+    # Closed when this node's coordinator is shutting down, so a follower parked
+    # in wait_to_be_insync can abort.
+    @membership_lost = Channel(Nil).new
+    # Set while this node should (re)publish its advertised URI as the leader's;
+    # the driver loop proposes it until accepted, and clears it. Re-armed on
+    # every leadership acquisition (on_role_change).
+    @want_publish_uri = Atomic(Bool).new(false)
+    # Pending "wait until index N (proposed at term T) is committed+applied"
+    # requests, as {index, term, channel}. Only touched on the driver fiber
+    # (added by an op, resolved/failed by the loop), so no lock.
+    @commit_waiters = [] of {UInt64, UInt64, Channel(Symbol)}
 
     def initialize(@config : Config, @id : Int32, @advertised_uri : String, transport : Raft::Transport? = nil)
       raft_dir = File.join(@config.data_dir, "raft")
@@ -49,6 +60,7 @@ module LavinMQ::Clustering
         address: "#{@config.clustering_raft_bind}:#{@config.clustering_raft_port}",
       )
       @tick_interval = cfg.tick_interval
+      @election_grace = cfg.tick_interval * (cfg.election_timeout_max_ticks + cfg.heartbeat_ticks)
 
       @transport = transport || Raft::TCPTransport.new(
         listen_address: @config.clustering_raft_bind,
@@ -59,9 +71,19 @@ module LavinMQ::Clustering
         @transport.register_peer(pid, host, port) unless pid == @id.to_u64
       end
 
-      # on_role_change runs on the driver fiber — keep it non-blocking.
+      # on_role_change runs on the driver fiber (or, for the bootstrap-leader
+      # transition, on the fiber calling start before the loop spawns) — keep it
+      # non-blocking and don't re-enter the node here.
       @node.on_role_change do |_old, new_role|
         @is_leader.set(new_role.leader?)
+        if new_role.leader?
+          @want_publish_uri.set(true) # (re)advertise our URI once we drive the loop
+        else
+          # We are no longer leader: any in-flight ISR write can't be guaranteed,
+          # so fail every pending waiter (driver fiber only, see @commit_waiters).
+          @want_publish_uri.set(false)
+          fail_commit_waiters
+        end
       end
     end
 
@@ -88,7 +110,8 @@ module LavinMQ::Clustering
           node.tick
         end
         drain_outbox(node, transport)
-        resolve_commit_waiters(node.last_applied)
+        resolve_commit_waiters(node)
+        maybe_publish_leader_uri(node)
         if @closing.get
           drain_outbox(node, transport) # flush a pending leadership transfer
           break
@@ -96,6 +119,14 @@ module LavinMQ::Clustering
       rescue Channel::ClosedError
         break
       end
+      # Stop receiving ops and unblock anything still waiting: closing @ops makes
+      # a sender blocked on the unbuffered rendezvous raise ClosedError (which
+      # every op-enqueuing method rescues) instead of hanging forever; failing
+      # the commit waiters releases any update_isr parked on its result; closing
+      # membership_lost aborts a follower parked in wait_to_be_insync.
+      @ops.close
+      fail_commit_waiters
+      @membership_lost.close rescue nil
       node.close
       transport.stop
     end
@@ -106,15 +137,37 @@ module LavinMQ::Clustering
       end
     end
 
-    private def resolve_commit_waiters(applied : UInt64) : Nil
-      @commit_waiters.reject! do |index, ch|
-        if applied >= index
-          ch.send(:committed) rescue nil
-          true
-        else
-          false
-        end
+    private def resolve_commit_waiters(node) : Nil
+      return if @commit_waiters.empty?
+      applied = node.last_applied
+      @commit_waiters.reject! do |index, term, ch|
+        next false if applied < index
+        # The entry at `index` has been applied; confirm it's still OUR entry. A
+        # new leader can overwrite an uncommitted index after we stepped down, so
+        # only a matching term proves the ISR write we proposed actually carried.
+        committed = node.log.term_at(index) == term
+        ch.send(committed ? :committed : :lost) rescue nil
+        true
       end
+    end
+
+    # Release every pending ISR waiter as lost (no longer leader / shutting
+    # down). Driver-fiber only.
+    private def fail_commit_waiters : Nil
+      return if @commit_waiters.empty?
+      @commit_waiters.each { |_index, _term, ch| ch.send(:lost) rescue nil }
+      @commit_waiters.clear
+    end
+
+    # Publish our advertised URI while we're leader, retrying each loop iteration
+    # until a proposal is accepted, then clear the flag. Coupling publication to
+    # leadership (re-armed by on_role_change) closes the window where a node
+    # serves as leader but no leader URI was ever committed.
+    private def maybe_publish_leader_uri(node) : Nil
+      return if @closing.get
+      return unless @want_publish_uri.get
+      return unless node.role.leader?
+      @want_publish_uri.set(false) if node.propose(RaftCommand.for_leader(@advertised_uri))
     end
 
     def await_leadership : Nil
@@ -122,7 +175,24 @@ module LavinMQ::Clustering
     end
 
     def await_leadership_lost : Nil
-      @is_leader.when_false.receive
+      # Raft can briefly step a leader down (e.g. a higher-term heartbeat) and
+      # then re-win; treat leadership as lost only if it isn't regained within a
+      # grace window, so a momentary flap doesn't kill the process. This is safe
+      # because update_isr independently gates durability on node.role.leader?,
+      # so nothing is acknowledged while we're transiently not the leader.
+      loop do
+        @is_leader.when_false.receive
+        select
+        when @is_leader.when_true.receive
+          next # regained leadership, keep serving
+        when timeout(@election_grace)
+          return # durably lost
+        end
+      end
+    end
+
+    def membership_lost : Channel(Nil)
+      @membership_lost
     end
 
     def release : Nil
@@ -152,10 +222,11 @@ module LavinMQ::Clustering
             result.send(:not_leader)
           else
             index = node.log.last_index
-            if node.last_applied >= index
+            term = node.current_term
+            if node.last_applied >= index && node.log.term_at(index) == term
               result.send(:committed)
             else
-              @commit_waiters << {index, result}
+              @commit_waiters << {index, term, result}
             end
           end
           nil
@@ -165,11 +236,12 @@ module LavinMQ::Clustering
       end
 
       # Block until the ISR write is committed+applied (durable) before
-      # returning, since Server treats a successful return as durable. If
-      # leadership is lost first, raise so Server#flush_isr retries.
+      # returning, since Server treats a successful return as durable. Anything
+      # other than :committed (not leader, or the entry was discarded after a
+      # leadership change) raises so Server#flush_isr retries.
       select
       when r = result.receive
-        raise StaleLeadership.new("Not the Raft leader") if r == :not_leader
+        raise StaleLeadership.new("ISR write not committed (#{r})") unless r == :committed
       when @is_leader.when_false.receive
         raise StaleLeadership.new("Lost Raft leadership before ISR committed")
       end
@@ -204,12 +276,12 @@ module LavinMQ::Clustering
     end
 
     def publish_leader_uri(advertised_uri : String) : Nil
-      return if @closing.get
-      @ops.send(->(node : Raft::Node(RaftCommand)) do
-        node.propose(RaftCommand.for_leader(@id, advertised_uri))
-        nil
-      end)
-    rescue Channel::ClosedError
+      # The advertised URI is fixed at construction (@advertised_uri), so just
+      # arm the flag; the driver loop publishes it while we're leader and retries
+      # until a proposal is accepted. on_role_change also arms it on every
+      # leadership acquisition, so the URI is published even without this call —
+      # there is no window where we lead but never advertise.
+      @want_publish_uri.set(true) unless @closing.get
     end
 
     def password : String
@@ -220,20 +292,40 @@ module LavinMQ::Clustering
       exit 3
     end
 
-    # Parse "1@host1:5680,2@host2:5680" into [{1, "host1", 5680}, ...].
+    # Parse "1@host1:5680,2@host2:5680" into [{1, "host1", 5680}, ...]. IPv6
+    # hosts must be bracketed: "3@[::1]:5680". Raises ArgumentError with the
+    # offending entry on malformed input rather than crashing with an opaque
+    # error deep in construction.
     private def parse_peers(raw : String) : Array({UInt64, String, Int32})
       peers = [] of {UInt64, String, Int32}
       raw.split(',') do |entry|
         entry = entry.strip
         next if entry.empty?
-        id_part, _, addr = entry.partition('@')
-        host, _, port = addr.rpartition(':')
-        peers << {id_part.to_u64, host, port.to_i}
+        id_part, sep, addr = entry.partition('@')
+        raise ArgumentError.new("Invalid raft peer #{entry.inspect}, expected id@host:port") if sep.empty? || addr.empty?
+        id = id_part.to_u64? || raise ArgumentError.new("Invalid raft peer id in #{entry.inspect}")
+        host, port = parse_host_port(addr, entry)
+        peers << {id, host, port}
       end
       peers
     end
 
-    # The replicated command: replace the ISR wholesale, or set the leader id +
+    private def parse_host_port(addr : String, entry : String) : {String, Int32}
+      if addr.starts_with?('[') # bracketed IPv6: [::1]:5680
+        close = addr.index(']') || raise ArgumentError.new("Unterminated IPv6 address in raft peer #{entry.inspect}")
+        host = addr[1...close]
+        rest = addr[(close + 1)..]
+        raise ArgumentError.new("Missing port in raft peer #{entry.inspect}") unless rest.starts_with?(':')
+        port_part = rest[1..]
+      else
+        host, sep, port_part = addr.rpartition(':')
+        raise ArgumentError.new("Missing port in raft peer #{entry.inspect}") if sep.empty? || host.empty?
+      end
+      port = port_part.to_i? || raise ArgumentError.new("Invalid port in raft peer #{entry.inspect}")
+      {host, port}
+    end
+
+    # The replicated command: replace the ISR wholesale, or set the leader's
     # advertised URI. Both are idempotent full replacements.
     struct RaftCommand
       enum Kind : UInt8
@@ -243,24 +335,23 @@ module LavinMQ::Clustering
 
       getter kind : Kind
       getter isr : Set(Int32)
-      getter leader_id : Int32
       getter leader_uri : String
 
-      def initialize(@kind, @isr, @leader_id, @leader_uri)
+      def initialize(@kind, @isr, @leader_uri)
       end
 
       def self.for_isr(isr : Set(Int32)) : self
-        new(Kind::SetISR, isr, 0, "")
+        new(Kind::SetISR, isr, "")
       end
 
-      def self.for_leader(leader_id : Int32, leader_uri : String) : self
-        new(Kind::SetLeader, Set(Int32).new, leader_id, leader_uri)
+      def self.for_leader(leader_uri : String) : self
+        new(Kind::SetLeader, Set(Int32).new, leader_uri)
       end
 
       def bytesize : Int32
         case kind
         in .set_isr?    then 1 + 4 + 4 * @isr.size
-        in .set_leader? then 1 + 4 + 2 + @leader_uri.bytesize
+        in .set_leader? then 1 + 2 + @leader_uri.bytesize
         end
       end
 
@@ -271,7 +362,6 @@ module LavinMQ::Clustering
           io.write_bytes(@isr.size.to_u32, format)
           @isr.each { |id| io.write_bytes(id, format) }
         in .set_leader?
-          io.write_bytes(@leader_id, format)
           io.write_bytes(@leader_uri.bytesize.to_u16, format)
           io.write(@leader_uri.to_slice)
         end
@@ -286,11 +376,10 @@ module LavinMQ::Clustering
           count.times { isr << io.read_bytes(Int32, format) }
           for_isr(isr)
         in .set_leader?
-          leader_id = io.read_bytes(Int32, format)
           len = io.read_bytes(UInt16, format)
           buf = Bytes.new(len)
           io.read_fully(buf)
-          for_leader(leader_id, String.new(buf))
+          for_leader(String.new(buf))
         end
       end
     end
@@ -302,7 +391,6 @@ module LavinMQ::Clustering
     class SM < Raft::StateMachine(RaftCommand)
       @lock = Mutex.new
       @isr : Set(Int32)? = nil # nil until the first SetISR (fresh cluster)
-      @leader_id = 0
       @leader_uri : String? = nil
       @isr_bells = [] of Channel(Nil)
       @uri_bells = [] of Channel(Nil)
@@ -313,7 +401,7 @@ module LavinMQ::Clustering
           @lock.synchronize { @isr = entry.isr }
           ring(@isr_bells)
         in .set_leader?
-          @lock.synchronize { @leader_id = entry.leader_id; @leader_uri = entry.leader_uri }
+          @lock.synchronize { @leader_uri = entry.leader_uri }
           ring(@uri_bells)
         end
       end
@@ -361,7 +449,6 @@ module LavinMQ::Clustering
 
       def snapshot(io : IO)
         @lock.synchronize do
-          io.write_bytes(@leader_id, IO::ByteFormat::LittleEndian)
           uri = @leader_uri || ""
           io.write_bytes(uri.bytesize.to_u16, IO::ByteFormat::LittleEndian)
           io.write(uri.to_slice)
@@ -376,7 +463,6 @@ module LavinMQ::Clustering
       end
 
       def restore(io : IO)
-        leader_id = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
         len = io.read_bytes(UInt16, IO::ByteFormat::LittleEndian)
         buf = Bytes.new(len)
         io.read_fully(buf)
@@ -389,7 +475,6 @@ module LavinMQ::Clustering
           count.times { isr << io.read_bytes(Int32, IO::ByteFormat::LittleEndian) }
         end
         @lock.synchronize do
-          @leader_id = leader_id
           @leader_uri = uri.empty? ? nil : uri
           @isr = isr
         end
