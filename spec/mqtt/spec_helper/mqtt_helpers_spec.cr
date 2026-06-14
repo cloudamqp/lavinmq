@@ -39,10 +39,8 @@ module MqttHelpers
     mqtt_server = TCPServer.new("localhost", 0)
     amqp_server = TCPServer.new("localhost", 0)
     s = LavinMQ::Server.new(LavinMQ::Config.instance, nil)
-    amqp = LavinMQ::AMQP::Server.new(s)
-    mqtt = LavinMQ::MQTT::Server.new(s)
-    register_amqp(s, amqp)
-    register_mqtt(s, mqtt)
+    amqp = s.amqp_server
+    mqtt = s.mqtt_server
     begin
       amqp.bind_tcp(amqp_server)
       mqtt.bind_tcp(mqtt_server)
@@ -51,11 +49,7 @@ module MqttHelpers
       Fiber.yield
       yield s
     ensure
-      amqp(s).close
-      mqtt(s).close
-      unregister_amqp(s)
-      unregister_mqtt(s)
-      s.close
+      s.close # also closes the protocol servers held by `s`
       FileUtils.rm_rf(LavinMQ::Config.instance.data_dir) if clean_dir
     end
   end

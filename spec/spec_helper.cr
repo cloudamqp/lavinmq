@@ -52,6 +52,30 @@ module LavinMQ
 end
 
 class LavinMQ::Server
+  # Spec-only protocol servers, lazily built on first access. The block helpers
+  # below only yield the `Server`, so `amqp(s)`/`mqtt(s)` can resolve (and create
+  # on demand) the protocol server without a global registry. The reference is
+  # collected together with the (fresh per-spec) server, so no cleanup is needed.
+  getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self) }
+  getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self) }
+
+  # Close the protocol servers (if any were built) before tearing down the
+  # stores, so specs only have to close the server they were handed.
+  def close
+    @amqp_server.try &.close
+    @mqtt_server.try &.close
+    previous_def
+  end
+
+  # Tear down the protocol servers so the next `#amqp_server`/`#mqtt_server`
+  # access lazily builds a fresh one (used across a spec restart).
+  def reset_protocol_servers_for_specs
+    @amqp_server.try &.close
+    @mqtt_server.try &.close
+    @amqp_server = nil
+    @mqtt_server = nil
+  end
+
   def restart_stores_for_specs
     stop
     Dir.mkdir_p @data_dir
@@ -68,31 +92,12 @@ class LavinMQ::Server
   end
 end
 
-SPEC_AMQP_SERVERS = {} of LavinMQ::Server => LavinMQ::AMQP::Server
-SPEC_MQTT_SERVERS = {} of LavinMQ::Server => LavinMQ::MQTT::Server
-
-def register_amqp(server : LavinMQ::Server, amqp_server : LavinMQ::AMQP::Server) : LavinMQ::AMQP::Server
-  SPEC_AMQP_SERVERS[server] = amqp_server
-end
-
-def register_mqtt(server : LavinMQ::Server, mqtt_server : LavinMQ::MQTT::Server) : LavinMQ::MQTT::Server
-  SPEC_MQTT_SERVERS[server] = mqtt_server
-end
-
-def unregister_amqp(server : LavinMQ::Server) : Nil
-  SPEC_AMQP_SERVERS.delete(server)
-end
-
-def unregister_mqtt(server : LavinMQ::Server) : Nil
-  SPEC_MQTT_SERVERS.delete(server)
-end
-
 def amqp(server : LavinMQ::Server) : LavinMQ::AMQP::Server
-  SPEC_AMQP_SERVERS[server]
+  server.amqp_server
 end
 
 def mqtt(server : LavinMQ::Server) : LavinMQ::MQTT::Server
-  SPEC_MQTT_SERVERS[server]
+  server.mqtt_server
 end
 
 private def protocol_server_state(server : LavinMQ::ProtocolServer)
@@ -119,25 +124,16 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
 end
 
 def restart_server(server : LavinMQ::Server)
-  amqp_server = SPEC_AMQP_SERVERS[server]?
-  mqtt_server = SPEC_MQTT_SERVERS[server]?
-  amqp_state = amqp_server.try { |amqp| protocol_server_state(amqp) }
-  mqtt_state = mqtt_server.try { |mqtt| protocol_server_state(mqtt) }
-  amqp_server.try &.close
-  mqtt_server.try &.close
-  unregister_amqp(server)
-  unregister_mqtt(server)
+  # Read the raw ivars (not the lazy getters) so we don't build a frontend a
+  # spec never had just to capture its state.
+  amqp_state = server.@amqp_server.try { |amqp| protocol_server_state(amqp) }
+  mqtt_state = server.@mqtt_server.try { |mqtt| protocol_server_state(mqtt) }
 
+  server.reset_protocol_servers_for_specs
   server.restart_stores_for_specs
 
-  if amqp_state
-    amqp_server = register_amqp(server, LavinMQ::AMQP::Server.new(server, amqp_state[:config]))
-    restore_protocol_listener(amqp_server, amqp_state, "amqp listener")
-  end
-  if mqtt_state
-    mqtt_server = register_mqtt(server, LavinMQ::MQTT::Server.new(server, mqtt_state[:config]))
-    restore_protocol_listener(mqtt_server, mqtt_state, "mqtt listener")
-  end
+  restore_protocol_listener(server.amqp_server, amqp_state, "amqp listener") if amqp_state
+  restore_protocol_listener(server.mqtt_server, mqtt_state, "mqtt listener") if mqtt_state
   Fiber.yield
 end
 
@@ -214,8 +210,7 @@ def with_amqp_server(tls = false, replicator = nil,
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
   s = LavinMQ::Server.new(config, replicator, authenticator)
-  amqp_server = LavinMQ::AMQP::Server.new(s, config)
-  register_amqp(s, amqp_server)
+  amqp_server = s.amqp_server
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
@@ -247,17 +242,14 @@ def with_amqp_server(tls = false, replicator = nil,
             "If they should be closed, please delete them in the end of the spec."
       raise Spec::AssertionFailed.new(msg, file, line)
     end
-    amqp(s).close
-    unregister_amqp(s)
-    s.close
+    s.close # also closes the protocol servers held by `s`
   end
 end
 
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
                      file = __FILE__, line = __LINE__, &)
   with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
-    mqtt_server = LavinMQ::MQTT::Server.new(s)
-    register_mqtt(s, mqtt_server)
+    mqtt_server = s.mqtt_server
     h = LavinMQ::HTTP::Server.new(s, amqp(s), mqtt_server)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
@@ -265,9 +257,7 @@ def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
       Fiber.yield
       yield({HTTPSpecHelper.new(addr), s})
     ensure
-      h.close
-      mqtt(s).close
-      unregister_mqtt(s)
+      h.close # the protocol servers are closed when the outer `with_amqp_server` closes `s`
     end
   end
 end

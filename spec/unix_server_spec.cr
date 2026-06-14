@@ -4,8 +4,7 @@ describe LavinMQ::Server do
   describe "UNIX Sockets" do
     pending "can accept UNIX socket connections" do
       s = LavinMQ::Server.new(LavinMQ::Config.instance)
-      amqp_server = LavinMQ::AMQP::Server.new(s)
-      register_amqp(s, amqp_server)
+      amqp_server = s.amqp_server
       begin
         amqp_server.bind_unix("/tmp/lavinmq-spec/lavinmq.sock")
         spawn { amqp_server.listen }
@@ -14,9 +13,7 @@ describe LavinMQ::Server do
           ch.should_not be_nil
         end
       ensure
-        amqp_server.close
-        unregister_amqp(s)
-        s.close unless s.closed?
+        s.close unless s.closed? # also closes the protocol server held by `s`
       end
     end
   end
