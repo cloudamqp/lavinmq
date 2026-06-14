@@ -209,6 +209,103 @@ describe LavinMQ::Clustering::RaftCoordinator do
     end
   end
 
+  describe "graceful stop" do
+    it "wakes await_leadership_lost on release" do
+      with_datadir do |dir|
+        config = raft_config(dir, 1, "")
+        coord = LavinMQ::Clustering::RaftCoordinator.new(config, 1, "tcp://localhost:6001", Raft::MemoryTransport.new(1u64))
+        coord.start
+        became_leader?(coord).should be_true
+        lost = Channel(Nil).new(1)
+        spawn { coord.await_leadership_lost; lost.send(nil) }
+        coord.release
+        select
+        when lost.receive
+          # released cleanly
+        when timeout(3.seconds)
+          fail "await_leadership_lost did not return after release"
+        end
+      end
+    end
+  end
+
+  describe "stale leader URI after restart" do
+    # A former leader that restarts in isolation (can't reach its peers, so it
+    # can't re-win) must not replay its own persisted URI as the live leader,
+    # or follow_leader would abort it as a duplicate.
+    it "suppresses its own persisted URI while not leading", tags: "slow" do
+      with_datadir do |dir1|
+        with_datadir do |dir2|
+          peers = "1@127.0.0.1:5691,2@127.0.0.1:5692"
+          transports = Raft::MemoryTransport.mesh([1u64, 2u64])
+          uris = {1 => "tcp://localhost:6001", 2 => "tcp://localhost:6002"}
+          dirs = {1 => dir1, 2 => dir2}
+          coords = {} of Int32 => LavinMQ::Clustering::RaftCoordinator
+          {1, 2}.each do |id|
+            coords[id] = LavinMQ::Clustering::RaftCoordinator.new(
+              raft_config(dirs[id], id, peers), id, uris[id], transports[id.to_u64])
+          end
+          leader_id = 0
+          begin
+            coords.each_value &.start
+            elected = Channel(Int32).new(2)
+            coords.each { |id, c| spawn { c.await_leadership; elected.send(id) } }
+            leader_id =
+              select
+              when id = elected.receive
+                id
+              when timeout(5.seconds)
+                fail "no leader elected"
+              end
+            # Wait until the leader's own URI is committed+applied (and thus
+            # persisted) by observing it through its own watch.
+            published = Channel(Nil).new(1)
+            spawn do
+              coords[leader_id].watch_leader_uri do |u|
+                if u == uris[leader_id]
+                  published.send(nil)
+                  break
+                end
+              end
+            end
+            select
+            when published.receive
+            when timeout(5.seconds)
+              fail "leader never published its URI"
+            end
+          ensure
+            coords.each_value &.release
+          end
+          Fiber.yield
+
+          # Restart the former leader alone: a standalone transport can't reach
+          # the peer, so it campaigns forever and never becomes leader.
+          restarted = LavinMQ::Clustering::RaftCoordinator.new(
+            raft_config(dirs[leader_id], leader_id, peers), leader_id, uris[leader_id], Raft::MemoryTransport.new(leader_id.to_u64))
+          begin
+            restarted.start
+            observed = Channel(String?).new(8)
+            spawn { restarted.watch_leader_uri { |u| observed.send(u) } }
+            # Over a short window, it must never report its own (stale) URI.
+            saw_self = false
+            done = false
+            until done
+              select
+              when u = observed.receive
+                saw_self = true if u == uris[leader_id]
+              when timeout(1.second)
+                done = true
+              end
+            end
+            saw_self.should be_false
+          ensure
+            restarted.release
+          end
+        end
+      end
+    end
+  end
+
   describe "multi node" do
     it "elects exactly one leader and fails over on release", tags: "slow" do
       with_datadir do |dir1|

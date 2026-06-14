@@ -31,6 +31,10 @@ module LavinMQ::Clustering
     # Closed when this node's coordinator is shutting down, so a follower parked
     # in wait_to_be_insync can abort.
     @membership_lost = Channel(Nil).new
+    # Closed by release so a leader parked in await_leadership_lost wakes up and
+    # lets Controller#run finish its cleanup on a graceful/programmatic stop
+    # (raft has no lease whose expiry would otherwise wake it).
+    @released = Channel(Nil).new
     # Set while this node should (re)publish its advertised URI as the leader's;
     # the driver loop proposes it until accepted, and clears it. Re-armed on
     # every leadership acquisition (on_role_change).
@@ -180,11 +184,20 @@ module LavinMQ::Clustering
       # grace window, so a momentary flap doesn't kill the process. This is safe
       # because update_isr independently gates durability on node.role.leader?,
       # so nothing is acknowledged while we're transiently not the leader.
+      # `release` (graceful stop) closes @released to return immediately, since
+      # there's no lease expiry to wake us as in the etcd backend.
       loop do
-        @is_leader.when_false.receive
+        select
+        when @is_leader.when_false.receive
+          # leadership lost — possibly a transient flap, fall through to grace
+        when @released.receive?
+          return
+        end
         select
         when @is_leader.when_true.receive
           next # regained leadership, keep serving
+        when @released.receive?
+          return
         when timeout(@election_grace)
           return # durably lost
         end
@@ -197,6 +210,7 @@ module LavinMQ::Clustering
 
     def release : Nil
       return if @closing.swap(true)
+      @released.close rescue nil # wake await_leadership_lost so the stop completes
       # Best-effort fast failover: hand leadership to a caught-up voter before
       # tearing down. The loop flushes the resulting TimeoutNow then exits.
       @ops.send(->(node : Raft::Node(RaftCommand)) do
@@ -268,11 +282,24 @@ module LavinMQ::Clustering
       begin
         loop do
           bell.receive
-          yield @sm.leader_uri
+          yield current_leader_uri
         end
       ensure
         @sm.unsubscribe_leader_uri(bell)
       end
+    end
+
+    # The leader URI to report to watchers. A persisted SetLeader survives a
+    # restart, and subscribe delivers it immediately; if it still points at us
+    # but we're no longer the leader it's stale (we led before restarting), so
+    # report no leader until a fresh election publishes one. Otherwise
+    # follow_leader would see our own URI, fail the 1s self-URI check and abort
+    # as a duplicate. Mirrors etcd, whose lease-bound election value simply
+    # vanishes when the old leader dies.
+    private def current_leader_uri : String?
+      uri = @sm.leader_uri
+      return nil if uri == @advertised_uri && !@is_leader.value
+      uri
     end
 
     def publish_leader_uri(advertised_uri : String) : Nil
