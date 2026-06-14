@@ -1,25 +1,57 @@
 # Clustering
 
-LavinMQ supports multi-node clustering with leader-based replication, using etcd for leader election and coordination.
+LavinMQ supports multi-node clustering with leader-based replication. Leader election, ISR tracking and shared state are handled by a coordination **backend**: either an external **etcd** cluster (default) or an **embedded Raft** group (no external dependency).
 
 ## Architecture
 
 - **Leader** — accepts all client connections and writes. Replicates data to followers.
 - **Followers** — receive replicated data from the leader. Can be promoted to leader on failover.
-- **etcd** — external coordination service for leader election, ISR tracking, and shared state.
+- **Coordination backend** — `etcd` (external) or `raft` (embedded); handles leader election, ISR tracking, and advertising the leader's URI.
 
 Only the leader handles client traffic. Followers maintain a synchronized copy of the data.
 
 ## Enabling Clustering
 
+### etcd backend (default)
+
 ```ini
 [clustering]
 enabled = true
+backend = etcd
 bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
 etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
 etcd_prefix = lavinmq
+```
+
+### Raft backend (embedded, no etcd)
+
+The Raft backend runs consensus inside LavinMQ itself, so no etcd is needed. It requires a few extra settings because, unlike etcd, it can't auto-discover the cluster:
+
+- **Static membership** — every node must be listed in `raft_peers` as `id@host:port`, where `id` is a small integer that is unique across the cluster and is used as both the Raft node id and the LavinMQ clustering id. Set `raft_node_id` to this node's own id.
+- **Replication secret** — the shared secret used to authenticate followers is **not** stored in the Raft log. Each node reads it from `<data_dir>/.replication_secret`. Generate a secret once and copy the same file to every node (like an Erlang cookie). LavinMQ refuses to start in Raft mode if the file is missing.
+
+```ini
+[clustering]
+enabled = true
+backend = raft
+bind = 0.0.0.0
+port = 5679
+advertised_uri = tcp://node1.example.com:5679
+; this node's id; must match its entry in raft_peers
+raft_node_id = 1
+; all nodes (including this one): id@host:port for the Raft transport
+raft_peers = 1@node1.example.com:5680,2@node2.example.com:5680,3@node3.example.com:5680
+raft_bind = 0.0.0.0
+raft_port = 5680
+```
+
+Create the shared secret on every node:
+
+```sh
+head -c 32 /dev/urandom | base64 > /var/lib/lavinmq/.replication_secret
+# copy the identical file to every node's data dir
 ```
 
 See [Configuration](configuration.md) for all clustering options.

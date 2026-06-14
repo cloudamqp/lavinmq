@@ -1,6 +1,7 @@
 require "log"
 require "../auth/password"
 require "../amqp/exchange/consistent_hash_algorithm"
+require "../clustering/backend"
 require "../ip_matcher"
 require "../http/constants"
 
@@ -291,6 +292,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
 
+      @[CliOpt("", "--clustering-backend=BACKEND", "Coordination backend: etcd or raft (default: etcd)", ->ClusteringBackend.parse(String), section: "clustering")]
+      @[IniOpt(ini_name: backend, section: "clustering", transform: ->ClusteringBackend.parse(String))]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND", ->ClusteringBackend.parse(String))]
+      property clustering_backend : ClusteringBackend = ClusteringBackend::Etcd
+
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
       @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
@@ -310,6 +316,31 @@ module LavinMQ
       @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"
+
+      # Raft backend: comma-separated id@host:port for every node (including
+      # self), where id is a small, cluster-wide unique integer used as both the
+      # Raft node id and the LavinMQ clustering id.
+      @[CliOpt("", "--clustering-raft-peers=PEERS", "Raft backend: comma separated id@host:port for all nodes", section: "clustering")]
+      @[IniOpt(ini_name: raft_peers, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PEERS")]
+      property clustering_raft_peers = ""
+
+      # This node's Raft id (and clustering id). Must match its entry in
+      # clustering_raft_peers.
+      @[CliOpt("", "--clustering-raft-node-id=ID", "Raft backend: this node's id", section: "clustering")]
+      @[IniOpt(ini_name: raft_node_id, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_NODE_ID")]
+      property clustering_raft_node_id = 0
+
+      @[CliOpt("", "--clustering-raft-bind=BIND", "Raft backend: transport listen address (default: 127.0.0.1)", section: "clustering")]
+      @[IniOpt(ini_name: raft_bind, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_BIND")]
+      property clustering_raft_bind = "127.0.0.1"
+
+      @[CliOpt("", "--clustering-raft-port=PORT", "Raft backend: transport listen port (default: 5680)", section: "clustering")]
+      @[IniOpt(ini_name: raft_port, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
+      property clustering_raft_port = 5680
 
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far

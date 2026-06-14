@@ -14,8 +14,48 @@ module LavinMQ::Clustering
     # (Mutex) over Shared (RWLock). Keeps ElectionLeader a struct: the value is
     # an immutable record, so get returns a safe value-copy.
     @election_leader = Sync::Exclusive(Etcd::ElectionLeader?).new(nil)
+    @lease : Etcd::Lease?
+    @membership_lost = Channel(Nil).new
 
-    def initialize(@config : Config, @etcd : Etcd)
+    # `id` and `advertised_uri` are only needed for the Controller-driven
+    # lifecycle (start/await_leadership); they default so specs that only
+    # exercise campaign/update_isr can construct with just (config, etcd).
+    def initialize(@config : Config, @etcd : Etcd, @id : Int32 = 0, @advertised_uri : String = "")
+    end
+
+    def start : Nil
+      @lease = lease = @etcd.lease_grant(id: @id)
+      # Bridge lease expiry to the membership_lost channel so the Controller can
+      # abort while waiting to enter the ISR.
+      spawn(name: "etcd lease watcher") do
+        lease.expired.receive?
+        @membership_lost.close rescue nil
+      end
+    rescue Etcd::LeaseAlreadyExists
+      raise Coordinator::IdConflict.new("Cluster ID #{@id.to_s(36)} used by another node")
+    end
+
+    def membership_lost : Channel(Nil)
+      @membership_lost
+    end
+
+    def await_leadership : Nil
+      lease = @lease || raise "start must be called before await_leadership"
+      campaign(@advertised_uri, lease.id)
+    end
+
+    def await_leadership_lost : Nil
+      lease = @lease || raise "start must be called before await_leadership_lost"
+      loop do
+        lease.wait(1.hour) # blocks until the lease expires (raises Expired)
+      end
+    rescue Etcd::Lease::Expired
+    end
+
+    def release : Nil
+      @lease.try &.release
+    rescue ex
+      Log.warn(exception: ex) { "Failed to release lease, it will expire on its own" }
     end
 
     # Campaign for leadership and capture the won election as the fencing token
@@ -49,6 +89,19 @@ module LavinMQ::Clustering
       @etcd.watch(isr_key) do |value|
         yield value.try { |raw| parse_isr(raw) }
       end
+    end
+
+    # The leader's advertised URI is published as the election value during
+    # campaign, so observing the election yields the current leader's URI.
+    def watch_leader_uri(&)
+      @etcd.elect_listen(leader_key) do |uri|
+        yield uri
+      end
+    end
+
+    # No-op: the URI was already published as the election value in
+    # `campaign`.
+    def publish_leader_uri(advertised_uri : String) : Nil
     end
 
     private def parse_isr(raw : String) : Set(Int32)

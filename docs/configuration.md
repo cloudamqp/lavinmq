@@ -106,8 +106,13 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
 | `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
+| `backend` | `--clustering-backend` | `LAVINMQ_CLUSTERING_BACKEND` | `etcd`\|`raft` | `etcd` | Coordination backend |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
+| `raft_peers` | `--clustering-raft-peers` | `LAVINMQ_CLUSTERING_RAFT_PEERS` | String | (empty) | Raft backend: all nodes as `id@host:port` (comma-separated) |
+| `raft_node_id` | `--clustering-raft-node-id` | `LAVINMQ_CLUSTERING_RAFT_NODE_ID` | Int | `0` | Raft backend: this node's id (and clustering id) |
+| `raft_bind` | `--clustering-raft-bind` | `LAVINMQ_CLUSTERING_RAFT_BIND` | String | `127.0.0.1` | Raft backend: transport listen address |
+| `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Raft backend: transport listen port |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

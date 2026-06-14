@@ -379,9 +379,10 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       config = LavinMQ::Config.new
       config.data_dir = data_dir
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!)
-      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      controller = SelfLeaderController.new(config, etcd, coordinator)
+      uri = config.clustering_advertised_uri.not_nil!
+      etcd = SelfLeaderEtcd.new(uri)
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd, 1, uri)
+      controller = SelfLeaderController.new(config, coordinator, 1, uri)
       done = Channel(Exception?).new(1)
 
       spawn(name: "self leader follower monitor spec") do
