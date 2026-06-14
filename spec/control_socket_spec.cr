@@ -19,7 +19,7 @@ describe "control socket" do
     begin
       with_amqp_server do |s|
         mqtt_server = LavinMQ::MQTT::Server.new(s)
-        h = LavinMQ::HTTP::Server.new(s, amqp(s), mqtt_server)
+        h = LavinMQ::HTTP::Server.new(s, s.amqp_server, mqtt_server)
         begin
           h.bind_internal_unix
           spawn(name: "control socket listen") { h.listen }
@@ -47,7 +47,7 @@ describe "control socket" do
     begin
       with_amqp_server do |s|
         mqtt_server = LavinMQ::MQTT::Server.new(s)
-        h = LavinMQ::HTTP::Server.new(s, amqp(s), mqtt_server) # captures socket_path
+        h = LavinMQ::HTTP::Server.new(s, s.amqp_server, mqtt_server) # captures socket_path
         begin
           h.bind_internal_unix
           spawn(name: "control socket listen") { h.listen }

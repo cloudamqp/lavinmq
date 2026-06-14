@@ -46,7 +46,7 @@ describe LavinMQ::Server do
 
   it "logs kTLS=off for TLS connections without kernel offload" do
     with_amqp_server(tls: true) do |s|
-      uri = URI.parse(amqp(s).url)
+      uri = URI.parse(s.amqp_server.url)
       Log.capture("lmq.server", :info) do |logs|
         client_ctx = OpenSSL::SSL::Context::Client.new
         client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE

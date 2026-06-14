@@ -117,7 +117,7 @@ module VHostByteRateSpecs
   def self.send_and_receive_over_protocol(protocol, s, vhost)
     case protocol
     when :amqp
-      port = amqp(s).@listeners.select(TCPServer).first.local_address.port
+      port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
       conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
       ch = conn.channel
       q = ch.queue("byte_rate_q")
@@ -151,7 +151,7 @@ module VHostByteRateSpecs
           vhost = s.vhosts["/"]
           before = vhost.recv_oct_count
 
-          port = amqp(s).@listeners.select(TCPServer).first.local_address.port
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
           conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
           ch = conn.channel
           q = ch.queue("byte_rate_q")
@@ -167,7 +167,7 @@ module VHostByteRateSpecs
         with_server do |s|
           vhost = s.vhosts["/"]
 
-          port = amqp(s).@listeners.select(TCPServer).first.local_address.port
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
           conn = AMQP::Client.new(port: port, name: "byte-rate-spec").connect
           ch = conn.channel
           q = ch.queue("byte_rate_q")

@@ -17,7 +17,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 50.milliseconds, permissions)
 
-        broker = mqtt(server).broker("/")
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-expiry-test",
           clean_session: true,
@@ -49,7 +49,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = mqtt(server).broker("/")
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-valid-test",
           clean_session: true,

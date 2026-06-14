@@ -52,16 +52,19 @@ module LavinMQ
 end
 
 class LavinMQ::Server
-  # Spec-only protocol servers, lazily built on first access. The block helpers
-  # below only yield the `Server`, so `amqp(s)`/`mqtt(s)` can resolve (and create
-  # on demand) the protocol server without a global registry. The reference is
-  # collected together with the (fresh per-spec) server, so no cleanup is needed.
+  # Spec-only protocol/HTTP servers, lazily built on first access. The block
+  # helpers below only yield the `Server`, so specs can resolve (and create on
+  # demand) them from just the server without a global registry. The references
+  # are collected with the (fresh per-spec) server, so no cleanup is needed.
   getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self) }
   getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self) }
+  getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
 
-  # Close the protocol servers (if any were built) before tearing down the
-  # stores, so specs only have to close the server they were handed.
+  # Close the spec-built servers (if any) before tearing down the stores, so
+  # specs only have to close the server they were handed. HTTP first, since it
+  # holds references to the protocol servers (matches Launcher#stop order).
   def close
+    @http_server.try &.close
     @amqp_server.try &.close
     @mqtt_server.try &.close
     previous_def
@@ -90,14 +93,6 @@ class LavinMQ::Server
     @closed.set(false)
     Fiber.yield
   end
-end
-
-def amqp(server : LavinMQ::Server) : LavinMQ::AMQP::Server
-  server.amqp_server
-end
-
-def mqtt(server : LavinMQ::Server) : LavinMQ::MQTT::Server
-  server.mqtt_server
 end
 
 private def protocol_server_state(server : LavinMQ::ProtocolServer)
@@ -156,7 +151,7 @@ ensure
 end
 
 def amqp_port(s)
-  amqp(s).@listeners.select(TCPServer).first.local_address.port
+  s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep
@@ -249,16 +244,12 @@ end
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
                      file = __FILE__, line = __LINE__, &)
   with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
-    mqtt_server = s.mqtt_server
-    h = LavinMQ::HTTP::Server.new(s, amqp(s), mqtt_server)
-    begin
-      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
-      spawn(name: "http listen") { h.listen }
-      Fiber.yield
-      yield({HTTPSpecHelper.new(addr), s})
-    ensure
-      h.close # the protocol servers are closed when the outer `with_amqp_server` closes `s`
-    end
+    h = s.http_server
+    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+    spawn(name: "http listen") { h.listen }
+    Fiber.yield
+    yield({HTTPSpecHelper.new(addr), s})
+    # the HTTP and protocol servers are closed when the outer `with_amqp_server` closes `s`
   end
 end
 
