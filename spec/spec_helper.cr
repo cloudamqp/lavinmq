@@ -56,8 +56,8 @@ class LavinMQ::Server
   # helpers below only yield the `Server`, so specs can resolve (and create on
   # demand) them from just the server without a global registry. The references
   # are collected with the (fresh per-spec) server, so no cleanup is needed.
-  getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self) }
-  getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self) }
+  getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self, @config) }
+  getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self, @config) }
   getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
 
   # Close the spec-built servers (if any) before tearing down the stores, so
