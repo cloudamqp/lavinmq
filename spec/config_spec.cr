@@ -762,6 +762,19 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering_seed_uris" do
+    it "defaults to empty" do
+      config = LavinMQ::Config.new
+      config.seed_uris.should be_empty
+    end
+
+    it "parses a comma-separated list into URIs" do
+      config = LavinMQ::Config.new
+      config.clustering_seed_uris = "http://a:15672, http://b:15672"
+      config.seed_uris.map(&.host).should eq ["a", "b"]
+    end
+  end
+
   describe "tcp_proxy_protocol" do
     {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
       it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do

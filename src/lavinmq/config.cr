@@ -421,6 +421,14 @@ module LavinMQ
       !@tls_cert_path.empty?
     end
 
+    # Parsed form of clustering_seed_uris. Blank/whitespace entries dropped.
+    def seed_uris : Array(URI)
+      clustering_seed_uris.split(',').compact_map do |s|
+        s = s.strip
+        URI.parse(s) unless s.empty?
+      end
+    end
+
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
       return if false?(str)
       if keepalive = str.try &.split(":")
