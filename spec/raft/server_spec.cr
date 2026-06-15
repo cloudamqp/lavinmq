@@ -357,5 +357,35 @@ describe LavinMQ::Raft::Server do
         FileUtils.rm_rf(dir)
       end
     end
+
+    it "raises a clear error on a corrupt .clustering_id instead of regenerating" do
+      dir = tmp_data_dir
+      begin
+        File.write(File.join(dir, ".clustering_id"), "not-base-36-#")
+        transport = ::Raft::MemoryTransport.new(1_u64)
+        expect_raises(Exception, /Invalid cluster id/) do
+          LavinMQ::Raft::Server.new(
+            data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
+          )
+        end
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "raises on an empty .clustering_id rather than silently picking a new identity" do
+      dir = tmp_data_dir
+      begin
+        File.write(File.join(dir, ".clustering_id"), "")
+        transport = ::Raft::MemoryTransport.new(1_u64)
+        expect_raises(Exception, /Invalid cluster id/) do
+          LavinMQ::Raft::Server.new(
+            data_dir: dir, advertised_address: "n:5680,n:5679", transport: transport,
+          )
+        end
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
   end
 end
