@@ -89,6 +89,47 @@ module QuorumCommitSpec
         end
       end
 
+      # Regression: a synced follower whose ack_loop has ended (disconnected) is
+      # `dead?` but can linger in @followers until sync_and_serve's ensure removes
+      # it. committed_op must NOT count its last acked op toward the quorum, or it
+      # could confirm a write that is live only on the leader — lost on failover.
+      it "does not count a dead follower toward the commit quorum" do
+        with_datadir do |data_dir|
+          server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, quorum: 2)
+          3.times { server.append_bytes("#{data_dir}/seed", "x".to_slice, 0i64) }
+
+          # Follower A reaches op 3, then disconnects (becomes dead) while still in
+          # @followers. Follower B stays alive at op 0.
+          sock_a, client_a = FakeSocket.pair
+          follower_a = LavinMQ::Clustering::Follower.new(sock_a, data_dir, server, server.@commit_notify)
+          follower_a.mark_synced!(0u64)
+          server.@followers << follower_a
+          spawn(name: "dead-follower ack_loop") { follower_a.ack_loop }
+          spawn(name: "dead-follower drain") do
+            buf = uninitialized UInt8[4096]
+            until client_a.read(buf.to_slice).zero?
+            end
+          rescue IO::Error
+          end
+          add_synced_follower(server, data_dir) # B, stays at op 0
+
+          write_ack(client_a, 3u64)
+          wait_for(2.seconds) { follower_a.acked_op == 3u64 }
+
+          # A disconnects: ack_loop ends, A is dead? but still in @followers.
+          client_a.close
+          sock_a.close
+          wait_for(2.seconds) { follower_a.dead? }
+
+          # Quorum positions are leader(3) + alive B(0); dead A's 3 must be ignored,
+          # so the quorum-th (2nd) largest is 0 — nothing new commits.
+          server.committed_op.should eq 0u64
+        ensure
+          server.try &.close
+          FileUtils.rm_rf data_dir
+        end
+      end
+
       it "stalls a minority that cannot form a quorum" do
         with_datadir do |data_dir|
           server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, quorum: 2)

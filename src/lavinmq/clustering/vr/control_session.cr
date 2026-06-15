@@ -57,15 +57,9 @@ module LavinMQ
         def self.dial(socket : TCPSocket, secret : String, self_id : Int32, peer_id : Int32) : ControlSession?
           socket.read_timeout = HANDSHAKE_TIMEOUT
           socket.write Control::HEADER
-          socket.write_bytes secret.bytesize.to_u8, IO::ByteFormat::LittleEndian
-          socket.write secret.to_slice
+          Clustering.write_secret(socket, secret)
           socket.flush
-          case socket.read_byte
-          when 0 # authenticated
-          when 1   then raise AuthenticationError.new
-          when nil then raise IO::EOFError.new
-          else          raise Error.new("Unexpected control auth response")
-          end
+          Clustering.read_auth_response(socket)
           socket.write_bytes self_id, IO::ByteFormat::LittleEndian
           socket.flush
           socket.read_timeout = nil # authed peer: stream messages without a deadline
@@ -89,15 +83,11 @@ module LavinMQ
         # shared clustering listener (which peeks it to route REPLI vs VRCTL).
         def self.accept_after_header(socket : TCPSocket, secret : String) : ControlSession?
           socket.read_timeout = HANDSHAKE_TIMEOUT
-          len = socket.read_bytes(UInt8, IO::ByteFormat::LittleEndian)
-          client_secret = socket.read_string(len)
-          unless Crypto::Subtle.constant_time_compare(secret, client_secret)
-            socket.write_byte 1u8
-            socket.flush
-            return nil
+          begin
+            Clustering.verify_secret(socket, secret)
+          rescue AuthenticationError
+            return nil # caller closes the socket; the dialer will redial
           end
-          socket.write_byte 0u8
-          socket.flush
           peer_id = socket.read_bytes(Int32, IO::ByteFormat::LittleEndian)
           socket.read_timeout = nil # authed peer: stream messages without a deadline
           session = new(socket, peer_id)

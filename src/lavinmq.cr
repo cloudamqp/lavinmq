@@ -33,4 +33,13 @@ end
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./lavinmq/launcher"
-LavinMQ::Launcher.new(config).run
+launcher =
+  begin
+    LavinMQ::Launcher.new(config)
+  rescue ex : LavinMQ::Clustering::VR::Error
+    # A misconfigured clustering roster (empty, malformed, or this node not in
+    # it) surfaces here while building the Controller. Abort cleanly rather than
+    # dumping a backtrace, matching the OptionParser handling above.
+    abort "Error: #{ex.message}"
+  end
+launcher.run

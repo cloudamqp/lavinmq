@@ -725,6 +725,66 @@ module FollowerSpec
     end
   end
 
+  describe "#mark_op_synced" do
+    # Regression: a record fully covered by the follower's full_sync snapshot is
+    # durable on the follower only once the follower has acked that snapshot (its
+    # baseline ack, after syncfs). Advancing @acked_op before then would count
+    # un-persisted bytes toward the commit quorum, so a write could be confirmed
+    # on fewer than a durable quorum and lost on failover. The skip must be
+    # deferred until the baseline ack arrives, then promoted.
+    it "defers the acked op for a snapshot-covered record until the baseline is acked" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Drain the follower's side so its periodic flush never blocks.
+        spawn do
+          buf = uninitialized UInt8[4096]
+          loop { client_socket.read(buf.to_slice) }
+        rescue IO::Error
+        end
+
+        # Joined at op 5; the snapshot is NOT yet durable (no baseline ack), so
+        # @acked_op stays at 0.
+        follower.mark_synced!(5u64)
+        follower.acked_op.should eq 0u64
+
+        # A record fully covered by the snapshot is dispatched before the baseline
+        # ack. It must NOT advance @acked_op yet.
+        follower.mark_op_synced(7u64)
+        follower.acked_op.should eq 0u64
+
+        # The follower acks its baseline (op 5) after syncfs'ing: now the snapshot
+        # — and the deferred record — are durable, so @acked_op jumps to 7.
+        spawn { follower.ack_loop }
+        write_ack(client_socket, 1, 5u64)
+        wait_for(2.seconds) { follower.acked_op == 7u64 }
+        follower.acked_op.should eq 7u64
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # When the baseline is already acked (e.g. a fresh cluster whose baseline is
+    # op 0), a snapshot-covered record is durable immediately and counts at once.
+    it "advances the acked op immediately when the baseline is already durable" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        follower.mark_synced!(0u64) # baseline op 0: acked_op(0) >= baseline(0)
+        follower.mark_op_synced(3u64)
+        follower.acked_op.should eq 3u64
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
   describe "#delete" do
     it "writes filename and a zero size marker" do
       with_datadir do |data_dir|

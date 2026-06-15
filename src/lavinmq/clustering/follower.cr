@@ -28,6 +28,13 @@ module LavinMQ
       # (they depend on each follower's full_sync cut and skip decisions).
       @acked_op = Atomic(UInt64).new(0)
       @sent_op = Atomic(UInt64).new(0)
+      # The op-number at this follower's full_sync cut (set by mark_synced!). Its
+      # snapshot is durable only once the follower acks at least this op, so a
+      # record fully covered by the snapshot must not count toward the quorum
+      # before then. The highest such deferred op is parked here until the
+      # baseline ack lands, at which point ack_loop promotes it into @acked_op.
+      @synced_baseline_op = Atomic(UInt64).new(0)
+      @pending_synced_op = Atomic(UInt64).new(0)
       # Wakes the publish-confirm waiter on each ack; closed (never replaced)
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
@@ -115,8 +122,14 @@ module LavinMQ
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             op = @socket.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
-            @acked_bytes.add(len)              # byte delta (coalesced), for lag stats
-            bump_acked_op(op)                  # absolute highest fully-applied op (monotonic)
+            @acked_bytes.add(len) # byte delta (coalesced), for lag stats
+            bump_acked_op(op)     # absolute highest fully-applied op (monotonic)
+            # This ack confirms the full_sync baseline is durable, so any records
+            # fully covered by the snapshot that mark_op_synced deferred are now
+            # durable too — promote the highest into @acked_op.
+            if op >= @synced_baseline_op.get && (pending = @pending_synced_op.get) > op
+              bump_acked_op(pending)
+            end
             unacked_since = nil                # progress; restart the deadline
             @ack_notify.try_send(nil)          # wake any per-follower wait_for_confirm waiter
             @commit_notify.try &.try_send(nil) # wake the server's wait_for_quorum waiters
@@ -222,14 +235,7 @@ module LavinMQ
       end
 
       private def authenticate!(password) : Nil
-        len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
-        client_password = @socket.read_string(len)
-        if Crypto::Subtle.constant_time_compare(password, client_password)
-          @socket.write_byte 0u8
-        else
-          @socket.write_byte 1u8
-          raise AuthenticationError.new
-        end
+        Clustering.verify_secret(@socket, password)
       end
 
       private def send_file_list(lz4 = @lz4, caps : Hash(String, Int64)? = nil)
@@ -363,7 +369,17 @@ module LavinMQ
       # an ack that will never come. See Server#append's skip handling.
       def mark_op_synced(op : UInt64) : Nil
         @sent_op.set(op)
-        bump_acked_op(op)
+        # The record's bytes are entirely within the full_sync snapshot, so it's
+        # durable on the follower exactly when the snapshot is — i.e. once the
+        # follower has acked its baseline. If it has, count the op now; if not,
+        # park it as pending so ack_loop promotes it the moment the baseline ack
+        # arrives (advancing @acked_op now would count un-persisted bytes toward
+        # the commit quorum, risking loss on failover).
+        if @acked_op.get >= @synced_baseline_op.get
+          bump_acked_op(op)
+        else
+          bump_pending_synced_op(op)
+        end
       end
 
       # Monotonic max for @acked_op. It has two writers — the ack_loop read fiber
@@ -375,6 +391,18 @@ module LavinMQ
           cur = @acked_op.get
           return if op <= cur
           _, ok = @acked_op.compare_and_set(cur, op)
+          return if ok
+        end
+      end
+
+      # Monotonic max for @pending_synced_op (records covered by the snapshot but
+      # dispatched before the follower acked its baseline). Same CAS shape as
+      # bump_acked_op since the dispatch fiber writes it and ack_loop reads it.
+      private def bump_pending_synced_op(op : UInt64) : Nil
+        loop do
+          cur = @pending_synced_op.get
+          return if op <= cur
+          _, ok = @pending_synced_op.compare_and_set(cur, op)
           return if ok
         end
       end
@@ -457,6 +485,7 @@ module LavinMQ
       # of its stream loop (see Client#stream_changes), which advances @acked_op.
       def mark_synced!(baseline_op : UInt64)
         @sent_op.set(baseline_op)
+        @synced_baseline_op.set(baseline_op)
         @state = State::Synced
       end
 

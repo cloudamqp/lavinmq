@@ -450,6 +450,12 @@ module LavinMQ
       # none (a stand-in/legacy Server in specs) it waits for all live followers.
       def wait_for_followers : Nil
         if @quorum
+          # Push buffered bytes to the followers now instead of waiting for the
+          # ack_loop's 100ms flush timeout; otherwise a replace_file/append (e.g.
+          # a definition/vhost/user save) sits in each follower's LZ4 buffer and
+          # the commit — and the caller — stalls ~100ms per operation. The legacy
+          # per-follower path below flushes via Follower#wait_for_confirm.
+          followers.each &.request_flush
           wait_for_quorum(current_op)
         else
           followers.each &.wait_for_confirm
@@ -485,7 +491,11 @@ module LavinMQ
         commit = @lock.synchronize do
           positions = Array(UInt64).new(@followers.size + 1)
           positions << @op
-          @followers.each { |f| positions << f.acked_op if f.synced? }
+          # Exclude dead followers (ack_loop ended, so they can no longer ack):
+          # one may linger in @followers until sync_and_serve's ensure removes it.
+          # Counting its last acked_op toward the quorum could confirm a write that
+          # is live only on this leader, which a failover would then lose.
+          @followers.each { |f| positions << f.acked_op if f.synced? && !f.dead? }
           if c = VR::Membership.committed_op(q, positions)
             if c > @commit_op
               @commit_op = c
@@ -494,13 +504,18 @@ module LavinMQ
           end
           @commit_op
         end
-        # Persist the committed point (durably, outside @lock) when it advances so
-        # a crash/restart of this leader reports its true durable position in the
+        # Persist the committed point (outside @lock) when it advances so a
+        # crash/restart of this leader reports its true durable position in the
         # next election — never higher than committed (committed data is on a
-        # quorum, hence locally durable), so it can't claim data it lacks.
+        # quorum, hence locally durable), so it can't claim data it lacks. Written
+        # WITHOUT its own fsync: the confirm path already syncfs'd the data dir
+        # before getting here (Persister#drain_pending_acks), and the next confirm's
+        # syncfs flushes this marker too. A crash before that leaves it stale-low,
+        # which is safe for elections — so an fsync per commit would only add a
+        # redundant write+rename+dir-fsync to the hot confirm path.
         if advanced && (state = @vr_state) && commit > @persisted_commit_op
           @persisted_commit_op = commit
-          state.save(op: commit, commit_op: commit)
+          state.save_op_pending(commit, commit)
         end
         commit
       end

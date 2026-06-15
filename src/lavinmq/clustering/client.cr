@@ -59,6 +59,12 @@ module LavinMQ
       # reports its true durable position in elections.
       property vr_state : VR::State? = nil
 
+      # Invoked when this follower refuses to sync because the elected primary is
+      # behind our committed data (BehindLeaderError). The Controller wires it to
+      # the VR node's request_view_change so a more-complete node can take over,
+      # instead of this follower reconnecting to the same behind primary forever.
+      property on_behind_leader : -> = -> { }
+
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
@@ -115,6 +121,39 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
+        start_proxies(host)
+        loop do
+          @socket = socket = TCPSocket.new(host, port)
+          socket.sync = true
+          socket.read_buffering = false # use lz4 buffering
+          lz4 = Compress::LZ4::Reader.new(socket)
+          sync(socket, lz4)
+          Log.info { "Streaming changes" }
+          stream_changes(socket, lz4)
+        rescue ex : BehindLeaderError
+          lz4.try &.close
+          socket.try &.close
+          break if @closed
+          # The elected primary is behind our committed data. Ask the VR node to
+          # start a new election (a more-complete node — perhaps us — should be
+          # primary) rather than silently retrying the same unfit leader forever.
+          Log.warn { "#{ex.message}; requesting a new election" }
+          @on_behind_leader.call
+          sleep 1.seconds
+        rescue ex : IO::Error
+          lz4.try &.close
+          socket.try &.close
+          break if @closed
+          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          sleep 1.seconds
+        end
+      ensure
+        @follower_done.send(nil)
+      end
+
+      # Point the AMQP/HTTP/MQTT (and their unix-socket) proxies at the primary
+      # we're following, so clients connected to this backup are forwarded there.
+      private def start_proxies(host : String) : Nil
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -133,23 +172,6 @@ module LavinMQ
         if unix_mqtt_proxy = @unix_mqtt_proxy
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
-        loop do
-          @socket = socket = TCPSocket.new(host, port)
-          socket.sync = true
-          socket.read_buffering = false # use lz4 buffering
-          lz4 = Compress::LZ4::Reader.new(socket)
-          sync(socket, lz4)
-          Log.info { "Streaming changes" }
-          stream_changes(socket, lz4)
-        rescue ex : IO::Error
-          lz4.try &.close
-          socket.try &.close
-          break if @closed
-          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
-        end
-      ensure
-        @follower_done.send(nil)
       end
 
       def follows?(_nil : Nil) : Bool
@@ -583,17 +605,10 @@ module LavinMQ
 
       private def authenticate(socket)
         socket.write Start
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        socket.write @password.to_slice
+        Clustering.write_secret(socket, @password)
         socket.read_timeout = HANDSHAKE_TIMEOUT
         begin
-          case socket.read_byte
-          when 0 # ok
-          when 1   then raise AuthenticationError.new
-          when nil then raise IO::EOFError.new
-          else
-            raise Error.new("Unknown response from authentication")
-          end
+          Clustering.read_auth_response(socket)
         ensure
           socket.read_timeout = nil # the bulk sync / stream have legitimate idle gaps
         end

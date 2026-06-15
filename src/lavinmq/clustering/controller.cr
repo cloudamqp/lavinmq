@@ -89,6 +89,14 @@ class LavinMQ::Clustering::Controller
     yield
     @node.wait_until_stepped_down
     return if @stopped
+    on_leadership_lost
+  end
+
+  # Deposed as primary (a newer view exists, or we lost contact with a quorum).
+  # Per the project's no-in-process-demotion decision, run the hook and exit so
+  # the supervisor restarts this node as a backup. Overridable so a deposed node
+  # can be observed in tests without killing the process.
+  protected def on_leadership_lost : Nil
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
     Log.fatal { "Lost leadership, stepping down" }
     exit 3
@@ -186,6 +194,9 @@ class LavinMQ::Clustering::Controller
     Log.info { "Following primary #{member.id.to_s(36)} at #{member.uri}" }
     @repli_client = client = Clustering::Client.new(@config, @id, @secret)
     client.vr_state = @state # record the applied-op high-water as it syncs/acks
+    # If this primary turns out to be behind our committed data, force a new
+    # election rather than reconnecting to it forever (see Client#follow).
+    client.on_behind_leader = -> { @node.request_view_change }
     spawn client.follow(member.uri), name: "Clustering client #{member.uri}"
     SystemD.notify_ready
   end

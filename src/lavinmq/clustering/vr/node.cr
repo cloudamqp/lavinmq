@@ -58,8 +58,14 @@ module LavinMQ
           @sent_dvc = Set(UInt64).new
           @last_heard = Time.instant
           @became_primary = ::Channel(Nil).new
-          @stepped_down = ::Channel(Nil).new
+          # Buffered: the step-down signal must not be lost if it fires while
+          # run() is still inside its yield block (serving) and not yet parked on
+          # wait_until_stepped_down — otherwise a deposed primary would keep
+          # serving forever.
+          @stepped_down = ::Channel(Nil).new(1)
           @ever_primary = false
+          @stepping_down = false
+          @quorum_lost_since = nil.as(Time::Instant?)
           @closed = false
         end
 
@@ -128,6 +134,17 @@ module LavinMQ
           @stepped_down.close
         end
 
+        # Demand a new election. Called when the data layer rejects the current
+        # primary as unfit (e.g. its full_sync baseline is behind our committed
+        # data — Client#sync raises BehindLeaderError). Without this a refusing
+        # follower would reconnect to the same behind primary forever; starting a
+        # view change lets a more-complete node (often this one) take over.
+        def request_view_change : Nil
+          @lock.synchronize do
+            start_view_change(@state.view + 1) unless primary?
+          end
+        end
+
         private def inbound_loop : Nil
           while msg = @mesh.inbound.receive?
             @lock.synchronize { handle(msg) }
@@ -145,15 +162,41 @@ module LavinMQ
 
         private def on_tick : Nil
           if primary?
+            # Fence against split-brain: a primary that can no longer reach a
+            # quorum of the mesh must step down, or the partitioned-away majority
+            # elects a new primary while this one keeps serving reads / unconfirmed
+            # writes as a stale leader. This is the liveness guarantee the etcd
+            # lease used to provide. Tolerate a brief blip — only step down after
+            # connectivity has been below quorum for a full view-change timeout.
+            if quorum_reachable?
+              @quorum_lost_since = nil
+            else
+              since = (@quorum_lost_since ||= Time.instant)
+              if Time.instant - since > @view_change_timeout
+                step_down("lost contact with a quorum of the cluster")
+                return
+              end
+            end
             @mesh.broadcast(Control::Heartbeat.new(view: @state.view, op: @op_source.call,
               commit_op: current_commit, from_id: self_id))
           elsif @status.normal?
             if Time.instant - @last_heard > jittered_timeout
               start_view_change(@state.view + 1)
             end
-          else # ViewChange: keep advertising our candidacy in case messages were lost
+          else # ViewChange: re-advertise candidacy in case messages were lost. The
+            # control channel drops on overflow, so resend both our StartViewChange
+            # and (once we've reached the SVC quorum) our DoViewChange — a one-shot
+            # DVC that was dropped would otherwise stall the election until the next
+            # view-change timeout.
             @mesh.broadcast(Control::StartViewChange.new(view: @state.view, from_id: self_id))
+            resend_do_view_change(@state.view)
           end
+        end
+
+        # Can this node still reach a quorum (itself + connected mesh peers)? A
+        # single-node cluster (quorum 1) is always reachable.
+        private def quorum_reachable? : Bool
+          @mesh.connected_ids.size + 1 >= @membership.quorum
         end
 
         # Spread elections out so peers don't all fire simultaneously; derived
@@ -177,9 +220,14 @@ module LavinMQ
           if hb.view > @state.view
             # We missed this view's StartView; adopt the sender as primary.
             become_backup(hb.view, hb.from_id)
-          elsif @primary_id.nil? && !primary?
-            # Same view, learning the primary's identity after a restart.
-            adopt_primary(hb.from_id)
+          elsif !primary? && (@primary_id.nil? || @status.view_change?)
+            # Same view, but we don't yet follow this primary: either learning its
+            # identity after a restart, or the view change for this view already
+            # completed (only one node can be primary of a view) and we missed the
+            # StartView. become_backup leaves ViewChange and clears the vote tally,
+            # so we stop campaigning for an already-decided view (which would
+            # otherwise wedge us re-broadcasting StartViewChange forever).
+            become_backup(hb.view, hb.from_id)
           end
           return unless @primary_id == hb.from_id
           @last_heard = Time.instant
@@ -234,6 +282,20 @@ module LavinMQ
           votes = @svc_votes[v]?
           return unless votes && votes.size >= @membership.quorum
           @sent_dvc << v
+          send_do_view_change(v)
+        end
+
+        # Resend our DoViewChange for `v` if we've already reached the StartView-
+        # Change quorum. Called every tick while in ViewChange: the control channel
+        # drops on overflow, and DoViewChange is otherwise a one-shot, so a dropped
+        # send would leave the decider short of a quorum and stall the election
+        # until the next view-change timeout. Resending is idempotent — the decider
+        # just re-tallies our (unchanged) summary.
+        private def resend_do_view_change(v : UInt64) : Nil
+          send_do_view_change(v) if @sent_dvc.includes?(v)
+        end
+
+        private def send_do_view_change(v : UInt64) : Nil
           s = own_summary
           decider = @membership.primary_of(v).id
           dvc = Control::DoViewChange.new(view: v, last_normal_view: s.last_normal_view,
@@ -294,9 +356,7 @@ module LavinMQ
           if @ever_primary
             # We were serving as primary and a newer view exists: step down. Per
             # project decision the process exits and rejoins as a backup.
-            Log.fatal { "Deposed as primary (view #{@state.view} -> #{v}); stepping down" }
-            @stepped_down.try_send(nil) rescue nil
-            @on_step_down.call
+            step_down("deposed (view #{@state.view} -> #{v})")
             return
           end
           @state.save(view: v)
@@ -306,6 +366,18 @@ module LavinMQ
           @dvc_votes.clear
           @last_heard = Time.instant
           adopt_primary(primary)
+        end
+
+        # Step down as primary (deposed by a newer view, or partitioned from a
+        # quorum). Per the project decision there is no in-process demotion: signal
+        # the runner, which exits so the supervisor restarts this node as a backup.
+        # Idempotent — only the first call has any effect.
+        private def step_down(reason : String) : Nil
+          return if @stepping_down
+          @stepping_down = true
+          Log.fatal { "Stepping down as primary (view #{@state.view}): #{reason}" }
+          @stepped_down.try_send(nil) rescue nil
+          @on_step_down.call
         end
 
         private def adopt_primary(primary : Int32) : Nil
