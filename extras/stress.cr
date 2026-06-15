@@ -366,6 +366,24 @@ module Stress
 
   # -------- Producers --------
 
+  private def self.publish_for_kind(ch, exchange : String, kind : Symbol, body : String, args : Properties)
+    case kind
+    when :topic
+      ch.basic_publish(body, exchange, TOPIC_KEYS.sample, props: args)
+    when :headers
+      h = Arguments.new({
+        "type" => HEADER_TYPES.sample.as(AMQ::Protocol::Field),
+        "n"    => Random.rand(10).to_i64.as(AMQ::Protocol::Field),
+      })
+      props = Properties.new(delivery_mode: args.delivery_mode, expiration: args.expiration, headers: h)
+      ch.basic_publish(body, exchange, "", props: props)
+    when :direct
+      ch.basic_publish(body, exchange, "main", props: args)
+    when :fanout
+      ch.basic_publish(body, exchange, "", props: args)
+    end
+  end
+
   # mode: :fast | :slow | :bursty
   def self.producer(id : Int32, exchange : String, mode : Symbol, kind : Symbol)
     with_amqp("prod-#{kind}-#{mode}-#{id}") do |conn|
@@ -374,28 +392,12 @@ module Stress
       while !STOP.get && !ch.closed?
         seq &+= 1
         body = "msg-#{kind}-#{mode}-#{id}-#{seq}"
-        rkey = ""
         args = Properties.new(delivery_mode: 1_u8)
         # 10% messages carry per-message TTL for DLX path
         if Random.rand(10) == 0
           args = Properties.new(delivery_mode: 1_u8, expiration: Random.rand(500).to_s)
         end
-        case kind
-        when :topic
-          rkey = TOPIC_KEYS.sample
-          ch.basic_publish(body, exchange, rkey, props: args)
-        when :headers
-          h = Arguments.new({
-            "type" => HEADER_TYPES.sample.as(AMQ::Protocol::Field),
-            "n"    => Random.rand(10).to_i64.as(AMQ::Protocol::Field),
-          })
-          props = Properties.new(delivery_mode: args.delivery_mode, expiration: args.expiration, headers: h)
-          ch.basic_publish(body, exchange, "", props: props)
-        when :direct
-          ch.basic_publish(body, exchange, "main", props: args)
-        when :fanout
-          ch.basic_publish(body, exchange, "", props: args)
-        end
+        publish_for_kind(ch, exchange, kind, body, args)
         STATS.incr_published
 
         case mode
@@ -477,6 +479,47 @@ module Stress
     end
   end
 
+  private def self.disconnected?(ch, conn) : Bool
+    ch.closed? || conn.closed?
+  end
+
+  # Drain the per-message confirm callbacks for one batch against a shared
+  # deadline. Each arriving confirm is counted individually; confirms that
+  # never show up before the deadline are timeouts — or disconnects if we
+  # already know the channel/connection died.
+  private def self.await_batch_confirms(ack_chan, published : Int32, deadline, ch, conn, label : String) : Nil
+    received = 0
+    while received < published && !STOP.get
+      remaining = deadline - Time.instant
+      break if remaining <= Time::Span.zero
+      select
+      when ok = ack_chan.receive
+        received += 1
+        if ok
+          STATS.incr_confirmed
+        elsif disconnected?(ch, conn)
+          STATS.incr_confirm_disconnects
+        else
+          STATS.incr_confirm_nacked
+        end
+      when timeout(remaining)
+        break
+      end
+    end
+    missing = published - received
+    if missing > 0
+      # Don't warn if we already know the connection died — that explains
+      # the missing confirms (cleanup() drains the pending deque but our
+      # already-timed-out `select` no longer sees them).
+      if disconnected?(ch, conn)
+        STATS.incr_confirm_disconnects(by: missing.to_i64)
+      else
+        STATS.incr_confirm_timeouts(by: missing.to_i64)
+        Log.warn { "[#{label}] #{missing}/#{published} confirms missing after #{BATCH_CONFIRM_TIMEOUT}" }
+      end
+    end
+  end
+
   # Batched confirmer: publish BATCH_CONFIRM_SIZE without waiting between
   # them, then drain the confirm callbacks with a total deadline. Each
   # arriving confirm is counted individually; messages whose confirm never
@@ -500,43 +543,34 @@ module Stress
           published += 1
         end
         next if published == 0
-        received = 0
         deadline = Time.instant + BATCH_CONFIRM_TIMEOUT
-        while received < published && !STOP.get
-          remaining = deadline - Time.instant
-          break if remaining <= Time::Span.zero
-          select
-          when ok = ack_chan.receive
-            received += 1
-            if ok
-              STATS.incr_confirmed
-            elsif ch.closed? || conn.closed?
-              STATS.incr_confirm_disconnects
-            else
-              STATS.incr_confirm_nacked
-            end
-          when timeout(remaining)
-            break
-          end
-        end
-        missing = published - received
-        if missing > 0
-          # Don't warn if we already know the connection died — that explains
-          # the missing confirms (cleanup() drains the pending deque but our
-          # already-timed-out `select` no longer sees them).
-          if ch.closed? || conn.closed?
-            STATS.incr_confirm_disconnects(by: missing.to_i64)
-          else
-            STATS.incr_confirm_timeouts(by: missing.to_i64)
-            Log.warn { "[bconf-#{kind}-#{id}] #{missing}/#{published} confirms missing after #{BATCH_CONFIRM_TIMEOUT}" }
-          end
-        end
+        await_batch_confirms(ack_chan, published, deadline, ch, conn, "bconf-#{kind}-#{id}")
         STATS.incr_batch_confirm_cycles
       end
     end
   end
 
   # -------- Consumers --------
+
+  private def self.handle_consume(msg, consume_mode : Symbol, reject_rate : Float64, n : Int64) : Nil
+    if reject_rate > 0 && Random.rand < reject_rate
+      msg.reject(requeue: false)
+      STATS.incr_rejected
+      STATS.incr_dead_lettered
+    else
+      case consume_mode
+      when :slow
+        sleep Random.rand(5..50).milliseconds
+      when :bursty
+        sleep Random.rand(100..500).milliseconds if n % 50 == 0
+      end
+      msg.ack
+      STATS.incr_acked
+    end
+  rescue ex
+    # Connection/channel killed under us mid-ack. The with_amqp loop will reconnect.
+    STATS.incr_errors
+  end
 
   # consume_mode: :fast | :slow | :bursty
   def self.consumer(id : Int32, queue : String, consume_mode : Symbol, reject_rate : Float64 = 0.0)
@@ -546,25 +580,7 @@ module Stress
       seq = Atomic(Int64).new(0_i64)
       tag = ch.basic_consume(queue, tag: "cons-#{consume_mode}-#{id}-#{Random.rand(1_000_000)}", no_ack: false, block: false) do |msg|
         n = seq.add(1_i64) + 1
-        begin
-          if reject_rate > 0 && Random.rand < reject_rate
-            msg.reject(requeue: false)
-            STATS.incr_rejected
-            STATS.incr_dead_lettered
-          else
-            case consume_mode
-            when :slow
-              sleep Random.rand(5..50).milliseconds
-            when :bursty
-              sleep Random.rand(100..500).milliseconds if n % 50 == 0
-            end
-            msg.ack
-            STATS.incr_acked
-          end
-        rescue ex
-          # Connection/channel killed under us mid-ack. The with_amqp loop will reconnect.
-          STATS.incr_errors
-        end
+        handle_consume(msg, consume_mode, reject_rate, n)
       end
       until STOP.get || ch.closed? || conn.closed?
         sleep 200.milliseconds
@@ -716,6 +732,35 @@ module Stress
 
   # -------- Queue churn --------
 
+  private def self.random_queue_args : Arguments
+    args = Arguments.new
+    case Random.rand(8)
+    when 0
+      args["x-message-ttl"] = Random.rand(0..500).to_i64.as(AMQ::Protocol::Field)
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+    when 1
+      args["x-expires"] = Random.rand(200..2000).to_i64.as(AMQ::Protocol::Field)
+    when 2
+      args["x-max-length"] = Random.rand(1..50).to_i64.as(AMQ::Protocol::Field)
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+    when 3
+      args["x-max-length-bytes"] = Random.rand(1024..16_384).to_i64.as(AMQ::Protocol::Field)
+      args["x-overflow"] = "drop-head".as(AMQ::Protocol::Field)
+    when 4
+      args["x-max-length"] = Random.rand(1..20).to_i64.as(AMQ::Protocol::Field)
+      args["x-overflow"] = "reject-publish".as(AMQ::Protocol::Field)
+    when 5
+      # Stream queue (small fraction)
+      args["x-queue-type"] = "stream".as(AMQ::Protocol::Field)
+    when 6
+      args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
+      args["x-dead-letter-routing-key"] = "via-dlx".as(AMQ::Protocol::Field)
+    else
+      # plain queue
+    end
+    args
+  end
+
   def self.queue_churn(id : Int32)
     with_amqp("q-churn-#{id}") do |conn|
       ch = conn.channel
@@ -723,32 +768,7 @@ module Stress
       while !STOP.get && !ch.closed?
         n &+= 1
         name = "stress.tmpq.#{id}.#{n}"
-        args = Arguments.new
-        # Pick a random arg mix
-        case Random.rand(8)
-        when 0
-          args["x-message-ttl"] = Random.rand(0..500).to_i64.as(AMQ::Protocol::Field)
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-        when 1
-          args["x-expires"] = Random.rand(200..2000).to_i64.as(AMQ::Protocol::Field)
-        when 2
-          args["x-max-length"] = Random.rand(1..50).to_i64.as(AMQ::Protocol::Field)
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-        when 3
-          args["x-max-length-bytes"] = Random.rand(1024..16_384).to_i64.as(AMQ::Protocol::Field)
-          args["x-overflow"] = "drop-head".as(AMQ::Protocol::Field)
-        when 4
-          args["x-max-length"] = Random.rand(1..20).to_i64.as(AMQ::Protocol::Field)
-          args["x-overflow"] = "reject-publish".as(AMQ::Protocol::Field)
-        when 5
-          # Stream queue (small fraction)
-          args["x-queue-type"] = "stream".as(AMQ::Protocol::Field)
-        when 6
-          args["x-dead-letter-exchange"] = EX_DLX.as(AMQ::Protocol::Field)
-          args["x-dead-letter-routing-key"] = "via-dlx".as(AMQ::Protocol::Field)
-        else
-          # plain queue
-        end
+        args = random_queue_args
         durable = Random.rand(2) == 0
         auto_delete = Random.rand(3) == 0
         begin
@@ -958,6 +978,17 @@ module Stress
     end
   end
 
+  # Mix in automatic offset tracking on/off, sometimes as the string
+  # form "true"/"false" which the server also accepts.
+  private def self.apply_random_offset_tracking(args : Arguments) : Nil
+    case Random.rand(4)
+    when 0 then args["x-stream-automatic-offset-tracking"] = true.as(AMQ::Protocol::Field)
+    when 1 then args["x-stream-automatic-offset-tracking"] = false.as(AMQ::Protocol::Field)
+    when 2 then args["x-stream-automatic-offset-tracking"] = "true".as(AMQ::Protocol::Field)
+    else # omitted — server default applies
+    end
+  end
+
   # Pick a randomized `x-stream-offset` value plus a random
   # `x-stream-automatic-offset-tracking` setting. Exercises every branch
   # of `StreamMessageStore#find_offset`: named ("first"/"last"/"next"),
@@ -989,14 +1020,7 @@ module Stress
       ts = Time.utc - Random.rand(300..3600).seconds
       args["x-stream-offset"] = ts.as(AMQ::Protocol::Field)
     end
-    # Mix in automatic offset tracking on/off, sometimes as the string
-    # form "true"/"false" which the server also accepts.
-    case Random.rand(4)
-    when 0 then args["x-stream-automatic-offset-tracking"] = true.as(AMQ::Protocol::Field)
-    when 1 then args["x-stream-automatic-offset-tracking"] = false.as(AMQ::Protocol::Field)
-    when 2 then args["x-stream-automatic-offset-tracking"] = "true".as(AMQ::Protocol::Field)
-    else # omitted — server default applies
-    end
+    apply_random_offset_tracking(args)
     args
   end
 
@@ -1228,33 +1252,42 @@ module Stress
   # happen. The pool is intentionally small to force collisions.
   POLICY_NAMES = %w(churn-a churn-b churn-c churn-d churn-e churn-f churn-g churn-h)
 
+  private def self.maybe_field(json : JSON::Builder, name : String, value : String) : Nil
+    json.field name, value if Random.rand(2) == 0
+  end
+
+  private def self.build_policy_field(json : JSON::Builder, choice : Int32) : Nil
+    case choice
+    when 0
+      json.field "max-length", Random.rand(1..200)
+      maybe_field(json, "dead-letter-exchange", EX_DLX)
+    when 1
+      json.field "max-length-bytes", Random.rand(4096..65_536)
+      json.field "overflow", "drop-head"
+    when 2
+      json.field "message-ttl", Random.rand(50..2000)
+      maybe_field(json, "dead-letter-exchange", EX_DLX)
+    when 3
+      json.field "expires", Random.rand(5_000..60_000)
+    when 4
+      json.field "overflow", "reject-publish"
+      json.field "max-length", Random.rand(1..50)
+    when 5
+      json.field "dead-letter-exchange", EX_DLX
+      json.field "dead-letter-routing-key", "via-policy"
+    when 6
+      json.field "delivery-limit", Random.rand(1..10)
+    when 7
+      # Stream-applicable: max-length-bytes forces drop_overflow churn.
+      json.field "max-length-bytes", Random.rand(1024 * 1024..STREAM_MAX_LENGTH_BYTES)
+      maybe_field(json, "max-age", "#{Random.rand(1..30)}s")
+    end
+  end
+
   private def self.build_policy_definition(json : JSON::Builder, allow_stream : Bool) : Nil
+    choice = Random.rand(allow_stream ? 8 : 7)
     json.object do
-      case Random.rand(allow_stream ? 8 : 7)
-      when 0
-        json.field "max-length", Random.rand(1..200)
-        json.field "dead-letter-exchange", EX_DLX if Random.rand(2) == 0
-      when 1
-        json.field "max-length-bytes", Random.rand(4096..65_536)
-        json.field "overflow", "drop-head"
-      when 2
-        json.field "message-ttl", Random.rand(50..2000)
-        json.field "dead-letter-exchange", EX_DLX if Random.rand(2) == 0
-      when 3
-        json.field "expires", Random.rand(5_000..60_000)
-      when 4
-        json.field "overflow", "reject-publish"
-        json.field "max-length", Random.rand(1..50)
-      when 5
-        json.field "dead-letter-exchange", EX_DLX
-        json.field "dead-letter-routing-key", "via-policy"
-      when 6
-        json.field "delivery-limit", Random.rand(1..10)
-      when 7
-        # Stream-applicable: max-length-bytes forces drop_overflow churn.
-        json.field "max-length-bytes", Random.rand(1024 * 1024..STREAM_MAX_LENGTH_BYTES)
-        json.field "max-age", "#{Random.rand(1..30)}s" if Random.rand(2) == 0
-      end
+      build_policy_field(json, choice)
     end
   end
 
