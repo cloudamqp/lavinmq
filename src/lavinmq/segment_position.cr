@@ -18,11 +18,12 @@ module LavinMQ
       prio = msg.properties.priority || 0u8
       has_dlx = false
       delay = 0u32
-      msg.properties.headers.try &.each do |key, value|
-        case key
-        when "x-dead-letter-exchange" then has_dlx = true
-        when "x-delay"                then delay = value.as?(Int).try(&.to_u32) || 0u32 rescue 0u32
-        end
+      # Targeted lookups instead of iterating all headers: Table#each
+      # allocates a String per key (and Field per value), and make runs on
+      # every message store push/shift
+      if headers = msg.properties.headers
+        has_dlx = headers.has_key?("x-dead-letter-exchange")
+        delay = headers["x-delay"]?.try { |v| v.as?(Int).try(&.to_u32) } || 0u32 rescue 0u32
       end
       new(segment, position, msg.bytesize.to_u32, has_dlx, prio, delay)
     end

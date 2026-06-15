@@ -249,7 +249,6 @@ describe LavinMQ::Config do
       config.clustering_port.should eq 5680
       config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
       config.clustering_etcd_prefix.should eq "test-lavinmq"
-      config.clustering_max_unsynced_actions.should eq 16384
       config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
       config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
       config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
@@ -337,7 +336,6 @@ describe LavinMQ::Config do
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
-    config.clustering_max_unsynced_actions.should eq 4096
     config.clustering_port.should eq 5680
   end
 
@@ -397,7 +395,6 @@ describe LavinMQ::Config do
       config.clustering_bind.should eq "10.3.3.3"
       config.clustering_etcd_endpoints.should eq "env-etcd:2379"
       config.clustering_etcd_prefix.should eq "env-prefix"
-      config.clustering_max_unsynced_actions.should eq 2048
       config.clustering_port.should eq 5681
       config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
     ensure
@@ -574,6 +571,35 @@ describe LavinMQ::Config do
     config.amqp_bind.should eq "0.0.0.0"
     config.http_bind.should eq "0.0.0.0"
     config.mqtt_bind.should eq "0.0.0.0"
+  end
+
+  describe "stats_interval" do
+    it "accepts sub-second values" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          stats_interval = 500
+        CONFIG
+      end
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.stats_interval.should eq 500
+    end
+
+    it "rejects non-positive values" do
+      [0, -5000].each do |ms|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            stats_interval = #{ms}
+          CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(OptionParser::Exception, /stats_interval/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
   end
 
   describe "tcp_proxy_protocol" do
