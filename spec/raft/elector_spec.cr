@@ -281,6 +281,70 @@ describe LavinMQ::Raft::Elector do
     end
   end
 
+  describe "boot decision" do
+    it "joins (not bootstraps) when .join_target is present even if we are the lowest seed" do
+      dir = tmp_data_dir
+      target_hit = false
+      stub = HTTP::Server.new do |ctx|
+        target_hit = true
+        ctx.response.status_code = 200
+        ctx.response.print %({"status":"added"})
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn { stub.listen }
+      elector = nil.as(LavinMQ::Raft::Elector?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        File.write(File.join(dir, ".join_target"), "http://#{addr}")
+        cfg = elector_config(dir, free_port, free_port)
+        # We ARE the lowest seed host, yet .join_target must win -> Join.
+        cfg.clustering_seed_uris = "http://127.0.0.1:0"
+        elector = LavinMQ::Raft::Elector.new(cfg)
+        spawn do
+          elector.not_nil!.campaign { }
+        rescue ::Channel::ClosedError
+        end
+        retry_until(5.seconds) { target_hit }
+        elector.not_nil!.server.is_leader.value.should be_false
+      ensure
+        stub.close
+        elector.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "joins via seeds when not the lowest and no join_target" do
+      dir = tmp_data_dir
+      hit = false
+      stub = HTTP::Server.new do |ctx|
+        hit = true
+        ctx.response.status_code = 200
+        ctx.response.print %({"status":"added"})
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn { stub.listen }
+      elector = nil.as(LavinMQ::Raft::Elector?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        cfg = elector_config(dir, free_port, free_port)
+        # Our advertised host won't be the lowest: seed "aaa" sorts below ours.
+        cfg.clustering_advertised_uri = "tcp://zzz:#{free_port}"
+        cfg.clustering_seed_uris = "http://aaa:1,http://#{addr}"
+        elector = LavinMQ::Raft::Elector.new(cfg)
+        spawn do
+          elector.not_nil!.campaign { }
+        rescue ::Channel::ClosedError
+        end
+        retry_until(5.seconds) { hit }
+        elector.not_nil!.server.is_leader.value.should be_false
+      ensure
+        stub.close
+        elector.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "join_via_seeds" do
     it "tries seeds in turn and succeeds on the first that returns 200" do
       hit = [] of String
