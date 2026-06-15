@@ -29,8 +29,10 @@ class LavinMQ::Clustering::Controller
 
   def initialize(@config : Config)
     @membership = membership = VR::Membership.from_config(@config)
+    # The node's id comes from the configured roster: it finds itself by matching
+    # its advertised_uri, so the id is config-derived and stable — no separate
+    # .clustering_id file needed.
     @id = membership.self_id
-    persist_clustering_id
     @coordinator = coordinator = VR::Coordinator.new(@config)
     @secret = coordinator.password
     @replicator = replicator = Clustering::Server.new(@config, coordinator, @id, quorum: membership.quorum)
@@ -122,22 +124,6 @@ class LavinMQ::Clustering::Controller
     @repli_client = client = Clustering::Client.new(@config, @id, @secret)
     spawn client.follow(member.uri), name: "Clustering client #{member.uri}"
     SystemD.notify_ready
-  end
-
-  # Each node has a stable id (from the configured roster). Persist it for
-  # continuity/debugging; refuse to run if a different id was recorded.
-  private def persist_clustering_id
-    path = File.join(@config.data_dir, ".clustering_id")
-    Dir.mkdir_p @config.data_dir
-    if File.exists?(path)
-      existing = File.read(path).strip.to_i(36)
-      if existing != @id
-        Log.fatal { "Configured clustering id #{@id.to_s(36)} != recorded #{existing.to_s(36)} in #{path}" }
-        exit 3
-      end
-    else
-      File.write(path, @id.to_s(36))
-    end
   end
 
   private def execute_shell_command(command : String, event : String)
