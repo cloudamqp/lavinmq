@@ -68,9 +68,9 @@ describe LavinMQ::VHost do
   it "should apply classic_queues policy only to non-stream queues" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic").as(LavinMQ::AMQP::Queue))
       vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
-        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})).as(LavinMQ::AMQP::Queue))
       vhost.add_policy("cq", "^.*$", "classic_queues", defs, 11_i8)
       sleep 10.milliseconds
       vhost.queue("classic").policy.try(&.name).should eq "cq"
@@ -81,9 +81,9 @@ describe LavinMQ::VHost do
   it "should apply streams policy only to stream queues" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-age" => JSON::Any.new("1D")} of String => JSON::Any
-      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic").as(LavinMQ::AMQP::Queue))
       vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
-        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})).as(LavinMQ::AMQP::Queue))
       vhost.add_policy("sp", "^.*$", "streams", defs, 11_i8)
       sleep 10.milliseconds
       vhost.queue("stream").policy.try(&.name).should eq "sp"
@@ -94,9 +94,9 @@ describe LavinMQ::VHost do
   it "should apply quorum_queues policy to non-stream queues" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"delivery-limit" => JSON::Any.new(3_i64)} of String => JSON::Any
-      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic").as(LavinMQ::AMQP::Queue))
       vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
-        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})).as(LavinMQ::AMQP::Queue))
       vhost.add_policy("qq", "^.*$", "quorum_queues", defs, 11_i8)
       sleep 10.milliseconds
       vhost.policies["qq"].apply_to.should eq LavinMQ::Policy::Target::QuorumQueues
