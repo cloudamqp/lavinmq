@@ -282,7 +282,9 @@ module LavinMQ::Raft
         content.to_i32?(36) ||
           raise "Invalid cluster id #{content.inspect} in #{path}: expected a base-36 integer"
       rescue File::NotFoundError
-        id = Random::Secure.rand(Int32::MAX)
+        # 1..Int32::MAX, never 0: raft.cr treats node id 0 as "no node / no
+        # leader", so a generated 0 would collide with that sentinel.
+        id = Random::Secure.rand(1..Int32::MAX)
         File.write(path, id.to_s(36))
         Log.info { "Generated new clustering id #{id}" }
         id
