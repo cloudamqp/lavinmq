@@ -14,12 +14,11 @@ module LavinMQ
       end
 
       def self.from_parameters(parameters : JSON::Any)
-        new(
-          jitter: as_float(parameters["dest-jitter"]?) || 1.0,
-          backoff: as_float(parameters["dest-backoff"]?) || 2.0,
-          timeout: as_float(parameters["dest-timeout"]?) || 30.0,
-          max_retries: as_int(parameters["dest-max-retries"]?) || 0
-        )
+        jitter = Math.max(0.0, as_float(parameters["dest-jitter"]?) || 1.0)
+        backoff = Math.max(0.0, as_float(parameters["dest-backoff"]?) || 2.0)
+        timeout = Math.max(0.0, as_float(parameters["dest-timeout"]?) || 30.0)
+        max_retries = Math.max(0, as_int(parameters["dest-max-retries"]?) || 0)
+        new(jitter: jitter, backoff: backoff, timeout: timeout, max_retries: max_retries)
       end
 
       # Accept both JSON integer and float forms (e.g. `2` and `2.0`).
