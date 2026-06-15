@@ -96,7 +96,12 @@ module LavinMQ
         File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
         File.rename tmpfile, path
       end
-      @replicator.try &.replace_file path
+      @replicator.try do |r|
+        r.replace_file path
+        # Acknowledge the policy/parameter change only once a quorum has it
+        # durably, so it survives a leader failover. See VHostStore#save!.
+        r.wait_for_followers
+      end
     end
 
     private def load!

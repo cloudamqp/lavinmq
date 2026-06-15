@@ -154,7 +154,15 @@ module LavinMQ
         File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
         File.rename "#{path}.tmp", path
       end
-      @replicator.try &.replace_file path
+      @replicator.try do |r|
+        r.replace_file path
+        # Block until a quorum has the new vhosts.json durably, so creating or
+        # deleting a vhost is only acknowledged once it survives a leader failover
+        # — otherwise the change lives only on the leader and is lost (the new
+        # leader's full_sync deletes it) when the leader dies before followers
+        # catch up. Mirrors the publish-confirm and definitions-store paths.
+        r.wait_for_followers
+      end
     end
   end
 end

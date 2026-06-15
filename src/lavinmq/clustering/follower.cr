@@ -446,12 +446,17 @@ module LavinMQ
       end
 
       # Become Synced as of `baseline_op` — the leader's global op-number at the
-      # full_sync cut. The follower already has every op up to and including this
-      # (via the snapshot), so it starts fully acked there; later records carry
-      # op > baseline_op and are streamed and acked incrementally.
+      # full_sync cut. We've *sent* the snapshot up to here, but the follower has
+      # NOT yet confirmed it is durable: @acked_op must therefore stay where it was
+      # (0 for a fresh follower) until the follower acks baseline_op back after
+      # syncfs'ing the snapshot. Counting it as acked here would let the leader
+      # commit (and confirm) a write on a "quorum" that includes a follower which
+      # only received the bytes in flight — if that follower then drops before
+      # persisting, the write is durable on fewer than a quorum of nodes and is
+      # lost on failover. The follower sends an explicit baseline ack at the start
+      # of its stream loop (see Client#stream_changes), which advances @acked_op.
       def mark_synced!(baseline_op : UInt64)
         @sent_op.set(baseline_op)
-        @acked_op.set(baseline_op)
         @state = State::Synced
       end
 

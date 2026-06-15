@@ -235,7 +235,12 @@ module LavinMQ
           end
         end
       end
-      @replicator.try &.replace_file(File.join(@data_dir, "limits.json"))
+      @replicator.try do |r|
+        r.replace_file(File.join(@data_dir, "limits.json"))
+        # Confirm the limits change is on a quorum before returning, so it
+        # survives a leader failover. See VHostStore#save!.
+        r.wait_for_followers
+      end
     end
 
     def inspect(io : IO)

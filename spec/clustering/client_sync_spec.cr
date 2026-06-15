@@ -237,6 +237,10 @@ module ClientSyncSpec
           lz4_writer.flush
 
           leader_io.read_timeout = 500.milliseconds
+          # stream_changes opens with a baseline ack (0 bytes, op = @applied_op = 0
+          # here) confirming the full_sync snapshot is durable; consume it first.
+          read_ack_bytes(leader_io).should eq 0
+          # The undeletable delete must NOT be acked afterwards.
           expect_raises(IO::TimeoutError) do
             leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           end

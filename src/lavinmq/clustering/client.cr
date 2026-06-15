@@ -296,7 +296,15 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id")
+            # Node-local control files are never replicated, so they must be
+            # excluded from the "delete files not on the leader" sweep. Deleting
+            # .vr_state in particular resets this follower's persisted op
+            # high-water to 0, which makes it (and, once it's elected, the whole
+            # cluster) under-report its log position and lets an emptier node win
+            # the next view change and wipe committed data. .clustering_password
+            # holds the shared secret; .lock is the data-dir lock. (.clustering_id
+            # is legacy — kept here so an upgraded data dir isn't tripped up.)
+            next if child.in?(".lock", ".clustering_id", ".vr_state", ".clustering_password")
             yield path
           end
         end
@@ -338,6 +346,13 @@ module LavinMQ
         acks = @acks = Channel({Int64, UInt64}).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
+        # Confirm the full_sync snapshot is durable: this ack (0 bytes, carrying
+        # @applied_op = baseline_op) goes through send_ack_loop, which syncfs's the
+        # snapshot and then tells the leader. The leader does NOT count us toward
+        # the commit quorum until it receives this (see Follower#mark_synced!), so
+        # a write at/below baseline isn't confirmed on our behalf until we actually
+        # have it on disk — even if no further records are ever streamed.
+        ack(0)
         loop do
           # Each record is stamped with the leader's op-number for it (the same
           # value on every follower), which this follower acks once the record is
