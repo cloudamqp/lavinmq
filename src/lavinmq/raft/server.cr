@@ -98,7 +98,16 @@ module LavinMQ::Raft
       rescue ::Channel::ClosedError
         raise "Raft::Server stopping"
       end
-      reply.receive
+      # The tick loop may break on @stop_signal (it races the action case in
+      # the same select) and exit without ever draining our action — then a
+      # plain reply.receive would block forever. @tick_done is closed when the
+      # tick loop exits, so wake up on whichever happens first.
+      select
+      when v = reply.receive
+        v
+      when @tick_done.receive?
+        raise "Raft::Server stopping"
+      end
     end
 
     def leader_id : UInt64?

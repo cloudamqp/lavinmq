@@ -332,4 +332,44 @@ describe LavinMQ::Raft::Server do
       end
     end
   end
+
+  describe "concurrent shutdown" do
+    it "never leaves a run_on_tick caller blocked when the server stops" do
+      dir = tmp_data_dir
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+      transport = ::Raft::MemoryTransport.new(1_u64)
+      server = LavinMQ::Raft::Server.new(
+        data_dir: dir, advertised_address: "n:5680,n:5679",
+        transport: transport, execution_context: Fiber::ExecutionContext.current,
+      )
+      transport.start
+      server.start
+      begin
+        proposers = 20
+        done = ::Channel(Symbol).new(proposers)
+        proposers.times do
+          spawn do
+            # Either returns a Bool or raises "stopping" — but must never hang
+            # waiting on a reply the tick loop will never deliver after stop.
+            server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1}))
+            done.send(:ok)
+          rescue
+            done.send(:raised)
+          end
+        end
+        Fiber.yield # let proposers enqueue their actions before we stop
+        server.stop
+        proposers.times do
+          select
+          when done.receive
+          when timeout(5.seconds)
+            fail "a run_on_tick caller hung after the server stopped"
+          end
+        end
+      ensure
+        transport.stop
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
 end
