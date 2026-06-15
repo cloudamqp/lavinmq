@@ -505,6 +505,20 @@ module LavinMQ
         commit
       end
 
+      # A non-blocking read of the last-known commit point, for the VR heartbeat
+      # and election path. Unlike #committed_op it takes neither @lock nor an
+      # fsync, so the VR::Node may call it while holding its own FSM lock without
+      # risking a stall — #committed_op can block for the duration of a follower's
+      # full_sync (which holds @lock) or an fsync, and blocking the FSM there
+      # freezes heartbeats and triggers a spurious election storm. The value may
+      # be momentarily stale, which is safe: commit_op is a monotonic lower bound
+      # used only for gossip and election ordering, while the authoritative
+      # advance + durable persist still happens in #committed_op on the confirm
+      # path (wait_for_quorum).
+      def committed_op_cached : UInt64
+        @commit_op
+      end
+
       # The latest op-number assigned by this leader (its own log head).
       def current_op : UInt64
         @lock.synchronize { @op }

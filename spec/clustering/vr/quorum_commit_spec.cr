@@ -109,5 +109,49 @@ module QuorumCommitSpec
         end
       end
     end
+
+    describe "#committed_op_cached" do
+      # Regression for the VR election storm: the VR::Node reads the commit point
+      # (for heartbeats / election summaries) while holding its FSM lock. The full
+      # #committed_op takes the server @lock and may fsync, and a follower's
+      # full_sync holds @lock for the duration of its file upload — so reading the
+      # commit point there froze heartbeats for ~1s and triggered spurious
+      # elections. The cached reader must therefore never take @lock.
+      it "returns without taking @lock, even while @lock is held (as during a follower full_sync)" do
+        with_datadir do |data_dir|
+          server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, quorum: 2)
+          got = Channel(UInt64).new(1)
+          server.@lock.synchronize do
+            spawn(name: "cached read") { got.send(server.committed_op_cached) }
+            select
+            when v = got.receive
+              v.should eq 0u64
+            when timeout(2.seconds)
+              fail "committed_op_cached blocked while @lock was held"
+            end
+          end
+        ensure
+          server.try &.close
+          FileUtils.rm_rf data_dir
+        end
+      end
+
+      it "tracks the commit point as the confirm path advances it" do
+        with_datadir do |data_dir|
+          server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, quorum: 2)
+          3.times { server.append_bytes("#{data_dir}/seed", "x".to_slice, 0i64) }
+          client_a = add_synced_follower(server, data_dir)
+          add_synced_follower(server, data_dir)
+          server.committed_op_cached.should eq 0u64 # nothing committed yet
+          write_ack(client_a, 3u64)
+          spawn { server.wait_for_quorum(3u64) }
+          wait_for(2.seconds) { server.committed_op_cached == 3u64 }
+          server.committed_op_cached.should eq 3u64
+        ensure
+          server.try &.close
+          FileUtils.rm_rf data_dir
+        end
+      end
+    end
   end
 end

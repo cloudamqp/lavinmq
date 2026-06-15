@@ -27,6 +27,17 @@ class LavinMQ::Clustering::Controller
   @mesh : VR::ControlMesh
   @node : VR::Node
   @state : VR::State
+  # Re-pointing the replication client at a new primary is done by a dedicated
+  # fiber, never inline in the VR::Node callback: `follow` is invoked from the
+  # FSM while it holds its lock, and tearing down the old Client blocks (it waits
+  # for the follower loop to drain). Blocking there would freeze heartbeat
+  # processing and the election timer, so the node would time out and trigger a
+  # spurious view change — a self-sustaining election storm at boot/failover.
+  # Instead the callback just records the desired primary and wakes this fiber.
+  @desired_primary : VR::Member? = nil
+  @primary_now = false
+  @follow_mu = Mutex.new(:unchecked)
+  @follow_wake = ::Channel(Nil).new(1)
 
   def initialize(@config : Config)
     @membership = membership = VR::Membership.from_config(@config)
@@ -46,7 +57,12 @@ class LavinMQ::Clustering::Controller
       # data on disk), so a freshly-restarted / under-replicated node reports its
       # true low position and cannot win and then overwrite a more-complete node.
       op_source: -> { state.op },
-      commit_source: -> { replicator.committed_op },
+      # Non-blocking commit read: the FSM calls this while holding its lock (to
+      # stamp heartbeats / election summaries), and the full #committed_op can
+      # block on the replicator's lock during a follower full_sync — which would
+      # freeze heartbeats and storm. The authoritative advance + persist still
+      # runs in #committed_op on the confirm path.
+      commit_source: -> { replicator.committed_op_cached },
       on_new_primary: ->(m : VR::Member) { follow(m) })
     replicator.vr_node = @node   # let the HTTP API surface clustering status
     replicator.vr_state = @state # leader seeds/persists its op high-water here
@@ -58,6 +74,7 @@ class LavinMQ::Clustering::Controller
   def run(&)
     Log.info { "ID: #{@id.to_s(36)}, members: #{@membership.members.map(&.id.to_s(36))}" }
     start_listener
+    spawn(name: "Clustering follow") { follow_loop }
     @mesh.start
     @node.start
     @node.wait_until_primary
@@ -65,7 +82,10 @@ class LavinMQ::Clustering::Controller
     Log.info { "Elected primary" }
     @replicator.restore_checksums
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.try &.close # stop following a previous leader
+    # Stop following a previous leader: disable the follow fiber (we own the
+    # AMQP/HTTP/MQTT ports as primary now) before tearing the client down.
+    @follow_mu.synchronize { @primary_now = true; @desired_primary = nil }
+    @repli_client.try &.close
     yield
     @node.wait_until_stepped_down
     return if @stopped
@@ -79,6 +99,7 @@ class LavinMQ::Clustering::Controller
     @node.close
     @mesh.close
     @listener.try &.close
+    @follow_wake.close
     @repli_client.try &.close
   end
 
@@ -118,13 +139,43 @@ class LavinMQ::Clustering::Controller
     socket.close rescue nil
   end
 
-  # Follow `member` as a backup: tear down any previous client and stream from
-  # the new primary, re-pointing the AMQP/HTTP/MQTT proxies at it.
+  # VR::Node callback (runs under the FSM lock): record the new primary and wake
+  # the follow fiber. MUST NOT block — see @desired_primary above.
   private def follow(member : VR::Member) : Nil
+    @follow_mu.synchronize { @desired_primary = member }
+    @follow_wake.try_send(nil) rescue nil
+  end
+
+  # Applies the latest @desired_primary serially, off the FSM lock. Loops draining
+  # the desired target so a burst of primary changes collapses to the last one.
+  private def follow_loop : Nil
+    loop do
+      @follow_wake.receive
+      until @stopped
+        target = @follow_mu.synchronize do
+          m = @desired_primary
+          @desired_primary = nil
+          m
+        end
+        break unless target
+        apply_follow(target)
+      end
+    end
+  rescue ::Channel::ClosedError
+  end
+
+  # Tear down any previous client and stream from the new primary, re-pointing the
+  # AMQP/HTTP/MQTT proxies at it. Runs on the follow fiber only (so @repli_client
+  # access is serialized) and may block on the old client's teardown — which is
+  # why it is kept off the FSM lock.
+  private def apply_follow(member : VR::Member) : Nil
     if client = @repli_client
       return if client.follows?(member.uri)
       client.close
     end
+    # Bail if we've since been stopped or elected primary (the leader owns the
+    # AMQP/HTTP/MQTT ports; starting a follower client would conflict on them).
+    return if @stopped || @follow_mu.synchronize { @primary_now }
     Log.info { "Following primary #{member.id.to_s(36)} at #{member.uri}" }
     @repli_client = client = Clustering::Client.new(@config, @id, @secret)
     client.vr_state = @state # record the applied-op high-water as it syncs/acks
