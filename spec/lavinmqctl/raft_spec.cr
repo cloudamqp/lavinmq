@@ -209,7 +209,9 @@ describe "LavinMQCtl raft_*" do
         original_argv = ARGV.dup
         begin
           ARGV.clear
-          ARGV.concat(["raft_reset", "--data-dir=#{data_dir}"])
+          # --force: no node is running here, so the safety check can't reach
+          # /raft/status and would otherwise fail closed.
+          ARGV.concat(["raft_reset", "--data-dir=#{data_dir}", "--force"])
           cli = LavinMQCtl.new(stdout)
           cli.run_cmd
         ensure
@@ -221,6 +223,36 @@ describe "LavinMQCtl raft_*" do
         Dir.exists?(File.join(data_dir, "raft-transport")).should be_false
         File.exists?(File.join(data_dir, ".clustering_id")).should be_true
         File.exists?(sentinel).should be_true
+      ensure
+        FileUtils.rm_rf(data_dir)
+      end
+    end
+
+    it "refuses to wipe a stopped node that can't be verified without --force" do
+      data_dir = File.tempname("raft-reset-stopped-spec")
+      begin
+        Dir.mkdir_p(File.join(data_dir, "raft"))
+        File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+        File.write(File.join(data_dir, ".clustering_id"), "1")
+
+        stdout = IO::Memory.new
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          # No node is running (closed port): its cluster membership can't be
+          # verified, so the reset must fail closed rather than silently wipe.
+          ARGV.concat(["--uri", "http://127.0.0.1:1", "raft_reset", "--data-dir=#{data_dir}"])
+          cli = LavinMQCtl.new(stdout)
+          expect_raises(LavinMQCtl::CtlExit) do
+            cli.run_cmd
+          end
+        ensure
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        Dir.exists?(File.join(data_dir, "raft")).should be_true
+        stdout.to_s.should contain("--force")
       ensure
         FileUtils.rm_rf(data_dir)
       end
@@ -239,7 +271,7 @@ describe "LavinMQCtl raft_*" do
         original_argv = ARGV.dup
         begin
           ARGV.clear
-          ARGV.concat(["raft_join", "http://leader.example:15672", "--data-dir=#{data_dir}"])
+          ARGV.concat(["raft_join", "http://leader.example:15672", "--data-dir=#{data_dir}", "--force"])
           cli = LavinMQCtl.new(stdout)
           cli.run_cmd
         ensure

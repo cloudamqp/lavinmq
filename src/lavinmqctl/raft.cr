@@ -88,6 +88,11 @@ class LavinMQCtl
   # configuration needed.
   private def with_wiped_raft_state(data_dir : String, &) : Nil
     Dir.mkdir_p(data_dir)
+    # Always gate on safety, whether or not a node is currently running. A
+    # stopped node still holds cluster membership on disk that we can't verify
+    # without /raft/status — so an unreachable node is refused unless --force,
+    # rather than silently wiped (which would drop it from its cluster).
+    ensure_safe_to_stop
     lock = LavinMQ::DataDirLock.new(data_dir)
     stop_running_node(lock) unless lock.try_acquire
     begin
@@ -113,11 +118,10 @@ class LavinMQCtl
     end
   end
 
-  # The data dir lock is held: a node is running. Refuse unless that is
-  # provably safe to discard (or --force), then stop the node and wait for
-  # its lock to be released. Never wipes under a holder it could not stop.
+  # The data dir lock is held: a node is running. ensure_safe_to_stop has
+  # already cleared this (or --force was given); stop the node and wait for its
+  # lock to be released. Never wipes under a holder it could not stop.
   private def stop_running_node(lock : LavinMQ::DataDirLock) : Nil
-    ensure_safe_to_stop
     info = lock.holder_info
     if m = info.match(/PID (\d+) @ (.+)/)
       pid, host = m[1].to_i64, m[2]
