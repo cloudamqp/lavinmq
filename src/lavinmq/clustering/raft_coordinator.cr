@@ -383,7 +383,7 @@ module LavinMQ::Clustering
       end
 
       def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::LittleEndian)
-        io.write_bytes(@kind.value, format)
+        io.write_byte(@kind.value)
         case kind
         in .set_isr?
           io.write_bytes(@isr.size.to_u32, format)
@@ -404,9 +404,7 @@ module LavinMQ::Clustering
           for_isr(isr)
         in .set_leader?
           len = io.read_bytes(UInt16, format)
-          buf = Bytes.new(len)
-          io.read_fully(buf)
-          for_leader(String.new(buf))
+          for_leader(io.read_string(len))
         end
       end
     end
@@ -480,20 +478,18 @@ module LavinMQ::Clustering
           io.write_bytes(uri.bytesize.to_u16, IO::ByteFormat::LittleEndian)
           io.write(uri.to_slice)
           if isr = @isr
-            io.write_bytes(1u8, IO::ByteFormat::LittleEndian)
+            io.write_byte(1u8)
             io.write_bytes(isr.size.to_u32, IO::ByteFormat::LittleEndian)
             isr.each { |id| io.write_bytes(id, IO::ByteFormat::LittleEndian) }
           else
-            io.write_bytes(0u8, IO::ByteFormat::LittleEndian)
+            io.write_byte(0u8)
           end
         end
       end
 
       def restore(io : IO)
         len = io.read_bytes(UInt16, IO::ByteFormat::LittleEndian)
-        buf = Bytes.new(len)
-        io.read_fully(buf)
-        uri = String.new(buf)
+        uri = io.read_string(len)
         has_isr = io.read_bytes(UInt8, IO::ByteFormat::LittleEndian)
         isr = nil
         if has_isr == 1
