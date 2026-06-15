@@ -43,6 +43,7 @@ module LavinMQ
         def initialize(@membership : Membership, @mesh : ControlMesh, @state : State,
                        @heartbeat_interval : Time::Span, @view_change_timeout : Time::Span,
                        @op_source : -> UInt64 = -> { 0u64 },
+                       @commit_source : -> UInt64 = -> { 0u64 },
                        @on_primary : -> = -> { },
                        @on_new_primary : Member -> = ->(_m : Member) { },
                        @on_step_down : -> = -> { })
@@ -90,7 +91,7 @@ module LavinMQ
               role:        role,
               view:        @state.view,
               op:          @op_source.call,
-              commit_op:   @commit_op,
+              commit_op:   current_commit,
               primary_id:  @primary_id,
               primary_uri: @primary_id.try { |pid| @membership.uri_for(pid) },
             }
@@ -145,7 +146,7 @@ module LavinMQ
         private def on_tick : Nil
           if primary?
             @mesh.broadcast(Control::Heartbeat.new(view: @state.view, op: @op_source.call,
-              commit_op: @commit_op, from_id: self_id))
+              commit_op: current_commit, from_id: self_id))
           elsif @status.normal?
             if Time.instant - @last_heard > jittered_timeout
               start_view_change(@state.view + 1)
@@ -255,7 +256,7 @@ module LavinMQ
           @commit_op = commit if commit > @commit_op
           Log.info { "Deciding view #{v}: primary is #{winner_id.to_s(36)}" }
           @mesh.broadcast(Control::StartView.new(view: v, primary_id: winner_id,
-            op: @op_source.call, commit_op: @commit_op, from_id: self_id))
+            op: @op_source.call, commit_op: current_commit, from_id: self_id))
           install_view(v, winner_id) # apply our own decision locally
         end
 
@@ -281,7 +282,7 @@ module LavinMQ
           # Announce immediately so backups follow without waiting for the first
           # heartbeat tick.
           @mesh.broadcast(Control::Heartbeat.new(view: v, op: @op_source.call,
-            commit_op: @commit_op, from_id: self_id))
+            commit_op: current_commit, from_id: self_id))
           unless @ever_primary
             @ever_primary = true
             @on_primary.call
@@ -318,7 +319,18 @@ module LavinMQ
         end
 
         private def own_summary : LogSummary
-          LogSummary.new(@last_normal_view, @op_source.call, @commit_op)
+          LogSummary.new(@last_normal_view, @op_source.call, current_commit)
+        end
+
+        # This node's best knowledge of the commit point: the data layer's actual
+        # majority-commit progress (when this node is the serving primary) or the
+        # value learned from the primary's heartbeats (when a backup), whichever
+        # is higher. The two are tracked separately — @commit_op is heartbeat/
+        # view-change driven, @commit_source reads the live Server — so the
+        # primary reports its real commit point rather than a stale marker.
+        private def current_commit : UInt64
+          c = @commit_source.call
+          c > @commit_op ? c : @commit_op
         end
       end
     end
