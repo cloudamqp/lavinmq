@@ -331,6 +331,10 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND")]
       property clustering_backend = "etcd"
 
+      @[CliOpt("", "--clustering-seed-uris=URIs", "Comma-separated HTTP management URIs of cluster members to join on boot", section: "clustering")]
+      @[IniOpt(ini_name: seed_uris, section: "clustering")]
+      property clustering_seed_uris = ""
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 
