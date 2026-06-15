@@ -202,7 +202,13 @@ module LavinMQ::Raft
       Dir.mkdir_p(@data_dir)
       path = File.join(@data_dir, ".clustering_id")
       begin
-        File.read(path).strip.to_i32(36)
+        content = File.read(path).strip
+        # A corrupt or partially-written id must fail loudly with a clear
+        # message — regenerating would silently give this node a new identity
+        # and drop it out of the cluster. `to_i32?` returns nil (rather than
+        # raising an opaque ArgumentError) on an empty or non-base-36 file.
+        content.to_i32?(36) ||
+          raise "Invalid cluster id #{content.inspect} in #{path}: expected a base-36 integer"
       rescue File::NotFoundError
         id = Random::Secure.rand(Int32::MAX)
         File.write(path, id.to_s(36))
