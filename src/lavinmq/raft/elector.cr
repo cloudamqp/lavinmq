@@ -7,6 +7,7 @@ require "../clustering/client"
 require "../clustering/elector"
 require "./server"
 require "./coordinator"
+require "./bootstrap_decision"
 
 module LavinMQ::Raft
   class Elector < Clustering::Elector
@@ -104,11 +105,25 @@ module LavinMQ::Raft
         File.delete(join_target_path)
         return
       end
-      return unless @server.peers.empty?
-      Log.info { "Fresh node with no peers — bootstrapping single-node cluster" }
-      unless @server.bootstrap
-        Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
+
+      case BootstrapDecision.decide(advertised_management_host, @config.seed_uris, !@server.peers.empty?)
+      in .resume?
+        Log.info { "Existing raft state — resuming as a member" }
+      in .bootstrap?
+        Log.info { "Bootstrapping single-node cluster" }
+        unless @server.bootstrap
+          Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
+        end
+      in .join?
+        Log.info { "Joining via seed URIs: #{@config.seed_uris.map(&.to_s).join(", ")}" }
+        join_via_seeds(@config.seed_uris)
       end
+    end
+
+    # Our own advertised host, used to find ourselves in the seed list.
+    # Authoritative (from clustering_advertised_uri), never inferred from binds.
+    private def advertised_management_host : String
+      URI.parse(@config.clustering_advertised_uri || "tcp://#{System.hostname}").host || System.hostname
     end
 
     JOIN_MAX_ATTEMPTS   = 30
