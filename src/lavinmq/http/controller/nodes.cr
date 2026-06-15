@@ -119,6 +119,19 @@ module LavinMQ
           context
         end
 
+        # Clustering (Viewstamped Replication) status for this node: its role,
+        # the current view, and which node it considers primary. This is how a
+        # client/operator discovers the current leader now that there is no
+        # external coordinator. 404 when this node isn't part of a VR cluster.
+        get "/api/clustering/status" do |context, _params|
+          if status = @amqp_server.clustering_status
+            status.to_json(context.response)
+          else
+            context.response.status_code = 404
+          end
+          context
+        end
+
         # Garbage collector profiling stats for the current node.
         # Registered before the :name route so it isn't matched as a node name.
         get "/api/nodes/gc_stats" do |context, _params|

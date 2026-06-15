@@ -74,6 +74,29 @@ module LavinMQ
           @primary_id == self_id
         end
 
+        # A snapshot of this node's clustering role for the HTTP status endpoint
+        # (how the cluster's current primary is discovered now that etcd is gone).
+        def status : NamedTuple(node_id: Int32, role: String, view: UInt64, op: UInt64, commit_op: UInt64, primary_id: Int32?, primary_uri: String?)
+          @lock.synchronize do
+            role = if primary?
+                     "primary"
+                   elsif @status.view_change?
+                     "view_change"
+                   else
+                     "backup"
+                   end
+            {
+              node_id:     self_id,
+              role:        role,
+              view:        @state.view,
+              op:          @op_source.call,
+              commit_op:   @commit_op,
+              primary_id:  @primary_id,
+              primary_uri: @primary_id.try { |pid| @membership.uri_for(pid) },
+            }
+          end
+        end
+
         # Start the inbound-message and timer fibers. A fresh view-0 cluster's
         # Every node starts as a backup with no primary; the first view-change
         # timeout drives the initial election through the same path as failover

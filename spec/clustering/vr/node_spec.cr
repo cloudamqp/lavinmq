@@ -67,6 +67,13 @@ module NodeSpec
         wait_for(10.seconds) { agreed_primary(nodes) }
         first = agreed_primary(nodes).not_nil!
 
+        # The status snapshot (HTTP leader-discovery endpoint) agrees: exactly
+        # one node reports role "primary", and all point at the same primary_id.
+        leader_status = nodes.find!(&.node.self_id.== first).node.status
+        leader_status[:role].should eq "primary"
+        leader_status[:primary_id].should eq first
+        nodes.each { |n| n.node.status[:primary_id].should eq first }
+
         # Kill the elected primary; the two survivors must elect a new agreed
         # primary (necessarily a different node), preserving CP — a majority is
         # still present.

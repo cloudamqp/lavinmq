@@ -5,6 +5,7 @@ require "./follower"
 require "./checksums"
 require "./coordinator"
 require "./vr/membership"
+require "./vr/node"
 require "../config"
 require "../message"
 require "../mfile"
@@ -47,6 +48,16 @@ module LavinMQ
       # mfile.to_slice to read from the mmap. Full-sync paths always read from
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
+
+      # The VR consensus node, set by the Controller after construction. Used
+      # only to surface clustering status over the HTTP API (leader discovery).
+      property vr_node : VR::Node? = nil
+
+      # {node_id, role, view, op, commit_op, primary_id, primary_uri} or nil when
+      # this isn't a VR cluster.
+      def clustering_status
+        @vr_node.try(&.status)
+      end
 
       # Quorum size (majority of the configured roster) for majority-quorum
       # commit. Nil while the legacy etcd path drives durability; set once the VR

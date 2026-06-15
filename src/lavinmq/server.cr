@@ -89,6 +89,12 @@ module LavinMQ
       @replicator.try(&.syncing_followers) || Array(Clustering::Follower).new
     end
 
+    # VR clustering status ({role, view, primary_id, ...}) for the HTTP API, or
+    # nil when this isn't a VR cluster. Used to discover the current primary.
+    def clustering_status
+      @replicator.as?(Clustering::Server).try(&.clustering_status)
+    end
+
     def all_followers
       @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end

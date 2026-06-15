@@ -41,6 +41,7 @@ class LavinMQ::Clustering::Controller
       view_change_timeout: @config.clustering_view_change_timeout_ms.milliseconds,
       op_source: -> { Math.max(replicator.current_op, @repli_client.try(&.applied_op) || 0u64) },
       on_new_primary: ->(m : VR::Member) { follow(m) })
+    replicator.vr_node = @node # let the HTTP API surface clustering status
   end
 
   # Called by Launcher#run. Blocks until this node is elected primary, yields to
