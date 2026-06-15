@@ -105,6 +105,15 @@ module LavinMQ
         true
       end
 
+      # Total number of subscriptions (session/filter pairs) held in the tree.
+      def size : Int32
+        count = @leafs.size + @wildcard_rest.size
+        @non_wildcards.each_value { |entries| count += entries.size }
+        count += @plus.try(&.size) || 0
+        @sublevels.each_value { |sublevel| count += sublevel.size }
+        count
+      end
+
       def each_entry(topic : String, &block : (T, UInt8, String) -> _)
         if subs = @non_wildcards[topic]?
           subs.each { |s, q| yield s, q, topic }

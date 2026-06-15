@@ -57,7 +57,7 @@ module LavinMQ
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.size)
+        @tree.size
       end
 
       # Only here to make superclass happy

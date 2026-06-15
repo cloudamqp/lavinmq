@@ -115,6 +115,45 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
   end
 
+  describe "#size" do
+    it "returns 0 for empty tree" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.size.should eq 0
+    end
+
+    it "counts non-wildcard, + and # subscriptions" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b", "session", 0u8)
+      tree.subscribe("a/+/b", "session", 0u8)
+      tree.subscribe("a/b/#", "session", 0u8)
+      tree.size.should eq 3
+    end
+
+    it "counts multiple sessions on the same filter separately" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b", "session1", 0u8)
+      tree.subscribe("a/b", "session2", 0u8)
+      tree.subscribe("a/+", "session1", 0u8)
+      tree.subscribe("a/+", "session2", 0u8)
+      tree.size.should eq 4
+    end
+
+    it "does not double-count when changing qos of an existing subscription" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b", "session", 0u8)
+      tree.subscribe("a/b", "session", 1u8)
+      tree.size.should eq 1
+    end
+
+    it "decreases after unsubscribing" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b", "session", 0u8)
+      tree.subscribe("a/+/b", "session", 0u8)
+      tree.unsubscribe("a/b", "session")
+      tree.size.should eq 1
+    end
+  end
+
   it "subscriptions is found" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
