@@ -25,6 +25,7 @@ private def sync_fake_follower(server, port, id : Int32) : {TCPSocket, Compress:
     io.write_bytes 0i32 # request no files
     io.flush
   end
+  lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian) # baseline op sent after the final sync
   {io, lz4}
 end
 

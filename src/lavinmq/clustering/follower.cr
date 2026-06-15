@@ -85,9 +85,21 @@ module LavinMQ
       # `caps` (last sync of a joining follower) limits each file to the byte
       # count recorded as that follower's synced baseline, so the snapshot and
       # the baseline agree and in-flight writes aren't duplicated.
-      def full_sync(caps : Hash(String, Int64)? = nil) : Nil
+      #
+      # `baseline_op`, when given (the final capped pass), is the leader's
+      # op-number at the cut: the follower now holds everything up to it, so it
+      # adopts that as its op high-water (it must NOT keep a stale/empty op after
+      # syncing, or it could win a later election and overwrite live data). It's
+      # sent last, after the files, and the follower reads it before streaming.
+      def full_sync(caps : Hash(String, Int64)? = nil, baseline_op : UInt64? = nil) : Nil
         send_file_list(caps: caps)
         send_requested_files(caps: caps)
+        if baseline_op
+          @write_lock.synchronize do
+            @lz4.write_bytes baseline_op, IO::ByteFormat::LittleEndian
+            @lz4.flush
+          end
+        end
       end
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)

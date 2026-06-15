@@ -58,28 +58,48 @@ module LavinMQ
           new(data_dir)
         end
 
-        # Update the in-memory values (guarding monotonicity) and durably persist
-        # them. On a write/fsync error, exit 1 (see class doc).
+        @lock = Mutex.new(:unchecked)
+
+        # Update the in-memory values and durably persist them (fsync'd). The
+        # view must never decrease — it's the fencing token. op/commit_op MAY
+        # decrease: they track how much of the log this node actually holds, and
+        # a full_sync to a less-complete leader legitimately truncates an
+        # uncommitted tail. On a write/fsync error, exit 1 (see class doc).
         def save(view : UInt64 = @view, op : UInt64 = @op, commit_op : UInt64 = @commit_op) : Nil
-          raise Error.new("view must not decrease (#{@view} -> #{view})") if view < @view
-          raise Error.new("op must not decrease (#{@op} -> #{op})") if op < @op
-          raise Error.new("commit_op must not decrease (#{@commit_op} -> #{commit_op})") if commit_op < @commit_op
-          @view = view
-          @op = op
-          @commit_op = commit_op
-          persist!
+          @lock.synchronize do
+            raise Error.new("view must not decrease (#{@view} -> #{view})") if view < @view
+            @view = view
+            @op = op
+            @commit_op = commit_op
+            persist!(fsync: true)
+          end
         end
 
-        private def persist! : Nil
-          write_durable
+        # Persist a new op high-water WITHOUT its own fsync, for the per-ack hot
+        # path: the caller (the follower's send_ack_loop) issues a syncfs over the
+        # whole data dir right after, which flushes this file too. The op is only
+        # advanced here AFTER the data it covers is on disk, so a crash before the
+        # syncfs just leaves a stale-low op (safe — never stale-high). The atomic
+        # temp+rename means a torn write can't corrupt the live file.
+        def save_op_pending(op : UInt64, commit_op : UInt64 = @commit_op) : Nil
+          @lock.synchronize do
+            @op = op
+            @commit_op = commit_op
+            persist!(fsync: false)
+          end
+        end
+
+        private def persist!(fsync : Bool) : Nil
+          write_durable(fsync)
         rescue ex : IO::Error
           Log.fatal(exception: ex) { "Failed to persist #{FILENAME}: #{ex.message}" }
           exit 1
         end
 
-        # Atomic + durable: write a temp file, fsync it, rename over the real
-        # file, then fsync the directory so the rename itself survives a crash.
-        private def write_durable : Nil
+        # Atomically replace the file (temp + rename). When `fsync` is true also
+        # fsync the temp file and the directory so it survives a crash on its own;
+        # when false the caller's syncfs provides durability.
+        private def write_durable(fsync : Bool) : Nil
           Dir.mkdir_p(@data_dir)
           tmp = File.join(@data_dir, "#{FILENAME}.tmp")
           File.open(tmp, "w") do |f|
@@ -89,10 +109,10 @@ module LavinMQ
             f.write_bytes @op, IO::ByteFormat::LittleEndian
             f.write_bytes @commit_op, IO::ByteFormat::LittleEndian
             f.flush
-            f.fsync
+            f.fsync if fsync
           end
           File.rename(tmp, File.join(@data_dir, FILENAME))
-          fsync_dir
+          fsync_dir if fsync
         end
 
         private def fsync_dir : Nil

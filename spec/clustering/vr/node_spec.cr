@@ -15,11 +15,12 @@ module NodeSpec
     getter mesh : VRMesh
     getter id : Int32
 
-    def initialize(@id, roster, self_uri, @server : TCPServer, data_dir)
+    def initialize(@id, roster, self_uri, @server : TCPServer, data_dir, op : UInt64 = 0u64)
       membership = VRMembership.parse(roster, self_uri)
       @mesh = VRMesh.new(membership, "secret", reconnect_interval: 80.milliseconds)
       @node = VRNode.new(membership, @mesh, VRState.load(data_dir),
-        heartbeat_interval: 100.milliseconds, view_change_timeout: 800.milliseconds)
+        heartbeat_interval: 100.milliseconds, view_change_timeout: 800.milliseconds,
+        op_source: -> { op }) # the node's durable log position, for election ordering
     end
 
     def start
@@ -88,6 +89,35 @@ module NodeSpec
         second = agreed_primary(survivors).not_nil!
         second.should_not eq first
         survivors.find!(&.node.self_id.== second).node.view.should be > 0
+      ensure
+        nodes.try &.each { |n| n.close rescue nil }
+      end
+    end
+
+    # Regression for the data-loss bug: an under-replicated node (e.g. one that
+    # just restarted with an empty/stale data dir) reports a low op and MUST NOT
+    # win the election just because it has the lowest id — otherwise it becomes
+    # primary and full_sync wipes the more-complete nodes' data. The most
+    # up-to-date node must win regardless of id.
+    it "elects the most up-to-date node, never an under-replicated lower-id node" do
+      with_datadir do |base|
+        servers = (1..3).map { TCPServer.new("127.0.0.1", 0) }
+        ports = servers.map(&.local_address.port)
+        roster = (1..3).map { |i| "#{i}=tcp://127.0.0.1:#{ports[i - 1]}" }.join(",")
+
+        # Node 1 (lowest id) is "empty" (op 0); nodes 2 and 3 hold data (op 5).
+        ops = {1 => 0u64, 2 => 5u64, 3 => 5u64}
+        nodes = (1..3).map do |i|
+          dir = File.join(base, "n#{i}")
+          Dir.mkdir_p dir
+          TestNode.new(i, roster, "tcp://127.0.0.1:#{ports[i - 1]}", servers[i - 1], dir, op: ops[i])
+        end
+        nodes.each &.start
+
+        wait_for(10.seconds) { agreed_primary(nodes) }
+        primary = agreed_primary(nodes).not_nil!
+        primary.should_not eq 1 # the empty lowest-id node must not lead
+        primary.should eq 2     # most up-to-date, tie-broken to lowest id (2 over 3)
       ensure
         nodes.try &.each { |n| n.close rescue nil }
       end

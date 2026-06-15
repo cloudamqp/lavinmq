@@ -26,6 +26,7 @@ class LavinMQ::Clustering::Controller
   @coordinator : VR::Coordinator
   @mesh : VR::ControlMesh
   @node : VR::Node
+  @state : VR::State
 
   def initialize(@config : Config)
     @membership = membership = VR::Membership.from_config(@config)
@@ -37,14 +38,18 @@ class LavinMQ::Clustering::Controller
     @secret = coordinator.password
     @replicator = replicator = Clustering::Server.new(@config, coordinator, @id, quorum: membership.quorum)
     @mesh = mesh = VR::ControlMesh.new(membership, @secret)
-    state = VR::State.load(@config.data_dir)
+    @state = state = VR::State.load(@config.data_dir)
     @node = VR::Node.new(membership, mesh, state,
       heartbeat_interval: @config.clustering_heartbeat_interval_ms.milliseconds,
       view_change_timeout: @config.clustering_view_change_timeout_ms.milliseconds,
-      op_source: -> { Math.max(replicator.current_op, @repli_client.try(&.applied_op) || 0u64) },
+      # Election ordering uses the persisted durable op high-water (never ahead of
+      # data on disk), so a freshly-restarted / under-replicated node reports its
+      # true low position and cannot win and then overwrite a more-complete node.
+      op_source: -> { state.op },
       commit_source: -> { replicator.committed_op },
       on_new_primary: ->(m : VR::Member) { follow(m) })
-    replicator.vr_node = @node # let the HTTP API surface clustering status
+    replicator.vr_node = @node   # let the HTTP API surface clustering status
+    replicator.vr_state = @state # leader seeds/persists its op high-water here
   end
 
   # Called by Launcher#run. Blocks until this node is elected primary, yields to
@@ -122,6 +127,7 @@ class LavinMQ::Clustering::Controller
     end
     Log.info { "Following primary #{member.id.to_s(36)} at #{member.uri}" }
     @repli_client = client = Clustering::Client.new(@config, @id, @secret)
+    client.vr_state = @state # record the applied-op high-water as it syncs/acks
     spawn client.follow(member.uri), name: "Clustering client #{member.uri}"
     SystemD.notify_ready
   end

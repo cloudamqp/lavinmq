@@ -45,6 +45,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
         client_io.write_bytes 0i32
         client_io.flush
       end
+      client_lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian) # leader's baseline op
     ensure
       client_io.close
     end
@@ -266,6 +267,7 @@ describe LavinMQ::Clustering::Client, tags: "slow" do
       client_io.write_bytes 0i32
       client_io.flush
     end
+    client_lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian) # leader's baseline op
 
     test_path = "#{LavinMQ::Config.instance.data_dir}/path"
     Dir.mkdir_p LavinMQ::Config.instance.data_dir

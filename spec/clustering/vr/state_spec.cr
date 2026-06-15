@@ -44,13 +44,32 @@ describe LavinMQ::Clustering::VR::State do
     end
   end
 
-  it "refuses to let view, op or commit_op go backwards" do
+  it "refuses to let the view (the fencing token) go backwards" do
     with_tmp_dir do |dir|
       s = VRState.load(dir)
       s.save(view: 5u64, op: 5u64, commit_op: 5u64)
       expect_raises(LavinMQ::Clustering::VR::Error, /view must not decrease/) { s.save(view: 4u64) }
-      expect_raises(LavinMQ::Clustering::VR::Error, /op must not decrease/) { s.save(op: 4u64) }
-      expect_raises(LavinMQ::Clustering::VR::Error, /commit_op must not decrease/) { s.save(commit_op: 4u64) }
+    end
+  end
+
+  it "allows op/commit_op to decrease (a full_sync may truncate an uncommitted tail)" do
+    with_tmp_dir do |dir|
+      s = VRState.load(dir)
+      s.save(view: 5u64, op: 9u64, commit_op: 7u64)
+      s.save(op: 4u64, commit_op: 4u64) # truncated to a less-complete leader
+      reloaded = VRState.load(dir)
+      reloaded.op.should eq 4
+      reloaded.commit_op.should eq 4
+      reloaded.view.should eq 5
+    end
+  end
+
+  it "advances op without an fsync (durability deferred to the caller's syncfs)" do
+    with_tmp_dir do |dir|
+      s = VRState.load(dir)
+      s.save_op_pending(11u64, 10u64)
+      s.op.should eq 11
+      VRState.load(dir).op.should eq 11 # still written atomically, just not fsync'd here
     end
   end
 

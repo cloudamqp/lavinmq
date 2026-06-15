@@ -53,6 +53,14 @@ module LavinMQ
       # only to surface clustering status over the HTTP API (leader discovery).
       property vr_node : VR::Node? = nil
 
+      # Persistent VR state, set by the Controller. The leader seeds its op
+      # counter from it (so op-numbers continue across leader changes rather than
+      # restarting at 0) and persists the committed op as it advances, so a
+      # crashed/restarted node reports its true durable position in elections.
+      property vr_state : VR::State? = nil
+      # The committed op last persisted to vr_state, so we only fsync on advance.
+      @persisted_commit_op = 0u64
+
       # {node_id, role, view, op, commit_op, primary_id, primary_uri} or nil when
       # this isn't a VR cluster.
       def clustering_status
@@ -331,6 +339,20 @@ module LavinMQ
       # needed since it runs before any follower connects.
       def restore_checksums : Nil
         @file_index.lock { |_files, checksums| checksums.restore }
+        # Continue op-numbering from this node's persisted high-water so op-numbers
+        # are globally monotonic across leader changes (they must never restart at
+        # 0, or a fresh leader would look "behind" a synced follower in elections
+        # and a follower's ack of a low op could be misread). The data this op
+        # refers to is reconciled byte-exact by full_sync, so exact alignment
+        # isn't required — only that op never goes backward.
+        if state = @vr_state
+          @lock.synchronize do
+            seeded = state.op
+            @op = seeded if seeded > @op
+            @commit_op = state.commit_op if state.commit_op > @commit_op
+            @persisted_commit_op = @commit_op
+          end
+        end
       end
 
       private def handle_socket(socket : TCPSocket)
@@ -403,7 +425,9 @@ module LavinMQ
             # via the snapshot, so it becomes synced fully-acked at this op. Read
             # under @lock, so it's stable from the cut through mark_synced!.
             baseline_op = @op
-            follower.full_sync(cut) # sync the last, capped at the cut
+            # Send the capped snapshot AND the baseline op, so the follower adopts
+            # this op as its high-water (it now holds everything up to here).
+            follower.full_sync(cut, baseline_op)
             follower.capture_synced_baseline(cut)
             follower.mark_synced!(baseline_op) # Change state to Synced
           end
@@ -457,15 +481,28 @@ module LavinMQ
       def committed_op : UInt64
         q = @quorum
         return @op unless q
-        @lock.synchronize do
+        advanced = false
+        commit = @lock.synchronize do
           positions = Array(UInt64).new(@followers.size + 1)
           positions << @op
           @followers.each { |f| positions << f.acked_op if f.synced? }
           if c = VR::Membership.committed_op(q, positions)
-            @commit_op = c if c > @commit_op
+            if c > @commit_op
+              @commit_op = c
+              advanced = true
+            end
           end
           @commit_op
         end
+        # Persist the committed point (durably, outside @lock) when it advances so
+        # a crash/restart of this leader reports its true durable position in the
+        # next election — never higher than committed (committed data is on a
+        # quorum, hence locally durable), so it can't claim data it lacks.
+        if advanced && (state = @vr_state) && commit > @persisted_commit_op
+          @persisted_commit_op = commit
+          state.save(op: commit, commit_op: commit)
+        end
+        commit
       end
 
       # The latest op-number assigned by this leader (its own log head).

@@ -3,6 +3,7 @@ require "../clustering"
 require "../rate_limiter"
 require "./checksums"
 require "./proxy"
+require "./vr/state"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -52,6 +53,11 @@ module LavinMQ
       def applied_op : UInt64
         @applied_op
       end
+
+      # Persistent VR state, set by the Controller. The follower records its
+      # applied-op high-water here (alongside the data syncfs) so a restart
+      # reports its true durable position in elections.
+      property vr_state : VR::State? = nil
 
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
@@ -172,7 +178,15 @@ module LavinMQ
         sync_files(socket, lz4)
         Log.info { "Bulk synchronised" }
         sync_files(socket, lz4)
-        Log.info { "Fully synchronised" }
+        # The leader sends its baseline op after the final sync: this follower now
+        # holds everything up to it, so adopt it as the applied-op high-water and
+        # persist it. This keeps a reconnected follower from reporting a stale or
+        # zero op (which could let it win a later election and overwrite data) and
+        # truncates the high-water down if it synced to a less-complete leader.
+        baseline_op = lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+        @applied_op = baseline_op
+        @vr_state.try &.save(op: baseline_op)
+        Log.info { "Fully synchronised at op #{baseline_op}" }
       end
 
       private def set_socket_opts(socket)
@@ -487,6 +501,12 @@ module LavinMQ
             ack_bytes += ack2[0]
             ack_op = ack2[1] if ack2[1] > ack_op
           end
+          # Record the applied-op high-water BEFORE the syncfs so the same syncfs
+          # that makes the data durable also flushes .vr_state — so the persisted
+          # op is never ahead of the data on disk (a crash leaves it stale-low,
+          # which is safe for elections). Skip the ack to the leader (and the
+          # persist) only matters once durable.
+          @vr_state.try &.save_op_pending(ack_op)
           sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # byte delta
           socket.write_bytes ack_op, IO::ByteFormat::LittleEndian    # absolute applied op
