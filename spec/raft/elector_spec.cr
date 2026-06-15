@@ -418,6 +418,24 @@ describe LavinMQ::Raft::Elector do
   end
 
   describe "join_via_seeds" do
+    it "raises immediately on a non-http(s) seed URI instead of retrying" do
+      dir = tmp_data_dir
+      elector = nil.as(LavinMQ::Raft::Elector?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        elector = LavinMQ::Raft::Elector.new(elector_config(dir, free_port, free_port))
+        started = Time.instant
+        expect_raises(Exception, /scheme/) do
+          elector.not_nil!.join_via_seeds([URI.parse("tcp://node:15672")])
+        end
+        # Must fail fast (well under one retry interval), not after the 30x loop.
+        (Time.instant - started).should be < 1.second
+      ensure
+        elector.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
     it "tries seeds in turn and succeeds on the first that returns 200" do
       hit = [] of String
       reject = HTTP::Server.new do |ctx|

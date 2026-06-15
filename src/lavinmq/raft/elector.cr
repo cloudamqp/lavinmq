@@ -145,6 +145,11 @@ module LavinMQ::Raft
     # A non-leader seed answers non-200; the lowest seed may still be starting.
     def join_via_seeds(seeds : Array(URI)) : Nil
       raise "no seed URIs to join" if seeds.empty?
+      seeds.each do |uri|
+        unless uri.scheme == "http" || uri.scheme == "https"
+          raise "invalid seed URI scheme #{uri.scheme.inspect} in #{uri}"
+        end
+      end
       address = build_advertised_address
       last_error = "unknown error"
       JOIN_MAX_ATTEMPTS.times do |attempt|
