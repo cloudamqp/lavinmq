@@ -14,6 +14,7 @@ private def sync_fake_follower(server, port, id : Int32) : {TCPSocket, Compress:
   io.write_bytes id, IO::ByteFormat::LittleEndian
   io.flush
   lz4 = Compress::LZ4::Reader.new(io)
+  lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian) # leader's head op, sent before the file list
   sha1_size = Digest::SHA1.new.digest_size
   2.times do
     loop do

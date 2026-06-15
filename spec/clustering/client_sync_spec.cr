@@ -23,6 +23,10 @@ module ClientSyncSpec
       authenticate(socket)
     end
 
+    def sync_public(socket, lz4)
+      sync(socket, lz4)
+    end
+
     # Instrumentation for the close/ack-loop fd race spec: slow each sync down
     # and record whether one ever ran against a closed data dir fd — the real
     # implementation would Log.fatal and exit 1 there.
@@ -504,6 +508,59 @@ module ClientSyncSpec
           client.synced_on_closed_fd?.should be_false
           client_socket.close
           leader_io.close
+        end
+      end
+    end
+
+    describe "#sync" do
+      # Regression: the behind-leader guard must run BEFORE sync_files, which
+      # deletes/overwrites local files to match the leader. If a leader advertises
+      # a log head below the commit point we know the cluster reached, syncing from
+      # it would wipe committed data; the refusal must happen before any file is
+      # touched. The leader sends its head op first for exactly this check.
+      it "refuses a behind leader before sync_files deletes local files" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          # We learned (via gossip) the cluster committed up to op 10.
+          client.vr_state = LavinMQ::Clustering::VR::State.new(data_dir, 0u64, 0u64, 10u64)
+          # A committed local file the behind leader lacks — it must survive.
+          File.write(File.join(data_dir, "committed"), "keep me")
+
+          # A real socket pair: authenticate uses buffered read_byte, which the
+          # FakeSocket double can't route. The leader does the auth handshake then
+          # advertises a head op of 5 (below our known commit of 10).
+          server = TCPServer.new("127.0.0.1", 0)
+          spawn(name: "behind leader") do
+            if s = server.accept?
+              header = Bytes.new(LavinMQ::Clustering::Start.size)
+              s.read_fully(header)
+              len = s.read_bytes(UInt8, IO::ByteFormat::LittleEndian)
+              s.skip(len) # secret
+              s.write_byte(0u8)
+              s.flush
+              s.read_bytes(Int32, IO::ByteFormat::LittleEndian) # follower id
+              lz4w = Compress::LZ4::Writer.new(s,
+                Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+              lz4w.write_bytes(5u64, IO::ByteFormat::LittleEndian)
+              lz4w.flush
+              sleep 2.seconds # keep the connection open while the client reads
+            end
+          rescue IO::Error
+          end
+
+          socket = TCPSocket.new("127.0.0.1", server.local_address.port)
+          socket.sync = true
+          lz4_reader = Compress::LZ4::Reader.new(socket)
+          expect_raises(LavinMQ::Clustering::Client::BehindLeaderError) do
+            client.sync_public(socket, lz4_reader)
+          end
+
+          # The committed file was NOT deleted — the refusal preceded sync_files.
+          File.exists?(File.join(data_dir, "committed")).should be_true
+          File.read(File.join(data_dir, "committed")).should eq "keep me"
+        ensure
+          socket.try &.close
+          server.try &.close
         end
       end
     end

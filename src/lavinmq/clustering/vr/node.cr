@@ -57,6 +57,7 @@ module LavinMQ
           @dvc_votes = Hash(UInt64, Hash(Int32, LogSummary)).new
           @sent_dvc = Set(UInt64).new
           @last_heard = Time.instant
+          @view_change_started_at = Time.instant
           @became_primary = ::Channel(Nil).new
           # Buffered: the step-down signal must not be lost if it fires while
           # run() is still inside its yield block (serving) and not yet parked on
@@ -190,6 +191,16 @@ module LavinMQ
             # view-change timeout.
             @mesh.broadcast(Control::StartViewChange.new(view: @state.view, from_id: self_id))
             resend_do_view_change(@state.view)
+            # The decider for this view (primary_of(view)) may be down — then no
+            # StartView ever arrives and resending DVCs to it is futile. After a
+            # timeout, advance to the next view so a different round-robin decider
+            # (a live node) collects the quorum; otherwise a quorum stuck on a dead
+            # decider stays leaderless forever. Only bother while a quorum is
+            # actually reachable (else advancing can't elect anyone anyway, and
+            # would just spin the view number and fsync .vr_state).
+            if quorum_reachable? && Time.instant - @view_change_started_at > jittered_timeout
+              start_view_change(@state.view + 1)
+            end
           end
         end
 
@@ -265,6 +276,7 @@ module LavinMQ
         private def start_view_change(new_view : UInt64) : Nil
           return if new_view <= @state.view && @status.view_change?
           @status = Status::ViewChange
+          @view_change_started_at = Time.instant
           @state.save(view: new_view) # fence: the new view is durable before we vote
           @primary_id = nil
           @sent_dvc.delete(new_view)

@@ -32,6 +32,9 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
       wg.try &.done
       sha1_size = Digest::SHA1.new.digest_size
       client_lz4 = Compress::LZ4::Reader.new(client_io)
+      # The leader sends its current log head first, before any file data, so a
+      # follower can refuse a behind leader before sync_files mutates its disk.
+      client_lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian) # leader's head op
       # Do the full sync two times without requesting files (everything is up
       # to date)
       2.times do

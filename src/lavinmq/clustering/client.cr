@@ -197,28 +197,37 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
+        # Safety check BEFORE any destructive reconciliation. sync_files deletes
+        # and overwrites local files to match the leader, so a leader that is
+        # already behind the commit point we know the cluster reached (learned via
+        # heartbeats/view-changes through the shared VR state) would wipe committed
+        # data. The leader sends its current log head first; a correctly-elected
+        # leader always holds at least the committed log, so head_op >= our
+        # commit_op. Refuse and reconnect otherwise — before touching the disk.
+        head_op = lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+        if (committed = @vr_state.try(&.commit_op)) && head_op < committed
+          raise BehindLeaderError.new("leader head_op #{head_op} < known commit_op #{committed}; refusing to sync from a behind leader")
+        end
         sync_files(socket, lz4)
         Log.info { "Bulk synchronised" }
         sync_files(socket, lz4)
         # The leader sends its baseline op after the final sync: this follower now
-        # holds everything up to it, so adopt it as the applied-op high-water and
-        # persist it. This keeps a reconnected follower from reporting a stale or
-        # zero op (which could let it win a later election and overwrite data) and
-        # truncates the high-water down if it synced to a less-complete leader.
+        # holds everything up to it, so adopt it as the applied-op high-water. It
+        # truncates the high-water down if it synced to a less-complete leader. The
+        # baseline is the authoritative cut op (>= head_op, which only grew during
+        # the sync); re-check it against the commit point as defense in depth.
         baseline_op = lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
-        # Safety: never truncate committed data. The leader's baseline op is its
-        # log head at the cut; if that's below the commit point we know the cluster
-        # reached (learned from heartbeats/view-changes via the shared VR state),
-        # this leader is missing committed records and adopting its snapshot would
-        # delete ours (full_sync removes files not on the leader). Refuse and
-        # reconnect — a correctly-elected leader holds at least the committed log,
-        # so this only rejects a spurious/behind leader and protects committed
-        # definitions and messages from being wiped on failover.
         if (committed = @vr_state.try(&.commit_op)) && baseline_op < committed
           raise BehindLeaderError.new("leader baseline_op #{baseline_op} < known commit_op #{committed}; refusing to truncate committed data")
         end
         @applied_op = baseline_op
-        @vr_state.try &.save(op: baseline_op)
+        # Persist WITHOUT an immediate fsync. The snapshot files written by
+        # sync_files are not durable until stream_changes' first syncfs; fsyncing
+        # baseline_op here would let a crash leave a high op pointing at data that
+        # never reached disk, so the node could win a later election and truncate a
+        # complete replica. save_op_pending ties this op's durability to that same
+        # syncfs (a crash before it leaves a stale-low op, which is safe).
+        @vr_state.try &.save_op_pending(baseline_op)
         Log.info { "Fully synchronised at op #{baseline_op}" }
       end
 

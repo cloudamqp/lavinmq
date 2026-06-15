@@ -412,7 +412,12 @@ module LavinMQ
         # better with one fully synced than 2 partially synced followers
         # @sync_lock is always acquired before @lock to avoid deadlock
         @sync_lock.synchronize do
-          follower.full_sync # sync the bulk
+          # Send our current log head first so the follower can refuse to sync from
+          # a leader behind its known commit point BEFORE sync_files deletes or
+          # overwrites anything (see Client#sync). It's a lower bound on the
+          # baseline op sent at the end (the head only grows during the sync).
+          head_op = @lock.synchronize { @op }
+          follower.full_sync(head_op: head_op) # sync the bulk
           @lock.synchronize do
             # Capture the per-file cut BEFORE the last sync and cap the sync to
             # it, so what full_sync sends equals the baseline exactly. A larger

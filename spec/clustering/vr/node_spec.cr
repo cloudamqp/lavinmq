@@ -194,5 +194,36 @@ module NodeSpec
         node.try &.close
       end
     end
+
+    # Regression: the deterministic decider for a view (primary_of(view)) may be
+    # the one node that's down. A live majority must advance to a later view whose
+    # decider is up, instead of rebroadcasting StartViewChange for the dead
+    # decider's view forever — otherwise the cluster stays leaderless despite a
+    # quorum being present.
+    it "advances past an unavailable decider to elect with the remaining quorum" do
+      with_datadir do |base|
+        servers = (1..3).map { TCPServer.new("127.0.0.1", 0) }
+        ports = servers.map(&.local_address.port)
+        roster = (1..3).map { |i| "#{i}=tcp://127.0.0.1:#{ports[i - 1]}" }.join(",")
+
+        nodes = (1..3).map do |i|
+          dir = File.join(base, "n#{i}")
+          Dir.mkdir_p dir
+          TestNode.new(i, roster, "tcp://127.0.0.1:#{ports[i - 1]}", servers[i - 1], dir)
+        end
+
+        # Node 2 is the decider for the first election (view 1 -> primary_of(1) =
+        # members[1] = id 2). Keep it down; the live majority {1,3} must still
+        # converge on a primary by rotating to a view with a reachable decider.
+        servers[1].close
+        live = [nodes[0], nodes[2]]
+        live.each &.start
+
+        wait_for(15.seconds) { agreed_primary(live) }
+        agreed_primary(live).should_not be_nil
+      ensure
+        nodes.try &.each { |n| n.close rescue nil }
+      end
+    end
   end
 end

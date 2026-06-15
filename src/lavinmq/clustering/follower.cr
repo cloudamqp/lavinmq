@@ -98,7 +98,15 @@ module LavinMQ
       # adopts that as its op high-water (it must NOT keep a stale/empty op after
       # syncing, or it could win a later election and overwrite live data). It's
       # sent last, after the files, and the follower reads it before streaming.
-      def full_sync(caps : Hash(String, Int64)? = nil, baseline_op : UInt64? = nil) : Nil
+      def full_sync(caps : Hash(String, Int64)? = nil, baseline_op : UInt64? = nil, head_op : UInt64? = nil) : Nil
+        if head_op
+          # Sent first, before any file data, so the follower can refuse a behind
+          # leader before sync_files mutates its disk (see Client#sync).
+          @write_lock.synchronize do
+            @lz4.write_bytes head_op, IO::ByteFormat::LittleEndian
+            @lz4.flush
+          end
+        end
         send_file_list(caps: caps)
         send_requested_files(caps: caps)
         if baseline_op
