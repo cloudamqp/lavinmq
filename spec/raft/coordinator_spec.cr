@@ -42,7 +42,7 @@ describe LavinMQ::Raft::Coordinator do
     end
   end
 
-  it "proposes SetSecret on first password() call and returns it" do
+  it "generates .clustering_password on the leader and returns it (never the raft log)" do
     dir = tmp_data_dir
     begin
       File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
@@ -62,7 +62,34 @@ describe LavinMQ::Raft::Coordinator do
       coord = LavinMQ::Raft::Coordinator.new(server)
       pw = coord.password
       pw.should_not be_empty
-      coord.password.should eq pw # subsequent call returns the existing secret
+      # Persisted to the file, not the replicated state.
+      File.read(File.join(dir, ".clustering_password")).should eq pw
+      coord.password.should eq pw # subsequent call reads the same file
+
+      server.stop
+      transport.stop
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
+  it "reads an existing .clustering_password without regenerating" do
+    dir = tmp_data_dir
+    begin
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+      File.write(File.join(dir, ".clustering_password"), "preshared-secret\n")
+      transport = ::Raft::MemoryTransport.new(1_u64)
+      server = LavinMQ::Raft::Server.new(
+        data_dir: dir, advertised_address: "n:5680,n:5679",
+        transport: transport, execution_context: Fiber::ExecutionContext.current,
+      )
+      transport.start
+      server.start
+
+      coord = LavinMQ::Raft::Coordinator.new(server)
+      # A follower (never bootstrapped, not leader) must still read the
+      # pre-shared file rather than fail or generate a divergent secret.
+      coord.password.should eq "preshared-secret"
 
       server.stop
       transport.stop

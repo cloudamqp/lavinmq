@@ -2,43 +2,6 @@ require "../spec_helper"
 require "../../src/lavinmq/raft/cluster_command"
 
 describe LavinMQ::Raft::ClusterCommand do
-  describe "SetSecret" do
-    it "round-trips through to_io / from_io" do
-      original = LavinMQ::Raft::ClusterCommand::SetSecret.new("hunter2")
-      io = IO::Memory.new
-      original.to_io(io, IO::ByteFormat::LittleEndian)
-      io.rewind
-      decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.should be_a(LavinMQ::Raft::ClusterCommand::SetSecret)
-      decoded.as(LavinMQ::Raft::ClusterCommand::SetSecret).secret.should eq "hunter2"
-    end
-
-    it "reports bytesize equal to bytes actually written" do
-      cmd = LavinMQ::Raft::ClusterCommand::SetSecret.new("hunter2")
-      io = IO::Memory.new
-      cmd.to_io(io, IO::ByteFormat::LittleEndian)
-      io.pos.should eq cmd.bytesize
-    end
-
-    it "round-trips an empty secret" do
-      original = LavinMQ::Raft::ClusterCommand::SetSecret.new("")
-      io = IO::Memory.new
-      original.to_io(io, IO::ByteFormat::LittleEndian)
-      io.rewind
-      decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.as(LavinMQ::Raft::ClusterCommand::SetSecret).secret.should eq ""
-    end
-
-    it "round-trips a non-ASCII secret" do
-      original = LavinMQ::Raft::ClusterCommand::SetSecret.new("hü€nter🦀")
-      io = IO::Memory.new
-      original.to_io(io, IO::ByteFormat::LittleEndian)
-      io.rewind
-      decoded = LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
-      decoded.as(LavinMQ::Raft::ClusterCommand::SetSecret).secret.should eq "hü€nter🦀"
-    end
-  end
-
   describe "SetIsr" do
     it "round-trips an empty set" do
       original = LavinMQ::Raft::ClusterCommand::SetIsr.new(Set(Int32).new)
@@ -71,7 +34,7 @@ describe LavinMQ::Raft::ClusterCommand do
     it "raises on unknown schema version" do
       io = IO::Memory.new
       io.write_bytes(99_u8, IO::ByteFormat::LittleEndian) # bogus version
-      io.write_bytes(0_u8, IO::ByteFormat::LittleEndian)  # SetSecret tag
+      io.write_bytes(0_u8, IO::ByteFormat::LittleEndian)  # SetIsr tag
       io.rewind
       expect_raises(LavinMQ::Raft::ClusterCommand::InvalidSchemaVersion) do
         LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
@@ -83,7 +46,7 @@ describe LavinMQ::Raft::ClusterCommand do
       io.write_bytes(LavinMQ::Raft::ClusterCommand::SCHEMA_VERSION, IO::ByteFormat::LittleEndian)
       io.write_bytes(99_u8, IO::ByteFormat::LittleEndian) # bogus tag
       io.rewind
-      expect_raises(Exception) do
+      expect_raises(LavinMQ::Raft::ClusterCommand::InvalidTag) do
         LavinMQ::Raft::ClusterCommand.from_io(io, IO::ByteFormat::LittleEndian)
       end
     end

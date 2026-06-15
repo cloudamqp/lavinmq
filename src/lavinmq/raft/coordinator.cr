@@ -5,6 +5,10 @@ require "random/secure"
 
 module LavinMQ::Raft
   class Coordinator < ::LavinMQ::Clustering::Coordinator
+    Log = LavinMQ::Log.for "raft.coordinator"
+
+    PASSWORD_FILE = ".clustering_password"
+
     def initialize(@server : Server)
     end
 
@@ -12,17 +16,26 @@ module LavinMQ::Raft
       @server.propose(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
     end
 
+    # The cluster's shared replication secret. It is read from a local file
+    # (`<data_dir>/.clustering_password`), never the raft log — replicating it
+    # through consensus would persist the secret in every node's log/snapshot.
+    #
+    # A leader with no file yet generates one (single-node bootstrap); it must
+    # be copied to every other node before they join. A node that is not the
+    # leader and has no file cannot guess the secret, so it fails fast with an
+    # actionable message rather than authenticating followers with the wrong
+    # password.
     def password : String
-      existing = @server.secret
-      return existing unless existing.empty?
-      new_secret = Random::Secure.base64(32)
-      @server.propose(ClusterCommand::SetSecret.new(new_secret))
-      deadline = Time.instant + 5.seconds
-      while @server.secret.empty?
-        raise "timed out waiting for SetSecret apply" if Time.instant > deadline
-        sleep 1.millisecond
+      path = File.join(@server.data_dir, PASSWORD_FILE)
+      return File.read(path).strip if File.exists?(path)
+      unless @server.is_leader.value
+        Log.fatal { "Replication secret file missing: #{path}. Copy it from another node in the cluster." }
+        exit 3
       end
-      @server.secret
+      secret = Random::Secure.base64(32)
+      File.open(path, "w", perm: 0o600, &.print(secret))
+      Log.info { "Generated clustering password at #{path}; copy it to every other node before they join" }
+      secret
     end
   end
 end

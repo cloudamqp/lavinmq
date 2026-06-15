@@ -3,9 +3,11 @@ module LavinMQ::Raft
     SCHEMA_VERSION  = 1_u8
     HEADER_BYTESIZE =    2 # version + tag
 
+    # The replication secret is NOT a cluster command: it lives in a local
+    # `.clustering_password` file (see Raft::Coordinator#password), never the
+    # raft log. Only the ISR is replicated through consensus.
     enum Tag : UInt8
-      SetSecret = 0
-      SetIsr    = 1
+      SetIsr = 0
     end
 
     abstract def tag : Tag
@@ -25,10 +27,10 @@ module LavinMQ::Raft
     def self.from_io(io : IO, format : IO::ByteFormat) : ClusterCommand
       version = io.read_bytes(UInt8, format)
       raise InvalidSchemaVersion.new(version) unless version == SCHEMA_VERSION
-      tag = Tag.new(io.read_bytes(UInt8, format))
-      case tag
-      in .set_secret? then SetSecret.read_body(io, format)
-      in .set_isr?    then SetIsr.read_body(io, format)
+      tag = io.read_bytes(UInt8, format)
+      case Tag.from_value?(tag)
+      when Tag::SetIsr then SetIsr.read_body(io, format)
+      else                  raise InvalidTag.new(tag)
       end
     end
 
@@ -38,28 +40,9 @@ module LavinMQ::Raft
       end
     end
 
-    struct SetSecret < ClusterCommand
-      getter secret : String
-
-      def initialize(@secret : String)
-      end
-
-      def tag : Tag
-        Tag::SetSecret
-      end
-
-      def body_to_io(io : IO, format : IO::ByteFormat) : Nil
-        io.write_bytes(@secret.bytesize.to_u32, format)
-        io.write(@secret.to_slice)
-      end
-
-      def body_bytesize : Int32
-        4 + @secret.bytesize
-      end
-
-      protected def self.read_body(io : IO, format : IO::ByteFormat) : SetSecret
-        len = io.read_bytes(UInt32, format)
-        new(io.read_string(len))
+    class InvalidTag < Exception
+      def initialize(tag : UInt8)
+        super("Unknown ClusterCommand tag: #{tag}")
       end
     end
 

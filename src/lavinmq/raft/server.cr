@@ -22,6 +22,7 @@ module LavinMQ::Raft
     getter node_id : Int32
     getter state_machine : ClusterStateMachine
     getter is_leader : BoolChannel
+    getter data_dir : String
 
     def initialize(
       @data_dir : String,
@@ -140,10 +141,6 @@ module LavinMQ::Raft
 
     def state : ClusterState
       @state_machine.state
-    end
-
-    def secret : String
-      @state_machine.secret
     end
 
     def isr : Set(Int32)

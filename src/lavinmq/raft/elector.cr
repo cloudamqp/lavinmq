@@ -199,12 +199,10 @@ module LavinMQ::Raft
         begin
           handle_leader_change(id)
         rescue ex
-          # handle_leader_change can raise on transient conditions (e.g.
-          # @coordinator.password timing out before SetSecret has applied,
-          # or Clustering::Client construction failing). Swallow + log so
-          # the fiber survives — otherwise it'd die and subsequent leader
-          # changes would silently fill the buffered channel until they
-          # get dropped, breaking replication failover for this node.
+          # handle_leader_change can raise if Clustering::Client construction
+          # fails. Swallow + log so the fiber survives — otherwise it'd die and
+          # subsequent leader changes would silently fill the buffered channel
+          # until they get dropped, breaking replication failover for this node.
           Log.error(exception: ex) { "handle_leader_change failed for #{id}; will retry on next leader change" }
         end
       end

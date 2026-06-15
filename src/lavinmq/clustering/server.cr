@@ -33,8 +33,9 @@ module LavinMQ
       @followers = Array(Follower).new(4)
       # Lazily fetched from @coordinator on first call to `password`. The raft
       # coordinator can't answer at construction time (the raft node isn't
-      # leader yet — bootstrap happens later, inside Runner#run). By the time a
-      # follower connects, raft has elected and the secret has been proposed.
+      # leader yet — bootstrap happens later, inside the elector). By the time a
+      # follower connects, raft has elected and the leader has written the
+      # shared secret to its .clustering_password file.
       @password : String? = nil
       @dirty_isr = true
       @id : Int32
