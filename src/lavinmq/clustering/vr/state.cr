@@ -89,6 +89,21 @@ module LavinMQ
           end
         end
 
+        # Update the in-memory commit point (monotonic) WITHOUT persisting. The
+        # VR::Node calls this as it learns the cluster commit_op from heartbeats /
+        # view changes; the value is flushed to disk opportunistically by the next
+        # save_op_pending (the follower's per-ack syncfs). It's read by the data
+        # client to refuse a full_sync from a leader that is behind on committed
+        # data (which would truncate committed records). Best-effort: if it hasn't
+        # been persisted before a crash it's only stale-low, which is safe (the
+        # guard may miss, never false-trip). The node and client share one State;
+        # @lock makes the concurrent access safe.
+        def note_commit(commit_op : UInt64) : Nil
+          @lock.synchronize do
+            @commit_op = commit_op if commit_op > @commit_op
+          end
+        end
+
         private def persist!(fsync : Bool) : Nil
           write_durable(fsync)
         rescue ex : IO::Error

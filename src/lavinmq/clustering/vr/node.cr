@@ -183,7 +183,7 @@ module LavinMQ
           end
           return unless @primary_id == hb.from_id
           @last_heard = Time.instant
-          @commit_op = hb.commit_op if hb.commit_op > @commit_op
+          learn_commit(hb.commit_op)
         end
 
         private def on_start_view_change(svc : Control::StartViewChange) : Nil
@@ -210,7 +210,7 @@ module LavinMQ
 
         private def on_start_view(sv : Control::StartView) : Nil
           return if sv.view < @state.view
-          @commit_op = sv.commit_op if sv.commit_op > @commit_op
+          learn_commit(sv.commit_op)
           install_view(sv.view, sv.primary_id)
         end
 
@@ -253,8 +253,8 @@ module LavinMQ
           return unless tally && tally.size >= @membership.quorum
           winner_id = tally.max_by { |id, summary| {summary, -id.to_i64} }[0]
           commit = tally.values.max_of(&.commit_op)
-          @commit_op = commit if commit > @commit_op
-          Log.info { "Deciding view #{v}: primary is #{winner_id.to_s(36)}" }
+          learn_commit(commit)
+          Log.info { "Deciding view #{v}: primary is #{winner_id.to_s(36)} from #{tally.map { |id, s| "#{id.to_s(36)}=op#{s.op}" }.join(",")}" }
           @mesh.broadcast(Control::StartView.new(view: v, primary_id: winner_id,
             op: @op_source.call, commit_op: current_commit, from_id: self_id))
           install_view(v, winner_id) # apply our own decision locally
@@ -328,6 +328,14 @@ module LavinMQ
         # is higher. The two are tracked separately — @commit_op is heartbeat/
         # view-change driven, @commit_source reads the live Server — so the
         # primary reports its real commit point rather than a stale marker.
+        # Advance the in-memory commit point and mirror it into the shared State,
+        # so the data client can read the cluster commit_op and refuse to truncate
+        # to a leader that's behind it (Client#sync). Monotonic.
+        private def learn_commit(c : UInt64) : Nil
+          @commit_op = c if c > @commit_op
+          @state.note_commit(@commit_op)
+        end
+
         private def current_commit : UInt64
           c = @commit_source.call
           c > @commit_op ? c : @commit_op

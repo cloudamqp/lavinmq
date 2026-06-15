@@ -184,6 +184,17 @@ module LavinMQ
         # zero op (which could let it win a later election and overwrite data) and
         # truncates the high-water down if it synced to a less-complete leader.
         baseline_op = lz4.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+        # Safety: never truncate committed data. The leader's baseline op is its
+        # log head at the cut; if that's below the commit point we know the cluster
+        # reached (learned from heartbeats/view-changes via the shared VR state),
+        # this leader is missing committed records and adopting its snapshot would
+        # delete ours (full_sync removes files not on the leader). Refuse and
+        # reconnect — a correctly-elected leader holds at least the committed log,
+        # so this only rejects a spurious/behind leader and protects committed
+        # definitions and messages from being wiped on failover.
+        if (committed = @vr_state.try(&.commit_op)) && baseline_op < committed
+          raise BehindLeaderError.new("leader baseline_op #{baseline_op} < known commit_op #{committed}; refusing to truncate committed data")
+        end
         @applied_op = baseline_op
         @vr_state.try &.save(op: baseline_op)
         Log.info { "Fully synchronised at op #{baseline_op}" }
@@ -627,6 +638,13 @@ module LavinMQ
       end
 
       class Error < Exception; end
+
+      # Raised when a leader's full_sync baseline is below the commit point we
+      # know the cluster reached — following it would truncate committed data.
+      # Subclasses IO::Error so #follow treats it like a dropped connection and
+      # reconnects (ideally to a correctly-elected, up-to-date leader) rather than
+      # destroying committed records.
+      class BehindLeaderError < IO::Error; end
 
       class AuthenticationError < Error
         def initialize
