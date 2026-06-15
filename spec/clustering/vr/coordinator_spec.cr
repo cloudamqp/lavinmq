@@ -24,7 +24,9 @@ describe LavinMQ::Clustering::VR::Coordinator do
   describe "#password" do
     it "reads the secret from .clustering_password when present" do
       with_tmp_dir do |dir|
-        File.write(File.join(dir, ".clustering_password"), "from-file-secret\n")
+        path = File.join(dir, ".clustering_password")
+        File.write(path, "from-file-secret\n")
+        File.chmod(path, 0o600)
         VRCoordinator.new(config_with(dir, "from-config")).password.should eq "from-file-secret"
       end
     end
@@ -57,10 +59,32 @@ describe LavinMQ::Clustering::VR::Coordinator do
 
     it "raises on an empty .clustering_password file" do
       with_tmp_dir do |dir|
-        File.write(File.join(dir, ".clustering_password"), "   \n")
+        path = File.join(dir, ".clustering_password")
+        File.write(path, "   \n")
+        File.chmod(path, 0o600)
         expect_raises(LavinMQ::Clustering::VR::Error, /empty/) do
           VRCoordinator.new(config_with(dir, nil)).password
         end
+      end
+    end
+
+    it "refuses to read a group/world-accessible .clustering_password" do
+      with_tmp_dir do |dir|
+        path = File.join(dir, ".clustering_password")
+        File.write(path, "secret")
+        File.chmod(path, 0o644) # group/other readable
+        expect_raises(LavinMQ::Clustering::VR::Error, /group\/world-accessible/) do
+          VRCoordinator.new(config_with(dir, nil)).password
+        end
+      end
+    end
+
+    it "accepts a 0600 .clustering_password" do
+      with_tmp_dir do |dir|
+        path = File.join(dir, ".clustering_password")
+        File.write(path, "secret")
+        File.chmod(path, 0o600)
+        VRCoordinator.new(config_with(dir, nil)).password.should eq "secret"
       end
     end
   end

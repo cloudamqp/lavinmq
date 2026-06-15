@@ -23,6 +23,7 @@ module LavinMQ
         def password : String
           path = File.join(@config.data_dir, PASSWORD_FILE)
           if File.file?(path)
+            ensure_owner_only!(path)
             secret = File.read(path).strip
             raise Error.new("#{path} is empty") if secret.empty?
             return secret
@@ -36,6 +37,17 @@ module LavinMQ
           Dir.mkdir_p(@config.data_dir)
           File.write(path, secret, perm: File::Permissions.new(0o600))
           secret
+        end
+
+        # The secret file must be readable only by its owner. A group/world-
+        # accessible secret is a real exposure, so refuse to start (fail fast)
+        # rather than read it — mirroring how OpenSSH rejects loose key perms.
+        private def ensure_owner_only!(path : String) : Nil
+          mode = File.info(path).permissions.value
+          if (mode & 0o077) != 0
+            raise Error.new("#{path} is group/world-accessible (mode #{(mode & 0o777).to_s(8).rjust(3, '0')}); " \
+                            "it holds the clustering secret. Restrict it: chmod 600 #{path}")
+          end
         end
       end
     end
