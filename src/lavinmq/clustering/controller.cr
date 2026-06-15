@@ -118,8 +118,15 @@ class LavinMQ::Clustering::Controller
   private def route(socket : TCPSocket) : Nil
     socket.sync = true
     socket.read_buffering = true
+    # Bound the header read so a peer that opens the connection but never sends
+    # its 8-byte start header (a half-open/stuck dialer) can't wedge this accept
+    # fiber forever. The header is the first thing both REPLI and VRCTL dialers
+    # write, so a legitimate peer always meets this; the per-role handshake that
+    # follows sets its own timeout.
+    socket.read_timeout = 5.seconds
     header = uninitialized UInt8[8]
     socket.read_fully(header.to_slice)
+    socket.read_timeout = nil
     case header.to_slice
     when VR::Control::HEADER
       @mesh.handle_accept_after_header(socket)

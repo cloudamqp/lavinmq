@@ -545,16 +545,31 @@ module LavinMQ
         end
       end
 
+      # Bound the handshake read. A leader may accept the TCP connection but then
+      # stall before replying — e.g. it is itself mid view-change / just restarted
+      # and hasn't begun serving followers, or it died right after the accept.
+      # Without a deadline this read blocks forever, so #follow never raises, never
+      # retries, and the node never (re)joins as a data follower — leaving it out
+      # of the leader's in-sync set so it can't even proxy AMQP to the leader. On
+      # timeout the IO::Error propagates to #follow, which reconnects. Mirrors the
+      # leader-side Follower#negotiate timeout.
+      HANDSHAKE_TIMEOUT = 5.seconds
+
       private def authenticate(socket)
         socket.write Start
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
-        case socket.read_byte
-        when 0 # ok
-        when 1   then raise AuthenticationError.new
-        when nil then raise IO::EOFError.new
-        else
-          raise Error.new("Unknown response from authentication")
+        socket.read_timeout = HANDSHAKE_TIMEOUT
+        begin
+          case socket.read_byte
+          when 0 # ok
+          when 1   then raise AuthenticationError.new
+          when nil then raise IO::EOFError.new
+          else
+            raise Error.new("Unknown response from authentication")
+          end
+        ensure
+          socket.read_timeout = nil # the bulk sync / stream have legitimate idle gaps
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end

@@ -532,7 +532,15 @@ module LavinMQ
         end
         Fiber.yield          # required for follower/listener fibers to actually finish
         @commit_notify.close # unblock any wait_for_quorum waiters
-        @file_index.lock { |_files, checksums| checksums.store }
+        begin
+          @file_index.lock { |_files, checksums| checksums.store }
+        rescue ::Channel::ClosedError
+          # close() can run during process teardown after the async Log backend's
+          # dispatch channel has already been closed; store logs, so that surfaces
+          # as a ClosedError. The checksum file is only a perf cache (recomputed on
+          # next start), so dropping its final store here is harmless — and far
+          # better than an "Unhandled exception" that aborts an orderly shutdown.
+        end
       end
 
       # Dispatch a replicated change to all synced followers, assigning the

@@ -19,6 +19,10 @@ module ClientSyncSpec
       stream_changes(socket, lz4)
     end
 
+    def authenticate_public(socket)
+      authenticate(socket)
+    end
+
     # Instrumentation for the close/ack-loop fd race spec: slow each sync down
     # and record whether one ever ran against a closed data dir fd — the real
     # implementation would Log.fatal and exit 1 there.
@@ -496,6 +500,38 @@ module ClientSyncSpec
           client.synced_on_closed_fd?.should be_false
           client_socket.close
           leader_io.close
+        end
+      end
+    end
+
+    describe "#authenticate" do
+      # Regression: the handshake read was unbounded, so a leader that accepted
+      # the TCP connection but then stalled (it was itself mid view-change / just
+      # restarted, or died right after accept) wedged the follower forever — it
+      # never raised, so #follow never retried, the node never rejoined as a data
+      # follower, and (being absent from the leader's in-sync set) it couldn't even
+      # proxy AMQP to the leader. The handshake must now time out and let #follow
+      # reconnect.
+      it "times out a stalled handshake instead of blocking forever" do
+        with_datadir do |data_dir|
+          server = TCPServer.new("127.0.0.1", 0)
+          spawn(name: "stalled leader") do
+            if s = server.accept?
+              buf = Bytes.new(64)
+              s.read(buf) rescue nil # consume the handshake bytes, then never reply
+              sleep 30.seconds
+              s.close
+            end
+          end
+          client = make_client(data_dir)
+          socket = TCPSocket.new("127.0.0.1", server.local_address.port)
+          socket.sync = true
+          start = Time.monotonic
+          expect_raises(IO::Error) { client.authenticate_public(socket) }
+          (Time.monotonic - start).should be < 8.seconds # ~HANDSHAKE_TIMEOUT, not forever
+          socket.close
+          server.close
+          client.close
         end
       end
     end
