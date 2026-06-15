@@ -257,6 +257,45 @@ describe "LavinMQCtl raft_*" do
         FileUtils.rm_rf(data_dir)
       end
     end
+
+    it "refuses without --force when /raft/status omits the peer list" do
+      stub = HTTP::Server.new do |context|
+        context.response.status_code = 200
+        context.response.content_type = "application/json"
+        # 200 but no "peers" — cluster size is unknown, so we must not assume 0.
+        context.response.print({"id" => 1_i64, "role" => "leader"}.to_json)
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-reset-nopeers") { stub.listen }
+      begin
+        data_dir = File.tempname("raft-reset-nopeers-spec")
+        begin
+          Dir.mkdir_p(File.join(data_dir, "raft"))
+          File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+
+          stdout = IO::Memory.new
+          original_argv = ARGV.dup
+          begin
+            ARGV.clear
+            ARGV.concat(["--uri", "http://#{addr}", "raft_reset", "--data-dir=#{data_dir}"])
+            cli = LavinMQCtl.new(stdout)
+            expect_raises(LavinMQCtl::CtlExit) do
+              cli.run_cmd
+            end
+          ensure
+            ARGV.clear
+            ARGV.concat(original_argv)
+          end
+
+          Dir.exists?(File.join(data_dir, "raft")).should be_true
+          stdout.to_s.should contain("peer list")
+        ensure
+          FileUtils.rm_rf(data_dir)
+        end
+      ensure
+        stub.close
+      end
+    end
   end
 
   describe "raft_join" do

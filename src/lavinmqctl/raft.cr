@@ -160,9 +160,14 @@ class LavinMQCtl
       response = http.get("/raft/status", @headers)
       if response.status_code == 200
         data = JSON.parse(response.body)
-        peers = data["peers"]?.try(&.as_a.size) || 0
-        return if peers <= 1
-        @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers}). Use --force to override."
+        # Fail closed: a missing or non-array `peers` means we can't establish
+        # the node is a safe single-node leader, so refuse rather than assume 0.
+        if peers = data["peers"]?.try(&.as_a?).try(&.size)
+          return if peers <= 1
+          @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers}). Use --force to override."
+        else
+          @io.puts "raft_reset: refusing — /raft/status did not report a peer list; cannot verify cluster size. Use --force to override."
+        end
       else
         @io.puts "raft_reset: refusing — node is running but its role can't be verified " \
                  "(HTTP #{response.status_code}; a follower answers 503). " \
