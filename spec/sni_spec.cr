@@ -486,7 +486,7 @@ describe LavinMQ::Launcher do
     default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
     default_ctx.private_key = "spec/resources/server_key.pem"
 
-    LavinMQ::Launcher.install_sni_callback(default_ctx, sni_manager, :amqp)
+    LavinMQ::Launcher.install_sni_callback(default_ctx, sni_manager, LavinMQ::Launcher::TLSProtocol::AMQP)
 
     foobar_host = LavinMQ::SNIHost.new("foobar.localhost")
     foobar_host.tls_cert = "spec/resources/foobar_localhost_certificate.pem"

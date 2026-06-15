@@ -17,6 +17,14 @@ require "../stdlib/openssl_on_server_name"
 module LavinMQ
   class Launcher
     Log = LavinMQ::Log.for "launcher"
+
+    # Protocols that have their own TLS context and SNI callback.
+    enum TLSProtocol
+      AMQP
+      MQTT
+      HTTP
+    end
+
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
@@ -351,26 +359,26 @@ module LavinMQ
     private def setup_sni_callbacks
       sni_manager = @config.sni_manager
       if amqp_tls = @amqp_tls_context
-        self.class.install_sni_callback(amqp_tls, sni_manager, :amqp)
+        self.class.install_sni_callback(amqp_tls, sni_manager, TLSProtocol::AMQP)
       end
       if mqtt_tls = @mqtt_tls_context
-        self.class.install_sni_callback(mqtt_tls, sni_manager, :mqtt)
+        self.class.install_sni_callback(mqtt_tls, sni_manager, TLSProtocol::MQTT)
       end
       if http_tls = @http_tls_context
-        self.class.install_sni_callback(http_tls, sni_manager, :http)
+        self.class.install_sni_callback(http_tls, sni_manager, TLSProtocol::HTTP)
       end
     end
 
     def self.install_sni_callback(ctx : OpenSSL::SSL::Context::Server,
                                   sni_manager : SNIManager,
-                                  protocol : Symbol)
+                                  protocol : TLSProtocol)
       ctx.on_server_name do |hostname|
         if sni_host = sni_manager.get_host(hostname)
           Log.debug { "SNI (#{protocol}): Using certificate for hostname '#{hostname}'" }
           case protocol
-          when :amqp then sni_host.amqp_tls_context
-          when :mqtt then sni_host.mqtt_tls_context
-          else            sni_host.http_tls_context
+          in .amqp? then sni_host.amqp_tls_context
+          in .mqtt? then sni_host.mqtt_tls_context
+          in .http? then sni_host.http_tls_context
           end
         else
           Log.debug { "SNI (#{protocol}): No specific certificate for '#{hostname}', using default" }
