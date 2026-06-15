@@ -1121,6 +1121,7 @@ class FailServer
 
   def start
     spawn @server.listen
+    Fiber.yield
     @server
   end
 
