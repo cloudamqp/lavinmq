@@ -77,6 +77,27 @@ describe LavinMQ::MQTT::SubscriptionTree do
       tree.empty?.should be_true
     end
 
+    it "doesn't keep entries for unsubscribed non-wildcard filters" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
+      10.times do |i|
+        tree.subscribe("topic#{i}", session, 0u8)
+        tree.unsubscribe("topic#{i}", session)
+      end
+      tree.@non_wildcards.size.should eq 0
+    end
+
+    it "keeps the entry when other subscribers remain on the filter" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("topic", "session1", 0u8)
+      tree.subscribe("topic", "session2", 0u8)
+      tree.unsubscribe("topic", "session1")
+      tree.@non_wildcards.size.should eq 1
+      matched = 0
+      tree.each_entry("topic") { matched += 1 }
+      matched.should eq 1
+    end
+
     it "returns true after unsubscribing only existing +-wildcard subscription" do
       tree = LavinMQ::MQTT::SubscriptionTree(String).new
       session = "session"

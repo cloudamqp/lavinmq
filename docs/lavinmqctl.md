@@ -12,6 +12,8 @@ lavinmqctl --uri http://host:port ...
 
 Or set the `LAVINMQCTL_HOST` environment variable.
 
+When no connection flag is given, `lavinmqctl` talks to the server over its local control socket (default `/tmp/lavinmqctl.sock`). If the server was started with a custom `--control-unix-path`, point `lavinmqctl` at it with `--control-unix-path` or the `LAVINMQCTL_CONTROL_UNIX_PATH` environment variable.
+
 Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 
 ## Commands
@@ -109,6 +111,7 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `--hostname=HOST` | Management API hostname |
 | `-P`, `--port=PORT` | Management API port |
 | `--scheme=SCHEME` | URI scheme (http/https) |
+| `--control-unix-path=PATH` | Control socket to use when not connecting via `--uri`/`--hostname` (default `/tmp/lavinmqctl.sock`, env `LAVINMQCTL_CONTROL_UNIX_PATH`) |
 | `-p`, `--vhost=VHOST` | Target vhost (default: `/`) |
 | `--user=USER` | API username |
 | `--password=PASS` | API password |

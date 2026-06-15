@@ -1,5 +1,5 @@
 name: lavinmq
-version: 2.8.0
+version: 2.9.0-rc.1
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -28,6 +28,7 @@ dependencies:
     github: cloudamqp/amqp-client.cr
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
+    version: ">= 1.3.0"
   systemd:
     github: 84codes/systemd.cr
   lz4:

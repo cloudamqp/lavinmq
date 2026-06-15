@@ -66,13 +66,41 @@ jwks_cache_ttl = 3600
 | Option | Default | Description |
 |--------|---------|-------------|
 | `issuer` | (required) | OIDC issuer URL. Used to discover JWKS endpoint. |
+| `client_id` | (none) | OAuth2 client ID. Required to enable management UI SSO (see below) |
+| `mgmt_base_url` | (none) | Public base URL of the management UI. Enables SSO login when set together with `issuer` and `client_id` |
 | `resource_server_id` | (none) | Resource server identifier |
 | `preferred_username_claims` | `sub,client_id` | JWT claims to extract the username from (tried in order) |
 | `additional_scopes_keys` | `[]` | Additional JWT claims to check for scope strings |
 | `scope_prefix` | (none) | Prefix to strip from scope strings |
 | `verify_aud` | `true` | Verify the JWT `aud` claim |
-| `audience` | (none) | Expected JWT audience value |
+| `audience` | (none) | Expected JWT audience value. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | `3600` | How long to cache the JWKS keys (seconds) |
+
+### Management UI SSO Login
+
+When `issuer`, `client_id`, and `mgmt_base_url` are all set (and `oauth` is included in `auth_backends`), the management UI login page shows a "Sign in with SSO" button. Clicking it runs an OpenID Connect Authorization Code flow with PKCE against the issuer; on success the user is logged into the management UI with the returned token, which is validated the same way as tokens used for AMQP clients (see below).
+
+`mgmt_base_url` is the public URL the browser uses to reach the management UI. It is used to build the OAuth `redirect_uri` (`<mgmt_base_url>/oauth/callback`), which must be registered as an allowed redirect URI on the OAuth client. For security it must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host.
+
+```ini
+[main]
+auth_backends = local,oauth
+
+[oauth]
+issuer = https://auth.example.com
+client_id = lavinmq-mgmt
+mgmt_base_url = https://lavinmq.example.com
+audience = lavinmq
+```
+
+Because `verify_aud` defaults to `true`, SSO tokens must have an `aud` claim
+matching either `audience` or `resource_server_id`. Alternatively set
+`verify_aud = false` if audience validation is not wanted. When `audience` is
+set it is also included in the authorization request, which some identity
+providers (e.g. Auth0) require to issue a JWT access token instead of an
+opaque one.
+
+If any of the three keys is missing, the SSO button is hidden and only username/password login is available.
 
 ### How It Works
 
@@ -127,6 +155,11 @@ Or with an optional routing-key segment (accepted for compatibility but ignored)
 - Multiple permission scopes for the same vhost and permission type are combined into a single regex (alternation).
 - Permissions for vhosts not granted are denied by default (empty regex `^$`).
 
+Token scopes are the only source of permissions for OAuth users. Unlike local
+users, an OAuth user who creates a vhost is not granted permissions on it;
+access to the new vhost must be granted through the identity provider, e.g.
+with wildcard vhost scopes such as `read:*/*`.
+
 ### Examples
 
 A token with these filtered scopes:
@@ -143,4 +176,3 @@ Grants the user the `management` tag, full read access on the `/` vhost, write a
 ### Token Refresh
 
 When the token expires, LavinMQ closes the connection unless the client sends `connection.update-secret` with a fresh token first. The username in the new token must match the original; tags and permissions are taken from the new token.
-

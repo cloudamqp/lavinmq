@@ -4,6 +4,14 @@ require "./../src/lavinmq/policy"
 
 alias Policy = LavinMQ::Policy
 
+# A queue whose post-push expire-fiber bookkeeping raises ClosedError, as if a
+# delete closed the store right after the message was pushed.
+class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
+  private def ensure_expire_fiber
+    raise LavinMQ::MessageStore::ClosedError.new
+  end
+end
+
 def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
@@ -100,7 +108,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should expire short-TTL message after consuming long-TTL message" do
+  it "Should expire short-TTL message after consuming long-TTL message", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         # Create a queue with dead letter exchange so we can verify expiration happened
@@ -206,7 +214,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "should pause the queue by setting it in flow (consume)" do
+    it "should pause the queue by setting it in flow (consume)", tags: "slow" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange(x_name, "direct")
@@ -232,7 +240,7 @@ describe LavinMQ::AMQP::Queue do
           select
           when msg = channel.receive
             fail "Consumer should not get a message '#{msg}'"
-          when timeout 2.seconds
+          when timeout 1.second
             iq.resume!
           end
           channel.receive.should eq "test message 2"
@@ -734,6 +742,50 @@ describe LavinMQ::AMQP::Queue do
         queue.@msg_store.@segments.each_key do |seg|
           acks = queue.@msg_store.@acks[seg]
           (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
+        end
+      end
+    end
+
+    it "drops a publish when the store is closed concurrently" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("closed_store_publish", durable: false)
+          queue = s.vhosts["/"].queue("closed_store_publish").as(LavinMQ::AMQP::Queue)
+          # Simulate a delete racing publish_internal: the store is closed after
+          # the @closed check but before push, so push raises ClosedError. The
+          # publish must report Dropped, not raise (which surfaced as an HTTP 500).
+          queue.@msg_store.close
+          msg = LavinMQ::Message.new("", "closed_store_publish", "body", LavinMQ::AMQP::Properties.new)
+          queue.publish(msg).dropped?.should be_true
+        end
+      end
+    end
+
+    it "reports a publish as Ok when the store is closed after the message is stored" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        queue = StoreClosedAfterPushQueue.create(vhost, "pushed_then_closed")
+        # The expiration makes publish run the post-push expire-fiber check, which
+        # here raises ClosedError *after* push already stored the message, so the
+        # publish must report Ok (not Dropped) and the message is kept.
+        props = LavinMQ::AMQP::Properties.new(expiration: "10000")
+        queue.publish(LavinMQ::Message.new("", queue.name, "body", props)).ok?.should be_true
+        queue.message_count.should eq 1
+      end
+    end
+
+    it "reports no message instead of erroring when its queue is deleted during a get" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("get_during_delete", durable: false)
+          queue = s.vhosts["/"].queue("get_during_delete").as(LavinMQ::AMQP::Queue)
+          # The queue is deleted out from under an in-flight basic_get, so
+          # Queue#get raises ClosedError. It must surface as Basic.GetEmpty
+          # (false), not escape into the connection's read loop as an error.
+          s.vhosts["/"].delete_queue("get_during_delete")
+          delivered = false
+          queue.basic_get(true) { delivered = true }.should be_false
+          delivered.should be_false
         end
       end
     end

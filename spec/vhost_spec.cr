@@ -191,4 +191,24 @@ describe LavinMQ::VHost do
       end
     end
   end
+
+  it "serializes concurrent saves so they don't race on the tmp file" do
+    with_amqp_server do |s|
+      store = s.vhosts
+      # Concurrent vhost create/delete (e.g. under churn) all call save!, which
+      # shares one vhosts.json.tmp path. Without serialization two saves race
+      # and one's rename finds the tmp already moved by the other.
+      failures = Atomic(Int32).new(0)
+      WaitGroup.wait do |wg|
+        40.times do
+          wg.spawn do
+            store.save!
+          rescue
+            failures.add(1)
+          end
+        end
+      end
+      failures.get.should eq 0
+    end
+  end
 end

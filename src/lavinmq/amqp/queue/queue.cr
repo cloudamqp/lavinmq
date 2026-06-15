@@ -604,6 +604,7 @@ module LavinMQ::AMQP
       publish_internal(msg)
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
@@ -615,9 +616,11 @@ module LavinMQ::AMQP
       end
       return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
+      pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
+        pushed = true
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
@@ -629,6 +632,11 @@ module LavinMQ::AMQP
       end
 
       PublishResult::Ok
+    rescue MessageStore::ClosedError
+      # A racing delete closed the store. If push hadn't stored the message it's
+      # dropped (avoids an HTTP 500); if it had, a later ClosedError from the
+      # post-publish expire-fiber check still means the publish succeeded.
+      pushed ? PublishResult::Ok : PublishResult::Dropped
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
@@ -812,6 +820,11 @@ module LavinMQ::AMQP
       get(no_ack) do |env|
         yield env
       end.tap { ensure_expire_fiber }
+    rescue ClosedError | MessageStore::ClosedError
+      # The queue was closed/deleted concurrently with the get (its @closed flag
+      # or the message store). Report no message available (Basic.GetEmpty)
+      # rather than letting the error escape into the connection's read loop.
+      false
     end
 
     # If nil is returned it means that the delivery limit is reached
@@ -1049,6 +1062,7 @@ module LavinMQ::AMQP
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
       json.object do
         details_tuple.each do |k, v|
+          next if k == :message_stats # rewritten below with the rate-history log
           json.field(k, v) unless v.nil?
         end
         json.field("message_stats") do

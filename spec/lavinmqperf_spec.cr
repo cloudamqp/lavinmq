@@ -55,7 +55,7 @@ describe "LavinMQPerf" do
       end
     end
 
-    it "should verify summary averages are correct" do
+    it "should verify summary averages are correct", tags: "slow" do
       with_amqp_server do |s|
         # Set up TCP listener for AMQP connections
         tcp_server = TCPServer.new("localhost", 0)

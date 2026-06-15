@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 require "../src/lavinmq/federation/upstream"
 
 module UpstreamSpecHelpers
@@ -448,7 +449,7 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    it "should continue after upstream restart" do
+    it "should continue after upstream restart", tags: "slow" do
       with_amqp_server do |s|
         # Use reconnect delay so we have time to see state being stopped
         # and that we can publish a message before it's reconnected
@@ -687,6 +688,37 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should reflect bindings made while link is starting" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef test bindings during start", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          downstream_q = downstream_ch.queue("downstream_q")
+          # Pre-existing bindings stretch the binding replay the link does
+          # during startup, so that the binds below land mid-replay.
+          before = 200
+          before.times { |i| downstream_q.bind("downstream_ex", "before.link.#{i}") }
+
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first? }
+          downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+          # The link starts observing the downstream exchange while it is
+          # still replaying the bindings above to the upstream exchange.
+          wait_for { downstream_ex.@__lavinmq_exchangeevent_observers.includes?(link) }
+          # Binds observed during startup must also be reflected upstream.
+          # (Regression: they were dropped if observed before the link had
+          # an upstream channel.)
+          during = 10
+          during.times { |i| downstream_q.bind("downstream_ex", "during.link.#{i}") }
+
+          upstream_ex = wait_for { upstream_vhost.exchange?("upstream_ex") }
+          upstream_ex = upstream_ex.as(LavinMQ::AMQP::Exchange)
+          wait_for { upstream_ex.bindings_details.size == before + during }
+        end
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost1 = s.vhosts.create("one")
@@ -822,7 +854,7 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    describe "exchange federation chain" do
+    describe "exchange federation chain", tags: "slow" do
       it "append to x-bound-from" do
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 10) do
@@ -987,6 +1019,27 @@ describe LavinMQ::Federation::Upstream do
             v3fe.publish_in_count.should eq 0
           end
         end
+      end
+    end
+  end
+
+  describe "shutdown" do
+    it "closes federation links without logging unexpected-close errors" do
+      # A federation link's upstream connection lives on another vhost. On
+      # broker shutdown every link must be stopped first (cleanly closing those
+      # connections against still-live peers); otherwise a peer vhost can
+      # force-close the link's socket mid-flight and the amqp-client read loop
+      # logs "connection closed unexpectedly" / "Couldn't write CloseOk frame".
+      Log.capture("amqp.client.connection", :error) do |logs|
+        with_amqp_server do |s|
+          upstream, up, down = UpstreamSpecHelpers.setup_federation(s, "shutdown-test", nil, "uq")
+          up.declare_queue("uq", false, false)
+          down.declare_queue("dq", false, false)
+          link = upstream.link(down.queue("dq"))
+          wait_for { link.state.running? }
+        end
+        # with_amqp_server's teardown has now run s.close (the broker shutdown).
+        logs.empty
       end
     end
   end

@@ -14,16 +14,32 @@ module LavinMQ
   module HTTP
     Log = LavinMQ::Log.for "http"
 
+    class ControlSocketInUseError < Exception; end
+
     class Server
       Log = LavinMQ::Log.for "http.server"
 
+      # Resolved once and reused for this server's lifetime so a later config
+      # reload (SIGHUP) can't make us delete or authenticate against a path
+      # different from the one we actually bound.
+      @internal_unix_socket_path : String = Config.instance.control_unix_path
+
       def initialize(@amqp_server : LavinMQ::Server)
+        oauth_authenticator =
+          case auth = @amqp_server.authenticator
+          when Auth::Chain
+            auth.backends.select(Auth::OAuthAuthenticator).first?
+          when Auth::OAuthAuthenticator
+            auth
+          end
         handlers = [
+          (::HTTP::LogHandler.new(log: Log) if Log.level == ::Log::Severity::Debug),
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server),
           ViewsController.new,
           StaticController.new,
-          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
+          oauth_authenticator && OAuthController.new(oauth_authenticator),
+          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
           PrometheusController.new(@amqp_server, require_authentication: true),
@@ -44,8 +60,7 @@ module LavinMQ
           ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
-        ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
+        ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @http = ::HTTP::Server.new(handlers)
       end
 
@@ -70,9 +85,9 @@ module LavinMQ
       end
 
       def bind_internal_unix
-        File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = @http.bind_unix(INTERNAL_UNIX_SOCKET)
-        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+        Server.prepare_control_socket(@internal_unix_socket_path)
+        addr = @http.bind_unix(@internal_unix_socket_path)
+        File.chmod(@internal_unix_socket_path, 0o660)
         Log.info { "Bound to #{addr}" }
         addr
       end
@@ -83,25 +98,59 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(INTERNAL_UNIX_SOCKET)
+        File.delete?(@internal_unix_socket_path)
       end
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
       # The server returns 503 to signal that the node is a follower and can not handle the request.
-      def self.follower_internal_socket_http_server
+      # If another node on the same machine already serves the socket the server is
+      # skipped and nil is returned, it's only a convenience for lavinmqctl users.
+      def self.follower_internal_socket_http_server : ::HTTP::Server?
+        path = Config.instance.control_unix_path
+        begin
+          prepare_control_socket(path)
+        rescue ex
+          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
+          return
+        end
+
         http_server = ::HTTP::Server.new do |context|
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."
         end
 
-        File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
-        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+        addr = http_server.bind_unix(path)
+        File.chmod(path, 0o660)
         Log.info { "Bound to #{addr}" }
 
         spawn(name: "HTTP listener") do
           http_server.listen
+        rescue ex
+          raise ex unless http_server.closed? # closed before listen started
+        end
+        http_server
+      end
+
+      # Verifies that the control socket path is safe to bind to.
+      # Deletes the file if it's a socket no one is listening on,
+      # raises if it's in use, not a socket, or can't be verified.
+      def self.prepare_control_socket(path)
+        return unless info = File.info?(path, follow_symlinks: false)
+
+        unless info.type.socket?
+          raise "Control socket #{path} exists and is not a socket"
+        end
+
+        begin
+          UNIXSocket.open(path) { }
+          raise ControlSocketInUseError.new("Control socket #{path} is already in use")
+        rescue Socket::ConnectError
+          # ECONNREFUSED: socket inode exists, but nobody is listening.
+          File.delete(path)
+        rescue ex : Socket::Error
+          # EACCES or anything ambiguous: fail closed, don't delete.
+          raise "Cannot verify stale control socket #{path}: #{ex.message}"
         end
       end
     end
