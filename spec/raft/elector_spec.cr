@@ -281,6 +281,49 @@ describe LavinMQ::Raft::Elector do
     end
   end
 
+  describe "rejoin of a known id (finding #5)" do
+    it "succeeds when the leader already has the joining node's id" do
+      a_dir = tmp_data_dir
+      a = nil.as(LavinMQ::Raft::Elector?)
+      admin = nil.as(HTTP::Server?)
+      begin
+        File.write(File.join(a_dir, ".clustering_id"), 1.to_s(36))
+        a = LavinMQ::Raft::Elector.new(elector_config(a_dir, free_port, free_port))
+        a.not_nil!.transport.start
+        a.not_nil!.server.start
+        a.not_nil!.server.bootstrap.should be_true
+        select
+        when a.not_nil!.server.is_leader.when_true.receive
+        when timeout(5.seconds)
+          fail "A did not become leader"
+        end
+
+        # Serve A's raft admin endpoint
+        admin = HTTP::Server.new([a.not_nil!.admin_handler] of ::HTTP::Handler)
+        admin_addr = admin.not_nil!.bind_tcp("127.0.0.1", 0)
+        spawn(name: "stub-admin-rejoin") { admin.not_nil!.listen }
+
+        # First add: node 2 joins the cluster (becomes a learner)
+        first_addr = "127.0.0.1:#{free_port},127.0.0.1:#{free_port}"
+        first_status = ::Raft::HTTP::AdminClient.add_server(
+          URI.parse("http://#{admin_addr}"), 2_u64, first_addr)
+        first_status.ok?.should be_true
+
+        # Rejoin: node 2 re-announces with a fresh address (e.g. after a wipe).
+        # With idempotent add_server (finding #5 fix), this must return 200,
+        # not 400 (which previously caused a crash-loop).
+        fresh_addr = "127.0.0.1:#{free_port},127.0.0.1:#{free_port}"
+        rejoin_status = ::Raft::HTTP::AdminClient.add_server(
+          URI.parse("http://#{admin_addr}"), 2_u64, fresh_addr)
+        rejoin_status.ok?.should be_true
+      ensure
+        admin.try &.close rescue nil
+        a.try &.stop rescue nil
+        FileUtils.rm_rf(a_dir)
+      end
+    end
+  end
+
   describe "boot decision" do
     it "joins (not bootstraps) when .join_target is present even if we are the lowest seed" do
       dir = tmp_data_dir
