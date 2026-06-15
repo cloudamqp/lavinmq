@@ -96,6 +96,12 @@ module LavinMQ::Raft
       @transport.stop
     end
 
+    # The boot action this node would take given its config and current raft
+    # state. Pure (no I/O); exposed for testing the formation decision.
+    def boot_action : BootstrapDecision::Action
+      BootstrapDecision.decide(advertised_management_host, @config.seed_uris, !@server.peers.empty?)
+    end
+
     private def maybe_bootstrap_or_join : Nil
       join_target_path = File.join(@config.data_dir, ".join_target")
       if File.exists?(join_target_path)
@@ -106,7 +112,7 @@ module LavinMQ::Raft
         return
       end
 
-      case BootstrapDecision.decide(advertised_management_host, @config.seed_uris, !@server.peers.empty?)
+      case boot_action
       in .resume?
         Log.info { "Existing raft state — resuming as a member" }
       in .bootstrap?
