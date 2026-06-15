@@ -281,6 +281,40 @@ describe LavinMQ::Raft::Elector do
     end
   end
 
+  describe "join_via_seeds" do
+    it "tries seeds in turn and succeeds on the first that returns 200" do
+      hit = [] of String
+      reject = HTTP::Server.new do |ctx|
+        hit << "reject"
+        ctx.response.status_code = 400
+        ctx.response.print %({"error":"not leader"})
+      end
+      accept = HTTP::Server.new do |ctx|
+        hit << "accept"
+        ctx.response.status_code = 200
+        ctx.response.print %({"status":"added"})
+      end
+      reject_addr = reject.bind_tcp("127.0.0.1", 0)
+      accept_addr = accept.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-reject") { reject.listen }
+      spawn(name: "stub-accept") { accept.listen }
+      dir = tmp_data_dir
+      elector = nil.as(LavinMQ::Raft::Elector?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        elector = LavinMQ::Raft::Elector.new(elector_config(dir, free_port, free_port))
+        seeds = [URI.parse("http://#{reject_addr}"), URI.parse("http://#{accept_addr}")]
+        elector.not_nil!.join_via_seeds(seeds)
+        hit.should contain "accept"
+      ensure
+        reject.close
+        accept.close
+        elector.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "perform_join" do
     it "retries on 5xx until success" do
       attempts = 0

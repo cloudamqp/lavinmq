@@ -117,22 +117,31 @@ module LavinMQ::Raft
     def perform_join(leader_uri : String) : Nil
       uri = URI.parse(leader_uri)
       raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
+      join_via_seeds([uri])
+    end
+
+    # Cycle the seed URIs, asking each to add us, until one accepts (HTTP 200).
+    # A non-leader seed answers non-200; the lowest seed may still be starting.
+    def join_via_seeds(seeds : Array(URI)) : Nil
+      raise "no seed URIs to join" if seeds.empty?
       address = build_advertised_address
       last_error = "unknown error"
       JOIN_MAX_ATTEMPTS.times do |attempt|
-        begin
-          # The route and payload format are raft.cr's contract; AdminClient
-          # keeps them in the shard. We own retry policy here.
-          status = ::Raft::HTTP::AdminClient.add_server(uri, @server.node_id.to_u64, address)
-          if status.ok?
-            Log.info { "Joined cluster via #{leader_uri} on attempt #{attempt + 1}" }
-            return
+        seeds.each do |uri|
+          begin
+            # The route and payload format are raft.cr's contract; AdminClient
+            # keeps them in the shard. We own retry policy here.
+            status = ::Raft::HTTP::AdminClient.add_server(uri, @server.node_id.to_u64, address)
+            if status.ok?
+              Log.info { "Joined cluster via #{uri} on attempt #{attempt + 1}" }
+              return
+            end
+            last_error = "HTTP #{status.code} from #{uri}"
+            Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{uri} got HTTP #{status.code}" }
+          rescue ex
+            last_error = "#{uri}: #{ex.message}"
+            Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{uri} failed: #{ex.message}" }
           end
-          last_error = "HTTP #{status.code}"
-          Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} got #{last_error}" }
-        rescue ex
-          last_error = ex.message.to_s
-          Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{leader_uri} failed: #{ex.message}" }
         end
         sleep JOIN_RETRY_INTERVAL unless attempt == JOIN_MAX_ATTEMPTS - 1
       end
