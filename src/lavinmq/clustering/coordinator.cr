@@ -1,13 +1,12 @@
 module LavinMQ::Clustering
-  # What Clustering::Server uses to write ISR and read/write the shared
-  # replication secret.
+  # Supplies Clustering::Server with the shared replication secret. Under
+  # Viewstamped Replication there is no external ISR store — failover safety
+  # comes from the view-change log-selection rule and majority-quorum commit —
+  # so the coordinator's only remaining job is the secret.
   #
   # All methods are safe to call from any thread.
   abstract class Coordinator
-    # Replace the ISR set wholesale with the given node ids.
-    abstract def update_isr(synced_node_ids : Set(Int32)) : Nil
-
-    # Read the cluster's shared replication secret, generating one if missing.
+    # The cluster's shared replication secret.
     abstract def password : String
   end
 end

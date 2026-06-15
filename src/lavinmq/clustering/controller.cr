@@ -1,195 +1,155 @@
-require "../etcd"
 require "./client"
-require "./etcd_coordinator"
+require "./server"
+require "./vr/membership"
+require "./vr/state"
+require "./vr/control_mesh"
+require "./vr/node"
+require "./vr/coordinator"
+require "./vr/messages"
+require "../clustering"
 
+# Drives clustering for this node using Viewstamped Replication. It owns the
+# shared clustering listener (routing VRCTL control connections to the mesh and
+# REPLI data connections to the replicator), the VR::Node consensus FSM, and the
+# replication client used while this node is a backup. The interface the
+# Launcher relies on — `run(&)`, `stop`, `id`, `replicator` — is unchanged.
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
 
   getter id : Int32
-
+  getter replicator : Clustering::Server
   @repli_client : Client? = nil
-
-  def self.new(config : Config)
-    etcd = Etcd.new(config.clustering_etcd_endpoints)
-    new(config, etcd, EtcdCoordinator.new(config, etcd))
-  end
-
-  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
-    @id = clustering_id
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
-    @elected_leader = BoolChannel.new(false)
-  end
-
-  # This method is called by the Launcher#run.
-  # The block will be yielded when the controller's prerequisites for a leader
-  # to start are met, i.e when the current node has been elected leader.
-  # The method is blocking.
-
-  def run(&)
-    lease = @lease = @etcd.lease_grant(id: @id)
-    spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync(lease)
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
-    @elected_leader.set(true)
-    ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.try &.close
-    yield
-    loop do
-      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
-    end
-  rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopped
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
-    end
-  rescue Etcd::LeaseAlreadyExists
-    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
-    exit 3
-  rescue Etcd::LeaseNotFound
-    Log.fatal { "Lease not found, etcd may have been reset" }
-    exit 3
-  end
-
   @stopped = false
+  @listener : TCPServer?
+  @secret : String
+  @membership : VR::Membership
+  @coordinator : VR::Coordinator
+  @mesh : VR::ControlMesh
+  @node : VR::Node
+
+  def initialize(@config : Config)
+    @membership = membership = VR::Membership.from_config(@config)
+    @id = membership.self_id
+    persist_clustering_id
+    @coordinator = coordinator = VR::Coordinator.new(@config)
+    @secret = coordinator.password
+    @replicator = replicator = Clustering::Server.new(@config, coordinator, @id, quorum: membership.quorum)
+    @mesh = mesh = VR::ControlMesh.new(membership, @secret)
+    state = VR::State.load(@config.data_dir)
+    @node = VR::Node.new(membership, mesh, state,
+      heartbeat_interval: @config.clustering_heartbeat_interval_ms.milliseconds,
+      view_change_timeout: @config.clustering_view_change_timeout_ms.milliseconds,
+      op_source: -> { Math.max(replicator.current_op, @repli_client.try(&.applied_op) || 0u64) },
+      on_new_primary: ->(m : VR::Member) { follow(m) })
+  end
+
+  # Called by Launcher#run. Blocks until this node is elected primary, yields to
+  # start the leader, then blocks until deposed (and exits so the supervisor
+  # restarts it as a backup — there is no in-process demotion).
+  def run(&)
+    Log.info { "ID: #{@id.to_s(36)}, members: #{@membership.members.map(&.id.to_s(36))}" }
+    start_listener
+    @mesh.start
+    @node.start
+    @node.wait_until_primary
+    return if @stopped
+    Log.info { "Elected primary" }
+    @replicator.restore_checksums
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    @repli_client.try &.close # stop following a previous leader
+    yield
+    @node.wait_until_stepped_down
+    return if @stopped
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    Log.fatal { "Lost leadership, stepping down" }
+    exit 3
+  end
 
   def stop
     @stopped = true
+    @node.close
+    @mesh.close
+    @listener.try &.close
     @repli_client.try &.close
-    @lease.try &.release
   end
 
-  # Each node in a cluster has an unique id, for tracking ISR
-  private def clustering_id : Int32
-    id_file_path = File.join(@config.data_dir, ".clustering_id")
-    begin
-      id = File.read(id_file_path).to_i(36)
-    rescue File::NotFoundError
-      id = rand(Int32::MAX)
-      Dir.mkdir_p @config.data_dir
-      File.write(id_file_path, id.to_s(36))
-      Log.info { "Generated new clustering ID" }
+  # The shared clustering listener: one TCP port for both VR control connections
+  # and follower replication connections, distinguished by their start header.
+  private def start_listener
+    listener = @listener = TCPServer.new(@config.clustering_bind, @config.clustering_port)
+    Log.info { "Clustering listening on #{listener.local_address}" }
+    spawn(name: "Clustering listener") do
+      while socket = listener.accept?
+        spawn(name: "Clustering connection") { route(socket) }
+      end
     end
-    id
   end
 
-  # Replicate from the leader
-  # Listens for leader change events
-  private def follow_leader
-    @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
-      if repli_client = @repli_client # is currently following a leader
-        if repli_client.follows? uri
-          next # if lost connection to etcd we continue follow the leader as is
-        else
-          repli_client.close
-        end
+  private def route(socket : TCPSocket) : Nil
+    socket.sync = true
+    socket.read_buffering = true
+    header = uninitialized UInt8[8]
+    socket.read_fully(header.to_slice)
+    case header.to_slice
+    when VR::Control::HEADER
+      @mesh.handle_accept_after_header(socket)
+    when Clustering::Start
+      # Only the current primary serves followers; a stray REPLI connection to a
+      # backup is rejected (the follower will redial the real primary).
+      if @node.primary?
+        @replicator.accept_follower(socket)
+      else
+        socket.close
       end
-      if uri.nil? # no leader yet
-        Log.warn { "No leader available" }
-        next
-      end
-      if uri == @advertised_uri # if this instance has become leader
-        select
-        when @elected_leader.when_true.receive
-          Log.debug { "Elected leader, don't replicate from self" }
-          @elected_leader.close
-          return
-        when timeout(1.second)
-          raise Error.new("Another node in the cluster is advertising the same URI")
-        end
-      end
-      Log.info { "Leader: #{uri}" }
-      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-      secret = @etcd.get(key)
-      until secret # the leader might not have had time to set the secret yet
-        Log.debug { "Clustering secret is missing, watching for it" }
-        @etcd.watch(key) do |value|
-          secret = value
-          break
-        end
-      end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
-      spawn r.follow(uri), name: "Clustering client #{uri}"
-      SystemD.notify_ready
+    else
+      Log.warn { "Unknown clustering start header from #{socket.remote_address}" }
+      socket.close
     end
-  rescue ex : Error
-    Log.fatal { ex.message }
-    exit 36 # 36 for CF (Cluster Follower)
-  rescue ex
-    Log.fatal(exception: ex) { "Unhandled exception while following leader" }
-    exit 36 # 36 for CF (Cluster Follower)
+  rescue IO::Error
+    socket.close rescue nil
   end
 
-  # A queued election candidacy can outlive ISR membership: this node may have
-  # been dropped from the ISR (lagging or disconnected replication) after it
-  # campaigned, and etcd's election doesn't consult the ISR key. Serving as
-  # leader while missing confirmed messages would lose them cluster-wide — the
-  # in-sync nodes would full_sync from us and delete them. Exit instead: that
-  # releases the lease, withdraws the candidacy and lets an in-sync candidate
-  # win; on restart wait_to_be_insync blocks until this node is re-synced.
-  private def ensure_in_isr! : Nil
-    isr = @coordinator.isr
-    return if isr.nil? # no ISR recorded yet (fresh cluster)
-    return if isr.includes?(@id)
-    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
-    # Release the lease explicitly: the election key is bound to it, so this
-    # revokes the just-won leadership at once instead of leaving the cluster
-    # leaderless until the lease TTL expires.
-    begin
-      @lease.try &.release
-    rescue ex
-      Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
+  # Follow `member` as a backup: tear down any previous client and stream from
+  # the new primary, re-pointing the AMQP/HTTP/MQTT proxies at it.
+  private def follow(member : VR::Member) : Nil
+    if client = @repli_client
+      return if client.follows?(member.uri)
+      client.close
     end
-    exit 3
+    Log.info { "Following primary #{member.id.to_s(36)} at #{member.uri}" }
+    @repli_client = client = Clustering::Client.new(@config, @id, @secret)
+    spawn client.follow(member.uri), name: "Clustering client #{member.uri}"
+    SystemD.notify_ready
   end
 
-  def wait_to_be_insync(lease)
-    if isr = @coordinator.isr
-      unless isr.includes?(@id)
-        Log.info { "ISR: #{isr.to_a}" }
-        Log.info { "Not in sync, waiting for a leader" }
-        in_sync = Channel(Nil).new
-        spawn do
-          @coordinator.watch_isr do |members|
-            if members.try &.includes?(@id)
-              in_sync.close
-              break
-            end
-          end
-        end
-        select
-        when err = lease.expired.receive?
-          if err
-            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
-          else
-            Log.fatal { "Lease expired while waiting to be in sync" }
-          end
-          exit 3
-        when in_sync.receive?
-          Log.info { "In sync with leader" }
-        end
+  # Each node has a stable id (from the configured roster). Persist it for
+  # continuity/debugging; refuse to run if a different id was recorded.
+  private def persist_clustering_id
+    path = File.join(@config.data_dir, ".clustering_id")
+    Dir.mkdir_p @config.data_dir
+    if File.exists?(path)
+      existing = File.read(path).strip.to_i(36)
+      if existing != @id
+        Log.fatal { "Configured clustering id #{@id.to_s(36)} != recorded #{existing.to_s(36)} in #{path}" }
+        exit 3
       end
+    else
+      File.write(path, @id.to_s(36))
     end
   end
 
   private def execute_shell_command(command : String, event : String)
     return if command.empty?
-
     Log.info { "Executing #{event} hook in background: #{command}" }
-
     spawn name: "#{event} hook" do
-      begin
-        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-        if status.success?
-          Log.info { "#{event} hook completed successfully" }
-        else
-          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
-        end
-      rescue ex
-        Log.error(exception: ex) { "Failed to execute #{event} hook" }
+      status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      if status.success?
+        Log.info { "#{event} hook completed successfully" }
+      else
+        Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
       end
+    rescue ex
+      Log.error(exception: ex) { "Failed to execute #{event} hook" }
     end
   end
 

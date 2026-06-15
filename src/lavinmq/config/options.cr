@@ -328,6 +328,38 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      # Static member roster for the Viewstamped Replication coordinator. Comma
+      # separated `id=uri` pairs, e.g. `1=tcp://node1:5679,2=tcp://node2:5679`.
+      # The id is this node's clustering id (Int32, base-36 on disk); the uri is
+      # the member's advertised clustering URI. Quorum is a majority of this set.
+      @[CliOpt("", "--clustering-members=MEMBERS", "Static VR member roster: id=uri pairs, comma separated", section: "clustering")]
+      @[IniOpt(ini_name: members, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_MEMBERS")]
+      property clustering_members = ""
+
+      # Shared secret used to authenticate replication and control connections
+      # between members. Required when clustering is enabled (there is no shared
+      # store to mint one once etcd is gone).
+      @[CliOpt("", "--clustering-secret=SECRET", "Shared secret authenticating clustering connections", section: "clustering")]
+      @[IniOpt(ini_name: secret, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SECRET")]
+      property clustering_secret : String? = nil
+
+      # How often the primary sends a heartbeat to backups (milliseconds). Also
+      # the liveness signal that resets each backup's view-change timer.
+      @[CliOpt("", "--clustering-heartbeat-interval=MS", "VR primary heartbeat interval in milliseconds (default: 250)", section: "clustering")]
+      @[IniOpt(ini_name: heartbeat_interval, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
+      property clustering_heartbeat_interval_ms : Int32 = 250
+
+      # How long a backup waits without hearing from the current primary before
+      # starting a view change (milliseconds). Jittered per node; must comfortably
+      # exceed several heartbeat intervals to avoid spurious elections.
+      @[CliOpt("", "--clustering-view-change-timeout=MS", "VR backup view-change timeout in milliseconds (default: 1000)", section: "clustering")]
+      @[IniOpt(ini_name: view_change_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_VIEW_CHANGE_TIMEOUT")]
+      property clustering_view_change_timeout_ms : Int32 = 1000
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

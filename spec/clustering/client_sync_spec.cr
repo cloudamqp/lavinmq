@@ -1,6 +1,14 @@
 require "../spec_helper"
 require "lz4"
 
+# An ack is now a byte delta (Int64) followed by the absolute applied op-number
+# (UInt64). Tests sum byte deltas, so read and discard the op.
+private def read_ack_bytes(io) : Int64
+  bytes = io.read_bytes Int64, IO::ByteFormat::LittleEndian
+  io.read_bytes UInt64, IO::ByteFormat::LittleEndian # discard applied op
+  bytes
+end
+
 module ClientSyncSpec
   class TestClient < LavinMQ::Clustering::Client
     def sync_files_public(socket, lz4)
@@ -84,7 +92,7 @@ module ClientSyncSpec
           chunk = Bytes.new(buffer_size, 0xAB_u8)
           rest = Bytes.new(buffer_size * 2, 0xCD_u8) # full payload spans 3 chunks
           payload_size = (chunk.size + rest.size).to_i64
-          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+          framing = (sizeof(UInt64) + sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
@@ -94,6 +102,7 @@ module ClientSyncSpec
 
           # Announce an append of the whole payload but only send the first
           # chunk, withholding the rest.
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes -payload_size, IO::ByteFormat::LittleEndian
@@ -106,7 +115,7 @@ module ClientSyncSpec
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing + chunk.size
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
           acked.should eq(framing + chunk.size)
 
@@ -114,7 +123,7 @@ module ClientSyncSpec
           lz4_writer.write rest
           lz4_writer.flush
           while acked < framing + payload_size
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
           acked.should eq(framing + payload_size)
 
@@ -133,13 +142,14 @@ module ClientSyncSpec
 
           filename = "no_sync_stream_file"
           payload = "replicated bytes"
-          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+          framing = (sizeof(UInt64) + sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
           spawn(name: "client no-sync stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
           end
 
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
@@ -149,7 +159,7 @@ module ClientSyncSpec
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing + payload.bytesize
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
 
           acked.should eq framing + payload.bytesize
@@ -172,13 +182,14 @@ module ClientSyncSpec
 
           filename = "doomed_file"
           File.write File.join(data_dir, filename), "data"
-          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+          framing = (sizeof(UInt64) + sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
           end
 
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
@@ -188,7 +199,7 @@ module ClientSyncSpec
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
           acked.should eq framing
           File.exists?(File.join(data_dir, filename)).should be_false
@@ -215,6 +226,7 @@ module ClientSyncSpec
           rescue IO::Error
           end
 
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes 0i64, IO::ByteFormat::LittleEndian # delete marker
@@ -243,13 +255,14 @@ module ClientSyncSpec
           filename = "replaced_file"
           File.write File.join(data_dir, filename), "old content"
           content = "new content"
-          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+          framing = (sizeof(UInt64) + sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
           end
 
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
@@ -260,7 +273,7 @@ module ClientSyncSpec
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing + content.bytesize
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
           acked.should eq framing + content.bytesize
           File.read(File.join(data_dir, filename)).should eq content
@@ -283,13 +296,14 @@ module ClientSyncSpec
           filename = "unreplaceable"
           Dir.mkdir_p File.join(data_dir, filename)
           content = "new content"
-          framing = (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
+          framing = (sizeof(UInt64) + sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
           rescue IO::Error
           end
 
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
@@ -300,7 +314,7 @@ module ClientSyncSpec
           leader_io.read_timeout = 2.seconds
           acked = 0i64
           while acked < framing
-            acked += leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+            acked += read_ack_bytes(leader_io)
           end
           acked.should eq framing
           leader_io.read_timeout = 500.milliseconds
@@ -454,6 +468,7 @@ module ClientSyncSpec
           # enters its (slowed) sync.
           filename = "ack_file"
           payload = "data"
+          lz4_writer.write_bytes 1u64, IO::ByteFormat::LittleEndian # op prefix
           lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
           lz4_writer.write filename.to_slice
           lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
@@ -465,7 +480,7 @@ module ClientSyncSpec
           # pending throughout the shutdown.
           spawn(name: "ack feeder") do
             20.times do
-              client.@acks.send(1i64)
+              client.@acks.send({1i64, 0u64})
               sleep 10.milliseconds
             end
           rescue Channel::ClosedError

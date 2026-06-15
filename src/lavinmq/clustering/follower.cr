@@ -21,6 +21,13 @@ module LavinMQ
 
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
+      # Op-numbers (the VR viewstamp position) tracked alongside the byte
+      # counters. The byte counters drive lag/timeout/observability; the op
+      # counters drive the majority-commit quorum gate, because op-numbers are
+      # globally comparable across nodes while wire-byte counts are per-connection
+      # (they depend on each follower's full_sync cut and skip decisions).
+      @acked_op = Atomic(UInt64).new(0)
+      @sent_op = Atomic(UInt64).new(0)
       # Wakes the publish-confirm waiter on each ack; closed (never replaced)
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
@@ -40,7 +47,10 @@ module LavinMQ
       getter remote_address
       getter state
 
-      def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
+      # `commit_notify` is the Server's coalescing wakeup for wait_for_quorum
+      # waiters; this follower fires it on each ack and on disconnect so the
+      # leader's commit point is re-evaluated. Nil in unit tests with no server.
+      def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex, @commit_notify : ::Channel(Nil)? = nil)
         @socket.sync = true # Use buffering in lz4
         @socket.read_buffering = true
         @socket.write_timeout = 3.seconds # don't wait for blocked followers
@@ -51,6 +61,15 @@ module LavinMQ
       def negotiate!(password) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
+        negotiate_after_header!(password)
+      end
+
+      # Negotiate when the 8-byte start header has already been read and
+      # validated by the shared listener's router (which peeks it to tell a
+      # REPLI data connection from a VRCTL control connection). Does the
+      # password + id exchange only.
+      def negotiate_after_header!(password) : Nil
+        @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         if keepalive = Config.instance.tcp_keepalive
@@ -83,9 +102,12 @@ module LavinMQ
         loop do
           begin
             len = @socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-            @acked_bytes.add(len)
-            unacked_since = nil       # progress; restart the deadline
-            @ack_notify.try_send(nil) # wake any publish-confirm waiter
+            op = @socket.read_bytes(UInt64, IO::ByteFormat::LittleEndian)
+            @acked_bytes.add(len)              # byte delta (coalesced), for lag stats
+            bump_acked_op(op)                  # absolute highest fully-applied op (monotonic)
+            unacked_since = nil                # progress; restart the deadline
+            @ack_notify.try_send(nil)          # wake any per-follower wait_for_confirm waiter
+            @commit_notify.try &.try_send(nil) # wake the server's wait_for_quorum waiters
           rescue IO::TimeoutError
             @write_lock.synchronize do
               @lz4.flush
@@ -111,16 +133,15 @@ module LavinMQ
       rescue IO::EOFError | Socket::Error | IO::Error
         # socket closed
       ensure
-        @ack_notify.close      # unblock any waiter; this follower is gone
-        @flush_requested.close # stop flush_loop
+        @ack_notify.close                  # unblock any waiter; this follower is gone
+        @flush_requested.close             # stop flush_loop
+        @commit_notify.try &.try_send(nil) # re-evaluate the quorum without this follower
         @running.done
       end
 
       # True once ack_loop has ended (follower disconnected or timed out) or
-      # the follower was closed without ack_loop ever running.
-      # Server#update_isr excludes dead followers: a publish-confirm waiter
-      # unblocked by the @ack_notify close can flush an ISR without this
-      # follower even though it hasn't been removed from @followers yet.
+      # the follower was closed without ack_loop ever running — i.e. it can no
+      # longer ack, so it must not be counted as a live replica.
       def dead? : Bool
         @ack_notify.closed?
       end
@@ -161,9 +182,9 @@ module LavinMQ
       # disconnected. A follower that stops acking is disconnected by
       # ack_loop, which closes @ack_notify and unblocks us here.
       def wait_for_confirm : Bool
-        target = @sent_bytes.get
+        target = @sent_op.get
         request_flush
-        until @acked_bytes.get >= target
+        until @acked_op.get >= target
           @ack_notify.receive
         end
         # Several fibers can wait concurrently (the publish confirm loop and
@@ -270,13 +291,18 @@ module LavinMQ
         end
       end
 
-      def replace(path) : Int64
+      # Each streamed record is stamped with its op-number (the leader's global
+      # logical-record counter, the same value for every follower) so a follower
+      # can ack which op it has durably applied. `op` is passed in by the
+      # Server's each_follower dispatch, where it's assigned under @lock.
+      def replace(path, op : UInt64) : Int64
         @write_lock.synchronize do
           File.open(File.join(@data_dir, path)) do |file|
             file_size = file.size
-            lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
+            lag_size = (RECORD_OVERHEAD + path.bytesize + file_size).to_i64
             @sent_bytes.add(lag_size)
-            send_filename(path)
+            @sent_op.set(op)
+            send_record_header(op, path)
             @lz4.write_bytes file_size.to_i64, IO::ByteFormat::LittleEndian
             IO.copy(file, @lz4, file_size) == file_size || raise IO::EOFError.new
             lag_size
@@ -284,39 +310,69 @@ module LavinMQ
         end
       end
 
-      def append(path : String, bytes : Bytes) : Int64
+      def append(path : String, bytes : Bytes, op : UInt64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
+          lag_size = (RECORD_OVERHEAD + path.bytesize + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
-          send_filename(path)
+          @sent_op.set(op)
+          send_record_header(op, path)
           @lz4.write_bytes -bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
           @lz4.write bytes
           lag_size
         end
       end
 
-      def append(path : String, value : UInt32 | Int32) : Int64
+      def append(path : String, value : UInt32 | Int32, op : UInt64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
+          lag_size = (RECORD_OVERHEAD + path.bytesize + 4).to_i64
           @sent_bytes.add(lag_size)
-          send_filename(path)
+          @sent_op.set(op)
+          send_record_header(op, path)
           @lz4.write_bytes -4i64, IO::ByteFormat::LittleEndian
           @lz4.write_bytes value, IO::ByteFormat::LittleEndian
           lag_size
         end
       end
 
-      def delete(path) : Int64
+      def delete(path, op : UInt64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
+          lag_size = (RECORD_OVERHEAD + path.bytesize).to_i64
           @sent_bytes.add(lag_size)
-          send_filename(path)
+          @sent_op.set(op)
+          send_record_header(op, path)
           @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
           lag_size
         end
       end
 
-      private def send_filename(path)
+      # A logical record fully covered by this follower's full_sync snapshot is
+      # not sent (0 bytes on the wire), but the follower already has it durably,
+      # so advance both its sent and acked op so the quorum gate doesn't wait for
+      # an ack that will never come. See Server#append's skip handling.
+      def mark_op_synced(op : UInt64) : Nil
+        @sent_op.set(op)
+        bump_acked_op(op)
+      end
+
+      # Monotonic max for @acked_op. It has two writers — the ack_loop read fiber
+      # and the dispatch fiber (mark_op_synced for fully-skipped records) — and a
+      # stale/low op (e.g. a fresh connection's first framing ack before any
+      # record completes) must never drive it backwards below the synced baseline.
+      private def bump_acked_op(op : UInt64) : Nil
+        loop do
+          cur = @acked_op.get
+          return if op <= cur
+          _, ok = @acked_op.compare_and_set(cur, op)
+          return if ok
+        end
+      end
+
+      # Wire overhead of a record header: op (UInt64) + path length (Int32) +
+      # the payload-length/marker field (Int64).
+      RECORD_OVERHEAD = sizeof(UInt64) + sizeof(Int32) + sizeof(Int64)
+
+      private def send_record_header(op : UInt64, path : String)
+        @lz4.write_bytes op, IO::ByteFormat::LittleEndian
         @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         @lz4.write path.to_slice
       end
@@ -345,6 +401,8 @@ module LavinMQ
           sent_bytes:         @sent_bytes.get,
           acked_bytes:        @acked_bytes.get,
           lag_in_bytes:       lag_in_bytes,
+          sent_op:            @sent_op.get,
+          acked_op:           @acked_op.get,
           compression_ratio:  @lz4.compression_ratio,
           uncompressed_bytes: @lz4.uncompressed_bytes,
           compressed_bytes:   @lz4.compressed_bytes,
@@ -356,6 +414,17 @@ module LavinMQ
         @sent_bytes.get - @acked_bytes.get
       end
 
+      # Highest op-number this follower has durably applied and acked.
+      def acked_op : UInt64
+        @acked_op.get
+      end
+
+      # Highest op-number sent to this follower (== the leader's global op for a
+      # caught-up follower, since synced followers receive every record).
+      def sent_op : UInt64
+        @sent_op.get
+      end
+
       def syncing?
         @state.syncing?
       end
@@ -364,7 +433,13 @@ module LavinMQ
         @state.synced?
       end
 
-      def mark_synced!
+      # Become Synced as of `baseline_op` — the leader's global op-number at the
+      # full_sync cut. The follower already has every op up to and including this
+      # (via the snapshot), so it starts fully acked there; later records carry
+      # op > baseline_op and are streamed and acked incrementally.
+      def mark_synced!(baseline_op : UInt64)
+        @sent_op.set(baseline_op)
+        @acked_op.set(baseline_op)
         @state = State::Synced
       end
 

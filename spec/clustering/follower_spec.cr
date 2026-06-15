@@ -1,13 +1,23 @@
 require "../spec_helper"
 require "lz4"
 
+# Each change-stream record is prefixed with the op-number (UInt64); consume it
+# before the filename. Tests assert on filename/payload, not the op itself.
 private def read_filename(io) : String
+  io.read_bytes UInt64, IO::ByteFormat::LittleEndian # op prefix
   size = io.read_bytes Int32, IO::ByteFormat::LittleEndian
   io.read_string(size)
 end
 
 private def read_data_size(io) : Int64
   io.read_bytes Int64, IO::ByteFormat::LittleEndian
+end
+
+# Acks now carry a byte delta (Int64) followed by the absolute applied op
+# (UInt64). Test helper to write one the way the follower's ack_loop reads it.
+private def write_ack(socket, bytes : Int, op : UInt64)
+  socket.write_bytes bytes.to_i64, IO::ByteFormat::LittleEndian
+  socket.write_bytes op, IO::ByteFormat::LittleEndian
 end
 
 module FollowerSpec
@@ -139,7 +149,7 @@ module FollowerSpec
         end
 
         10.times do
-          follower.append("#{data_dir}/file", "hello world".to_slice)
+          follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         end
         spawn do
           follower.ack_loop
@@ -157,7 +167,7 @@ module FollowerSpec
         # Send an ack back to satisfy lag check if needed,
         # though close doesn't strictly depend on it now.
         # But let's verify lag reaches 0.
-        client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
+        write_ack(client_socket, follower.lag_in_bytes, 1u64)
 
         # Wait for closing fiber to finish
         wg.wait
@@ -181,7 +191,7 @@ module FollowerSpec
 
         lag_ch = Channel(Int64).new(1)
         spawn do
-          lag_ch.send follower.replace("file1")
+          lag_ch.send follower.replace("file1", 1u64)
           follower.close
         end
 
@@ -193,7 +203,7 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
+        lag_ch.receive.should eq(sizeof(UInt64) + sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -215,9 +225,9 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        lag = follower.replace("file1")
+        lag = follower.replace("file1", 1u64)
         File.write File.join(data_dir, "file1"), "appended-after-replace", mode: "a"
-        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
+        lag.should eq(sizeof(UInt64) + sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
         follower.close
       ensure
         follower_socket.try &.close
@@ -235,7 +245,7 @@ module FollowerSpec
 
         lag_ch = Channel(Int64).new(1)
         spawn do
-          lag_ch.send follower.append("bar", "foo".to_slice)
+          lag_ch.send follower.append("bar", "foo".to_slice, 1u64)
           follower.close
         end
 
@@ -247,7 +257,7 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag_ch.receive.should eq(sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 3)
+        lag_ch.receive.should eq(sizeof(UInt64) + sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -262,7 +272,7 @@ module FollowerSpec
 
         lag_ch = Channel(Int64).new(1)
         spawn do
-          lag_ch.send follower.append("file1", 123i32)
+          lag_ch.send follower.append("file1", 123i32, 1u64)
           follower.close
         end
 
@@ -271,7 +281,7 @@ module FollowerSpec
         read_data_size(client_lz4).should eq(-4i64)
         client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 123i32
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(Int32))
+        lag_ch.receive.should eq(sizeof(UInt64) + sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(Int32))
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -286,7 +296,7 @@ module FollowerSpec
 
         lag_ch = Channel(Int64).new(1)
         spawn do
-          lag_ch.send follower.append("file1", 123u32)
+          lag_ch.send follower.append("file1", 123u32, 1u64)
           follower.close
         end
 
@@ -295,7 +305,7 @@ module FollowerSpec
         read_data_size(client_lz4).should eq(-4i64)
         client_lz4.read_bytes(UInt32, IO::ByteFormat::LittleEndian).should eq 123u32
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(UInt32))
+        lag_ch.receive.should eq(sizeof(UInt64) + sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(UInt32))
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -318,7 +328,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         target = follower.lag_in_bytes
         spawn { follower.ack_loop }
 
@@ -336,7 +346,7 @@ module FollowerSpec
         end
 
         # Ack the bytes; wait_for_confirm should now return
-        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        write_ack(client_socket, target, 1u64)
         select
         when confirmed.receive
         when timeout(2.seconds)
@@ -363,7 +373,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         target = follower.lag_in_bytes
         spawn { follower.ack_loop }
 
@@ -374,7 +384,7 @@ module FollowerSpec
         3.times { spawn { confirmed.send follower.wait_for_confirm } }
         sleep 100.milliseconds # let all waiters block on the ack notification
 
-        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        write_ack(client_socket, target, 1u64)
         3.times do
           select
           when result = confirmed.receive
@@ -402,7 +412,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         # Short ack deadline: the follower stays connected but never acks, so
         # ack_loop should give up and disconnect, closing @ack_notify.
         spawn { follower.ack_loop(50.milliseconds) }
@@ -440,11 +450,11 @@ module FollowerSpec
         sleep 200.milliseconds
 
         # Now publish; a healthy follower acking promptly must NOT be dropped.
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         target = follower.lag_in_bytes
         confirmed = Channel(Bool).new
         spawn { confirmed.send follower.wait_for_confirm }
-        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        write_ack(client_socket, target, 1u64)
 
         select
         when result = confirmed.receive
@@ -474,7 +484,7 @@ module FollowerSpec
         # Outstanding data pending inside the LZ4 writer (well below its
         # block size, so the append itself doesn't touch the socket); any
         # flush must now write to the socket.
-        follower.append("#{data_dir}/file", Bytes.new(1024))
+        follower.append("#{data_dir}/file", Bytes.new(1024), 1u64)
 
         # Fill the socket buffers (the client side never reads), then stop at
         # the first blocked write, so a later flush of the pending LZ4 data
@@ -534,7 +544,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
         spawn { follower.ack_loop }
 
         confirmed = Channel(Nil).new
@@ -572,7 +582,7 @@ module FollowerSpec
 
         # A small append stays in the LZ4 writer's buffer (auto_flush is
         # off); only a flush moves it to the socket.
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
 
         received = Channel(String).new(1)
         spawn do
@@ -619,7 +629,7 @@ module FollowerSpec
         rescue IO::Error
         end
 
-        follower.append("#{data_dir}/file", "hello world".to_slice)
+        follower.append("#{data_dir}/file", "hello world".to_slice, 1u64)
 
         confirmed = Channel(Bool).new(1)
         spawn { confirmed.send follower.wait_for_confirm }
@@ -724,7 +734,7 @@ module FollowerSpec
 
         lag_ch = Channel(Int64).new(1)
         spawn do
-          lag_ch.send follower.delete("file1")
+          lag_ch.send follower.delete("file1", 1u64)
           follower.close
         end
 
@@ -732,7 +742,7 @@ module FollowerSpec
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq 0i64
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64))
+        lag_ch.receive.should eq(sizeof(UInt64) + sizeof(Int32) + "file1".bytesize + sizeof(Int64))
       ensure
         follower_socket.try &.close
         client_socket.try &.close

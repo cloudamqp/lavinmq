@@ -36,8 +36,23 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
-      # Replaced with a fresh channel on each (re)connect in #stream_changes.
-      @acks = Channel(Int64).new
+      # Each ack is a {byte_delta, applied_op} pair: the byte delta drives the
+      # leader's lag/timeout stats; applied_op is the absolute op-number of the
+      # highest record this follower has fully applied (the VR ack). Replaced
+      # with a fresh channel on each (re)connect in #stream_changes.
+      @acks = Channel({Int64, UInt64}).new
+      # Op-number of the highest record fully applied + durable. Carried on every
+      # ack; only advanced once a record's filesystem effect is complete (the
+      # last payload chunk, the delete, or the replace rename), never on the
+      # leading framing ack, so the leader never sees an op acked before its data.
+      @applied_op = 0u64
+
+      # Highest op-number this follower has durably applied this session — its
+      # log head, used by the VR node for view-change selection while a backup.
+      def applied_op : UInt64
+        @applied_op
+      end
+
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
@@ -306,10 +321,14 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        acks = @acks = Channel({Int64, UInt64}).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
+          # Each record is stamped with the leader's op-number for it (the same
+          # value on every follower), which this follower acks once the record is
+          # durably applied (see @applied_op).
+          op = lz4.read_bytes UInt64, IO::ByteFormat::LittleEndian
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
           filename = lz4.read_string(filename_len)
@@ -321,28 +340,30 @@ module LavinMQ
           # the leader's progress deadline reset instead of going silent until
           # it's done. For a delete the framing is the entire record — acking
           # it tells the leader the deletion is durable — so it's only acked
-          # once the deletion has been applied.
-          framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          # once the deletion has been applied. The framing ack carries the
+          # *previous* applied op, since this record isn't applied yet.
+          framing = sizeof(UInt64) + sizeof(Int32) + filename_len + sizeof(Int64)
           case len
           when .negative? # append bytes to file
             ack(framing)
-            append(filename, len, lz4)
+            append(filename, len, lz4, op)
           when .zero? # file is deleted
             delete(filename)
+            @applied_op = op
             ack(framing)
           when .positive? # replace file
             ack(framing)
-            replace(filename, len, lz4)
+            replace(filename, len, lz4, op)
           end
         end
       ensure
         @acks.close
       end
 
-      private def append(filename, len, lz4)
+      private def append(filename, len, lz4, op : UInt64)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        stream_with_checksum(filename, lz4, f, len.abs)
+        stream_with_checksum(filename, lz4, f, len.abs, op: op)
       end
 
       private def delete(filename)
@@ -388,7 +409,7 @@ module LavinMQ
         end
       end
 
-      private def replace(filename, len, lz4)
+      private def replace(filename, len, lz4, op : UInt64)
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
 
@@ -401,16 +422,18 @@ module LavinMQ
           f.sync = true
           # The record's final ack tells the leader the replace is durable, so
           # it must not be sent while the new content only exists as the .tmp
-          # file; hold it back until the rename has installed the file.
+          # file; hold it back until the rename has installed the file. Only then
+          # is the record applied, so advance @applied_op before the final ack.
           deferred = stream_with_checksum(filename, lz4, f, len, defer_final_ack: true)
           f.rename f.path[0..-5]
+          @applied_op = op
           ack(deferred)
         end
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
       # Returns the number of bytes received but not yet acked (see below).
-      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false) : Int64
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, op : UInt64 = 0u64, defer_final_ack = false) : Int64
         # Get or create SHA1 digest for this file
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
@@ -420,7 +443,9 @@ module LavinMQ
         # otherwise stream for >10s with no ack on a 100 Mbit/s link).
         # With defer_final_ack the last chunk is not acked but its size
         # returned, for callers that must apply the action (replace's rename)
-        # before the leader may consider it durable.
+        # before the leader may consider it durable. Otherwise the record is
+        # applied once its last chunk is written, so advance @applied_op before
+        # that chunk's ack (mid-record chunk acks keep the previous op).
         buffer = uninitialized UInt8[BUFFER_SIZE]
         remaining = length
         while remaining > 0
@@ -430,33 +455,41 @@ module LavinMQ
           file.write(bytes)
           sha1.update(bytes)
           remaining -= len
-          return len.to_i64 if remaining.zero? && defer_final_ack
+          if remaining.zero?
+            return len.to_i64 if defer_final_ack
+            @applied_op = op # record fully applied
+          end
           ack(len)
         end
         0i64
       end
 
-      # Count streamed bytes and forward the count to the ack-sending fiber.
+      # Count streamed bytes and forward (byte delta, current applied op) to the
+      # ack-sending fiber.
       private def ack(bytes : Int) : Nil
         n = bytes.to_i64
         @streamed_bytes &+= n
-        @acks.send(n)
+        @acks.send({n, @applied_op})
       end
 
-      # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent unless sync is disabled:
-      # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # Concatenate as many acks as possible to generate few TCP packets: sum the
+      # byte deltas and take the highest applied op (ops are monotonic, so the
+      # last wins). Data is synced to disk before each ack is sent unless sync is
+      # disabled: the leader holds publish confirms until in-sync followers have
+      # acked, so an acked byte/op must be durable here in normal operation.
+      # Syncing once per coalesced batch makes batching emerge naturally — acks
+      # accumulate while the blocking syncfs runs.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
-        while ack_bytes = acks.receive?
-          while ack_bytes2 = acks.try_receive?
-            ack_bytes += ack_bytes2
+        while ack = acks.receive?
+          ack_bytes, ack_op = ack
+          while ack2 = acks.try_receive?
+            ack_bytes += ack2[0]
+            ack_op = ack2[1] if ack2[1] > ack_op
           end
           sync_to_disk
-          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
+          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # byte delta
+          socket.write_bytes ack_op, IO::ByteFormat::LittleEndian    # absolute applied op
         end
       rescue Channel::ClosedError
       rescue IO::Error

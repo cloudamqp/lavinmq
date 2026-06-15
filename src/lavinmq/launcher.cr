@@ -7,9 +7,7 @@ require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
 require "./pidfile"
-require "./etcd"
 require "./clustering/controller"
-require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -40,10 +38,8 @@ module LavinMQ
       end
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        @runner = controller = Clustering::Controller.new(@config)
+        @replicator = controller.replicator
       else
         @runner = StandaloneRunner.new
       end
@@ -171,7 +167,6 @@ module LavinMQ
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
       if @config.amqp_port > 0
         spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
@@ -185,9 +180,9 @@ module LavinMQ
         end
       end
 
-      if clustering_bind = @config.clustering_bind
-        spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
-      end
+      # The clustering port is owned by Clustering::Controller (it routes VR
+      # control connections and follower replication connections), so there is
+      # no separate clustering listener started here.
 
       unless @config.unix_path.empty?
         spawn amqp_server.listen_unix(@config.unix_path, Server::Protocol::AMQP), name: "AMQP listening at #{@config.unix_path}"

@@ -1,6 +1,5 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
 require "lz4"
 
 # Drives the clustering handshake + the two full-sync passes (requesting no
@@ -89,7 +88,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       sock_b, client_b = FakeSocket.pair
       synced = LavinMQ::Clustering::Follower.new(sock_a, data_dir, fi)
       syncing = LavinMQ::Clustering::Follower.new(sock_b, data_dir, fi)
-      synced.mark_synced!
+      synced.mark_synced!(0u64)
       server.@followers << synced << syncing # syncing left in Syncing state
 
       server.followers.should eq [synced] # excludes the still-syncing follower
@@ -153,6 +152,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
 
       received = Channel({String, Int64, String}).new(1)
       spawn do
+        lz4.read_bytes UInt64, IO::ByteFormat::LittleEndian # op prefix
         len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
         filename = lz4.read_string(len)
         size = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian

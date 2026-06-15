@@ -4,6 +4,7 @@ require "./replicator"
 require "./follower"
 require "./checksums"
 require "./coordinator"
+require "./vr/membership"
 require "../config"
 require "../message"
 require "../mfile"
@@ -32,7 +33,11 @@ module LavinMQ
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
-      @dirty_isr = true
+      # Global op-number: a monotonic counter of logical replication records (the
+      # VR op-number / viewstamp position). Incremented once per dispatched record
+      # in each_follower, under @lock, and stamped on the record sent to every
+      # follower so acks are globally comparable. Guarded by @lock.
+      @op = 0u64
       @id : Int32
       @config : Config
       # Maps relative paths to their MFile (for sparse, mmap-backed files) or
@@ -43,7 +48,21 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
+      # Quorum size (majority of the configured roster) for majority-quorum
+      # commit. Nil while the legacy etcd path drives durability; set once the VR
+      # coordinator wires in the membership. When set, wait_for_quorum gates
+      # durable operations on a majority having the data rather than on all
+      # in-sync followers.
+      @quorum : Int32?
+      # Highest op-number a quorum has durably applied. Guarded by @lock.
+      @commit_op = 0u64
+      # Coalescing wakeup for wait_for_quorum waiters: any follower ack (or a
+      # follower disconnect, which may change the quorum) fires it. Capacity 1 so
+      # a burst collapses to one wakeup; relayed between waiters like
+      # Follower#@ack_notify.
+      @commit_notify = ::Channel(Nil).new(1)
+
+      def initialize(config : Config, @coordinator : Coordinator, @id : Int32, @quorum : Int32? = nil)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
@@ -84,8 +103,8 @@ module LavinMQ
           files[path] = nil
           checksums.delete(path)
         end
-        each_follower do |f|
-          f.replace(path)
+        each_follower do |f, op|
+          f.replace(path, op)
           # The whole file was just resent; a synced baseline for it (captured
           # at this follower's join) no longer describes its content and would
           # wrongly skip appends at offsets below the old cut (e.g. after a
@@ -107,9 +126,13 @@ module LavinMQ
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         bytes = mfile.to_slice(pos.to_i64, length.to_i64)
         offset = pos.to_i64
-        each_follower do |f|
+        each_follower do |f, op|
           skip = f.already_synced(path, offset, bytes.size.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.size
+          if skip < bytes.size
+            f.append(path, bytes[skip..], op)
+          else
+            f.mark_op_synced(op) # entirely within the follower's full_sync snapshot
+          end
         end
       end
 
@@ -121,16 +144,16 @@ module LavinMQ
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
         size = sizeof(Int32).to_i64 # value is 4 bytes on the wire (Int32 or UInt32)
-        each_follower do |f|
+        each_follower do |f, op|
           case skip = f.already_synced(path, offset, size)
-          when 0    then f.append(path, value)
-          when size then next # entirely within the follower's full_sync snapshot
+          when 0    then f.append(path, value, op)
+          when size then f.mark_op_synced(op) # entirely within the follower's full_sync snapshot
           else
             # A 4-byte value is written in a single call, so a cut inside it
             # shouldn't happen; stay byte-exact anyway and send the tail.
             buf = uninitialized UInt8[4]
             IO::ByteFormat::LittleEndian.encode(value, buf.to_slice)
-            f.append(path, buf.to_slice[skip..])
+            f.append(path, buf.to_slice[skip..], op)
           end
         end
       end
@@ -140,9 +163,13 @@ module LavinMQ
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        each_follower do |f|
+        each_follower do |f, op|
           skip = f.already_synced(path, offset, bytes.bytesize.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.bytesize
+          if skip < bytes.bytesize
+            f.append(path, bytes[skip..], op)
+          else
+            f.mark_op_synced(op) # entirely within the follower's full_sync snapshot
+          end
         end
       end
 
@@ -152,8 +179,8 @@ module LavinMQ
           files.delete(path)
           checksums.delete(path)
         end
-        each_follower do |f|
-          f.delete(path)
+        each_follower do |f, op|
+          f.delete(path, op)
           f.forget_baseline(path) # path may be reused by a future file
         end
       end
@@ -277,8 +304,7 @@ module LavinMQ
 
       def listen(server : TCPServer)
         server.listen
-        # called before accepting followers, no lock needed
-        @file_index.lock { |_files, checksums| checksums.restore }
+        restore_checksums
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -288,10 +314,27 @@ module LavinMQ
         end
       end
 
+      # Load the on-disk checksum cache before accepting followers. Called by
+      # #listen, and by the Controller before this node starts serving followers
+      # when it owns the shared clustering listener. Idempotent enough — no lock
+      # needed since it runs before any follower connects.
+      def restore_checksums : Nil
+        @file_index.lock { |_files, checksums| checksums.restore }
+      end
+
       private def handle_socket(socket : TCPSocket)
+        validate_start_header(socket) || return
+        accept_follower(socket)
+      end
+
+      # Serve a follower whose REPLI start header has already been read and
+      # validated (by Server#listen above, or by the shared clustering listener
+      # that routes REPLI vs VRCTL connections). Does the auth + id exchange,
+      # registers the follower, and serves its ack loop.
+      def accept_follower(socket : TCPSocket) : Nil
         Log.context.set(follower: socket.remote_address.to_s)
-        follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
+        follower = Follower.new(socket, @data_dir, self, @commit_notify)
+        follower.negotiate_after_header!(@password)
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
@@ -307,14 +350,25 @@ module LavinMQ
         sync_and_serve(follower)
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
-      rescue ex : InvalidStartHeaderError
-        Log.warn { ex.message }
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
+      end
+
+      # Read and check the 8-byte REPLI start header. Returns false (and closes)
+      # on mismatch.
+      private def validate_start_header(socket : TCPSocket) : Bool
+        header = uninitialized UInt8[8]
+        socket.read_fully(header.to_slice)
+        return true if header.to_slice == Start
+        Log.warn { "Invalid start header from #{socket.remote_address}" }
+        socket.close
+        false
+      rescue IO::Error
+        false
       end
 
       # Full-sync an already-registered follower into the Synced state, then
@@ -334,99 +388,78 @@ module LavinMQ
             # stream instead of being duplicated — wholly, or just the record's
             # tail if the cut landed mid-record (Follower#already_synced).
             cut = snapshot_sizes
+            # The op-number at the cut: the follower has every record up to here
+            # via the snapshot, so it becomes synced fully-acked at this op. Read
+            # under @lock, so it's stable from the cut through mark_synced!.
+            baseline_op = @op
             follower.full_sync(cut) # sync the last, capped at the cut
             follower.capture_synced_baseline(cut)
-            follower.mark_synced! # Change state to Synced
-            update_isr
+            follower.mark_synced!(baseline_op) # Change state to Synced
           end
         end
+        # A newly synced follower may complete a pending quorum; re-evaluate.
+        @commit_notify.try_send(nil)
         # Wait for follower to disconnect or be closed
         follower.ack_loop
       ensure
-        # Covers everything after registration, including a full_sync that
-        # raised or an update_isr that failed right after mark_synced! — a
-        # follower left in @followers as Synced with no ack_loop running
-        # would hang every wait_for_confirm forever.
-        @lock.synchronize do
-          @followers.delete(follower)
-          if follower.synced?
-            # If the follower was behind (unacked replicated data) when it
-            # dropped, it may be missing data that's about to be confirmed via
-            # the surviving followers, so it must leave the etcd ISR now rather
-            # than lazily — otherwise it could be promoted on failover lacking
-            # already-confirmed data. A caught-up follower (no lag) still has
-            # everything confirmed so far, so we leave it in the ISR as a valid
-            # failover candidate; the dirty ISR is flushed before the next
-            # replicated durable operation returns (each_follower) and before
-            # the next publish confirm (Persister), so nothing it lacks is
-            # ever acknowledged while it remains listed.
-            behind = follower.lag_in_bytes > 0
-            @dirty_isr = true
-            if behind
-              begin
-                update_isr # @dirty_isr stays set, so the lazy path retries on failure
-              rescue ex
-                Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
-              end
-            end
-          end
-        end
+        # Remove the follower; a disconnect may shrink the live set below quorum
+        # (handled by wait_for_quorum, which stalls). committed_op recomputes
+        # from the remaining followers — the dropped one simply stops counting.
+        @lock.synchronize { @followers.delete(follower) }
+        @commit_notify.try_send(nil)
       end
 
-      private def update_isr
-        ids = Set(Int32).new
-        @followers.each do |f|
-          # A dead follower may linger in @followers until its handler fiber
-          # runs its cleanup; it must not re-enter the ISR meanwhile (flush_isr
-          # races that cleanup when a confirm is pending).
-          ids.add(f.id) if f.synced? && !f.dead?
-        end
-        ids.add(@id)
-        Log.info { "In-sync replicas: #{ids.to_a}" }
-        @coordinator.update_isr(ids)
-        @dirty_isr = false
-      end
-
-      # True when the ISR last written to the coordinator may be stale (a
-      # follower connected or disconnected since). Checked by the Persister
-      # before sending publish confirms.
-      def isr_dirty? : Bool
-        @lock.synchronize { @dirty_isr }
-      end
-
-      # Commit the current ISR to the coordinator, retrying until it succeeds.
-      # Called before any durable operation is acknowledged when a synced
-      # follower has disconnected — by each_follower after dispatching a
-      # replicated change, and by the Persister before sending publish
-      # confirms: the acknowledgment may only go out once the follower's
-      # removal from the ISR is durable, otherwise a leader crash right after
-      # the acknowledgment could elect that follower even though it lacks the
-      # acknowledged data. Operations must stall rather than be acknowledged
-      # against a stale ISR — if the coordinator stays unreachable the
-      # leader's lease eventually expires and the process exits.
-      def flush_isr : Nil
-        loop do
-          @lock.synchronize { update_isr }
-          return
-        rescue ex
-          Log.warn(exception: ex) { "Failed to update ISR, retrying" }
-          sleep 0.5.seconds
-        end
-      end
-
-      # Block until every in-sync follower has acked everything replicated so
-      # far, so a durable operation may be acknowledged to a client: once
-      # this returns, every node etcd lists as a failover candidate has the
-      # operation durably on disk. Wait for all followers (no short-circuit)
-      # — wait_for_confirm blocks until the follower acks or disconnects. A
-      # follower that disconnected (wait_for_confirm == false, or it dropped
-      # earlier and left the ISR dirty) may lack data that's about to be
-      # acknowledged, so its removal must be committed to the coordinator
-      # before this returns (see flush_isr).
+      # Block until a quorum has durably applied everything replicated so far,
+      # so a durable operation may be acknowledged to a client. With a roster
+      # quorum configured (the VR cluster) this is majority-quorum commit; with
+      # none (a stand-in/legacy Server in specs) it waits for all live followers.
       def wait_for_followers : Nil
-        all_acked = true
-        followers.each { |f| all_acked &= f.wait_for_confirm }
-        flush_isr if !all_acked || isr_dirty?
+        if @quorum
+          wait_for_quorum(current_op)
+        else
+          followers.each &.wait_for_confirm
+        end
+      end
+
+      # Majority-quorum durability gate (the VR commit rule), used once a roster
+      # quorum is configured. Blocks until a quorum (this leader + enough synced
+      # followers) has durably applied everything up to `target_op`, then
+      # returns. Already-committed targets return at once. Reuses the standing
+      # ack fibers via @commit_notify — no per-operation fiber, no polling. A
+      # minority that cannot form a quorum blocks here (CP: the operation stalls
+      # rather than being acknowledged on a minority) until members (re)sync or
+      # the server closes.
+      def wait_for_quorum(target_op : UInt64) : Nil
+        until committed_op >= target_op
+          @commit_notify.receive
+        end
+        @commit_notify.try_send(nil) # relay to other waiters (see Follower#wait_for_confirm)
+      rescue ::Channel::ClosedError
+        # server closing; stop waiting
+      end
+
+      # The current commit point: the highest op-number a quorum has durably
+      # applied. The leader counts itself at @op (it has everything it assigned);
+      # each synced follower contributes its acked op. With no roster configured
+      # (legacy etcd path) there is nothing to gate, so it reports @op. Updates
+      # the cached @commit_op (monotonic) for heartbeat gossip.
+      def committed_op : UInt64
+        q = @quorum
+        return @op unless q
+        @lock.synchronize do
+          positions = Array(UInt64).new(@followers.size + 1)
+          positions << @op
+          @followers.each { |f| positions << f.acked_op if f.synced? }
+          if c = VR::Membership.committed_op(q, positions)
+            @commit_op = c if c > @commit_op
+          end
+          @commit_op
+        end
+      end
+
+      # The latest op-number assigned by this leader (its own log head).
+      def current_op : UInt64
+        @lock.synchronize { @op }
       end
 
       def close
@@ -435,36 +468,26 @@ module LavinMQ
           @followers.each &.close
           @followers.clear
         end
-        Fiber.yield # required for follower/listener fibers to actually finish
+        Fiber.yield          # required for follower/listener fibers to actually finish
+        @commit_notify.close # unblock any wait_for_quorum waiters
         @file_index.lock { |_files, checksums| checksums.store }
       end
 
-      # Dispatch a replicated change to all synced followers, then commit a
-      # dirty ISR before returning. Every durable operation replicates its
-      # change before acknowledging it (definitions writes, JSON file
-      # replaces, segment deletes, publishes), so flushing here guarantees no
-      # operation is acknowledged while etcd still lists a follower that
-      # disconnected before this change was dispatched — a leader crash right
-      # after the acknowledgment could otherwise elect that follower without
-      # the acknowledged change. The etcd write happens after the dispatch
-      # loop, so a coordinator failure can't abort a dispatch halfway and
-      # leave a hole in every follower's file, and flush_isr retries instead
-      # of raising into the publish path — the operation stalls, and if the
-      # coordinator stays unreachable the leader's lease expires and the
-      # process exits.
-      private def each_follower(& : Follower -> Nil) : Nil
-        dirty = false
+      # Dispatch a replicated change to all synced followers, assigning the
+      # record its global op-number. Durability is gated separately, when the
+      # operation is acknowledged, by wait_for_followers (majority-quorum
+      # commit) — not here.
+      private def each_follower(& : Follower, UInt64 -> Nil) : Nil
         @lock.synchronize do
+          op = @op &+= 1 # one op-number per logical record, assigned under @lock
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
-            yield f
+            yield f, op
           rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
-          dirty = @dirty_isr
         end
-        flush_isr if dirty
       end
 
       private def strip_datadir(path : String) : String

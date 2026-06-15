@@ -63,13 +63,6 @@ class DiskVisibilitySpyReplicator
     Array(LavinMQ::Clustering::Follower).new
   end
 
-  def isr_dirty? : Bool
-    false
-  end
-
-  def flush_isr : Nil
-  end
-
   def wait_for_followers : Nil
   end
 

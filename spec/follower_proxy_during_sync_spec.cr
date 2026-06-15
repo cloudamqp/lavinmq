@@ -1,7 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
 
 # Create a custom slow clustering server for testing

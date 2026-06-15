@@ -17,16 +17,11 @@ module LavinMQ
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
-      # ISR bookkeeping for the publish-confirm path: a confirm may only be
-      # sent against an ISR that is committed to the coordinator (see
-      # Persister#wait_for_followers).
-      abstract def isr_dirty? : Bool
-      abstract def flush_isr : Nil
-      # Block until every in-sync follower has acked everything replicated so
-      # far, then commit any pending ISR change. Called after a durable
-      # operation has been dispatched and locally fsynced, before it is
-      # acknowledged to a client (publish confirms via the Persister,
-      # definition changes via the DefinitionsStore).
+      # Block until a quorum (this leader + a majority of the roster) has acked
+      # everything replicated so far. Called after a durable operation has been
+      # dispatched and locally fsynced, before it is acknowledged to a client
+      # (publish confirms via the Persister, definition changes via the
+      # DefinitionsStore). A minority that cannot form a quorum stalls here.
       abstract def wait_for_followers : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
