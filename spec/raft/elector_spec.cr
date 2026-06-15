@@ -388,6 +388,35 @@ describe LavinMQ::Raft::Elector do
     end
   end
 
+  describe "declarative formation decision" do
+    it "exactly one of three identically-seeded nodes decides to Bootstrap (the lowest host)" do
+      hosts = ["node-c", "node-a", "node-b"] # advertised hosts, distinct
+      seed_list = hosts.map { |h| "http://#{h}:15672" }.join(",")
+      dirs = [] of String
+      electors = [] of LavinMQ::Raft::Elector
+      begin
+        hosts.each_with_index do |h, i|
+          dir = tmp_data_dir
+          dirs << dir
+          File.write(File.join(dir, ".clustering_id"), (i + 1).to_s(36))
+          cfg = elector_config(dir, free_port, free_port)
+          cfg.clustering_advertised_uri = "tcp://#{h}:#{free_port}"
+          cfg.clustering_seed_uris = seed_list
+          electors << LavinMQ::Raft::Elector.new(cfg)
+        end
+        actions = electors.map(&.boot_action)
+        actions.count(LavinMQ::Raft::BootstrapDecision::Action::Bootstrap).should eq 1
+        # The bootstrapper is the lowest host, "node-a", which is index 1.
+        electors[1].boot_action.should eq LavinMQ::Raft::BootstrapDecision::Action::Bootstrap
+        electors[0].boot_action.should eq LavinMQ::Raft::BootstrapDecision::Action::Join
+        electors[2].boot_action.should eq LavinMQ::Raft::BootstrapDecision::Action::Join
+      ensure
+        electors.each &.stop rescue nil
+        dirs.each { |d| FileUtils.rm_rf(d) }
+      end
+    end
+  end
+
   describe "join_via_seeds" do
     it "tries seeds in turn and succeeds on the first that returns 200" do
       hit = [] of String
