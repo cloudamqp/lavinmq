@@ -143,21 +143,41 @@ describe LavinMQ::Clustering::PasswordStore do
   end
 end
 
+private def vr_state_path(data_dir : String) : String
+  File.join(data_dir, ".clustering_vr_state")
+end
+
+private def vr_counter_path(data_dir : String, name : String) : String
+  File.join(data_dir, ".clustering_vr_state.#{name}")
+end
+
+private def read_vr_counter(path : String) : Int64
+  File.open(path) do |file|
+    file.seek(File.size(path) - 8)
+    file.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+  end
+end
+
 describe LavinMQ::Clustering::VRState do
-  it "stores a complete JSON state file with private permissions" do
+  it "stores cold state separately from append-only counter files" do
     with_datadir do |data_dir|
       state = LavinMQ::Clustering::VRState.new(data_dir)
       state.role = "primary"
       state.next_op!.should eq 1
       state.commit!(1)
 
-      path = File.join(data_dir, ".clustering_vr_state")
+      path = vr_state_path(data_dir)
       json = JSON.parse(File.read(path))
       json["role"].as_s.should eq "primary"
-      json["op_number"].as_i.should eq 1
-      json["commit_number"].as_i.should eq 1
-      mode = File.info(path).permissions.value & 0o777
-      mode.should eq 0o600
+      json["op_number"]?.should be_nil
+      json["commit_number"]?.should be_nil
+
+      op_path = vr_counter_path(data_dir, "op_number")
+      commit_path = vr_counter_path(data_dir, "commit_number")
+      read_vr_counter(op_path).should eq 1
+      read_vr_counter(commit_path).should eq 1
+      File.size(op_path).should eq 8
+      File.size(commit_path).should eq 8
     end
   end
 
@@ -184,6 +204,42 @@ describe LavinMQ::Clustering::VRState do
 
       restored = LavinMQ::Clustering::VRState.new(data_dir)
       restored.op_number.should eq 3
+    end
+  end
+
+  it "restores the last complete record and compacts interrupted trailing writes" do
+    with_datadir do |data_dir|
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.apply_op!(3)
+
+      path = vr_counter_path(data_dir, "op_number")
+      File.open(path, "a", &.write_byte(1_u8))
+
+      restored = LavinMQ::Clustering::VRState.new(data_dir)
+      restored.op_number.should eq 3
+      restored.apply_op!(4)
+
+      File.size(path).should eq 8
+      read_vr_counter(path).should eq 4
+    end
+  end
+
+  it "compacts appended counter records when they reach the configured size" do
+    with_datadir do |data_dir|
+      state = LavinMQ::Clustering::VRState.new(data_dir, 1_i64)
+      state.apply_op!(1)
+      state.apply_op!(2)
+      state.commit!(1)
+      state.commit!(2)
+
+      op_path = vr_counter_path(data_dir, "op_number")
+      commit_path = vr_counter_path(data_dir, "commit_number")
+      File.size(op_path).should eq 8
+      File.size(commit_path).should eq 8
+      read_vr_counter(op_path).should eq 2
+      read_vr_counter(commit_path).should eq 2
+      File.exists?("#{op_path}.tmp").should be_false
+      File.exists?("#{commit_path}.tmp").should be_false
     end
   end
 
@@ -218,6 +274,8 @@ describe LavinMQ::Clustering do
     LavinMQ::Clustering.metadata_file?(".clustering_password").should be_true
     LavinMQ::Clustering.metadata_file?(".clustering_password.abcd.tmp").should be_true
     LavinMQ::Clustering.metadata_file?(".clustering_vr_state").should be_true
+    LavinMQ::Clustering.metadata_file?(".clustering_vr_state.op_number").should be_true
+    LavinMQ::Clustering.metadata_file?(".clustering_vr_state.commit_number.tmp").should be_true
     LavinMQ::Clustering.metadata_file?(".clustering_vr_state.abcd.tmp").should be_true
     LavinMQ::Clustering.metadata_file?("definitions.amqp").should be_false
   end

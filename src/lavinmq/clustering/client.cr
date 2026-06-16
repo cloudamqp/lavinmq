@@ -485,9 +485,9 @@ module LavinMQ
       # Concatenate as many acks as possible to generate few TCP packets.
       # Data is synced to disk before each ack is sent unless sync is disabled:
       # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # so an acked byte must be durable here in normal operation. In v2 the VR
+      # op state is appended before the sync so the same syncfs covers both the
+      # replicated data and the local election freshness marker.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack = acks.receive?
@@ -503,10 +503,10 @@ module LavinMQ
               end
             end
           end
-          sync_to_disk
           if op = op_number
             @vr_state.try &.apply_op!(op)
           end
+          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
