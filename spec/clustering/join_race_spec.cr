@@ -47,7 +47,10 @@ describe "clustering join-during-publish race", tags: "etcd" do
       end
 
       # Follower joins WHILE publishing is in flight.
-      follower_config = config.dup.tap &.data_dir = follower_dir
+      follower_config = config.dup.tap do |c|
+        c.data_dir = follower_dir
+        c.metrics_http_port = -1
+      end
       repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
       follower_done = WaitGroup.new(1)
       spawn(name: "follower spec") do
@@ -101,7 +104,10 @@ describe "clustering join-during-publish race", tags: "etcd" do
     leader_hashes = Hash(String, String).new
     leader_sizes = Hash(String, Int64).new
     with_amqp_server(replicator: replicator) do |s|
-      follower_config = config.dup.tap &.data_dir = follower_dir
+      follower_config = config.dup.tap do |c|
+        c.data_dir = follower_dir
+        c.metrics_http_port = -1
+      end
       repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password, proxy: false)
       follower_done = WaitGroup.new(1)
       spawn(name: "follower spec") do
