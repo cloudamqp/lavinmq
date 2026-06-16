@@ -547,7 +547,7 @@ describe LavinMQ::Raft::Backend do
   end
 
   describe "coordinator role" do
-    it "proposes SetIsr on update_isr" do
+    it "commits the ISR via update_isr" do
       dir = tmp_data_dir
       backend = nil.as(LavinMQ::Raft::Backend?)
       begin
@@ -558,7 +558,7 @@ describe LavinMQ::Raft::Backend do
         b.server.bootstrap.should be_true
         select
         when b.server.is_leader.when_true.receive
-        when timeout(2.seconds); fail "timed out waiting for leadership"
+        when timeout(2.seconds); fail "not leader"
         end
         b.update_isr(Set{1, 2})
         retry_until(2.seconds) { b.server.isr == Set{1, 2} }

@@ -41,7 +41,9 @@ module LavinMQ::Raft
     end
 
     def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
-      @server.propose(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
+      unless @server.propose_committed(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
+        Log.warn { "ISR update did not commit (leadership lost or overwritten); will retry on next sync" }
+      end
     end
 
     def password : String
