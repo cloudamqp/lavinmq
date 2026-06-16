@@ -1,4 +1,5 @@
 require "digest/sha1"
+require "./protocol"
 require "../amqp/queue/queue"
 require "../error"
 require "../sortable_json"
