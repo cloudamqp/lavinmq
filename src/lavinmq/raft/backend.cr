@@ -265,16 +265,57 @@ module LavinMQ::Raft
     rescue ::Channel::ClosedError
     end
 
+    enum LeaderChangeAction
+      Keep          # leave the current replication client as-is
+      StopFollowing # this node is the leader; follow no one
+      Follow        # (re)build a client following the new leader
+    end
+
+    # Pure decision for a leader-change event. raft flips leader_id around
+    # during contested elections (a higher-term RequestVote points it at a
+    # candidate that may never win), so reacting to every change by tearing
+    # down and rebuilding the replication client causes redundant proxy churn
+    # and full re-syncs. Mirror the etcd backend: keep the current client on a
+    # transient nil leader, when the new leader can't be resolved yet, or when
+    # we already follow it; only rebuild for a genuinely different leader.
+    def self.leader_change_action(new_leader_id : UInt64?, self_id : UInt64,
+                                  data_uri : String?, already_following : Bool) : LeaderChangeAction
+      return LeaderChangeAction::Keep if new_leader_id.nil?
+      return LeaderChangeAction::StopFollowing if new_leader_id == self_id
+      return LeaderChangeAction::Keep if data_uri.nil?
+      return LeaderChangeAction::Keep if already_following
+      LeaderChangeAction::Follow
+    end
+
     private def handle_leader_change(new_leader_id : UInt64?) : Nil
-      @repli_client.try &.close
-      @repli_client = nil
-      return if new_leader_id.nil?
-      return if new_leader_id == @server.node_id.to_u64
-      data_uri = lookup_data_uri(new_leader_id)
-      return unless data_uri
-      @repli_client = client = ::LavinMQ::Clustering::Client.new(
-        @config, @server.node_id, password, raft_backend: self)
-      spawn(name: "Clustering client #{data_uri}") { client.follow(data_uri) }
+      self_id = @server.node_id.to_u64
+
+      # Only resolve an address when there is a different leader to follow.
+      data_uri = nil
+      if new_leader_id && new_leader_id != self_id
+        data_uri = lookup_data_uri(new_leader_id)
+      end
+
+      # Are we already replicating from that leader? If so, leave it alone.
+      already_following = false
+      if uri = data_uri
+        already_following = @repli_client.try(&.follows?(uri)) || false
+      end
+
+      case Backend.leader_change_action(new_leader_id, self_id, data_uri, already_following)
+      in .keep?
+        # leave the current replication client untouched
+      in .stop_following?
+        @repli_client.try &.close
+        @repli_client = nil
+      in .follow?
+        if uri = data_uri # always set when the action is Follow
+          @repli_client.try &.close
+          @repli_client = client = ::LavinMQ::Clustering::Client.new(
+            @config, @server.node_id, password, raft_backend: self)
+          spawn(name: "Clustering client #{uri}") { client.follow(uri) }
+        end
+      end
     end
 
     private def lookup_data_uri(node_id : UInt64) : String?
