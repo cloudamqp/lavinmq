@@ -4,6 +4,7 @@ require "../rate_limiter"
 require "./checksums"
 require "./metadata"
 require "./proxy"
+require "./vr_state"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -23,6 +24,14 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
+      struct StreamAck
+        getter bytes : Int64
+        getter op_number : Int64?
+
+        def initialize(@bytes : Int64, @op_number : Int64? = nil)
+        end
+      end
+
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
@@ -37,15 +46,16 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
       @connected = Atomic(Int32).new(0)
+      @protocol_version = 1
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
-      @acks = Channel(Int64).new
+      @acks = Channel(StreamAck).new
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @vr_state : VRState? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -115,18 +125,15 @@ module LavinMQ
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
         loop do
-          @socket = socket = TCPSocket.new(host, port)
-          socket.sync = true
-          socket.read_buffering = false # use lz4 buffering
-          lz4 = Compress::LZ4::Reader.new(socket)
-          sync(socket, lz4)
-          @connected.set(1)
-          Log.info { "Streaming changes" }
-          stream_changes(socket, lz4)
+          begin
+            follow_once(host, port, 2)
+          rescue ex : LegacyProtocol
+            Log.info { "Server #{host}:#{port} does not support clustering protocol v2, falling back to v1 replication" }
+            follow_once(host, port, 1)
+          end
         rescue ex : IO::Error
           @connected.set(0)
-          lz4.try &.close
-          socket.try &.close
+          @socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
@@ -134,6 +141,24 @@ module LavinMQ
       ensure
         @connected.set(0)
         @follower_done.send(nil)
+      end
+
+      private def follow_once(host : String, port : Int32, protocol_version : Int32) : Nil
+        @socket = socket = TCPSocket.new(host, port)
+        socket.sync = true
+        socket.read_buffering = false # use lz4 buffering
+        @protocol_version = protocol_version
+        lz4 = Compress::LZ4::Reader.new(socket)
+        begin
+          sync(socket, lz4)
+          @connected.set(1)
+          Log.info { "Streaming changes using clustering protocol v#{@protocol_version}" }
+          stream_changes(socket, lz4)
+        rescue ex
+          lz4.close
+          socket.close
+          raise ex
+        end
       end
 
       def connected? : Bool
@@ -166,6 +191,10 @@ module LavinMQ
         sync_files(socket, lz4)
         Log.info { "Bulk synchronised" }
         sync_files(socket, lz4)
+        if v2?
+          op_number = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          @vr_state.try &.apply_op!(op_number)
+        end
         Log.info { "Fully synchronised" }
       end
 
@@ -315,7 +344,7 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        acks = @acks = Channel(StreamAck).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
@@ -324,6 +353,7 @@ module LavinMQ
           filename = lz4.read_string(filename_len)
 
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+          op_number = v2? ? lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian) : 0_i64
           # For append/replace the framing bytes (length headers + filename)
           # are acked up front and the payload is acked incrementally as it's
           # written (see stream_with_checksum), so a single large action keeps
@@ -331,27 +361,27 @@ module LavinMQ
           # it's done. For a delete the framing is the entire record — acking
           # it tells the leader the deletion is durable — so it's only acked
           # once the deletion has been applied.
-          framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          framing = sizeof(Int32) + filename_len + sizeof(Int64) + (v2? ? sizeof(Int64) : 0)
           case len
           when .negative? # append bytes to file
             ack(framing)
-            append(filename, len, lz4)
+            append(filename, len, lz4, op_number)
           when .zero? # file is deleted
             delete(filename)
-            ack(framing)
+            ack(framing, op_number)
           when .positive? # replace file
             ack(framing)
-            replace(filename, len, lz4)
+            replace(filename, len, lz4, op_number)
           end
         end
       ensure
         @acks.close
       end
 
-      private def append(filename, len, lz4)
+      private def append(filename, len, lz4, op_number : Int64)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        stream_with_checksum(filename, lz4, f, len.abs)
+        stream_with_checksum(filename, lz4, f, len.abs, op_number: op_number)
       end
 
       private def delete(filename)
@@ -397,7 +427,7 @@ module LavinMQ
         end
       end
 
-      private def replace(filename, len, lz4)
+      private def replace(filename, len, lz4, op_number : Int64)
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
 
@@ -413,13 +443,13 @@ module LavinMQ
           # file; hold it back until the rename has installed the file.
           deferred = stream_with_checksum(filename, lz4, f, len, defer_final_ack: true)
           f.rename f.path[0..-5]
-          ack(deferred)
+          ack(deferred, op_number)
         end
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
       # Returns the number of bytes received but not yet acked (see below).
-      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false) : Int64
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false, op_number : Int64 = 0_i64) : Int64
         # Get or create SHA1 digest for this file
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
@@ -440,16 +470,16 @@ module LavinMQ
           sha1.update(bytes)
           remaining -= len
           return len.to_i64 if remaining.zero? && defer_final_ack
-          ack(len)
+          ack(len, remaining.zero? ? op_number : 0_i64)
         end
         0i64
       end
 
       # Count streamed bytes and forward the count to the ack-sending fiber.
-      private def ack(bytes : Int) : Nil
+      private def ack(bytes : Int | Int64, op_number : Int64 = 0_i64) : Nil
         n = bytes.to_i64
         @streamed_bytes &+= n
-        @acks.send(n)
+        @acks.send(StreamAck.new(n, op_number > 0 ? op_number : nil))
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
@@ -460,11 +490,23 @@ module LavinMQ
       # while the blocking syncfs runs.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
-        while ack_bytes = acks.receive?
-          while ack_bytes2 = acks.try_receive?
-            ack_bytes += ack_bytes2
+        while ack = acks.receive?
+          ack_bytes = ack.bytes
+          op_number = ack.op_number
+          while ack2 = acks.try_receive?
+            ack_bytes += ack2.bytes
+            if op2 = ack2.op_number
+              if current_op = op_number
+                op_number = Math.max(current_op, op2)
+              else
+                op_number = op2
+              end
+            end
           end
           sync_to_disk
+          if op = op_number
+            @vr_state.try &.apply_op!(op)
+          end
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
@@ -502,17 +544,23 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write Start
+        socket.write(v2? ? StartV2 : Start)
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
         case socket.read_byte
         when 0 # ok
-        when 1   then raise AuthenticationError.new
-        when nil then raise IO::EOFError.new
+        when 1        then raise AuthenticationError.new
+        when nil      then raise IO::EOFError.new
+        when Start[0] then raise LegacyProtocol.new
         else
           raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
+        socket.write_byte ConnectionKind::Replication.value if v2?
+      end
+
+      private def v2? : Bool
+        @protocol_version >= 2
       end
 
       def close
@@ -559,6 +607,8 @@ module LavinMQ
           super("Authentication error")
         end
       end
+
+      class LegacyProtocol < Error; end
     end
   end
 end

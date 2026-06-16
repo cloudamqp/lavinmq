@@ -90,9 +90,9 @@ module LavinMQ
           files[path] = nil
           checksums.delete(path)
         end
-        record_operation
+        op_number = record_operation
         each_follower do |f|
-          f.replace(path)
+          f.replace(path, op_number)
           # The whole file was just resent; a synced baseline for it (captured
           # at this follower's join) no longer describes its content and would
           # wrongly skip appends at offsets below the old cut (e.g. after a
@@ -114,10 +114,10 @@ module LavinMQ
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         bytes = mfile.to_slice(pos.to_i64, length.to_i64)
         offset = pos.to_i64
-        record_operation
+        op_number = record_operation
         each_follower do |f|
           skip = f.already_synced(path, offset, bytes.size.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.size
+          f.append(path, bytes[skip..], op_number) if skip < bytes.size
         end
       end
 
@@ -129,17 +129,17 @@ module LavinMQ
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
         size = sizeof(Int32).to_i64 # value is 4 bytes on the wire (Int32 or UInt32)
-        record_operation
+        op_number = record_operation
         each_follower do |f|
           case skip = f.already_synced(path, offset, size)
-          when 0    then f.append(path, value)
+          when 0    then f.append(path, value, op_number)
           when size then next # entirely within the follower's full_sync snapshot
           else
             # A 4-byte value is written in a single call, so a cut inside it
             # shouldn't happen; stay byte-exact anyway and send the tail.
             buf = uninitialized UInt8[4]
             IO::ByteFormat::LittleEndian.encode(value, buf.to_slice)
-            f.append(path, buf.to_slice[skip..])
+            f.append(path, buf.to_slice[skip..], op_number)
           end
         end
       end
@@ -149,10 +149,10 @@ module LavinMQ
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
-        record_operation
+        op_number = record_operation
         each_follower do |f|
           skip = f.already_synced(path, offset, bytes.bytesize.to_i64)
-          f.append(path, bytes[skip..]) if skip < bytes.bytesize
+          f.append(path, bytes[skip..], op_number) if skip < bytes.bytesize
         end
       end
 
@@ -162,9 +162,9 @@ module LavinMQ
           files.delete(path)
           checksums.delete(path)
         end
-        record_operation
+        op_number = record_operation
         each_follower do |f|
-          f.delete(path)
+          f.delete(path, op_number)
           f.forget_baseline(path) # path may be reused by a future file
         end
       end
@@ -324,25 +324,15 @@ module LavinMQ
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
         follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
-        if follower.id == @id
-          Log.error { "Disconnecting follower with the clustering id of the leader" }
+        kind = follower.negotiate!(@password)
+        return unless known_peer?(follower)
+        if kind.control?
+          handle_control_rpc(socket, follower.id)
           return
         end
-        if members = @members
-          unless members.includes?(follower.id)
-            Log.error { "Disconnecting follower with unknown VR member id #{follower.id}" }
-            return
-          end
-        end
-        @lock.synchronize do
-          if stale_follower = @followers.find { |f| f.id == follower.id }
-            Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
-            @followers.delete(stale_follower)
-            stale_follower.close
-          end
-          @followers << follower # Starts in Syncing state
-        end
+        return unless accepts_replication?
+
+        register_follower(follower)
         sync_and_serve(follower)
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -354,6 +344,39 @@ module LavinMQ
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
+      end
+
+      private def known_peer?(follower : Follower) : Bool
+        if follower.id == @id
+          Log.error { "Disconnecting follower with the clustering id of the leader" }
+          return false
+        end
+        if members = @members
+          unless members.includes?(follower.id)
+            Log.error { "Disconnecting follower with unknown VR member id #{follower.id}" }
+            return false
+          end
+        end
+        true
+      end
+
+      private def accepts_replication? : Bool
+        if @members && (state = @vr_state) && state.role != "primary"
+          Log.warn { "Rejecting replication connection on non-primary VR node id=#{@id}" }
+          return false
+        end
+        true
+      end
+
+      private def register_follower(follower : Follower) : Nil
+        @lock.synchronize do
+          if stale_follower = @followers.find { |f| f.id == follower.id }
+            Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
+            @followers.delete(stale_follower)
+            stale_follower.close
+          end
+          @followers << follower # Starts in Syncing state
+        end
       end
 
       # Full-sync an already-registered follower into the Synced state, then
@@ -375,6 +398,7 @@ module LavinMQ
             cut = snapshot_sizes
             follower.full_sync(cut) # sync the last, capped at the cut
             follower.capture_synced_baseline(cut)
+            follower.send_snapshot_op(@vr_state.try(&.op_number) || 0_i64)
             follower.mark_synced! # Change state to Synced
             update_isr
           end
@@ -517,8 +541,8 @@ module LavinMQ
         path[@data_dir.bytesize + 1..]
       end
 
-      private def record_operation : Nil
-        @vr_state.try &.next_op!
+      private def record_operation : Int64
+        @vr_state.try(&.next_op!) || 0_i64
       end
 
       private def wait_for_quorum : Nil
@@ -529,7 +553,7 @@ module LavinMQ
         return state.commit!(target_op) if needed_followers <= 0
 
         loop do
-          current_followers = followers.select { |f| members.includes?(f.id) }
+          current_followers = followers.select { |f| members.includes?(f.id) && f.vr_quorum_capable? }
           unless current_followers.size >= needed_followers
             return unless wait_for_followers_changed
             next
@@ -564,6 +588,41 @@ module LavinMQ
 
       private def wait_for_followers_changed : Bool
         @followers_changed.receive? || false
+      end
+
+      private def handle_control_rpc(socket : TCPSocket, requester_id : Int32) : Nil
+        members = @members
+        state = @vr_state
+        unless members && state
+          write_control_response(socket, false, 0_i64, 0_i64)
+          return
+        end
+
+        request_byte = socket.read_byte || raise IO::EOFError.new
+        case ControlRequest.from_value(request_byte.to_u8)
+        when .vote?
+          view = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          candidate_id = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          candidate_op = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          granted = requester_id == candidate_id &&
+                    state.grant_vote?(candidate_id, view, candidate_op, members.primary_id(view))
+          write_control_response(socket, granted, state.view, state.op_number)
+        when .authority?
+          view = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          primary_id = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          granted = requester_id == primary_id &&
+                    state.grant_authority?(primary_id, view, members.primary_id(view))
+          write_control_response(socket, granted, state.view, state.op_number)
+        end
+      rescue ex : ArgumentError
+        Log.warn(exception: ex) { "Invalid VR control request from #{requester_id}" }
+      end
+
+      private def write_control_response(socket : TCPSocket, granted : Bool, view : Int64, op_number : Int64) : Nil
+        socket.write_byte(granted ? 1_u8 : 0_u8)
+        socket.write_bytes view, IO::ByteFormat::LittleEndian
+        socket.write_bytes op_number, IO::ByteFormat::LittleEndian
+        socket.flush
       end
     end
   end

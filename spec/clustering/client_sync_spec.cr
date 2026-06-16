@@ -497,7 +497,7 @@ module ClientSyncSpec
           # pending throughout the shutdown.
           spawn(name: "ack feeder") do
             20.times do
-              client.@acks.send(1i64)
+              client.@acks.send(LavinMQ::Clustering::Client::StreamAck.new(1i64))
               sleep 10.milliseconds
             end
           rescue Channel::ClosedError

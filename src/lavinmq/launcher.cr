@@ -25,6 +25,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @clustering_listener_started = false
 
     def initialize(@config : Config)
       print_environment_info
@@ -86,6 +87,7 @@ module LavinMQ
     end
 
     def run
+      start_vr_clustering_listener
       @runner.run do
         start
       end
@@ -194,8 +196,9 @@ module LavinMQ
         end
       end
 
-      if clustering_bind = @config.clustering_bind
+      if (clustering_bind = @config.clustering_bind) && !@clustering_listener_started
         spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
+        @clustering_listener_started = true
       end
 
       unless @config.unix_path.empty?
@@ -233,6 +236,19 @@ module LavinMQ
       unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
       end
+    end
+
+    private def start_vr_clustering_listener : Nil
+      return unless @config.clustering? && @config.clustering_backend == "vr"
+      return if @clustering_listener_started
+      return unless clustering_bind = @config.clustering_bind
+      return unless replicator = @replicator
+
+      tcp_server = TCPServer.new(clustering_bind, @config.clustering_port)
+      @clustering_listener_started = true
+      spawn replicator.listen(tcp_server), name: "VR clustering listener"
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     private def dump_debug_info

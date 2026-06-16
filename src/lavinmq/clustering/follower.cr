@@ -36,9 +36,11 @@ module LavinMQ
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
       @synced_baseline = Hash(String, Int64).new
+      @protocol_version = 1
       getter id = -1
       getter remote_address
       getter state
+      getter protocol_version
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         @socket.sync = true # Use buffering in lz4
@@ -48,11 +50,16 @@ module LavinMQ
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
-      def negotiate!(password) : Nil
+      def negotiate!(password) : ConnectionKind
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
-        validate_header!
+        @protocol_version = validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+        kind = ConnectionKind::Replication
+        if @protocol_version >= 2
+          byte = @socket.read_byte || raise IO::EOFError.new
+          kind = ConnectionKind.from_value(byte.to_u8)
+        end
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
           @socket.tcp_keepalive_idle = keepalive[0]
@@ -60,7 +67,8 @@ module LavinMQ
           @socket.tcp_keepalive_count = keepalive[2]
         end
         @socket.read_timeout = nil # assumed authed followers are well behaving
-        Log.info { "Accepted ID #{@id.to_s(36)}" }
+        Log.info { "Accepted ID #{@id.to_s(36)} protocol=v#{@protocol_version} kind=#{kind}" }
+        kind
       end
 
       # `caps` (last sync of a joining follower) limits each file to the byte
@@ -178,11 +186,15 @@ module LavinMQ
         false
       end
 
-      private def validate_header! : Nil
+      private def validate_header! : Int32
         buf = uninitialized UInt8[8]
         slice = buf.to_slice
         @socket.read_fully(slice)
-        if slice != Start
+        if slice == Start
+          1
+        elsif slice == StartV2
+          2
+        else
           @socket.write(Start)
           raise InvalidStartHeaderError.new(slice)
         end
@@ -270,48 +282,61 @@ module LavinMQ
         end
       end
 
-      def replace(path) : Int64
+      def send_snapshot_op(op_number : Int64) : Nil
+        return unless v2?
+
+        @write_lock.synchronize do
+          @lz4.write_bytes op_number, IO::ByteFormat::LittleEndian
+          @lz4.flush
+        end
+      end
+
+      def replace(path, op_number : Int64 = 0_i64) : Int64
         @write_lock.synchronize do
           File.open(File.join(@data_dir, path)) do |file|
             file_size = file.size
-            lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
+            lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + operation_frame_size + file_size).to_i64
             @sent_bytes.add(lag_size)
             send_filename(path)
             @lz4.write_bytes file_size.to_i64, IO::ByteFormat::LittleEndian
+            send_operation_op(op_number)
             IO.copy(file, @lz4, file_size) == file_size || raise IO::EOFError.new
             lag_size
           end
         end
       end
 
-      def append(path : String, bytes : Bytes) : Int64
+      def append(path : String, bytes : Bytes, op_number : Int64 = 0_i64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + operation_frame_size + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes -bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          send_operation_op(op_number)
           @lz4.write bytes
           lag_size
         end
       end
 
-      def append(path : String, value : UInt32 | Int32) : Int64
+      def append(path : String, value : UInt32 | Int32, op_number : Int64 = 0_i64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + operation_frame_size + 4).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes -4i64, IO::ByteFormat::LittleEndian
+          send_operation_op(op_number)
           @lz4.write_bytes value, IO::ByteFormat::LittleEndian
           lag_size
         end
       end
 
-      def delete(path) : Int64
+      def delete(path, op_number : Int64 = 0_i64) : Int64
         @write_lock.synchronize do
-          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + operation_frame_size).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
           @lz4.write_bytes 0i64 # delete marker (endian-agnostic)
+          send_operation_op(op_number)
           lag_size
         end
       end
@@ -319,6 +344,22 @@ module LavinMQ
       private def send_filename(path)
         @lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
         @lz4.write path.to_slice
+      end
+
+      private def send_operation_op(op_number : Int64) : Nil
+        @lz4.write_bytes op_number, IO::ByteFormat::LittleEndian if v2?
+      end
+
+      private def operation_frame_size : Int32
+        v2? ? sizeof(Int64) : 0
+      end
+
+      def v2? : Bool
+        @protocol_version >= 2
+      end
+
+      def vr_quorum_capable? : Bool
+        v2?
       end
 
       def close

@@ -6,13 +6,14 @@ require "../../src/lavinmq/clustering/vr_controller"
 require "../../src/lavinmq/clustering/vr_state"
 require "lz4"
 
-private def sync_vr_follower(server, port, id : Int32) : TCPSocket
+private def sync_vr_follower(server, port, id : Int32, v2 = true) : TCPSocket
   io = TCPSocket.new("localhost", port)
-  io.write LavinMQ::Clustering::Start
+  io.write(v2 ? LavinMQ::Clustering::StartV2 : LavinMQ::Clustering::Start)
   io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
   io.write server.password.to_slice
   io.read_byte.should eq 0
   io.write_bytes id, IO::ByteFormat::LittleEndian
+  io.write_byte LavinMQ::Clustering::ConnectionKind::Replication.value if v2
   io.flush
   lz4 = Compress::LZ4::Reader.new(io)
   sha1_size = Digest::SHA1.new.digest_size
@@ -26,7 +27,68 @@ private def sync_vr_follower(server, port, id : Int32) : TCPSocket
     io.write_bytes 0i32
     io.flush
   end
+  lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian) if v2
   io
+end
+
+private def vr_config(data_dir : String, node_id : Int32, members : String, secret = "vr-spec-secret")
+  LavinMQ::Config.instance.dup.tap do |config|
+    config.data_dir = data_dir
+    config.clustering_members = members
+    config.clustering_node_id = node_id
+    config.clustering_secret = secret
+    config.metrics_http_port = -1
+  end
+end
+
+private def unused_local_port : Int32
+  server = TCPServer.new("localhost", 0)
+  server.local_address.port
+ensure
+  server.try &.close
+end
+
+private def start_vr_server(config, members, state, id : Int32, tcp_server)
+  server = LavinMQ::Clustering::Server.new(
+    config,
+    LavinMQ::Clustering::VRCoordinator.new(config),
+    id,
+    members,
+    state)
+  spawn(server.listen(tcp_server), name: "vr spec server #{id}")
+  server
+end
+
+private def vr_control_vote(server, port, requester_id : Int32, view : Int64, op_number : Int64)
+  io = TCPSocket.new("localhost", port)
+  io.write LavinMQ::Clustering::StartV2
+  io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+  io.write server.password.to_slice
+  io.read_byte.should eq 0
+  io.write_bytes requester_id, IO::ByteFormat::LittleEndian
+  io.write_byte LavinMQ::Clustering::ConnectionKind::Control.value
+  io.write_byte LavinMQ::Clustering::ControlRequest::Vote.value
+  io.write_bytes view, IO::ByteFormat::LittleEndian
+  io.write_bytes requester_id, IO::ByteFormat::LittleEndian
+  io.write_bytes op_number, IO::ByteFormat::LittleEndian
+  io.flush
+  {
+    granted:   io.read_byte == 1,
+    view:      io.read_bytes(Int64, IO::ByteFormat::LittleEndian),
+    op_number: io.read_bytes(Int64, IO::ByteFormat::LittleEndian),
+  }
+ensure
+  io.try &.close
+end
+
+class LavinMQ::Clustering::VRController
+  def win_election_for_spec : Bool
+    win_election?
+  end
+
+  def authority_status_for_spec(view : Int64) : {Bool, Int64}
+    authority_status(view)
+  end
 end
 
 describe LavinMQ::Clustering::StaticMembers do
@@ -113,6 +175,40 @@ describe LavinMQ::Clustering::VRState do
       restored.commit_number.should eq 1
     end
   end
+
+  it "applies operation numbers monotonically and persists them" do
+    with_datadir do |data_dir|
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.apply_op!(3)
+      state.apply_op!(2)
+
+      restored = LavinMQ::Clustering::VRState.new(data_dir)
+      restored.op_number.should eq 3
+    end
+  end
+
+  it "persists one vote per view" do
+    with_datadir do |data_dir|
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.grant_vote?(1, 5, 0, 1).should be_true
+
+      restored = LavinMQ::Clustering::VRState.new(data_dir)
+      restored.voted_view.should eq 5
+      restored.voted_for.should eq 1
+      restored.grant_vote?(1, 5, 0, 1).should be_true
+      restored.grant_vote?(2, 5, 0, 2).should be_false
+    end
+  end
+
+  it "denies stale candidates behind the local operation number" do
+    with_datadir do |data_dir|
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.apply_op!(7)
+
+      state.grant_vote?(1, 0, 6, 1).should be_false
+      state.grant_vote?(1, 0, 7, 1).should be_true
+    end
+  end
 end
 
 describe LavinMQ::Clustering do
@@ -164,6 +260,83 @@ end
 
 describe LavinMQ::Clustering::Server do
   describe "VR quorum commit" do
+    it "routes v2 replication connections to the stream path" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      members = LavinMQ::Clustering::StaticMembers.parse("0=tcp://localhost:1,1=tcp://localhost:2")
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.role = "primary"
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, members, state)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "vr v2 route spec")
+
+      follower = sync_vr_follower(server, tcp_server.local_address.port, 1)
+      wait_for { server.followers.size == 1 }
+      server.followers.first.v2?.should be_true
+    ensure
+      follower.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "routes v2 control RPCs to the vote handler" do
+      with_datadir do |data_dir|
+        members = LavinMQ::Clustering::StaticMembers.parse("1=tcp://localhost:1,2=tcp://localhost:2")
+        config = vr_config(data_dir, 2, "1=tcp://localhost:1,2=tcp://localhost:2")
+        state = LavinMQ::Clustering::VRState.new(data_dir)
+        state.apply_op!(4)
+        tcp_server = TCPServer.new("localhost", 0)
+        server = start_vr_server(config, members, state, 2, tcp_server)
+
+        response = vr_control_vote(server, tcp_server.local_address.port, 1, 0_i64, 4_i64)
+        response[:granted].should be_true
+        response[:view].should eq 0
+        response[:op_number].should eq 4
+        state.voted_for.should eq 1
+      ensure
+        server.try &.close
+        tcp_server.try &.close
+      end
+    end
+
+    it "excludes v1 replication peers from VR quorum" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      members = LavinMQ::Clustering::StaticMembers.parse("0=tcp://localhost:1,1=tcp://localhost:2,2=tcp://localhost:3")
+      state = LavinMQ::Clustering::VRState.new(data_dir)
+      state.role = "primary"
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0, members, state)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "vr v1 quorum exclusion spec")
+
+      follower_io = sync_vr_follower(server, tcp_server.local_address.port, 1, v2: false)
+      wait_for { server.followers.size == 1 }
+      server.followers.first.v2?.should be_false
+
+      server.append_bytes(File.join(data_dir, "vr-v1-excluded"), "x".to_slice, 0i64)
+      follower = server.followers.first
+      follower_io.write_bytes follower.lag_in_bytes, IO::ByteFormat::LittleEndian
+
+      committed = Channel(Nil).new(1)
+      spawn(name: "vr v1 excluded wait spec") do
+        server.wait_for_followers
+        committed.send nil
+      end
+
+      select
+      when committed.receive
+        fail "v1 follower satisfied VR quorum"
+      when timeout(300.milliseconds)
+      end
+      state.commit_number.should eq 0
+    ensure
+      follower_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
     it "commits once a quorum including the primary has acked" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
@@ -272,6 +445,86 @@ describe LavinMQ::Clustering::Server do
         json["op_number"].as_i.should eq 1
         json["commit_number"].as_i.should eq 1
         json["quorum_size"].as_i.should eq 2
+      end
+    end
+  end
+end
+
+describe "VR election safety" do
+  it "prevents a stale deterministic candidate from winning without an up-to-date quorum" do
+    with_datadir do |candidate_dir|
+      with_datadir do |peer_dir|
+        peer2_tcp = TCPServer.new("localhost", 0)
+        peer3_port = unused_local_port
+        members_raw = "1=tcp://localhost:#{unused_local_port},2=tcp://localhost:#{peer2_tcp.local_address.port},3=tcp://localhost:#{peer3_port}"
+        members = LavinMQ::Clustering::StaticMembers.parse(members_raw)
+
+        peer_config = vr_config(peer_dir, 2, members_raw)
+        peer_state = LavinMQ::Clustering::VRState.new(peer_dir)
+        peer_state.apply_op!(2)
+        peer_server = start_vr_server(peer_config, members, peer_state, 2, peer2_tcp)
+
+        candidate_config = vr_config(candidate_dir, 1, members_raw)
+        candidate = LavinMQ::Clustering::VRController.new(candidate_config)
+        candidate.state.apply_op!(1)
+
+        candidate.win_election_for_spec.should be_false
+      ensure
+        peer_server.try &.close
+        peer2_tcp.try &.close
+      end
+    end
+  end
+
+  it "allows the next up-to-date deterministic candidate to win" do
+    with_datadir do |peer_dir|
+      with_datadir do |candidate_dir|
+        peer1_tcp = TCPServer.new("localhost", 0)
+        peer3_port = unused_local_port
+        members_raw = "1=tcp://localhost:#{peer1_tcp.local_address.port},2=tcp://localhost:#{unused_local_port},3=tcp://localhost:#{peer3_port}"
+        members = LavinMQ::Clustering::StaticMembers.parse(members_raw)
+
+        peer_config = vr_config(peer_dir, 1, members_raw)
+        peer_state = LavinMQ::Clustering::VRState.new(peer_dir)
+        peer_state.observe_view!(1)
+        peer_state.apply_op!(1)
+        peer_server = start_vr_server(peer_config, members, peer_state, 1, peer1_tcp)
+
+        candidate_config = vr_config(candidate_dir, 2, members_raw)
+        candidate = LavinMQ::Clustering::VRController.new(candidate_config)
+        candidate.state.observe_view!(1)
+        candidate.state.apply_op!(2)
+
+        candidate.win_election_for_spec.should be_true
+      ensure
+        peer_server.try &.close
+        peer1_tcp.try &.close
+      end
+    end
+  end
+
+  it "detects loss of authority after a peer votes in a higher view" do
+    with_datadir do |primary_dir|
+      with_datadir do |peer_dir|
+        peer2_tcp = TCPServer.new("localhost", 0)
+        peer3_port = unused_local_port
+        members_raw = "1=tcp://localhost:#{unused_local_port},2=tcp://localhost:#{peer2_tcp.local_address.port},3=tcp://localhost:#{peer3_port}"
+        members = LavinMQ::Clustering::StaticMembers.parse(members_raw)
+
+        peer_config = vr_config(peer_dir, 2, members_raw)
+        peer_state = LavinMQ::Clustering::VRState.new(peer_dir)
+        peer_state.grant_vote?(2, 1, 0, 2).should be_true
+        peer_server = start_vr_server(peer_config, members, peer_state, 2, peer2_tcp)
+
+        primary_config = vr_config(primary_dir, 1, members_raw)
+        primary = LavinMQ::Clustering::VRController.new(primary_config)
+
+        authorized, highest_view = primary.authority_status_for_spec(0)
+        authorized.should be_false
+        highest_view.should eq 1
+      ensure
+        peer_server.try &.close
+        peer2_tcp.try &.close
       end
     end
   end
