@@ -72,7 +72,7 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : MQTT::Publish)
+      def publish(packet : Protocol::Publish)
         @exchange.publish(packet)
       end
 
@@ -87,7 +87,7 @@ module LavinMQ
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          MQTT::SubAck::ReturnCode.from_int(tf.qos)
+          Protocol::SubAck::ReturnCode.from_int(tf.qos)
         end
       end
 

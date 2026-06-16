@@ -120,7 +120,7 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : MQTT::Publish, UInt32 -> Nil) : Bool
+      private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
@@ -164,13 +164,13 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
-      def build_packet(env, packet_id) : MQTT::Publish
+      def build_packet(env, packet_id) : Protocol::Publish
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1
         dup = qos.zero? ? false : env.redelivered
-        MQTT::Publish.new(
+        Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
@@ -206,7 +206,7 @@ module LavinMQ
         drop_overflow
       end
 
-      def ack(packet : MQTT::PubAck) : Nil
+      def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
         if sp = @unacked.delete(id)
           begin
