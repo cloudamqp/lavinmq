@@ -9,6 +9,7 @@ require "../clustering/elector"
 require "../clustering/coordinator"
 require "./server"
 require "./cluster_command"
+require "./peer_address"
 require "./bootstrap_decision"
 
 module LavinMQ::Raft
@@ -271,17 +272,19 @@ module LavinMQ::Raft
     end
 
     private def lookup_data_uri(node_id : UInt64) : String?
-      peer = @server.peers.find { |p| p.id == node_id }
-      return if peer.nil? || peer.address.empty?
-      _, _, data_addr = peer.address.partition(",")
-      return nil if data_addr.empty?
-      "tcp://#{data_addr}"
+      @server.peer_address(node_id).try &.data_uri
     end
 
     private def build_advertised_address : String
       uri = URI.parse(@config.clustering_advertised_uri || "tcp://#{System.hostname}:#{@config.clustering_port}")
       host = uri.host || System.hostname
-      "#{host}:#{@config.clustering_raft_port},#{host}:#{@config.clustering_port}"
+      # Honor the port in clustering_advertised_uri for the data address (etcd
+      # parity — a NAT/port-mapped deployment advertises its external data
+      # port there); fall back to the local clustering_port when absent. The
+      # raft-transport port has no advertised-URI field yet, so it uses the
+      # local clustering_raft_port (correct for 1:1 port mapping).
+      data_port = uri.port || @config.clustering_port
+      PeerAddress.new(host, @config.clustering_raft_port, data_port).to_s
     end
 
     private def execute_shell_command(command : String, event : String)

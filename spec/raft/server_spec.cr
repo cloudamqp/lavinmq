@@ -186,6 +186,16 @@ describe LavinMQ::Raft::Server do
         follower.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{99})).should be_false
       end
     end
+
+    it "caches each configured peer's parsed address after configuration applies" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        other = servers.find! { |s| s != leader }
+        addr = leader.peer_address(other.node_id.to_u64)
+        addr.should_not be_nil
+        addr.not_nil!.data_uri.should eq "tcp://node#{other.node_id}:5679"
+      end
+    end
   end
 
   describe "leadership loss" do
