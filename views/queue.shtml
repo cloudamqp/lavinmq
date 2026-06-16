@@ -257,7 +257,7 @@
         </label>
         <button type="submit" class="btn btn-outlined">Move messages</button>
       </form>
-      <div id="message-template" class="hide message card" data-tab-content="messages">
+      <div id="message-template" class="hide message card">
         <h4 class="message-header">Message <span class="message-number"></span></h4>
         <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
         <table>

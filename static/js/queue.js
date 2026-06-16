@@ -111,6 +111,7 @@ function updateQueue (all) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
@@ -166,6 +167,11 @@ const tableOptions = {
   keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
+const bindingsTabBadge = document.querySelector('[data-tab="bindings"] .badge')
+new MutationObserver(() => {
+  bindingsTabBadge.textContent = document.getElementById('bindings-count').textContent
+}).observe(document.getElementById('bindings-count'), { childList: true, subtree: true })
+
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
