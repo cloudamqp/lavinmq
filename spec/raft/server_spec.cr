@@ -253,14 +253,13 @@ describe LavinMQ::Raft::Server do
         when timeout(2.seconds)
           fail "timed out"
         end
-        server.propose(LavinMQ::Raft::ClusterCommand::SetSecret.new("hi")).should be_true
+        server.propose(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{7})).should be_true
         deadline = Time.instant + 2.seconds
-        until server.state.secret == "hi"
+        until server.state.isr.includes?(7)
           fail "timed out" if Time.instant > deadline
           Fiber.yield
         end
-        server.secret.should eq "hi"
-        server.isr.should be_empty
+        server.isr.should eq Set{7}
       end
     end
   end

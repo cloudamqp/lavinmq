@@ -667,7 +667,7 @@ describe LavinMQ::Raft::Backend do
       end
     end
 
-    it "proposes SetSecret on first password() and returns it" do
+    it "generates .clustering_password on the leader and returns it (never the raft log)" do
       dir = tmp_data_dir
       backend = nil.as(LavinMQ::Raft::Backend?)
       begin
@@ -682,7 +682,27 @@ describe LavinMQ::Raft::Backend do
         end
         pw = b.password
         pw.should_not be_empty
-        b.password.should eq pw
+        # Persisted to the local file, not the replicated state.
+        File.read(File.join(dir, ".clustering_password")).strip.should eq pw
+        b.password.should eq pw # subsequent call reads the same file
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "reads an existing .clustering_password without regenerating" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        File.write(File.join(dir, ".clustering_password"), "preshared-secret\n")
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        b = backend.not_nil!
+        b.server.start
+        # A node that has never become leader must still read the pre-shared
+        # file rather than fail or generate a divergent secret.
+        b.password.should eq "preshared-secret"
       ensure
         backend.try &.stop rescue nil
         FileUtils.rm_rf(dir)
