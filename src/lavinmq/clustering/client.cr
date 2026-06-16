@@ -538,7 +538,7 @@ module LavinMQ
 
       private def authenticate(socket)
         socket.write Start
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+        socket.write_byte @password.bytesize.to_u8
         socket.write @password.to_slice
         case socket.read_byte
         when 0 # ok

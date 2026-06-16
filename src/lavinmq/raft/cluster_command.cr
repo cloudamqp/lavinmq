@@ -13,8 +13,8 @@ module LavinMQ::Raft
     abstract def body_bytesize : Int32
 
     def to_io(io : IO, format : IO::ByteFormat) : Nil
-      io.write_bytes(SCHEMA_VERSION, format)
-      io.write_bytes(tag.value, format)
+      io.write_byte(SCHEMA_VERSION)
+      io.write_byte(tag.value)
       body_to_io(io, format)
     end
 
