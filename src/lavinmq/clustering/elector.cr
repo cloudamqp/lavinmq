@@ -11,10 +11,8 @@ module LavinMQ
     #   # leadership lost => the elector exits the process (systemd restarts
     #   # the node as a follower); clean stop => campaign returns normally
     #
-    # Implementations: EtcdElector (etcd lease + election), Raft::Elector
-    # (raft consensus + ISR gate), StandaloneElector (single node, elected
-    # by walkover).
-    abstract class Elector
+    # Implementations: EtcdBackend, Raft::Backend, StandaloneBackend.
+    module Elector
       # Participate in leader election; blocks for the lifetime of the
       # process. Yields exactly once, when this node has been elected and
       # may serve.

@@ -4,7 +4,9 @@ require "./cluster_command"
 require "random/secure"
 
 module LavinMQ::Raft
-  class Coordinator < ::LavinMQ::Clustering::Coordinator
+  class Coordinator
+    include ::LavinMQ::Clustering::Coordinator
+
     def initialize(@server : Server)
     end
 

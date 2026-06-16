@@ -4,7 +4,8 @@ require "../config"
 require "random/secure"
 
 module LavinMQ::Clustering
-  class EtcdCoordinator < Coordinator
+  class EtcdCoordinator
+    include Coordinator
     Log = LavinMQ::Log.for "clustering.etcd_coordinator"
 
     def initialize(@config : Config, @etcd : Etcd)

@@ -10,7 +10,8 @@ require "./coordinator"
 require "./bootstrap_decision"
 
 module LavinMQ::Raft
-  class Elector < Clustering::Elector
+  class Elector
+    include Clustering::Elector
     Log = LavinMQ::Log.for "raft.elector"
 
     getter server : Server
