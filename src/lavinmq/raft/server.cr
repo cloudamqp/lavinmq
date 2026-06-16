@@ -3,6 +3,7 @@ require "../bool_channel"
 require "./cluster_command"
 require "./cluster_state"
 require "./cluster_state_machine"
+require "./peer_address"
 
 module LavinMQ::Raft
   class Server
@@ -19,6 +20,11 @@ module LavinMQ::Raft
     # {log index, term proposed under, reply}. Tick-fiber-only. Resolved each
     # tick iteration: committed-under-our-term => true, overwritten/lost => false.
     @commit_waiters = [] of Tuple(UInt64, UInt64, ::Channel(Bool))
+    # Parsed peer addresses, rebuilt once per configuration change (on the tick
+    # fiber) and read cross-fiber by the follow-leader path. Replaced wholesale
+    # under the lock so readers always see a consistent snapshot.
+    @peer_addresses_lock = Mutex.new
+    @peer_addresses = {} of UInt64 => PeerAddress
     @on_leader_change : Proc(UInt64?, Nil)?
     @last_observed_leader_id : UInt64? = nil
 
@@ -246,14 +252,26 @@ module LavinMQ::Raft
         @is_leader.set(new_role.leader?)
       end
       @node.on_configuration_applied do |peers|
+        # Parse each peer's address once here (membership changes are rare),
+        # register the transport route, and cache the parsed form for the
+        # follow-leader path to reuse.
+        addresses = {} of UInt64 => PeerAddress
         peers.each do |peer|
           next if peer.id == @node_id || peer.address.empty?
-          raft_addr, _, _data_addr = peer.address.partition(",")
-          host, _, port = raft_addr.rpartition(":")
-          next if port.empty?
-          @transport.register_peer(peer.id, host, port.to_i)
+          addr = PeerAddress.parse?(peer.address)
+          next if addr.nil?
+          addresses[peer.id] = addr
+          host, port = addr.raft_endpoint
+          @transport.register_peer(peer.id, host, port)
         end
+        @peer_addresses_lock.synchronize { @peer_addresses = addresses }
       end
+    end
+
+    # The parsed address of a configured peer, or nil if unknown. Reflects the
+    # last applied configuration. Safe to call from any fiber.
+    def peer_address(node_id : UInt64) : PeerAddress?
+      @peer_addresses_lock.synchronize { @peer_addresses[node_id]? }
     end
 
     private def load_or_generate_node_id : Int32

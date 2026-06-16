@@ -33,6 +33,48 @@ private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
 end
 
 describe LavinMQ::Raft::Backend do
+  describe "advertised_address" do
+    it "honors the port in clustering_advertised_uri for the data address" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        raft_port = free_port
+        config = LavinMQ::Config.new
+        config.data_dir = dir
+        config.clustering_bind = "127.0.0.1"
+        config.clustering_raft_port = raft_port
+        config.clustering_port = 5679
+        config.clustering_advertised_uri = "tcp://pub.example.com:31313"
+        backend = LavinMQ::Raft::Backend.new(config)
+        backend.not_nil!.advertised_address.should eq "pub.example.com:#{raft_port},pub.example.com:31313"
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "falls back to clustering_port when the advertised URI has no port" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        raft_port = free_port
+        config = LavinMQ::Config.new
+        config.data_dir = dir
+        config.clustering_bind = "127.0.0.1"
+        config.clustering_raft_port = raft_port
+        config.clustering_port = 5679
+        config.clustering_advertised_uri = "tcp://pub.example.com"
+        backend = LavinMQ::Raft::Backend.new(config)
+        backend.not_nil!.advertised_address.should eq "pub.example.com:#{raft_port},pub.example.com:5679"
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   it "constructs and stops without crashing" do
     dir = tmp_data_dir
     begin
