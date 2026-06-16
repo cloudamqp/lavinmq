@@ -196,7 +196,7 @@ module LavinMQ
               Log.debug { "Calculating checksum for #{filename}" }
               sha1.file(path)
               local_hash = sha1.final
-              @checksums[filename] = local_hash
+              @checksums.append(filename, local_hash)
               sha1.reset
               Fiber.yield # CPU bound, so allow other fibers to run
             end
