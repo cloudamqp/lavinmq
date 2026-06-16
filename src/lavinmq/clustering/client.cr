@@ -2,6 +2,7 @@ require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
 require "./checksums"
+require "./metadata"
 require "./proxy"
 require "lz4"
 require "http/server"
@@ -35,6 +36,7 @@ module LavinMQ
       @streamed_bytes = 0_u64
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
+      @connected = Atomic(Int32).new(0)
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
@@ -114,6 +116,7 @@ module LavinMQ
         end
         loop do
           @socket = socket = TCPSocket.new(host, port)
+          @connected.set(1)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
@@ -121,6 +124,7 @@ module LavinMQ
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
+          @connected.set(0)
           lz4.try &.close
           socket.try &.close
           break if @closed
@@ -128,7 +132,12 @@ module LavinMQ
           sleep 1.seconds
         end
       ensure
+        @connected.set(0)
         @follower_done.send(nil)
+      end
+
+      def connected? : Bool
+        @connected.get == 1
       end
 
       def follows?(_nil : Nil) : Bool
@@ -267,7 +276,7 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id")
+            next if Clustering.metadata_file?(child)
             yield path
           end
         end

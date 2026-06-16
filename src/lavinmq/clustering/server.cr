@@ -4,6 +4,8 @@ require "./replicator"
 require "./follower"
 require "./checksums"
 require "./coordinator"
+require "./static_members"
+require "./vr_state"
 require "../config"
 require "../message"
 require "../mfile"
@@ -35,6 +37,8 @@ module LavinMQ
       @dirty_isr = true
       @id : Int32
       @config : Config
+      @members : StaticMembers?
+      @vr_state : VRState?
       # Maps relative paths to their MFile (for sparse, mmap-backed files) or
       # nil (for regular files where File.size is authoritative). MFile-backed
       # segments are sparse: ftruncate'd to capacity then appended from the
@@ -43,7 +47,8 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
-      def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
+      def initialize(config : Config, @coordinator : Coordinator, @id : Int32,
+                     @members : StaticMembers? = nil, @vr_state : VRState? = nil)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
@@ -84,6 +89,7 @@ module LavinMQ
           files[path] = nil
           checksums.delete(path)
         end
+        record_operation
         each_follower do |f|
           f.replace(path)
           # The whole file was just resent; a synced baseline for it (captured
@@ -107,6 +113,7 @@ module LavinMQ
         raise ArgumentError.new("append(pos, length) requires an MFile-registered path: #{path}") unless mfile
         bytes = mfile.to_slice(pos.to_i64, length.to_i64)
         offset = pos.to_i64
+        record_operation
         each_follower do |f|
           skip = f.already_synced(path, offset, bytes.size.to_i64)
           f.append(path, bytes[skip..]) if skip < bytes.size
@@ -121,6 +128,7 @@ module LavinMQ
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
         size = sizeof(Int32).to_i64 # value is 4 bytes on the wire (Int32 or UInt32)
+        record_operation
         each_follower do |f|
           case skip = f.already_synced(path, offset, size)
           when 0    then f.append(path, value)
@@ -140,6 +148,7 @@ module LavinMQ
       def append_bytes(path : String, bytes : Bytes, offset : Int64)
         path = strip_datadir path
         @file_index.lock { |_files, checksums| checksums.delete(path) }
+        record_operation
         each_follower do |f|
           skip = f.already_synced(path, offset, bytes.bytesize.to_i64)
           f.append(path, bytes[skip..]) if skip < bytes.bytesize
@@ -152,6 +161,7 @@ module LavinMQ
           files.delete(path)
           checksums.delete(path)
         end
+        record_operation
         each_follower do |f|
           f.delete(path)
           f.forget_baseline(path) # path may be reused by a future file
@@ -273,6 +283,28 @@ module LavinMQ
         @coordinator.password
       end
 
+      def quorum_size : Int32
+        @members.try(&.quorum_size) || 1
+      end
+
+      def status
+        if members = @members
+          if state = @vr_state
+            primary_id = members.primary_id(state.view)
+            primary_uri = members.uri(primary_id).to_s
+            state.to_named_tuple(primary_id, primary_uri, @id, members.quorum_size)
+          else
+            raise Error.new("VR members configured without VR state")
+          end
+        else
+          {
+            backend: "etcd",
+            node_id: @id,
+            role:    "primary",
+          }
+        end
+      end
+
       @listeners = Array(TCPServer).new(1)
 
       def listen(server : TCPServer)
@@ -295,6 +327,12 @@ module LavinMQ
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
+        end
+        if members = @members
+          unless members.includes?(follower.id)
+            Log.error { "Disconnecting follower with unknown VR member id #{follower.id}" }
+            return
+          end
         end
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
@@ -424,6 +462,8 @@ module LavinMQ
       # acknowledged, so its removal must be committed to the coordinator
       # before this returns (see flush_isr).
       def wait_for_followers : Nil
+        return wait_for_quorum if @members
+
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for_confirm }
         flush_isr if !all_acked || isr_dirty?
@@ -464,11 +504,36 @@ module LavinMQ
           end
           dirty = @dirty_isr
         end
-        flush_isr if dirty
+        flush_isr if dirty && @members.nil?
       end
 
       private def strip_datadir(path : String) : String
         path[@data_dir.bytesize + 1..]
+      end
+
+      private def record_operation : Nil
+        @vr_state.try &.next_op!
+      end
+
+      private def wait_for_quorum : Nil
+        members = @members || raise Error.new("VR quorum requested without members")
+        state = @vr_state || raise Error.new("VR quorum requested without state")
+        target_op = state.op_number
+        return state.commit!(target_op) if members.quorum_size <= 1
+
+        loop do
+          acked = 1 # the primary already fsynced locally before this barrier
+          followers.each do |f|
+            next unless members.includes?(f.id)
+            acked += 1 if f.wait_for_confirm
+            break if acked >= members.quorum_size
+          end
+          if acked >= members.quorum_size
+            state.commit!(target_op)
+            return
+          end
+          sleep 100.milliseconds
+        end
       end
     end
   end

@@ -33,6 +33,7 @@ module LavinMQ
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
+      abstract def status
     end
   end
 end

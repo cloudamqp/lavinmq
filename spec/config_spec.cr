@@ -349,6 +349,23 @@ describe LavinMQ::Config do
     config2.log_level.should eq ::Log::Severity::Debug
   end
 
+  it "can parse VR clustering options" do
+    config = LavinMQ::Config.new
+    config.parse([
+      "--clustering",
+      "--clustering-backend=vr",
+      "--clustering-members=1=tcp://a:5679,2=tcp://b:5679",
+      "--clustering-node-id=2",
+      "--clustering-secret=shared",
+    ])
+
+    config.clustering?.should be_true
+    config.clustering_backend.should eq "vr"
+    config.clustering_members.should eq "1=tcp://a:5679,2=tcp://b:5679"
+    config.clustering_node_id.should eq 2
+    config.clustering_secret.should eq "shared"
+  end
+
   it "can parse all ENV arguments" do
     begin
       ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = "/etc/custom"

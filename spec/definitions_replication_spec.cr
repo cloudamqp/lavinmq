@@ -85,6 +85,10 @@ class DiskVisibilitySpyReplicator
   def password : String
     ""
   end
+
+  def status
+    {backend: "spy"}
+  end
 end
 
 describe LavinMQ::DefinitionsStore do

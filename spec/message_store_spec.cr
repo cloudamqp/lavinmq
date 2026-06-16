@@ -74,6 +74,10 @@ class SpyReplicator
   def password : String
     ""
   end
+
+  def status
+    {backend: "spy"}
+  end
 end
 
 def mktmpdir(&)

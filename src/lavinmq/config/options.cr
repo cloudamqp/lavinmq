@@ -291,10 +291,30 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
 
+      @[CliOpt("", "--clustering-backend=BACKEND", "Clustering backend: etcd or vr (default: etcd)", section: "clustering")]
+      @[IniOpt(ini_name: backend, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND")]
+      property clustering_backend = "etcd"
+
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
       @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
+
+      @[CliOpt("", "--clustering-members=MEMBERS", "Static VR member roster, e.g. 1=tcp://node1:5679,2=tcp://node2:5679", section: "clustering")]
+      @[IniOpt(ini_name: members, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_MEMBERS")]
+      property clustering_members = ""
+
+      @[CliOpt("", "--clustering-node-id=ID", "Static VR node id. If omitted it is derived from advertised_uri.", section: "clustering")]
+      @[IniOpt(ini_name: node_id, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_NODE_ID")]
+      property clustering_node_id : Int32? = nil
+
+      @[CliOpt("", "--clustering-secret=SECRET", "Seed for the shared clustering password file", section: "clustering")]
+      @[IniOpt(ini_name: secret, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SECRET")]
+      property clustering_secret : String? = nil
 
       @[CliOpt("", "--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)", section: "clustering")]
       @[IniOpt(ini_name: bind, section: "clustering")]

@@ -136,6 +136,12 @@ module LavinMQ
           context
         end
 
+        get "/api/clustering/status" do |context, _params|
+          refuse_unless_administrator(context, user(context))
+          @amqp_server.clustering_status.to_json(context.response)
+          context
+        end
+
         # Run GC on the current node, without having to know its name
         post "/api/nodes/gc_collect" do |context, _params|
           refuse_unless_administrator(context, user(context))

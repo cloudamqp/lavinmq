@@ -38,6 +38,18 @@ describe LavinMQ::HTTP::NodesController do
     end
   end
 
+  describe "GET /api/clustering/status" do
+    it "returns clustering status data" do
+      with_http_server do |http, _|
+        response = http.get("/api/clustering/status")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body).as_h
+        body["backend"].as_s.should eq "standalone"
+        body["role"].as_s.should eq "primary"
+      end
+    end
+  end
+
   describe "POST /api/nodes/gc_collect" do
     it "triggers garbage collection" do
       with_http_server do |http, _|

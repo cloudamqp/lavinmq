@@ -10,6 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./clustering/etcd_coordinator"
+require "./clustering/vr_controller"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -40,10 +41,18 @@ module LavinMQ
       end
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        case @config.clustering_backend
+        when "etcd"
+          etcd = Etcd.new(@config.clustering_etcd_endpoints)
+          coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
+          @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
+          @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        when "vr"
+          @runner = controller = Clustering::VRController.new(@config)
+          @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id, controller.members, controller.state)
+        else
+          abort "Unknown clustering backend '#{@config.clustering_backend}', expected etcd or vr"
+        end
       else
         @runner = StandaloneRunner.new
       end
