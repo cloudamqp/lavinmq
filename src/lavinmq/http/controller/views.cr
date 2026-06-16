@@ -8,7 +8,7 @@ module LavinMQ
 
       def initialize
         static_view "/", view: "overview"
-        static_view "/login", auth_required: false
+        static_view "/login"
         static_view "/federation"
         static_view "/shovels"
         static_view "/connections"
@@ -32,27 +32,16 @@ module LavinMQ
         static_view "/operator-policies"
       end
 
-      macro static_view(path, *, auth_required = true, view = nil)
+      # Maps a clean route (e.g. /queues) to its baked static page
+      # (/queues.html). The security headers and login redirect are applied by
+      # StaticController (next in chain), so that direct .html requests are
+      # protected the same way.
+      macro static_view(path, *, view = nil)
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
-          redirect_unless_logged_in! if {{ auth_required }}
-          context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
-          context.response.headers.add("Referrer-Policy", "same-origin")
-          layout_inline_js_sha = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
-          login_inline_js_sha = "sha256-3bUZcnRc7hbNc+igS1dxqJNEEypKXCvZ9ozHwAxXIvc="
-          context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{layout_inline_js_sha}' '#{login_inline_js_sha}'")
-          # Rewrite path to .html so StaticController (next in chain)
           context.request.path = {{ "/#{view.id}.html" }}
           call_next(context)
           context
-        end
-      end
-
-      macro redirect_unless_logged_in!
-        if !context.request.cookies.has_key?("m") && !context.request.cookies.has_key?("oauth_token")
-          context.response.status = ::HTTP::Status::TEMPORARY_REDIRECT
-          context.response.headers["Location"] = "login"
-          next context
         end
       end
     end
