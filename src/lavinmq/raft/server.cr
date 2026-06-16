@@ -16,6 +16,9 @@ module LavinMQ::Raft
     @stopping = false
     # Backpressure buffer; run_on_tick callers block when full. Tick fiber drains.
     @actions = ::Channel({-> Bool, ::Channel(Bool)}).new(64)
+    # {log index, term proposed under, reply}. Tick-fiber-only. Resolved each
+    # tick iteration: committed-under-our-term => true, overwritten/lost => false.
+    @commit_waiters = [] of Tuple(UInt64, UInt64, ::Channel(Bool))
     @on_leader_change : Proc(UInt64?, Nil)?
     @last_observed_leader_id : UInt64? = nil
 
@@ -61,6 +64,9 @@ module LavinMQ::Raft
       @stop_signal.close
       @tick_done.receive? if @started
       @actions.close
+      while item = @actions.receive? # drain buffered actions: reply false so callers unblock
+        item[1].send(false) rescue nil
+      end
       @is_leader.close
     end
 
@@ -77,6 +83,35 @@ module LavinMQ::Raft
 
     def propose(cmd : ClusterCommand) : Bool
       run_on_tick { @node.propose(cmd) }
+    end
+
+    # Propose a command and block until it is confirmed committed under the
+    # term it was proposed in. Returns false if we are not leader, lose
+    # leadership before it commits, the slot is overwritten by a new leader,
+    # or the server is stopping. Use this when the write must be durable
+    # (e.g. ISR updates); use `propose` when local append is enough.
+    def propose_committed(cmd : ClusterCommand) : Bool
+      committed = ::Channel(Bool).new(1)
+      appended =
+        begin
+          run_on_tick do
+            if @node.propose(cmd)
+              @commit_waiters << {@node.log.last_index, @node.current_term, committed}
+              true
+            else
+              false
+            end
+          end
+        rescue # run_on_tick raises "stopping" if stop() began; treat as not-committed
+          false
+        end
+      return false unless appended
+      select
+      when ok = committed.receive
+        ok
+      when @is_leader.when_false.receive? # lost leadership (nil-safe if closed at shutdown)
+        false
+      end
     end
 
     # Hand raft leadership to `target`. Returns false when this node is not
@@ -171,6 +206,7 @@ module LavinMQ::Raft
         @node.take_messages.each do |target_id, outbound|
           @transport.outbox.send({target_id, outbound})
         end
+        resolve_commit_waiters
         current_leader = @node.leader_id
         unless current_leader == @last_observed_leader_id
           @last_observed_leader_id = current_leader
@@ -179,8 +215,30 @@ module LavinMQ::Raft
       end
     rescue ::Channel::ClosedError
     ensure
+      @commit_waiters.each { |_index, _term, ch| ch.send(false) rescue nil }
+      @commit_waiters.clear
       @node.close
       @tick_done.close
+    end
+
+    # Runs on the tick fiber. Lost leadership => fail all (can't commit our
+    # proposals). Else resolve any whose index has applied: true iff the slot
+    # still holds the term we proposed under (else a newer leader overwrote it).
+    private def resolve_commit_waiters : Nil
+      return if @commit_waiters.empty?
+      leader = @node.role.leader?
+      applied = @node.last_applied
+      @commit_waiters.reject! do |index, term, ch|
+        if !leader
+          ch.send(false) rescue nil
+          true
+        elsif applied >= index
+          ch.send(@node.log.term_at(index) == term) rescue nil
+          true
+        else
+          false
+        end
+      end
     end
 
     private def wire_callbacks : Nil

@@ -255,6 +255,53 @@ describe LavinMQ::Raft::Server do
     end
   end
 
+  describe "propose_committed" do
+    it "returns true once the entry commits under the proposing term" do
+      with_single_node do |server|
+        server.bootstrap.should be_true
+        select
+        when server.is_leader.when_true.receive
+        when timeout(2.seconds); fail "not leader"
+        end
+        server.propose_committed(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{1})).should be_true
+        server.isr.should eq Set{1}
+      end
+    end
+
+    it "returns false when proposing on a non-leader" do
+      with_cluster(3) do |_t, servers|
+        leader = form_cluster(servers)
+        follower = servers.find! { |s| s != leader }
+        follower.propose_committed(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{9})).should be_false
+      end
+    end
+  end
+
+  describe "stop" do
+    it "unblocks an in-flight run_on_tick caller instead of hanging" do
+      with_single_node do |server|
+        server.bootstrap.should be_true
+        select
+        when server.is_leader.when_true.receive
+        when timeout(2.seconds); fail "not leader"
+        end
+        result = nil.as(Bool?)
+        done = Channel(Nil).new
+        spawn do
+          result = server.propose_committed(LavinMQ::Raft::ClusterCommand::SetIsr.new(Set{2}))
+          done.close
+        end
+        Fiber.yield
+        server.stop
+        select
+        when done.receive?
+        when timeout(2.seconds); fail "propose_committed hung across stop()"
+        end
+        result.should_not be_nil
+      end
+    end
+  end
+
   describe "on_leader_change" do
     it "fires the callback when a single node bootstraps to leader" do
       observed = [] of UInt64?
