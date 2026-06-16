@@ -43,14 +43,14 @@ module LavinMQ
         nil
       end
 
-      def initialize(@io : MQTT::IO,
+      def initialize(@io : Protocol::IO,
                      @connection_info : ConnectionInfo,
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
-                     @will : MQTT::Will? = nil)
+                     @will : Protocol::Will? = nil)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -86,12 +86,12 @@ module LavinMQ
           end
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
-          if packet.is_a?(MQTT::Disconnect)
+          if packet.is_a?(Protocol::Disconnect)
             @log.debug { "Received disconnect" }
             break
           end
         end
-      rescue ex : ::MQTT::Protocol::Error::PacketDecode
+      rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
       rescue ex : ::IO::TimeoutError
@@ -127,13 +127,13 @@ module LavinMQ
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
-        when MQTT::Publish     then recieve_publish(packet)
-        when MQTT::PubAck      then recieve_puback(packet)
-        when MQTT::Subscribe   then recieve_subscribe(packet)
-        when MQTT::Unsubscribe then recieve_unsubscribe(packet)
-        when MQTT::PingReq     then receive_pingreq(packet)
-        when MQTT::Disconnect  then return packet
-        else                        raise "received unexpected packet: #{packet}"
+        when Protocol::Publish     then recieve_publish(packet)
+        when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::Subscribe   then recieve_subscribe(packet)
+        when Protocol::Unsubscribe then recieve_unsubscribe(packet)
+        when Protocol::PingReq     then receive_pingreq(packet)
+        when Protocol::Disconnect  then return packet
+        else                            raise "received unexpected packet: #{packet}"
         end
         packet
       end
@@ -146,23 +146,23 @@ module LavinMQ
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet
-        when MQTT::Publish
+        when Protocol::Publish
           if packet.dup?
             vhost.event_tick(EventType::ClientRedeliver)
           else
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when MQTT::PubAck
+        when Protocol::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
 
-      def receive_pingreq(packet : MQTT::PingReq)
-        send MQTT::PingResp.new
+      def receive_pingreq(packet : Protocol::PingReq)
+        send Protocol::PingResp.new
       end
 
-      def recieve_publish(packet : MQTT::Publish)
+      def recieve_publish(packet : Protocol::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
@@ -172,16 +172,16 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(MQTT::PubAck.new(packet_id))
+          send(Protocol::PubAck.new(packet_id))
         end
       end
 
-      def recieve_puback(packet : MQTT::PubAck)
+      def recieve_puback(packet : Protocol::PubAck)
         @broker.sessions[@client_id].ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
-      def recieve_subscribe(packet : MQTT::Subscribe)
+      def recieve_subscribe(packet : Protocol::Subscribe)
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
@@ -190,12 +190,12 @@ module LavinMQ
           end
         end
         qos = @broker.subscribe(self, packet.topic_filters)
-        send(MQTT::SubAck.new(qos, packet.packet_id))
+        send(Protocol::SubAck.new(qos, packet.packet_id))
       end
 
-      def recieve_unsubscribe(packet : MQTT::Unsubscribe)
+      def recieve_unsubscribe(packet : Protocol::Unsubscribe)
         @broker.unsubscribe(client_id, packet.topics)
-        send(MQTT::UnsubAck.new(packet.packet_id))
+        send(Protocol::UnsubAck.new(packet.packet_id))
       end
 
       def details_tuple
@@ -235,7 +235,7 @@ module LavinMQ
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
-          @broker.publish(MQTT::Publish.new(
+          @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -324,7 +324,7 @@ module LavinMQ
         true
       end
 
-      def deliver(msg : MQTT::Publish)
+      def deliver(msg : Protocol::Publish)
         @client.send(msg)
       end
 
