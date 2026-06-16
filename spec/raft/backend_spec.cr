@@ -33,6 +33,33 @@ private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
 end
 
 describe LavinMQ::Raft::Backend do
+  describe ".leader_change_action" do
+    self_id = 1_u64
+
+    it "keeps the current client on a transient nil leader (no teardown)" do
+      LavinMQ::Raft::Backend.leader_change_action(nil, self_id, nil, false).keep?.should be_true
+    end
+
+    it "stops following when this node has become the leader" do
+      LavinMQ::Raft::Backend.leader_change_action(self_id, self_id, nil, false)
+        .stop_following?.should be_true
+    end
+
+    it "keeps the current client when the new leader's address can't be resolved yet" do
+      LavinMQ::Raft::Backend.leader_change_action(2_u64, self_id, nil, false).keep?.should be_true
+    end
+
+    it "keeps the current client when already following the new leader (the #11 fix)" do
+      LavinMQ::Raft::Backend.leader_change_action(2_u64, self_id, "tcp://b:5679", true)
+        .keep?.should be_true
+    end
+
+    it "follows when a different, resolvable leader is elected" do
+      LavinMQ::Raft::Backend.leader_change_action(2_u64, self_id, "tcp://b:5679", false)
+        .follow?.should be_true
+    end
+  end
+
   describe "advertised_address" do
     it "honors the port in clustering_advertised_uri for the data address" do
       dir = tmp_data_dir
