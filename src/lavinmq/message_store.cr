@@ -347,6 +347,9 @@ module LavinMQ
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
+        # The segment is now finalized and immutable; hash it once so followers
+        # don't have to and an unclean restart doesn't re-hash it.
+        @replicator.try &.checksum_file(@wfile)
       end
       @wfile.dontneed unless @wfile == @rfile
       next_id = @wfile_id + 1

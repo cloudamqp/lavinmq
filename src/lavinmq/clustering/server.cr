@@ -162,6 +162,24 @@ module LavinMQ
         @file_index.shared { |files, _checksums| files.size }
       end
 
+      # Hash a just-finalized segment once and cache+persist it. The segment is
+      # immutable from here on, so the stored hash can never drift from disk;
+      # files_with_hash then reuses it instead of re-hashing on every join, and
+      # an unclean restart restores it instead of re-hashing every segment.
+      # Reads the mmap [0, mfile.size) — identical bytes to what files_with_hash
+      # reads from disk after the segment is truncated to its size. Computes
+      # outside the lock (CPU bound) and only takes it for the cheap store.
+      def checksum_file(mfile : MFile)
+        path = strip_datadir(mfile.path)
+        sha1 = Digest::SHA1.new
+        sha1.update mfile.to_slice(0, mfile.size)
+        hash = sha1.final
+        @file_index.lock { |_files, checksums| checksums.append(path, hash) }
+      rescue IO::Error
+        # mfile closed/unmapped concurrently; skip — the cache is optional and
+        # files_with_hash will recompute correctly.
+      end
+
       # When `caps` is given (the last full_sync of a joining follower), each
       # file's hash is computed over only the first `caps[path]` bytes — the
       # cut the follower will be marked synced at. This excludes writes whose

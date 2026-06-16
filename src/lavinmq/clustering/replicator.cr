@@ -15,6 +15,11 @@ module LavinMQ
       abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
       abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
       abstract def delete_file(path : String)
+      # Compute, cache and persist the checksum of a segment that has just been
+      # finalized (rolled away from) and is now immutable — see
+      # MessageStore#open_new_segment. Lets a joining follower find the hash
+      # precomputed and an unclean restart skip re-hashing it.
+      abstract def checksum_file(mfile : MFile)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       # ISR bookkeeping for the publish-confirm path: a confirm may only be

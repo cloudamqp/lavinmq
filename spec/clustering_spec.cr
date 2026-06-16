@@ -620,6 +620,36 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
+  describe "leader checksum precompute (#1835)" do
+    it "hashes and persists finalized segments during normal operation" do
+      msg_dir = File.join(LavinMQ::Config.instance.data_dir, "leader_checksum_test")
+      FileUtils.mkdir_p(msg_dir)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      populate_msg_store(msg_store)
+
+      # Persisted during publishing, before any close/store.
+      checksums_file = File.join(LavinMQ::Config.instance.data_dir, "checksums.sha1")
+      File.exists?(checksums_file).should be_true
+      content = File.read(checksums_file)
+      content.should match(/[0-9a-f]{40} \*leader_checksum_test\/msgs\./)
+
+      # The persisted hash equals an independent full-file hash — i.e. exactly
+      # what files_with_hash would send a follower (no drift, cache reusable).
+      finalized = msg_store.@segments.keys.min # first segment is finalized
+      seg = msg_store.@segments[finalized]
+      rel = seg.path[(LavinMQ::Config.instance.data_dir.bytesize + 1)..]
+      expected = Digest::SHA1.new
+      File.open(seg.path) { |f| expected.update IO::Sized.new(f, seg.size) }
+      line = content.lines.find!(&.includes?(rel))
+      line.split(' ').first.should eq expected.final.hexstring
+    ensure
+      msg_store.try &.close
+      replicator.try &.close
+      FileUtils.rm_rf msg_dir if msg_dir
+    end
+  end
+
   describe "full sync when message store is closed" do
     it "succeeds when message store is already closed before sync" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")

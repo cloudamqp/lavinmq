@@ -10,6 +10,7 @@ class SpyReplicator
   getter registered_files = Hash(String, Symbol).new
   getter deleted_files = Set(String).new
   getter replaced_files = Array(String).new
+  getter checksummed_files = Array(String).new
 
   def register_file(path : String)
     @registered_files[path] = :path
@@ -38,6 +39,10 @@ class SpyReplicator
 
   def delete_file(path : String)
     @deleted_files << path
+  end
+
+  def checksum_file(mfile : MFile)
+    @checksummed_files << mfile.path
   end
 
   def followers : Array(LavinMQ::Clustering::Follower)
@@ -119,6 +124,28 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "checksums each finalized segment once for replication (#1835)" do
+    mktmpdir do |dir|
+      replicator = SpyReplicator.new
+      store = LavinMQ::MessageStore.new(dir, replicator, durable: true)
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+      msg = LavinMQ::Message.new(
+        RoughTime.unix_ms, "e", "k",
+        AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size)
+      )
+      6.times { store.push msg } # rolls several segments
+      store.close
+
+      # Finalized (rolled-away) segments are hashed; each exactly once.
+      replicator.checksummed_files.should_not be_empty
+      replicator.checksummed_files.each(&.should contain "msgs.")
+      replicator.checksummed_files.uniq.size.should eq replicator.checksummed_files.size
+      # The current (still mutable) write segment is never hashed.
+      active = Dir.glob(File.join(dir, "msgs.*")).max
+      replicator.checksummed_files.should_not contain active
+    end
+  end
+
   it "deletes orphaned ack files" do
     mktmpdir do |dir|
       # Create a dummy msgs file
