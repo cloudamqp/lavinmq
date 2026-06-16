@@ -5,8 +5,10 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import { initTabs } from './tabs.js'
 
 Helpers.disableUserMenuVhost()
+initTabs()
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')

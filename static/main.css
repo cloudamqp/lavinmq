@@ -1193,7 +1193,7 @@ footer .logo {
   border-bottom: 1px solid var(--color-border-primary);
   display: flex;
   align-items: stretch;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   gap: 1.5rem;
 }
 
@@ -1209,7 +1209,7 @@ footer .logo {
   font-weight: 500;
   white-space: nowrap;
   transition: color 0.15s ease;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
   margin-bottom: -1px;
   user-select: none;
 

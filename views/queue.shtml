@@ -12,12 +12,12 @@
           <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
       <div class="tab-bar cols-12">
-        <div class="tab active">Overview</div>
-        <div class="tab">Consumers <span class="badge">12</span></div>
-        <div class="tab">Bindings <span class="badge">1</span></div>
-        <div class="tab">Messages</div>
+        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab" data-tab="consumers">Consumers <span class="badge">12</span></div>
+        <div class="tab" data-tab="bindings">Bindings <span class="badge">1</span></div>
+        <div class="tab" data-tab="messages">Messages</div>
       </div>
-      <section class="card cols-4">
+      <section class="card cols-4" data-tab-content="overview">
         <h3>Details</h3>
         <table class="details-table">
           <tr>
@@ -51,7 +51,7 @@
           </label>
         </form>
       </section>
-      <section class="card cols-5">
+      <section class="card cols-5" data-tab-content="overview">
         <h3>Messages</h3>
         <table class="details-table">
           <tr>
@@ -80,15 +80,15 @@
           </tr>
         </table>
       </section>
-      <section class="card cols-3">
+      <section class="card cols-3" data-tab-content="overview">
         <h3>Arguments</h3>
         <pre class="arguments" id="q-arguments"></pre>
       </section>
-      <section class="card">
+      <section class="card" data-tab-content="overview">
         <h3>Rates</h3>
         <div class="chart-container" id="chart"></div>
       </section>
-      <section class="card">
+      <section class="card" data-tab-content="consumers">
         <div class="table-header">
           <h2 class="has-badge">
             Consumers
@@ -113,7 +113,7 @@
         </div>
         <button class="load-more" id="load-more-consumers"></button>
       </section>
-      <section class="card">
+      <section class="card" data-tab-content="bindings">
         <div class="table-header">
           <h2 class="has-badge">
             Bindings
@@ -135,7 +135,7 @@
           </table>
         </div>
       </section>
-      <form method="post" id="addBinding" class="form card cols-6">
+      <form method="post" id="addBinding" class="form card cols-6" data-tab-content="bindings">
         <h3>Add a binding to this queue</h3>
         <label>
           <span>From exchange</span>
@@ -152,7 +152,7 @@
         </label>
         <button type="submit" class="btn btn-outlined">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form card cols-6">
+      <form method="post" id="publishMessage" class="form card cols-6" data-tab-content="messages">
         <h3 class="with-desc">Publish message</h3>
         <p class="card-desc pre-form">
           Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
@@ -221,7 +221,7 @@
         </label>
         <button type="submit" class="btn btn-outlined">Publish message</button>
       </form>
-      <section class="card cols-6">
+      <section class="card cols-6" data-tab-content="messages">
         <form method="post" id="getMessages" class="form">
           <h3>Get messages</h3>
           <label>
@@ -247,7 +247,7 @@
           <button type="submit" class="btn btn-outlined">Get message(s)</button>
         </form>
       </section>
-      <form method="post" id="moveMessages" class="form card cols-6">
+      <form method="post" id="moveMessages" class="form card cols-6" data-tab-content="messages">
         <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
@@ -257,7 +257,7 @@
         </label>
         <button type="submit" class="btn btn-outlined">Move messages</button>
       </form>
-      <div id="message-template" class="hide message card">
+      <div id="message-template" class="hide message card" data-tab-content="messages">
         <h4 class="message-header">Message <span class="message-number"></span></h4>
         <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
         <table>
@@ -291,8 +291,8 @@
           </tr>
         </table>
       </div>
-      <div id="messages" class="cols-12"></div>
-      <section class="card cols-4">
+      <div id="messages" class="cols-12" data-tab-content="messages"></div>
+      <section class="card cols-4" data-tab-content="overview">
         <h3>Pause Queue</h3>
         <form method="put" id="pauseQueue" class="form">
           <label>
@@ -306,7 +306,7 @@
         </form>
         <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
       </section>
-      <form method="delete" id="purgeQueue" class="form card cols-4">
+      <form method="delete" id="purgeQueue" class="form card cols-4" data-tab-content="overview">
         <h3>Purge queue</h3>
         <label>
           <span>Number of messages</span>
@@ -316,7 +316,7 @@
           <button type="submit" class="btn btn-red">Purge queue</button>
         </label>
       </form>
-      <section class="card cols-4">
+      <section class="card cols-4" data-tab-content="overview">
         <h3>Delete queue</h3>
         <form method="delete" id="deleteQueue" class="form">
           <label>
