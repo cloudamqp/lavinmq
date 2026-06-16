@@ -99,11 +99,14 @@ module LavinMQ::Raft
       maybe_bootstrap_or_join
 
       wait_for_insync_leadership
+      return if @stopped
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
       @repli_client.try &.close
       yield
 
-      @server.is_leader.when_false.receive
+      # receive? (not receive): stop() closes is_leader, which would otherwise
+      # raise Channel::ClosedError out of this (un-rescued, main-fiber) call.
+      @server.is_leader.when_false.receive?
       return if @stopped
       execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
       Log.fatal { "Lost cluster leadership" }
@@ -206,13 +209,16 @@ module LavinMQ::Raft
     private def wait_for_insync_leadership : Nil
       isr_changed = @server.state_machine.isr_changed
       logged_waiting = false
-      loop do
+      # until @stopped + receive? on the is_leader arms: stop() sets @stopped
+      # then closes is_leader, so the closed-channel wakeup falls through to the
+      # loop guard and returns cleanly instead of raising Channel::ClosedError.
+      until @stopped
         if @server.is_leader.value
           return if in_isr?
           hand_off_leadership
           select
           when isr_changed.receive
-          when @server.is_leader.when_false.receive
+          when @server.is_leader.when_false.receive?
           when timeout(HANDOFF_RETRY_INTERVAL)
           end
         else
@@ -221,7 +227,7 @@ module LavinMQ::Raft
             Log.info { "Not in sync, waiting for the leader to add us to ISR" }
           end
           select
-          when @server.is_leader.when_true.receive
+          when @server.is_leader.when_true.receive?
           when isr_changed.receive
           end
         end

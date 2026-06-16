@@ -93,6 +93,36 @@ describe LavinMQ::Raft::Backend do
     end
   end
 
+  it "returns cleanly from campaign on stop (no Channel::ClosedError)" do
+    dir = tmp_data_dir
+    backend = nil.as(LavinMQ::Raft::Backend?)
+    begin
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+      backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+      b = backend.not_nil!
+      error = nil.as(Exception?)
+      done = Channel(Nil).new
+      spawn(name: "campaign-stop-test") do
+        b.campaign { } # bootstraps -> leader -> yields -> blocks on is_leader.when_false
+      rescue ex
+        error = ex
+      ensure
+        done.close
+      end
+      # Wait until it has progressed past the yield into the leader serve-block.
+      retry_until(5.seconds) { b.server.is_leader.value }
+      b.stop
+      select
+      when done.receive?
+      when timeout(5.seconds); fail "campaign did not return after stop"
+      end
+      error.should be_nil # must unblock cleanly, not raise on the closed is_leader channel
+    ensure
+      backend.try &.stop rescue nil
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "auto-bootstraps a fresh node with no peers and no .join_target" do
     dir = tmp_data_dir
     backend = nil
