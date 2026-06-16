@@ -3,7 +3,8 @@ require "./elector"
 require "./client"
 require "./etcd_coordinator"
 
-class LavinMQ::Clustering::EtcdElector < LavinMQ::Clustering::Elector
+class LavinMQ::Clustering::EtcdElector
+  include LavinMQ::Clustering::Elector
   Log = LavinMQ::Log.for "clustering.etcd_elector"
 
   getter id : Int32

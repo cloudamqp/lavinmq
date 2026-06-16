@@ -4,7 +4,9 @@ module LavinMQ
   module Clustering
     # A cluster of one: the campaign is won by walkover. Yields immediately,
     # then blocks until stop is called.
-    class StandaloneElector < Elector
+    class StandaloneElector
+      include Elector
+
       def campaign(& : ->)
         yield
         @stop_channel.receive?

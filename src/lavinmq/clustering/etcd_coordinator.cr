@@ -5,7 +5,8 @@ require "random/secure"
 require "sync/exclusive"
 
 module LavinMQ::Clustering
-  class EtcdCoordinator < Coordinator
+  class EtcdCoordinator
+    include Coordinator
     Log = LavinMQ::Log.for "clustering.etcd_coordinator"
 
     # Reads happen on every update_isr (cold path: follower join/leave) but are
