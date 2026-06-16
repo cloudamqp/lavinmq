@@ -60,7 +60,7 @@ module LavinMQ::Raft
     def snapshot(io : IO) : Nil
       @mutex.synchronize do
         fmt = IO::ByteFormat::LittleEndian
-        io.write_bytes(SNAPSHOT_VERSION, fmt)
+        io.write_byte(SNAPSHOT_VERSION)
         io.write_bytes(@secret.bytesize.to_u32, fmt)
         io.write(@secret.to_slice)
         io.write_bytes(@isr.size.to_u32, fmt)
