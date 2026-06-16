@@ -44,8 +44,9 @@ module LavinMQ
 
       # Lazily fetched from @coordinator on first access. The raft coordinator
       # can't answer at construction time (the raft node isn't leader yet —
-      # bootstrap happens later, inside Runner#run). By the time a follower
-      # connects, raft has elected and the secret has been proposed.
+      # bootstrap happens later, inside the elector). By the time a follower
+      # connects, raft has elected and the leader has written the shared secret
+      # to its .clustering_password file.
       getter password : String { @coordinator.password }
 
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)

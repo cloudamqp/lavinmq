@@ -256,7 +256,7 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id", ".join_target")
+            next if child.in?(".lock", ".clustering_id", ".join_target", ".clustering_password")
             yield path
           end
         end

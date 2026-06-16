@@ -174,10 +174,6 @@ module LavinMQ::Raft
       @state_machine.state
     end
 
-    def secret : String
-      @state_machine.secret
-    end
-
     def isr : Set(Int32)
       @state_machine.isr
     end

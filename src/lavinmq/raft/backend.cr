@@ -47,17 +47,31 @@ module LavinMQ::Raft
       end
     end
 
+    PASSWORD_FILE = ".clustering_password"
+
+    # The cluster's shared replication secret. It is read from a local file
+    # (`<data_dir>/.clustering_password`), never the raft log — replicating it
+    # through consensus would persist the secret in every node's log and
+    # snapshots (and made a follower busy-wait on a SetSecret apply that could
+    # time out and strand replication).
+    #
+    # A leader with no file yet generates one (single-node bootstrap); it must
+    # be copied to every other node before they join. A node that is not the
+    # leader and has no file cannot guess the secret, so it fails fast with an
+    # actionable message rather than authenticating followers with the wrong
+    # password. The follower file-sync skips this file (see Clustering::Client)
+    # so replication can't delete it.
     def password : String
-      existing = @server.secret
-      return existing unless existing.empty?
-      new_secret = Random::Secure.base64(32)
-      @server.propose(ClusterCommand::SetSecret.new(new_secret))
-      deadline = Time.instant + 5.seconds
-      while @server.secret.empty?
-        raise "timed out waiting for SetSecret apply" if Time.instant > deadline
-        sleep 1.millisecond
+      path = File.join(@config.data_dir, PASSWORD_FILE)
+      return File.read(path).strip if File.exists?(path)
+      unless @server.is_leader.value
+        Log.fatal { "Replication secret file missing: #{path}. Copy it from another node in the cluster." }
+        exit 3
       end
-      @server.secret
+      secret = Random::Secure.base64(32)
+      File.open(path, "w", perm: 0o600, &.print(secret))
+      Log.info { "Generated clustering password at #{path}; copy it to every other node before they join" }
+      secret
     end
 
     def advertised_address : String
@@ -253,12 +267,10 @@ module LavinMQ::Raft
         begin
           handle_leader_change(id)
         rescue ex
-          # handle_leader_change can raise on transient conditions (e.g.
-          # @coordinator.password timing out before SetSecret has applied,
-          # or Clustering::Client construction failing). Swallow + log so
-          # the fiber survives — otherwise it'd die and subsequent leader
-          # changes would silently fill the buffered channel until they
-          # get dropped, breaking replication failover for this node.
+          # handle_leader_change can raise if Clustering::Client construction
+          # fails. Swallow + log so the fiber survives — otherwise it'd die and
+          # subsequent leader changes would silently fill the buffered channel
+          # until they get dropped, breaking replication failover for this node.
           Log.error(exception: ex) { "handle_leader_change failed for #{id}; will retry on next leader change" }
         end
       end
