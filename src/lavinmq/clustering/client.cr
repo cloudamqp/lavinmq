@@ -116,11 +116,11 @@ module LavinMQ
         end
         loop do
           @socket = socket = TCPSocket.new(host, port)
-          @connected.set(1)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
+          @connected.set(1)
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error

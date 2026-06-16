@@ -1,4 +1,5 @@
 require "json"
+require "./durable_file"
 
 module LavinMQ
   module Clustering
@@ -10,7 +11,7 @@ module LavinMQ
       @lock = Mutex.new(:unchecked)
       @view : Int64 = 0_i64
       @role : String = "backup"
-      @op_number : Int64 = 0_i64
+      @op_number = Atomic(Int64).new(0_i64)
       @commit_number : Int64 = 0_i64
 
       def initialize(data_dir : String)
@@ -27,7 +28,7 @@ module LavinMQ
       end
 
       def op_number : Int64
-        @lock.synchronize { @op_number }
+        @op_number.get(:relaxed)
       end
 
       def commit_number : Int64
@@ -51,10 +52,7 @@ module LavinMQ
       end
 
       def next_op! : Int64
-        @lock.synchronize do
-          @op_number += 1
-          @op_number
-        end
+        @op_number.add(1_i64, :relaxed) + 1_i64
       end
 
       def commit!(op : Int64) : Nil
@@ -74,7 +72,7 @@ module LavinMQ
             view:          @view,
             primary_id:    primary_id,
             primary_uri:   primary_uri,
-            op_number:     @op_number,
+            op_number:     @op_number.get(:relaxed),
             commit_number: @commit_number,
             quorum_size:   quorum_size,
           }
@@ -87,19 +85,18 @@ module LavinMQ
         json = JSON.parse(File.read(@path))
         @view = json["view"].as_i64
         @role = json["role"].as_s
-        @op_number = json["op_number"].as_i64
+        @op_number.set(json["op_number"].as_i64, :relaxed)
         @commit_number = json["commit_number"].as_i64
       rescue ex : JSON::ParseException | KeyError | TypeCastError
         raise Error.new("Invalid VR state file #{@path}: #{ex.message}")
       end
 
       private def store : Nil
-        Dir.mkdir_p(File.dirname(@path))
-        File.open(@path, "w") do |io|
+        DurableFile.replace(@path) do |io|
           {
             view:          @view,
             role:          @role,
-            op_number:     @op_number,
+            op_number:     @op_number.get(:relaxed),
             commit_number: @commit_number,
           }.to_json(io)
         end

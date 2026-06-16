@@ -1,4 +1,5 @@
 require "./client"
+require "./leader_hooks"
 require "./static_members"
 require "./vr_coordinator"
 require "./vr_state"
@@ -6,6 +7,8 @@ require "./vr_state"
 module LavinMQ
   module Clustering
     class VRController
+      include LeaderHooks
+
       Log = LavinMQ::Log.for "clustering.vr_controller"
 
       HEARTBEAT_TIMEOUT = 3.seconds
@@ -60,11 +63,16 @@ module LavinMQ
       end
 
       private def run_as_primary(&)
+        elected_hook_started = false
         @state.role = "primary"
-        execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
         Log.info { "VR primary view=#{@state.view} node_id=#{@node_id}" }
         yield
+        return if @stopped
+        run_leader_elected_hook
+        elected_hook_started = true
         @stop_channel.receive?
+      ensure
+        run_leader_lost_hook if elected_hook_started
       end
 
       private def follow_primary(primary_id : Int32) : Nil
@@ -98,24 +106,6 @@ module LavinMQ
       ensure
         @client.try &.close
         @client = nil
-      end
-
-      private def execute_shell_command(command : String, event : String)
-        return if command.empty?
-
-        Log.info { "Executing #{event} hook in background: #{command}" }
-        spawn name: "#{event} hook" do
-          begin
-            status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-            if status.success?
-              Log.info { "#{event} hook completed successfully" }
-            else
-              Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
-            end
-          rescue ex
-            Log.error(exception: ex) { "Failed to execute #{event} hook" }
-          end
-        end
       end
     end
   end

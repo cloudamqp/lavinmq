@@ -33,6 +33,7 @@ module LavinMQ
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
+      @followers_changed = Channel(Bool).new(1)
       @password : String
       @dirty_isr = true
       @id : Int32
@@ -377,6 +378,7 @@ module LavinMQ
             follower.mark_synced! # Change state to Synced
             update_isr
           end
+          notify_followers_changed
         end
         # Wait for follower to disconnect or be closed
         follower.ack_loop
@@ -385,8 +387,10 @@ module LavinMQ
         # raised or an update_isr that failed right after mark_synced! — a
         # follower left in @followers as Synced with no ack_loop running
         # would hang every wait_for_confirm forever.
+        notify_followers = false
         @lock.synchronize do
-          @followers.delete(follower)
+          removed = @followers.delete(follower)
+          notify_followers = !removed.nil? && follower.synced?
           if follower.synced?
             # If the follower was behind (unacked replicated data) when it
             # dropped, it may be missing data that's about to be confirmed via
@@ -409,6 +413,7 @@ module LavinMQ
             end
           end
         end
+        notify_followers_changed if notify_followers
       end
 
       private def update_isr
@@ -471,6 +476,7 @@ module LavinMQ
 
       def close
         @listeners.each &.close
+        @followers_changed.close
         @lock.synchronize do
           @followers.each &.close
           @followers.clear
@@ -519,21 +525,45 @@ module LavinMQ
         members = @members || raise Error.new("VR quorum requested without members")
         state = @vr_state || raise Error.new("VR quorum requested without state")
         target_op = state.op_number
-        return state.commit!(target_op) if members.quorum_size <= 1
+        needed_followers = members.quorum_size - 1
+        return state.commit!(target_op) if needed_followers <= 0
 
         loop do
-          acked = 1 # the primary already fsynced locally before this barrier
-          followers.each do |f|
-            next unless members.includes?(f.id)
-            acked += 1 if f.wait_for_confirm
-            break if acked >= members.quorum_size
+          current_followers = followers.select { |f| members.includes?(f.id) }
+          unless current_followers.size >= needed_followers
+            return unless wait_for_followers_changed
+            next
           end
-          if acked >= members.quorum_size
-            state.commit!(target_op)
-            return
+
+          results = Channel(Bool).new(current_followers.size)
+          current_followers.each do |f|
+            spawn(name: "VR quorum wait follower #{f.id.to_s(36)}") do
+              results.send(f.wait_for_confirm)
+            end
           end
-          sleep 100.milliseconds
+
+          acked_followers = 0
+          current_followers.size.times do
+            if results.receive
+              acked_followers += 1
+              if acked_followers >= needed_followers
+                state.commit!(target_op)
+                return
+              end
+            end
+          end
+
+          return unless wait_for_followers_changed
         end
+      end
+
+      private def notify_followers_changed : Nil
+        @followers_changed.try_send(true)
+      rescue Channel::ClosedError
+      end
+
+      private def wait_for_followers_changed : Bool
+        @followers_changed.receive? || false
       end
     end
   end

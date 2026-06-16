@@ -1,3 +1,4 @@
+require "socket"
 require "uri"
 
 module LavinMQ
@@ -65,15 +66,31 @@ module LavinMQ
       end
 
       private def equivalent_uri?(a : URI, b : URI) : Bool
-        a.scheme == b.scheme &&
-          a.hostname == b.hostname &&
-          (a.port || default_port(a.scheme)) == (b.port || default_port(b.scheme))
+        a_scheme = a.scheme.try &.downcase
+        b_scheme = b.scheme.try &.downcase
+        return false unless a_scheme == b_scheme
+
+        a_host = a.hostname
+        b_host = b.hostname
+        return false unless a_host && b_host
+
+        a_port = a.port || default_port(a_scheme)
+        b_port = b.port || default_port(b_scheme)
+        return false unless a_port && b_port
+
+        a_port == b_port && normalize_host(a_host) == normalize_host(b_host)
       end
 
       private def default_port(scheme : String?) : Int32?
         case scheme
         when "tcp", "lavinmq" then 5679
         end
+      end
+
+      private def normalize_host(host : String) : String
+        host = host.downcase
+        return Socket::IPAddress.new(host, 0).address if Socket::IPAddress.valid?(host)
+        host
       end
 
       class Error < Exception; end

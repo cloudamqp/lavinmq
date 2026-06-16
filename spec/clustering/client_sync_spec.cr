@@ -65,6 +65,38 @@ module ClientSyncSpec
   end
 
   describe LavinMQ::Clustering::Client do
+    describe "#connected?" do
+      it "stays false for a bare TCP connection until sync completes" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          tcp_server = TCPServer.new("localhost", 0)
+          leader_socket = nil.as(TCPSocket?)
+          accepted = Channel(TCPSocket).new(1)
+
+          spawn(name: "bare clustering server") do
+            socket = tcp_server.accept
+            leader_socket = socket
+            accepted.send socket
+            sleep 5.seconds
+          rescue IO::Error
+          end
+
+          spawn(name: "client bare follow") do
+            client.follow("localhost", tcp_server.local_address.port)
+          rescue
+          end
+
+          accepted.receive
+          sleep 100.milliseconds
+          client.connected?.should be_false
+        ensure
+          client.try &.close
+          leader_socket.try &.close
+          tcp_server.try &.close
+        end
+      end
+    end
+
     describe "stream_changes" do
       # Regression: a single large action must be acked incrementally as its
       # payload is written, not just once when the whole action completes.

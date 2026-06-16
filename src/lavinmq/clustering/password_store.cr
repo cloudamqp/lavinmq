@@ -1,4 +1,5 @@
 require "random/secure"
+require "./durable_file"
 require "./metadata"
 
 module LavinMQ
@@ -24,9 +25,9 @@ module LavinMQ
         end
 
         secret = seed || Random::Secure.base64(32)
-        Dir.mkdir_p(File.dirname(@path))
-        File.write(@path, secret)
-        File.chmod(@path, FILE_MODE)
+        DurableFile.replace(@path, FILE_MODE) do |io|
+          io.print secret
+        end
         secret
       end
 

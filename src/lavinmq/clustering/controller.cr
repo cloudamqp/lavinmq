@@ -1,8 +1,11 @@
 require "../etcd"
 require "./client"
 require "./etcd_coordinator"
+require "./leader_hooks"
 
 class LavinMQ::Clustering::Controller
+  include LavinMQ::Clustering::LeaderHooks
+
   Log = LavinMQ::Log.for "clustering.controller"
 
   getter id : Int32
@@ -33,14 +36,14 @@ class LavinMQ::Clustering::Controller
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    run_leader_elected_hook
     @repli_client.try &.close
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
     end
   rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    run_leader_lost_hook
     unless @stopped
       Log.fatal { "Lease expired, lost leadership" }
       exit 3
@@ -170,25 +173,6 @@ class LavinMQ::Clustering::Controller
         when in_sync.receive?
           Log.info { "In sync with leader" }
         end
-      end
-    end
-  end
-
-  private def execute_shell_command(command : String, event : String)
-    return if command.empty?
-
-    Log.info { "Executing #{event} hook in background: #{command}" }
-
-    spawn name: "#{event} hook" do
-      begin
-        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-        if status.success?
-          Log.info { "#{event} hook completed successfully" }
-        else
-          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
-        end
-      rescue ex
-        Log.error(exception: ex) { "Failed to execute #{event} hook" }
       end
     end
   end
