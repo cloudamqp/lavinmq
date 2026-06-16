@@ -9,11 +9,9 @@ require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
 require "./clustering/elector"
-require "./clustering/etcd_elector"
-require "./clustering/etcd_coordinator"
-require "./raft/coordinator"
-require "./raft/elector"
-require "./clustering/standalone_elector"
+require "./clustering/etcd_backend"
+require "./raft/backend"
+require "./clustering/standalone_backend"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
 
@@ -46,17 +44,16 @@ module LavinMQ
         case @config.clustering_backend
         when "etcd"
           etcd = Etcd.new(@config.clustering_etcd_endpoints)
-          coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-          @elector = elector = Clustering::EtcdElector.new(@config, etcd)
-          @replicator = Clustering::Server.new(@config, coordinator, elector.id)
+          @backend = backend = Clustering::EtcdBackend.new(@config, etcd)
+          @replicator = Clustering::Server.new(@config, backend, backend.node_id)
         when "raft"
-          @elector = elector = LavinMQ::Raft::Elector.new(@config)
-          @replicator = Clustering::Server.new(@config, elector.coordinator, elector.node_id)
+          @backend = backend = LavinMQ::Raft::Backend.new(@config)
+          @replicator = Clustering::Server.new(@config, backend, backend.node_id)
         else
           raise LavinMQ::Error.new("Invalid clustering_backend: #{@config.clustering_backend.inspect}")
         end
       else
-        @elector = Clustering::StandaloneElector.new
+        @backend = Clustering::StandaloneBackend.new
       end
 
       if @config.tls_configured?
@@ -75,11 +72,11 @@ module LavinMQ
       started_at = Time.instant
       @data_dir_lock.try &.acquire
       # Force-init the cluster secret before clustering listener starts. For
-      # the raft backend, this requires being leader (we are — the elector yielded
+      # the raft backend, this requires being leader (we are — the backend yielded
       # to us). For etcd, this writes the key so follower watches fire.
       @replicator.try &.password
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server, @elector)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server, @backend)
       load_definitions(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
@@ -93,7 +90,7 @@ module LavinMQ
     end
 
     def run
-      @elector.campaign do
+      @backend.campaign do
         start
       end
       @replicator.try &.close
@@ -108,7 +105,7 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
-      @elector.stop
+      @backend.stop
     end
 
     private def print_environment_info
@@ -180,8 +177,8 @@ module LavinMQ
     end
 
     private def start_metrics_server(amqp_server)
-      raft_elector = @elector.as?(LavinMQ::Raft::Elector)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server, raft_elector)
+      raft_backend = @backend.as?(LavinMQ::Raft::Backend)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server, raft_backend)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen

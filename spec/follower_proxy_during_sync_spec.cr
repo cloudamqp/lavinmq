@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_coordinator"
+require "../src/lavinmq/clustering/etcd_backend"
 require "../src/lavinmq/proxy_protocol"
 
 # Create a custom slow clustering server for testing
@@ -32,7 +32,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "etc
   it "should handle PROXY protocol from syncing followers during full_sync" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
-    slow_replicator = SlowClusteringServer.new(leader_config, LavinMQ::Clustering::EtcdCoordinator.new(leader_config, LavinMQ::Etcd.new("localhost:12379")), 0)
+    slow_replicator = SlowClusteringServer.new(leader_config, LavinMQ::Clustering::EtcdBackend.new(leader_config, LavinMQ::Etcd.new("localhost:12379")), 0)
     leader_tcp_server = TCPServer.new("localhost", 0)
     spawn(slow_replicator.listen(leader_tcp_server), name: "slow leader clustering")
 

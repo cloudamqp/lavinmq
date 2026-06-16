@@ -31,11 +31,6 @@ module LavinMQ
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
-      # Lazily fetched from @coordinator on first call to `password`. The raft
-      # coordinator can't answer at construction time (the raft node isn't
-      # leader yet — bootstrap happens later, inside Runner#run). By the time a
-      # follower connects, raft has elected and the secret has been proposed.
-      @password : String? = nil
       @dirty_isr = true
       @id : Int32
       @config : Config
@@ -46,6 +41,12 @@ module LavinMQ
       # mfile.to_slice to read from the mmap. Full-sync paths always read from
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
+
+      # Lazily fetched from @coordinator on first access. The raft coordinator
+      # can't answer at construction time (the raft node isn't leader yet —
+      # bootstrap happens later, inside Runner#run). By the time a follower
+      # connects, raft has elected and the secret has been proposed.
+      getter password : String { @coordinator.password }
 
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
@@ -203,10 +204,6 @@ module LavinMQ
         @lock.synchronize do
           @followers.dup # for thread safety
         end
-      end
-
-      def password : String
-        @password ||= @coordinator.password
       end
 
       @listeners = Array(TCPServer).new(1)

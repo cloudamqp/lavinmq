@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_elector"
+require "../src/lavinmq/clustering/etcd_backend"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
@@ -83,7 +83,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   # files are registered in the new replicator (verifies that meta files are registered and replicated).
   it "registers meta files on startup" do
     etcd = LavinMQ::Etcd.new("localhost:12379")
-    coordinator = LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, etcd)
+    coordinator = LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, etcd)
     msg_dir = File.join(LavinMQ::Config.instance.data_dir, "meta_test_queue")
     FileUtils.mkdir_p(msg_dir)
     node_id = 0
@@ -178,7 +178,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     config1.clustering_port = 5681
     config1.amqp_port = 5671
     config1.http_port = 15671
-    elector1 = LavinMQ::Clustering::EtcdElector.new(config1)
+    backend1 = LavinMQ::Clustering::EtcdBackend.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -187,7 +187,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     config2.clustering_port = 5682
     config2.amqp_port = 5672
     config2.http_port = 15672
-    elector2 = LavinMQ::Clustering::EtcdElector.new(config2)
+    backend2 = LavinMQ::Clustering::EtcdBackend.new(config2)
 
     listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
@@ -200,26 +200,26 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      elector1.campaign { }
+      backend1.campaign { }
     rescue SpecExit
     end
     spawn(name: "failover2") do
-      elector2.campaign { }
+      backend2.campaign { }
     rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
-      elector1.stop
+      backend1.stop
       listen.receive.should match /2$/
       sleep 0.1.seconds
-      elector2.stop
+      backend2.stop
     when /2$/
-      elector2.stop
+      backend2.stop
       listen.receive.should match /1$/
       sleep 0.1.seconds
-      elector1.stop
+      backend1.stop
     else fail("no leader elected")
     end
   end
@@ -235,7 +235,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     config.mqtt_port = 0
     config.metrics_http_port = 0
     config.control_unix_path = File.tempname("secret-follower-ctl")
-    elector = LavinMQ::Clustering::EtcdElector.new(config)
+    backend = LavinMQ::Clustering::EtcdBackend.new(config)
 
     # Simulate an elected leader that has not (yet) written the clustering
     # secret — the window a starting follower can race into.
@@ -243,18 +243,18 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     etcd.lease_grant(id: 4711)
     etcd.election_campaign("lavinmq/leader", "tcp://fake-leader:5679", lease: 4711)
 
-    spawn(name: "elector secret spec") do
-      elector.campaign { }
+    spawn(name: "backend secret spec") do
+      backend.campaign { }
     rescue SpecExit
     end
 
     deadline = Time.instant + 5.seconds
     until etcd.get("lavinmq/clustering_secret")
-      fail "elector never ensured the clustering secret" if Time.instant > deadline
+      fail "backend never ensured the clustering secret" if Time.instant > deadline
       Fiber.yield
     end
   ensure
-    elector.try &.stop
+    backend.try &.stop
     FileUtils.rm_rf("/tmp/secret-follower")
   end
 
@@ -304,7 +304,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
 
   it "won't deadlock under high load when a follower disconnects [#926]" do
     LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
@@ -478,7 +478,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "succeeds when message store is already closed before sync" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -498,7 +498,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "is not aborted when message store is closed concurrently" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdCoordinator.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 

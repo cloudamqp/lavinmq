@@ -3,19 +3,21 @@ require "uri"
 require "http/client"
 require "http/headers"
 require "json"
+require "random/secure"
 require "../clustering/client"
 require "../clustering/elector"
+require "../clustering/coordinator"
 require "./server"
-require "./coordinator"
+require "./cluster_command"
 require "./bootstrap_decision"
 
 module LavinMQ::Raft
-  class Elector
+  class Backend
     include Clustering::Elector
-    Log = LavinMQ::Log.for "raft.elector"
+    include Clustering::Coordinator
+    Log = LavinMQ::Log.for "raft.backend"
 
     getter server : Server
-    getter coordinator : Coordinator
     getter transport : ::Raft::TCPTransport
     @repli_client : ::LavinMQ::Clustering::Client? = nil
     @leader_changes = ::Channel(UInt64?).new(8)
@@ -32,11 +34,27 @@ module LavinMQ::Raft
         advertised_address: build_advertised_address,
         transport: @transport,
       )
-      @coordinator = Coordinator.new(@server)
     end
 
     def node_id : Int32
       @server.node_id
+    end
+
+    def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
+      @server.propose(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
+    end
+
+    def password : String
+      existing = @server.secret
+      return existing unless existing.empty?
+      new_secret = Random::Secure.base64(32)
+      @server.propose(ClusterCommand::SetSecret.new(new_secret))
+      deadline = Time.instant + 5.seconds
+      while @server.secret.empty?
+        raise "timed out waiting for SetSecret apply" if Time.instant > deadline
+        sleep 1.millisecond
+      end
+      @server.secret
     end
 
     def advertised_address : String
@@ -73,7 +91,7 @@ module LavinMQ::Raft
           # Channel full — drop; next change will reconcile.
         end
       end
-      spawn(name: "raft.elector follow_leader") { follow_leader_loop }
+      spawn(name: "raft.backend follow_leader") { follow_leader_loop }
 
       maybe_bootstrap_or_join
 
@@ -246,7 +264,7 @@ module LavinMQ::Raft
       data_uri = lookup_data_uri(new_leader_id)
       return unless data_uri
       @repli_client = client = ::LavinMQ::Clustering::Client.new(
-        @config, @server.node_id, @coordinator.password, raft_elector: self)
+        @config, @server.node_id, password, raft_backend: self)
       spawn(name: "Clustering client #{data_uri}") { client.follow(data_uri) }
     end
 

@@ -6,7 +6,7 @@ require "./handler/*"
 require "./controller"
 require "./controller/*"
 require "../auth/user"
-require "../raft/elector"
+require "../raft/backend"
 
 class HTTP::Server::Context
   property user : LavinMQ::Auth::BaseUser? = nil
@@ -24,7 +24,7 @@ module LavinMQ
       # different from the one we actually bound.
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
-      def initialize(@amqp_server : LavinMQ::Server, runner = nil)
+      def initialize(@amqp_server : LavinMQ::Server, backend = nil)
         oauth_authenticator =
           case auth = @amqp_server.authenticator
           when Auth::Chain
@@ -61,10 +61,10 @@ module LavinMQ
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
-        if raft_elector = runner.as?(LavinMQ::Raft::Elector)
-          handlers << raft_elector.status_handler
+        if raft_backend = backend.as?(LavinMQ::Raft::Backend)
+          handlers << raft_backend.status_handler
           handlers << AdminGuard.new("/raft/admin/")
-          handlers << raft_elector.admin_handler
+          handlers << raft_backend.admin_handler
         end
         @http = ::HTTP::Server.new(handlers)
       end
