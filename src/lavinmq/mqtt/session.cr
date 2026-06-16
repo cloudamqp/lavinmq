@@ -11,6 +11,8 @@ require "./consts"
 module LavinMQ
   module MQTT
     class Session
+      class ClosedError < MQTT::Error; end
+
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
@@ -194,7 +196,7 @@ module LavinMQ
       end
 
       private def get_packet(& : MQTT::Publish, UInt32 -> Nil) : Bool
-        raise AMQP::Queue::ClosedError.new if closed?
+        raise ClosedError.new if closed?
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
@@ -246,7 +248,7 @@ module LavinMQ
       rescue ex : MessageStore::Error
         @log.error(ex) { "Queue closed due to error" }
         close
-        raise AMQP::Queue::ClosedError.new(cause: ex)
+        raise ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : MQTT::Publish
