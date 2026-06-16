@@ -46,7 +46,7 @@ describe "Delayed Message Exchange" do
       end
     end
 
-    it "should rebuild index on restart" do
+    it "should rebuild index on restart", tags: "slow" do
       with_amqp_server do |s|
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
         with_channel(s) do |ch|
@@ -154,7 +154,7 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 300})
         x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
         x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)

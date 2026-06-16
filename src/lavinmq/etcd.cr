@@ -11,6 +11,8 @@ module LavinMQ
 
     record Endpoint, host : String, port : Int32, auth : String?, tls : Bool
     record Connection, socket : IO, address : String, auth : String?
+    record ElectionLeader, election : String, key : String, lease : Int64
+
     @endpoints : Array(Endpoint)
 
     def initialize(endpoints = "localhost:2379")
@@ -57,6 +59,17 @@ module LavinMQ
       json = post("/v3/kv/put", body)
       if value = json.dig?("prev_kv", "value")
         Base64.decode_string value.as_s
+      end
+    end
+
+    def put_if_election_leader(key, value, leader : ElectionLeader) : String?
+      compare = %({"target":"LEASE","result":"EQUAL","key":"#{Base64.strict_encode leader.key}","lease":"#{leader.lease}"})
+      put = %({"requestPut":{"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}","prev_kv":true}})
+      json = post("/v3/kv/txn", %({"compare":[#{compare}],"success":[#{put}]}))
+      raise StaleLeadership.new(leader.election) unless json["succeeded"]?.try(&.as_bool)
+
+      if previous = json.dig?("responses", 0, "response_put", "prev_kv", "value")
+        Base64.decode_string previous.as_s
       end
     end
 
@@ -119,11 +132,11 @@ module LavinMQ
     end
 
     # Leader election campaign
-    # Returns the lease when the leadership is aquired
-    def election_campaign(name, value, lease = 0i64) : Int64
+    # Returns the leader key and lease when leadership is acquired.
+    def election_campaign(name, value, lease = 0i64) : ElectionLeader
       body = %({"name":"#{Base64.strict_encode name}", "value":"#{Base64.strict_encode value}","lease":"#{lease}"})
       json = post("/v3/election/campaign", body: body)
-      json.dig("leader", "lease").as_s.to_i64
+      ElectionLeader.new(name, Base64.decode_string(json.dig("leader", "key").as_s), json.dig("leader", "lease").as_s.to_i64)
     end
 
     # Campaign for an election
@@ -370,6 +383,12 @@ module LavinMQ
     class LeaseAlreadyExists < Error; end
 
     class LeaseNotFound < Error; end
+
+    class StaleLeadership < Error
+      def initialize(election_name : String)
+        super("Not the leader for election #{election_name}")
+      end
+    end
 
     class LeaseExpired < Error
       def initialize(@id : Int64)

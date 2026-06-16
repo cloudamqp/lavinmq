@@ -72,10 +72,14 @@ class LavinMQ::Clustering::EtcdBackend
     @lease.try &.release
   end
 
-  def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
+  def update_isr(synced_node_ids : Enumerable(Int32)) : Bool
     key = "#{@config.clustering_etcd_prefix}/isr"
     ids = synced_node_ids.map(&.to_s(36)).join(",")
     @etcd.put(key, ids)
+    true
+  rescue ex : IO::Error | Socket::Error
+    Log.warn(exception: ex) { "Failed to commit ISR to etcd" }
+    false
   end
 
   def password : String

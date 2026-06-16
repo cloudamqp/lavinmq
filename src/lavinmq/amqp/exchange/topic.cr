@@ -138,7 +138,7 @@ module LavinMQ
       def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rks = routing_key.split(".")
         rk = TopicBindingKey.new(rks)
-        bds = @bindings[rk]
+        bds = @bindings[rk]? || return false
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless bds.delete({destination, binding_key})
         @bindings.delete(rk) if bds.empty?

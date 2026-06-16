@@ -51,7 +51,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
-describe LavinMQ::Clustering::Client, tags: "etcd" do
+describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
   add_etcd_around_each
 
   it "can stream changes" do
@@ -78,12 +78,81 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
+  it "confirms publishes once synced locally and replicated to followers" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("repli_confirm", durable: true)
+          100.times { q.publish "msg", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+          # Confirms only arrive once all synced followers have acked the
+          # replicated bytes; this would block forever if it never returned.
+          ch.wait_for_confirms.should be_true
+        end
+        s.vhosts["/"].queue("repli_confirm").message_count.should eq 100
+        cluster.replicator.followers.first?.try &.lag_in_bytes.should eq 0
+      end
+    end
+  end
+
+  it "confirms via syncfs while the only follower is still syncing" do
+    # Regression: a publish written while all followers are syncing isn't streamed
+    # to them. The confirm must not stall waiting for an ack from a follower that
+    # flips to synced before the persister drains.
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator = LavinMQ::Clustering::Server.new(
+      LavinMQ::Config.instance, NullCoordinator.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+    # Fake follower: handshake, read the file list, then hang without finishing
+    # the file-request phase, so it stays in the Syncing state on the leader.
+    client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+    client_io.write LavinMQ::Clustering::Start
+    client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    client_io.write replicator.password.to_slice
+    client_io.read_byte
+    client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
+    client_io.flush
+    client_lz4 = Compress::LZ4::Reader.new(client_io)
+    sha1_size = Digest::SHA1.new.digest_size
+    spawn(name: "syncing follower spec") do
+      loop do
+        filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+        break if filename_len.zero?
+        client_lz4.skip filename_len
+        client_lz4.skip sha1_size
+      end
+      # Intentionally never send the "0 files requested" reply: stay syncing.
+    rescue IO::Error
+    end
+
+    wait_for { replicator.syncing_followers.size == 1 }
+    replicator.followers.should be_empty # none synced
+
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        q = ch.queue("syncing_confirm", durable: true)
+        10.times { q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+        # Confirmed via syncfs (no synced follower); must not stall or be skipped.
+        ch.wait_for_confirms.should be_true
+      end
+      s.vhosts["/"].queue("syncing_confirm").message_count.should eq 10
+    end
+  ensure
+    client_io.try &.close
+    replicator.try &.close
+    tcp_server.try &.close
+    FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+  end
+
   # Opens a message store, publishes some messages, then saves replicator.@files
   # Then opens a new message store in the same directory and verifies that the same
   # files are registered in the new replicator (verifies that meta files are registered and replicated).
   it "registers meta files on startup" do
-    etcd = LavinMQ::Etcd.new("localhost:12379")
-    coordinator = LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, etcd)
+    coordinator = NullCoordinator.new
     msg_dir = File.join(LavinMQ::Config.instance.data_dir, "meta_test_queue")
     FileUtils.mkdir_p(msg_dir)
     node_id = 0
@@ -170,7 +239,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "will failover" do
+  it "will failover", tags: "slow" do
     config1 = LavinMQ::Config.new
     config1.data_dir = "/tmp/failover1"
     config1.clustering_etcd_endpoints = "localhost:12379"
@@ -303,8 +372,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   end
 
   it "won't deadlock under high load when a follower disconnects [#926]" do
-    LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
@@ -341,8 +409,10 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     appended = Channel(Bool).new
     spawn do
       # Fill the socket buffer
+      offset = 0i64
       loop do
-        replicator.append(test_path, payload)
+        replicator.append_bytes(test_path, payload, offset)
+        offset += payload.bytesize
         appended.send true
       rescue IO::Error | Socket::Error | Channel::ClosedError
         break
@@ -478,7 +548,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "succeeds when message store is already closed before sync" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -498,7 +568,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     it "is not aborted when message store is closed concurrently" do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
       FileUtils.mkdir_p(msg_dir)
-      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::EtcdBackend.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379")), 0)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       populate_msg_store(msg_store)
 
@@ -536,7 +606,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "removes .queue file from follower when queue is deleted" do
+  it "removes .queue file from follower when queue is deleted", tags: "slow" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |s|
         wait_for { cluster.replicator.followers.first?.try &.synced? }

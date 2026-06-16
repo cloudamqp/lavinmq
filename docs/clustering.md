@@ -117,11 +117,11 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `max_unsynced_actions` | `[clustering]` | `8192` | Maximum unacknowledged actions a follower can lag before being removed from the ISR |
+| `max_unsynced_actions` | `[clustering]` | `8192` | **Deprecated:** still accepted but has no effect. A follower is removed from the ISR when it stops acking replicated data within the leader's ack deadline |
 
 ## Failover
 
-If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader.
+If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
 
 ### Leader Election Hooks
 

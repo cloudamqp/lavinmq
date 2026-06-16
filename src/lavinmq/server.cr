@@ -61,7 +61,7 @@ module LavinMQ
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
+      @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
@@ -116,7 +116,7 @@ module LavinMQ
       stop
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
+      @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
@@ -374,7 +374,7 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval.milliseconds.to_i
+      interval = @config.stats_interval / 1000.0
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 

@@ -39,7 +39,7 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : MQTT::Publish) : UInt32
+      def publish(packet : Protocol::Publish) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
