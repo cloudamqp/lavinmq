@@ -2,7 +2,7 @@ require "systemd"
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
-require "../raft/elector"
+require "../raft/backend"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -45,7 +45,7 @@ module LavinMQ
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_elector : ::LavinMQ::Raft::Elector? = nil)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_backend : ::LavinMQ::Raft::Backend? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -74,7 +74,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_elector: @raft_elector)
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_backend: @raft_backend)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen

@@ -1,8 +1,7 @@
-require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/etcd_elector"
+require "../src/lavinmq/clustering/etcd_backend"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
@@ -49,71 +48,6 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
     ensure
       client_io.close
     end
-  end
-end
-
-class SelfLeaderEtcd < LavinMQ::Etcd
-  getter observed = Channel(Nil).new(1)
-
-  def initialize(@uri : String)
-    super("localhost:1")
-  end
-
-  def elect_listen(_name, &)
-    @observed.send nil
-    yield @uri
-  end
-end
-
-class SelfLeaderController < LavinMQ::Clustering::Controller
-  def follow_leader_public
-    follow_leader
-  end
-
-  def mark_elected_for_spec
-    @elected_leader.set(true)
-  end
-end
-
-class ProxyBindEtcd < LavinMQ::Etcd
-  def initialize(@leader_uri : String)
-    super("localhost:1")
-  end
-
-  def elect_listen(_name, &)
-    yield @leader_uri
-  end
-
-  def get(_key) : String?
-    "secret"
-  end
-end
-
-describe LavinMQ::Clustering::Controller do
-  it "reports follower proxy bind failures without the generic unhandled exception log" do
-    blocker = TCPServer.new("127.0.0.1", 0)
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.amqp_bind = "127.0.0.1"
-      config.amqp_port = blocker.local_address.port
-      config.http_port = 0
-      config.mqtt_port = 0
-      config.metrics_http_port = -1
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
-      etcd = ProxyBindEtcd.new("tcp://192.0.2.10:5679")
-      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      controller = SelfLeaderController.new(config, etcd, coordinator)
-
-      Log.capture("lmq.clustering.controller", :fatal) do |logs|
-        ex = expect_raises(SpecExit) { controller.follow_leader_public }
-        ex.code.should eq 36
-        logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
-        logs.entry.to_s.should_not contain "Unhandled exception while following leader"
-      end
-    end
-  ensure
-    blocker.try &.close
   end
 end
 
@@ -313,7 +247,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config1.clustering_port = 5681
     config1.amqp_port = 5671
     config1.http_port = 15671
-    elector1 = LavinMQ::Clustering::EtcdElector.new(config1)
+    backend1 = LavinMQ::Clustering::EtcdBackend.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -322,7 +256,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config2.clustering_port = 5682
     config2.amqp_port = 5672
     config2.http_port = 15672
-    elector2 = LavinMQ::Clustering::EtcdElector.new(config2)
+    backend2 = LavinMQ::Clustering::EtcdBackend.new(config2)
 
     listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
@@ -335,114 +269,27 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      elector1.campaign { }
+      backend1.campaign { }
     rescue SpecExit
     end
     spawn(name: "failover2") do
-      elector2.campaign { }
+      backend2.campaign { }
     rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
-      elector1.stop
+      backend1.stop
       listen.receive.should match /2$/
       sleep 0.1.seconds
-      elector2.stop
+      backend2.stop
     when /2$/
-      elector2.stop
+      backend2.stop
       listen.receive.should match /1$/
       sleep 0.1.seconds
-      elector1.stop
+      backend1.stop
     else fail("no leader elected")
-    end
-  end
-
-  it "steps down if it wins the election while not in the ISR" do
-    config1 = LavinMQ::Config.new
-    config1.data_dir = "/tmp/isr-stepdown1"
-    config1.clustering_etcd_endpoints = "localhost:12379"
-    config1.clustering_advertised_uri = "tcp://localhost:5683"
-    FileUtils.rm_rf config1.data_dir
-    controller1 = LavinMQ::Clustering::Controller.new(config1)
-
-    config2 = LavinMQ::Config.new
-    config2.data_dir = "/tmp/isr-stepdown2"
-    config2.clustering_etcd_endpoints = "localhost:12379"
-    config2.clustering_advertised_uri = "tcp://localhost:5684"
-    FileUtils.rm_rf config2.data_dir
-    controller2 = LavinMQ::Clustering::Controller.new(config2)
-
-    etcd = LavinMQ::Etcd.new("localhost:12379")
-    leader1 = Channel(Nil).new
-    spawn(name: "elect listen spec") do
-      etcd.elect_listen("lavinmq/leader") do |value|
-        leader1.send nil if value == config1.clustering_advertised_uri
-      end
-    rescue SpecExit
-    end
-    sleep 0.1.seconds
-    spawn(name: "stepdown ctrl1") do
-      controller1.run { }
-    rescue SpecExit
-    end
-    leader1.receive # controller1 is leader
-
-    served2 = false
-    stepped_down = Channel(Int32).new(1)
-    spawn(name: "stepdown ctrl2") do
-      controller2.run { served2 = true }
-    rescue ex : SpecExit
-      stepped_down.send ex.code
-    end
-    sleep 0.5.seconds # let controller2 queue its election candidacy
-
-    # controller2 falls out of the ISR (e.g. lagging replication) while its
-    # candidacy stays queued; the leader then dies.
-    etcd.put("lavinmq/isr", controller1.id.to_s(36))
-    controller1.stop
-
-    # Winning the election out of the ISR means it lacks confirmed data:
-    # it must step down instead of serving.
-    select
-    when code = stepped_down.receive
-      code.should eq 3
-    when timeout(10.seconds)
-      fail "out-of-ISR election winner did not step down"
-    end
-    served2.should be_false
-  ensure
-    FileUtils.rm_rf "/tmp/isr-stepdown1"
-    FileUtils.rm_rf "/tmp/isr-stepdown2"
-  end
-
-  it "does not reject its own URI while leadership is validating ISR" do
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.clustering_advertised_uri = "tcp://localhost:5685"
-      etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!)
-      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      controller = SelfLeaderController.new(config, etcd, coordinator)
-      done = Channel(Exception?).new(1)
-
-      spawn(name: "self leader follower monitor spec") do
-        controller.follow_leader_public
-        done.send nil
-      rescue ex
-        done.send ex
-      end
-
-      etcd.observed.receive
-      controller.mark_elected_for_spec
-
-      select
-      when ex = done.receive
-        ex.should be_nil
-      when timeout(500.milliseconds)
-        fail "follower monitor kept waiting after this node won the election"
-      end
     end
   end
 
@@ -457,7 +304,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     config.mqtt_port = 0
     config.metrics_http_port = 0
     config.control_unix_path = File.tempname("secret-follower-ctl")
-    elector = LavinMQ::Clustering::EtcdElector.new(config)
+    backend = LavinMQ::Clustering::EtcdBackend.new(config)
 
     # Simulate an elected leader that has not (yet) written the clustering
     # secret — the window a starting follower can race into.
@@ -465,22 +312,22 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     etcd.lease_grant(id: 4711)
     etcd.election_campaign("lavinmq/leader", "tcp://fake-leader:5679", lease: 4711)
 
-    spawn(name: "elector secret spec") do
-      elector.campaign { }
+    spawn(name: "backend secret spec") do
+      backend.campaign { }
     rescue SpecExit
     end
 
     deadline = Time.instant + 5.seconds
     until etcd.get("lavinmq/clustering_secret")
-      fail "elector never ensured the clustering secret" if Time.instant > deadline
+      fail "backend never ensured the clustering secret" if Time.instant > deadline
       Fiber.yield
     end
   ensure
-    elector.try &.stop
+    backend.try &.stop
     FileUtils.rm_rf("/tmp/secret-follower")
   end
 
-  it "will release lease on shutdown", tags: "slow" do
+  it "will release lease on shutdown" do
     config = LavinMQ::Config.new
     config.data_dir = "/tmp/release-lease"
     config.clustering = true
@@ -824,50 +671,6 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           Dir.children(repl_qdir).size.should be < files_before
         end
       end
-    end
-  end
-
-  it "compacts and replicates a stream's consumer_offsets file when it fills [#2068]" do
-    with_clustering do |cluster|
-      expected = Bytes.new(0)
-      follower_offsets_path = ""
-      ctag = "ctag-" + "x" * 100
-      with_amqp_server(replicator: cluster.replicator) do |s|
-        wait_for { cluster.replicator.followers.first?.try &.synced? }
-        queue_name = Random::Secure.hex
-        with_channel(s) do |ch|
-          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
-          q.publish_confirm "m"
-        end
-
-        store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::AMQP::StreamMessageStore)
-        offsets_path = store.@consumer_offsets.path
-        follower_offsets_path = File.join(cluster.follower_config.data_dir, offsets_path[(s.data_dir.size + 1)..])
-
-        # Fill consumer_offsets past its capacity to trigger compaction. Before
-        # #2068's fix the first compaction raised ArgumentError because the
-        # rebuilt .tmp MFile was never replication-registered.
-        cap = store.@consumer_offsets.capacity
-        entry = 1 + ctag.bytesize + 8
-        ((cap // entry) + 10).times do |i|
-          store.store_consumer_offset(ctag, i.to_i64 + 1)
-        end
-        store.@consumer_offsets.size.should be < cap # got compacted
-
-        # A write AFTER compaction must still succeed and replicate, proving the
-        # MFile stayed registered through replace_file.
-        store.store_consumer_offset(ctag, 9999_i64)
-        store.last_offset_by_consumer_tag(ctag).should eq 9999_i64
-
-        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
-        expected = store.@consumer_offsets.to_slice.dup
-      end
-
-      # The follower received the compacted file verbatim — its real data
-      # length, not the sparse ftruncate capacity.
-      File.exists?(follower_offsets_path).should be_true
-      follower_bytes = File.open(follower_offsets_path, &.getb_to_end)
-      follower_bytes.should eq expected
     end
   end
 

@@ -1,26 +1,28 @@
+require "random/secure"
 require "../etcd"
 require "./elector"
+require "./coordinator"
 require "./client"
-require "./etcd_coordinator"
 
-class LavinMQ::Clustering::EtcdElector
+class LavinMQ::Clustering::EtcdBackend
   include LavinMQ::Clustering::Elector
-  Log = LavinMQ::Log.for "clustering.etcd_elector"
+  include LavinMQ::Clustering::Coordinator
+  Log = LavinMQ::Log.for "clustering.etcd_backend"
 
-  getter id : Int32
+  getter node_id : Int32
 
   @repli_client : Client? = nil
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
-    new(config, etcd, EtcdCoordinator.new(config, etcd))
+    new(config, etcd)
   end
 
-  def initialize(@config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
-    @id = clustering_id
+  def initialize(@config : Config, @etcd : Etcd)
+    @node_id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
-    @elected_leader = BoolChannel.new(false)
+    @is_leader = BoolChannel.new(false)
   end
 
   # This method is called by the Launcher#run.
@@ -35,15 +37,15 @@ class LavinMQ::Clustering::EtcdElector
     # #follow_leader's get-then-watch loses a put that lands while the watch
     # stream is being established (Etcd#watch has no start_revision), leaving
     # the follower waiting for the secret forever.
-    EtcdCoordinator.new(@config, @etcd).password
-    lease = @lease = @etcd.lease_grant(id: @id)
+    password
+    lease = @lease = @etcd.lease_grant(id: @node_id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
-    @elected_leader.set(true)
-    ensure_in_isr!
+    @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @node_id) # blocks until becoming leader
+    @is_leader.set(true)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
+    # TODO: make sure we still are in the ISR set
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -55,7 +57,7 @@ class LavinMQ::Clustering::EtcdElector
       exit 3
     end
   rescue Etcd::LeaseAlreadyExists
-    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
+    Log.fatal { "Cluster ID #{@node_id.to_s(36)} used by another node" }
     exit 3
   rescue Etcd::LeaseNotFound
     Log.fatal { "Lease not found, etcd may have been reset" }
@@ -68,6 +70,20 @@ class LavinMQ::Clustering::EtcdElector
     @stopped = true
     @repli_client.try &.close
     @lease.try &.release
+  end
+
+  def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
+    key = "#{@config.clustering_etcd_prefix}/isr"
+    ids = synced_node_ids.map(&.to_s(36)).join(",")
+    @etcd.put(key, ids)
+  end
+
+  def password : String
+    key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+    secret = Random::Secure.base64(32)
+    stored = @etcd.put_or_get(key, secret)
+    Log.info { "Generated new clustering secret" } if stored == secret
+    stored
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
@@ -101,9 +117,9 @@ class LavinMQ::Clustering::EtcdElector
       end
       if uri == @advertised_uri # if this instance has become leader
         select
-        when @elected_leader.when_true.receive
-          Log.debug { "Elected leader, don't replicate from self" }
-          @elected_leader.close
+        when @is_leader.when_true.receive
+          Log.debug { "Is leader, don't replicate from self" }
+          @is_leader.close
           return
         when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")
@@ -119,13 +135,10 @@ class LavinMQ::Clustering::EtcdElector
           break
         end
       end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
+      @repli_client = r = Clustering::Client.new(@config, @node_id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
     end
   rescue ex : Error
-    Log.fatal { ex.message }
-    exit 36 # 36 for CF (Cluster Follower)
-  rescue ex : Socket::BindError
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
   rescue ex
@@ -133,38 +146,15 @@ class LavinMQ::Clustering::EtcdElector
     exit 36 # 36 for CF (Cluster Follower)
   end
 
-  # A queued election candidacy can outlive ISR membership: this node may have
-  # been dropped from the ISR (lagging or disconnected replication) after it
-  # campaigned, and etcd's election doesn't consult the ISR key. Serving as
-  # leader while missing confirmed messages would lose them cluster-wide — the
-  # in-sync nodes would full_sync from us and delete them. Exit instead: that
-  # releases the lease, withdraws the candidacy and lets an in-sync candidate
-  # win; on restart wait_to_be_insync blocks until this node is re-synced.
-  private def ensure_in_isr! : Nil
-    isr = @coordinator.isr
-    return if isr.nil? # no ISR recorded yet (fresh cluster)
-    return if isr.includes?(@id)
-    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{isr.to_a}), stepping down" }
-    # Release the lease explicitly: the election key is bound to it, so this
-    # revokes the just-won leadership at once instead of leaving the cluster
-    # leaderless until the lease TTL expires.
-    begin
-      @lease.try &.release
-    rescue ex
-      Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
-    end
-    exit 3
-  end
-
   def wait_to_be_insync(lease)
-    if isr = @coordinator.isr
-      unless isr.includes?(@id)
-        Log.info { "ISR: #{isr.to_a}" }
+    if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
+      unless isr.split(",").map(&.to_i(36)).includes?(@node_id)
+        Log.info { "ISR: #{isr}" }
         Log.info { "Not in sync, waiting for a leader" }
         in_sync = Channel(Nil).new
         spawn do
-          @coordinator.watch_isr do |members|
-            if members.try &.includes?(@id)
+          @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
+            if value.try &.split(",").map(&.to_i(36)).includes?(@node_id)
               in_sync.close
               break
             end

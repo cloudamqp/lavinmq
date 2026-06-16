@@ -1,14 +1,14 @@
 module LavinMQ
   module Clustering
     # A node's participation in cluster leader election. The Launcher holds
-    # exactly one Elector and drives the process lifecycle through it:
+    # exactly one backend and drives the process lifecycle through it:
     #
-    #   elector.campaign do
+    #   backend.campaign do
     #     # elected — start serving; the block returns once the data plane
     #     # is up, while campaign keeps blocking for as long as leadership
     #     # is held
     #   end
-    #   # leadership lost => the elector exits the process (systemd restarts
+    #   # leadership lost => the backend exits the process (systemd restarts
     #   # the node as a follower); clean stop => campaign returns normally
     #
     # Implementations: EtcdBackend, Raft::Backend, StandaloneBackend.

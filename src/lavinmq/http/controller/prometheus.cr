@@ -2,7 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
-require "../../raft/elector"
+require "../../raft/backend"
 
 module LavinMQ
   module HTTP
@@ -113,12 +113,12 @@ module LavinMQ
       end
 
       # Emits LavinMQ's raft-related gauges (ISR membership, node/peer
-      # identity mappings). Takes the runner as a parameter so it can be
+      # identity mappings). Takes the backend as a parameter so it can be
       # called from both the leader's PrometheusController and the
       # follower's FollowerPrometheusController.
-      def raft_metrics(writer : PrometheusWriter, runner : LavinMQ::Raft::Elector?) : Nil
-        return if runner.nil?
-        server = runner.server
+      def raft_metrics(writer : PrometheusWriter, backend : LavinMQ::Raft::Backend?) : Nil
+        return if backend.nil?
+        server = backend.server
         isr = server.isr
         in_isr = (isr.empty? || isr.includes?(server.node_id)) ? 1_i64 : 0_i64
         writer.write({name:  "raft_isr_size",
@@ -224,7 +224,7 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize(@raft_elector : LavinMQ::Raft::Elector? = nil)
+      def initialize(@raft_backend : LavinMQ::Raft::Backend? = nil)
         register_routes
       end
 
@@ -241,7 +241,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
-            raft_metrics(writer, @raft_elector)
+            raft_metrics(writer, @raft_backend)
           end
           context
         end
@@ -262,7 +262,7 @@ module LavinMQ
       def initialize(
         amqp_server : LavinMQ::Server,
         @require_authentication : Bool,
-        @raft_elector : LavinMQ::Raft::Elector? = nil,
+        @raft_backend : LavinMQ::Raft::Backend? = nil,
       )
         super(amqp_server)
       end
@@ -294,7 +294,7 @@ module LavinMQ
             custom_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
-            raft_metrics(writer, @raft_elector)
+            raft_metrics(writer, @raft_backend)
           end
           context
         end
