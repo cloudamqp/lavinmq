@@ -49,40 +49,32 @@ module LavinMQ
     # replacement, i.e. that define a setter. Options deprecated without a
     # replacement define no setter and are excluded. Uses the same `has_method?`
     # predicate the parser uses to decide whether to forward.
-    def self.forwarded_deprecated_names : Set(String)
+    def self.forwarded_deprecated_names
       {% begin %}
         {%
           vars = @type.instance_vars.select do |ivar|
             ((ivar.annotation(IniOpt) && ivar.annotation(IniOpt)[:deprecated]) ||
               (ivar.annotation(CliOpt) && ivar.annotation(CliOpt)[:deprecated])) &&
               @type.has_method?("#{ivar.name}=")
-          end
+          end.uniq
         %}
-        {% if vars.empty? %}
-          Set(String).new
-        {% else %}
-          Set{ {{ vars.map(&.name.stringify).splat }} }
-        {% end %}
+        Tuple.new({{ vars.map(&.name.stringify).sort.splat }})
       {% end %}
     end
 
     # Returns names of deprecated options that expose a getter. Deprecated options
     # must not have a getter (to avoid accidentally reading the stale value), so
     # this should always be empty.
-    def self.deprecated_getters : Set(String)
+    def self.deprecated_getters
       {% begin %}
         {%
           vars = @type.instance_vars.select do |ivar|
             ((ivar.annotation(IniOpt) && ivar.annotation(IniOpt)[:deprecated]) ||
               (ivar.annotation(CliOpt) && ivar.annotation(CliOpt)[:deprecated])) &&
               @type.has_method?(ivar.name.stringify)
-          end
+          end.uniq
         %}
-        {% if vars.empty? %}
-          Set(String).new
-        {% else %}
-          Set{ {{ vars.map(&.name.stringify).splat }} }
-        {% end %}
+        Tuple.new({{ vars.map(&.name.stringify).sort.splat }})
       {% end %}
     end
   end
@@ -107,7 +99,10 @@ DEPRECATED_FORWARDS = {
 
 describe LavinMQ::Config, "deprecated options" do
   it "has entries in DEPRECATED_FORWARDS for all forwarding deprecated options" do
-    LavinMQ::Config.forwarded_deprecated_names.should eq DEPRECATED_FORWARDS.keys.to_set
+    {% begin %}
+      {% expected = DEPRECATED_FORWARDS.keys.sort.splat %}
+      LavinMQ::Config.forwarded_deprecated_names.should eq Tuple.new({{ expected }})
+    {% end %}
   end
 
   it "exposes no getter for deprecated options" do
