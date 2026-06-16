@@ -158,10 +158,6 @@ module LavinMQ
       definitions.sessions_size
     end
 
-    def register_session(session : MQTT::Session) : Nil
-      definitions.register_session(session)
-    end
-
     def sessions_clear : Nil
       definitions.sessions_clear
     end
