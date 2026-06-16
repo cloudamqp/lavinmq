@@ -82,14 +82,17 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
-    # Assigns a parsed option value to its property. When `message` is present the
-    # option is deprecated: the message is printed verbatim and the value is
-    # forwarded only if the (getter-less) deprecated property defines a setter.
-    # An option with no replacement defines no setter, so its value is dropped
-    # after the warning. Shared by `parse_cli` and `parse_section`.
-    private macro assign_option(var_name, value, transform, message)
-      {% if message %}
-        @io.puts "WARNING: {{message.id}}"
+    # Assigns a parsed option value to its property. When `deprecation_message` is
+    # present the option is deprecated: the message is printed verbatim and the
+    # value is forwarded only if the (getter-less) deprecated property defines a
+    # setter. An option with no replacement defines no setter, so its value is
+    # dropped after the warning. Shared by `parse_cli` and `parse_section`.
+    private macro assign_option(var_name, value, transform, deprecation_message)
+      {% if deprecation_message %}
+        @io.puts "WARNING: {{deprecation_message.id}}"
+        # Since deprecation_message is set, the variable is deprecated. It may
+        # be forwarded to another variable using a setter, but it may also be
+        # completley removed, therefore we need to check for a setter.
         {% if @type.has_method?("#{var_name.id}=") %}
           self.{{var_name.id}} = parse_value({{value}}, {{transform}})
         {% end %}
