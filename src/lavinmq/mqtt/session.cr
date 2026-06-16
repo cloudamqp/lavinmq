@@ -399,7 +399,7 @@ module LavinMQ
           durable:                      durable?,
           exclusive:                    false,
           auto_delete:                  @auto_delete,
-          arguments:                    AMQP::Table.new,
+          arguments:                    NamedTuple.new, # "empty" AMQP::Table
           consumers:                    consumer_count,
           vhost:                        @vhost.name,
           messages:                     @msg_store.size + stats[:messages_unacknowledged],
