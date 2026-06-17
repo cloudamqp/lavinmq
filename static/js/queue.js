@@ -288,6 +288,10 @@ moveMessagesForm.addEventListener('submit', function (evt) {
   const password = Auth.getPassword()
   const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
+  if (dest === '') {
+    DOM.toast.error('Please select a destination queue')
+    return
+  }
   const name = 'Move ' + queue + ' to ' + dest
   const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {
