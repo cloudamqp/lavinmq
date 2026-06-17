@@ -54,7 +54,7 @@ module LavinMQ
         @upstreams.delete(name).try(&.delete)
         @upstream_sets.each do |_, set|
           set.reject! do |upstream|
-            return false unless upstream.name == name
+            next false unless upstream.name == name
             upstream.delete
             true
           end

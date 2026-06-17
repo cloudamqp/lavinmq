@@ -1,6 +1,7 @@
 require "./spec_helper"
 require "log/spec"
 require "../src/lavinmq/federation/upstream"
+require "../src/lavinmq/federation/upstream_store"
 
 module UpstreamSpecHelpers
   def self.setup_qs(ch) : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -1023,6 +1024,27 @@ describe LavinMQ::Federation::Upstream do
             v3fe.publish_in_count.should eq 0
           end
         end
+      end
+    end
+  end
+
+  describe LavinMQ::Federation::UpstreamStore do
+    it "removes a deleted upstream from sets even when a non-matching entry comes first" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_url}"})))
+        store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_url}"})))
+        # The set lists a non-matching upstream ("a") before the one we
+        # delete ("b"). The bare `return` in do_delete_upstream used to abort
+        # the reject! on the first non-matching entry, leaving the deleted "b"
+        # lingering in the set: it showed up as a phantom in federation status
+        # and could be re-linked (revived) on the next link_set.
+        store.create_upstream_set("set1", JSON.parse(%([{"upstream": "a"}, {"upstream": "b"}])))
+
+        store.delete_upstream("b")
+
+        store.get_set("set1").map(&.name).should eq ["a"]
       end
     end
   end
