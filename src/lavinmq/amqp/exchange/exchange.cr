@@ -228,8 +228,7 @@ module LavinMQ
           d.add(msg)
         end
         if should_delay_message?(msg.properties.headers)
-          if q = @delayed_queue
-            q.delay(msg)
+          if (q = @delayed_queue) && q.delay(msg)
             @publish_out_count.add(1, :relaxed)
             return PublishResult::Routed
           else
