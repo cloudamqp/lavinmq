@@ -64,7 +64,17 @@ The same list goes on every node, including the node itself. Equivalent forms:
 
 There is no environment variable for `seed_uris`.
 
-**How formation works:** when a node boots with a seed list and no existing cluster state, it compares its advertised host against the seed hosts. The node whose advertised host sorts lexicographically lowest bootstraps a single-node cluster; the rest join it. Boot all nodes simultaneously and the cluster forms with no manual commands.
+**How formation works:** when a node boots with a seed list and no existing cluster state, it compares its advertised host against the seed hosts. The node whose advertised host sorts lexicographically lowest bootstraps a single-node cluster; the rest join it. With the shared secret in place (see the prerequisite below), boot all nodes simultaneously and the cluster forms without per-node `raft_join` commands.
+
+**Prerequisite — distribute the replication secret first.** Followers authenticate to the leader with a shared secret. On the raft backend this secret lives in `<data_dir>/.clustering_password` and is **not** replicated between nodes. Generate one secret and place the *identical* `.clustering_password` (mode `0600`) in every node's data directory **before** booting:
+
+```sh
+openssl rand -base64 32 > /var/lib/lavinmq/.clustering_password
+chmod 0600 /var/lib/lavinmq/.clustering_password
+# copy the same file to every node (config management, a mounted secret, etc.)
+```
+
+If you skip this, only the node that bootstraps will have a secret (it auto-generates one), and every other node logs a fatal "Replication secret file missing" error and exits when it tries to follow the leader — until you copy that file to them. A node that already has the file reads it as-is and never generates a new one, so pre-placing the same secret everywhere is safe.
 
 **`clustering_advertised_uri` must match a seed entry.** Each node identifies itself in the seed list by its advertised host. If a node's advertised host does not match any seed host, it will always attempt to join (never bootstrap) — a safe failure, but the cluster won't form if the lowest-host node never identifies itself.
 
@@ -149,4 +159,7 @@ For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leade
 
 ## Security
 
-Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+Followers authenticate to the leader using a shared replication secret. How it is stored depends on the clustering backend:
+
+- **`etcd`** — stored in etcd under `{etcd_prefix}/clustering_secret`, randomly generated on first cluster initialization. Every node reads it from etcd, so no manual distribution is needed.
+- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to follow the leader. Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command.
