@@ -62,6 +62,12 @@ module LavinMQ::Raft
     def start : Nil
       return if @started
       @started = true
+      # recover_state restores @node.peers from disk but never fires
+      # on_configuration_applied, so a restarted node would come up with an
+      # empty peer-address cache and never resolve the leader to follow. Seed
+      # it from the restored config. (Fresh nodes have no peers yet; they get
+      # populated via on_configuration_applied when they join/bootstrap.)
+      cache_peer_addresses(@node.peers)
       @execution_context.spawn(name: "Raft::Server#tick_loop") { tick_loop }
     end
 
@@ -258,23 +264,28 @@ module LavinMQ::Raft
         @is_leader.set(new_role.leader?)
       end
       @node.on_configuration_applied do |peers|
-        # Parse each peer's address once here (membership changes are rare),
-        # register the transport route, and cache the parsed form for the
-        # follow-leader path to reuse.
-        addresses = {} of UInt64 => PeerAddress
-        peers.each do |peer|
-          next if peer.id == @node_id || peer.address.empty?
-          addr = PeerAddress.parse?(peer.address)
-          next if addr.nil?
-          addresses[peer.id] = addr
-          host, port = addr.raft_endpoint
-          @transport.register_peer(peer.id, host, port)
-        end
-        @peer_addresses_lock.synchronize { @peer_addresses = addresses }
+        cache_peer_addresses(peers)
         # Addresses are now known; let the follow-leader path reconcile (it may
         # have learned leader_id before this config carried the leader address).
         @on_configuration_change.try &.call(peers)
       end
+    end
+
+    # Parse each peer's address once (membership changes are rare), register the
+    # transport route, and cache the parsed form for the follow-leader path to
+    # reuse. Called from on_configuration_applied and, for restarted nodes whose
+    # config came from recover_state (no callback), once at startup.
+    private def cache_peer_addresses(peers : Array(::Raft::Peer)) : Nil
+      addresses = {} of UInt64 => PeerAddress
+      peers.each do |peer|
+        next if peer.id == @node_id || peer.address.empty?
+        addr = PeerAddress.parse?(peer.address)
+        next if addr.nil?
+        addresses[peer.id] = addr
+        host, port = addr.raft_endpoint
+        @transport.register_peer(peer.id, host, port)
+      end
+      @peer_addresses_lock.synchronize { @peer_addresses = addresses }
     end
 
     # The parsed address of a configured peer, or nil if unknown. Reflects the

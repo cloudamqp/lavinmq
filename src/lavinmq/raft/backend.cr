@@ -98,7 +98,11 @@ module LavinMQ::Raft
 
     def campaign(& : ->)
       @transport.start
-      @server.start
+      # Wire the callbacks and start the reconcile loop BEFORE @server.start
+      # (which spawns the tick loop): otherwise the tick loop can fire the first
+      # nil->leader change into an unset callback and, since leader_id then stays
+      # put, it never re-fires — and the follower never starts following.
+      #
       # Both callbacks fire on the tick fiber; never block it. Enqueue
       # non-blocking — a dedicated fiber does the real reconcile work. A leader
       # change and a configuration change (a peer's address became known or
@@ -110,6 +114,8 @@ module LavinMQ::Raft
       # so the read is safe — and poke the reconcile loop with it.
       @server.on_configuration_change { |_peers| enqueue_reconcile(@server.leader_id) }
       spawn(name: "raft.backend follow_leader") { follow_leader_loop }
+
+      @server.start
 
       maybe_bootstrap_or_join
 

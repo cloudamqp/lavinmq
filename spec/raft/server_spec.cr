@@ -114,6 +114,51 @@ describe LavinMQ::Raft::Server do
     end
   end
 
+  describe "peer address cache" do
+    # Regression: recover_state restores @node.peers from disk but never fires
+    # on_configuration_applied, so a restarted node must seed its peer-address
+    # cache from the recovered config — otherwise it can never resolve the
+    # leader to follow (Jepsen: followers stuck "waiting to be added to ISR").
+    it "is seeded from the recovered config on restart (no config entry applied)" do
+      dir = tmp_data_dir
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        t1 = ::Raft::MemoryTransport.new(1_u64)
+        s1 = LavinMQ::Raft::Server.new(
+          data_dir: dir, advertised_address: "node1:5680,node1:5679",
+          transport: t1, execution_context: Fiber::ExecutionContext.current)
+        t1.start
+        s1.start
+        s1.bootstrap.should be_true
+        select
+        when s1.is_leader.when_true.receive
+        when timeout(2.seconds); fail "node 1 did not become leader"
+        end
+        # Add a peer so the config (carrying its address) is persisted to disk.
+        retry_until(5.seconds) { s1.add_server(2, "node2:5680,node2:5679") }
+        retry_until(5.seconds) { !s1.peer_address(2_u64).nil? } # populated live
+        s1.stop
+        t1.stop
+
+        # Restart with the same data_dir: recover_state loads peers, but fires
+        # no callback — start must seed the cache so the address resolves now.
+        t2 = ::Raft::MemoryTransport.new(1_u64)
+        s2 = LavinMQ::Raft::Server.new(
+          data_dir: dir, advertised_address: "node1:5680,node1:5679",
+          transport: t2, execution_context: Fiber::ExecutionContext.current)
+        t2.start
+        s2.start
+        addr = s2.peer_address(2_u64)
+        addr.should_not be_nil
+        addr.not_nil!.data_uri.should eq "tcp://node2:5679"
+        s2.stop
+        t2.stop
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "single node" do
     it "stays follower until bootstrap" do
       with_single_node do |server|
