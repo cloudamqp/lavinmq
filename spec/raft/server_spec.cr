@@ -241,6 +241,16 @@ describe LavinMQ::Raft::Server do
         addr.not_nil!.data_uri.should eq "tcp://node#{other.node_id}:5679"
       end
     end
+
+    it "exposes peers as a consistent snapshot (not the live @node.peers)" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        ids = leader.peers.map(&.id).to_set
+        ids.should eq servers.map(&.node_id.to_u64).to_set
+        # Snapshot is replaced wholesale, so a held reference stays stable.
+        leader.peers.should_not be(leader.@node.peers)
+      end
+    end
   end
 
   describe "leadership loss" do

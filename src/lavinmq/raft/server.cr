@@ -25,6 +25,11 @@ module LavinMQ::Raft
     # under the lock so readers always see a consistent snapshot.
     @peer_addresses_lock = Mutex.new
     @peer_addresses = {} of UInt64 => PeerAddress
+    # Snapshot of the last applied configuration's peers (full list, incl. self),
+    # kept under @peer_addresses_lock so readers on other fibers (HTTP metrics
+    # scrape, boot decision) get a consistent view instead of racing @node.peers,
+    # which the tick fiber mutates. Replaced wholesale; never mutated in place.
+    @peers_snapshot = [] of ::Raft::Peer
     @on_leader_change : Proc(UInt64?, Nil)?
     @on_configuration_change : Proc(Array(::Raft::Peer), Nil)?
     @last_observed_leader_id : UInt64? = nil
@@ -173,12 +178,13 @@ module LavinMQ::Raft
       @node
     end
 
-    # Peers as seen by the local Node. Reading from outside the tick fiber is
-    # an inconsistency-prone race — only the tick fiber mutates @node.peers,
-    # but readers may observe a stale snapshot. Used by the Runner for
-    # best-effort follow-leader lookups; not authoritative.
+    # A consistent snapshot of the peers in the last applied configuration,
+    # captured on the tick fiber and replaced wholesale under the lock — safe to
+    # read from any fiber (HTTP metrics scrape, boot decision) without racing
+    # @node.peers (which the tick fiber mutates). Reflects the last applied
+    # config; a membership change in flight may not be visible yet.
     def peers : Array(::Raft::Peer)
-      @node.peers
+      @peer_addresses_lock.synchronize { @peers_snapshot }
     end
 
     # The node ids currently in the voting set (learners excluded).
@@ -285,7 +291,10 @@ module LavinMQ::Raft
         host, port = addr.raft_endpoint
         @transport.register_peer(peer.id, host, port)
       end
-      @peer_addresses_lock.synchronize { @peer_addresses = addresses }
+      @peer_addresses_lock.synchronize do
+        @peer_addresses = addresses
+        @peers_snapshot = peers.dup # snapshot taken on the tick/start fiber; safe
+      end
     end
 
     # The parsed address of a configured peer, or nil if unknown. Reflects the
