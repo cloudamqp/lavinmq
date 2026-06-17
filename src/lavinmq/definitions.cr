@@ -199,27 +199,42 @@ module LavinMQ
 
     private def import_parameters(body, skip_existing = false)
       if parameters = body["parameters"]?
+        # Parse and validate every entry before applying any, so a malformed
+        # entry makes the whole import a clean no-op instead of partially
+        # applying and leaving memory and disk inconsistent (issue #2073).
+        limits = Array({VHost, Hash(String, JSON::Any)}).new
+        operator_policies = Array({VHost, String, String, String, Hash(String, JSON::Any), Int8}).new
+        params = Array({VHost, Parameter}).new
+        parameters.as_a.each do |p|
+          next unless v = fetch_vhost?(p)
+          name = p["name"].as_s
+          value = p["value"].as_h
+          case component = p["component"].as_s
+          when "vhost-limits"
+            limits << {v, value}
+          when "operator_policy"
+            next if skip_existing && v.operator_policies[name]?
+            operator_policies << {v, name, value["pattern"].as_s, value["apply-to"].as_s,
+                                  value["definition"].as_h, value["priority"].as_i.to_i8}
+          else
+            next if skip_existing && v.parameters[{component, name}]?
+            params << {v, Parameter.new(component, name, p["value"])}
+          end
+        end
+
         # add with save: false and save each touched store once at the end, so a
         # large import doesn't rewrite the whole parameters/operator_policies
         # JSON file per entry.
         touched_parameters = Set(VHost).new
         touched_operator_policies = Set(VHost).new
-        parameters.as_a.each do |p|
-          if v = fetch_vhost?(p)
-            name = p["name"].as_s
-            value = p["value"].as_h
-            component = p["component"].as_s
-            case component
-            when "vhost-limits"
-              import_vhost_limits(v, value, skip_existing)
-            when "operator_policy"
-              touched_operator_policies << v if import_operator_policy(v, name, value, skip_existing)
-            else
-              next if skip_existing && v.parameters[{component, name}]?
-              v.add_parameter(Parameter.new(component, name, p["value"]), save: false, apply: false)
-              touched_parameters << v
-            end
-          end
+        limits.each { |v, value| import_vhost_limits(v, value, skip_existing) }
+        operator_policies.each do |v, name, pattern, apply_to, definition, priority|
+          v.add_operator_policy(name, pattern, apply_to, definition, priority, save: false, apply: false)
+          touched_operator_policies << v
+        end
+        params.each do |v, param|
+          v.add_parameter(param, save: false, apply: false)
+          touched_parameters << v
         end
         touched_parameters.each(&.save_parameters!)
         touched_operator_policies.each(&.save_operator_policies!)
@@ -237,50 +252,38 @@ module LavinMQ
       end
     end
 
-    # Returns true if the operator policy was added (false when skipped).
-    private def import_operator_policy(v, name, value, skip_existing) : Bool
-      return false if skip_existing && v.operator_policies[name]?
-      v.add_operator_policy(name,
-        value["pattern"].as_s,
-        value["apply-to"].as_s,
-        value["definition"].as_h,
-        value["priority"].as_i.to_i8,
-        save: false,
-        apply: false)
-      true
-    end
-
     private def import_global_parameters(body, skip_existing = false)
       if parameters = body["global_parameters"]?
-        added = false
-        parameters.as_a.each do |p|
+        # Parse all entries before applying any, so a malformed entry makes the
+        # whole import a clean no-op (issue #2073).
+        parsed = parameters.as_a.compact_map do |p|
           name = p["name"].as_s
           next if skip_existing && @amqp_server.parameters[{nil, name}]?
-          param = Parameter.new(nil, name, p["value"])
-          @amqp_server.add_parameter(param, save: false)
-          added = true
+          Parameter.new(nil, name, p["value"])
         end
-        @amqp_server.save_parameters! if added
+        return if parsed.empty?
+        parsed.each { |param| @amqp_server.add_parameter(param, save: false) }
+        @amqp_server.save_parameters!
       end
     end
 
     private def import_policies(body, skip_existing = false)
       if policies = body["policies"]?
-        touched = Set(VHost).new
+        # Parse and validate every entry before applying any, so a malformed
+        # entry makes the whole import a clean no-op instead of partially
+        # applying and leaving memory and disk inconsistent (issue #2073).
+        parsed = Array({VHost, String, String, String, Hash(String, JSON::Any), Int8}).new
         policies.as_a.each do |p|
-          if v = fetch_vhost?(p)
-            name = p["name"].as_s
-            next if skip_existing && v.policies[name]?
-            v.add_policy(
-              name,
-              p["pattern"].as_s,
-              p["apply-to"].as_s,
-              p["definition"].as_h,
-              p["priority"].as_i.to_i8,
-              save: false,
-              apply: false)
-            touched << v
-          end
+          next unless v = fetch_vhost?(p)
+          name = p["name"].as_s
+          next if skip_existing && v.policies[name]?
+          parsed << {v, name, p["pattern"].as_s, p["apply-to"].as_s,
+                     p["definition"].as_h, p["priority"].as_i.to_i8}
+        end
+        touched = Set(VHost).new
+        parsed.each do |v, name, pattern, apply_to, definition, priority|
+          v.add_policy(name, pattern, apply_to, definition, priority, save: false, apply: false)
+          touched << v
         end
         touched.each(&.save_policies!)
         apply_policies(touched)
