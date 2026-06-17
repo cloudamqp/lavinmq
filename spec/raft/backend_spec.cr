@@ -60,6 +60,28 @@ describe LavinMQ::Raft::Backend do
     end
   end
 
+  describe ".drain_latest" do
+    it "drains queued triggers and returns the most recent (a burst -> one reconcile)" do
+      ch = ::Channel(UInt64?).new(8)
+      ch.send(1_u64)
+      ch.send(2_u64)
+      ch.send(3_u64)
+      LavinMQ::Raft::Backend.drain_latest(ch, 0_u64).should eq 3_u64
+    end
+
+    it "returns the given id when nothing is queued" do
+      ch = ::Channel(UInt64?).new(8)
+      LavinMQ::Raft::Backend.drain_latest(ch, 7_u64).should eq 7_u64
+    end
+
+    it "preserves a nil most-recent value (leader lost)" do
+      ch = ::Channel(UInt64?).new(8)
+      ch.send(5_u64)
+      ch.send(nil)
+      LavinMQ::Raft::Backend.drain_latest(ch, 1_u64).should be_nil
+    end
+  end
+
   describe "advertised_address" do
     it "honors the port in clustering_advertised_uri for the data address" do
       dir = tmp_data_dir

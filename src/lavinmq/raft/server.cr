@@ -26,6 +26,7 @@ module LavinMQ::Raft
     @peer_addresses_lock = Mutex.new
     @peer_addresses = {} of UInt64 => PeerAddress
     @on_leader_change : Proc(UInt64?, Nil)?
+    @on_configuration_change : Proc(Array(::Raft::Peer), Nil)?
     @last_observed_leader_id : UInt64? = nil
 
     getter node_id : Int32
@@ -150,6 +151,15 @@ module LavinMQ::Raft
       @on_leader_change = block
     end
 
+    # Fires when the cluster configuration is applied (membership or a peer's
+    # advertised address changed), with the applied peer set. The follow-leader
+    # path uses this to (re)establish replication once a leader's address is
+    # known — a freshly-joined follower learns leader_id from a heartbeat before
+    # the configuration entry carrying that leader's address is applied.
+    def on_configuration_change(&block : Array(::Raft::Peer) ->) : Nil
+      @on_configuration_change = block
+    end
+
     # The underlying Raft node. Exposed so the HTTP admin handler can
     # interact with it directly. Not stable public API; treat as developer
     # surface only.
@@ -261,6 +271,9 @@ module LavinMQ::Raft
           @transport.register_peer(peer.id, host, port)
         end
         @peer_addresses_lock.synchronize { @peer_addresses = addresses }
+        # Addresses are now known; let the follow-leader path reconcile (it may
+        # have learned leader_id before this config carried the leader address).
+        @on_configuration_change.try &.call(peers)
       end
     end
 
