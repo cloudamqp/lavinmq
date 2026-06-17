@@ -199,6 +199,21 @@ describe LavinMQ::MQTT::SubscriptionTree do
     tree.each_entry "a/b" { |_sess, qos| qos.should eq 1u8 }
   end
 
+  it "matches topic levels with multibyte UTF-8 characters" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    tree.subscribe("café/naïve/日本", "exact", 0u8)
+    tree.subscribe("café/+/日本", "wildcard", 0u8)
+
+    matched = [] of String
+    tree.each_entry("café/naïve/日本") { |session, _qos| matched << session }
+    matched.sort.should eq ["exact", "wildcard"]
+
+    # A different (also multibyte) middle level only hits the wildcard
+    matched.clear
+    tree.each_entry("café/résumé/日本") { |session, _qos| matched << session }
+    matched.should eq ["wildcard"]
+  end
+
   it "can iterate all entries" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
