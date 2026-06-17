@@ -94,7 +94,14 @@ class LavinMQ::Clustering::EtcdBackend
     # stale node believes in.
     @etcd.put_if_election_leader(isr_key, ids, leader)
     true
-  rescue ex : Etcd::StaleLeadership | IO::Error | Socket::Error
+    # Etcd::Error (base) covers StaleLeadership (deposed — caller retries until
+    # the lease expires and the process exits) and transient conditions like
+    # Etcd::NoLeader (etcd mid-election; with_tcp re-raises it without retrying)
+    # and wrapped network errors. Returning false keeps flush_isr's retry loop
+    # alive instead of letting a transient error crash the calling fiber.
+
+
+  rescue ex : Etcd::Error | IO::Error | Socket::Error
     Log.warn(exception: ex) { "Failed to commit ISR to etcd" }
     false
   end
