@@ -28,6 +28,10 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
+      # Raised mid-join when the ISR commit fails after mark_synced!, to abort
+      # the join and let handle_socket's ensure drop the follower.
+      class ISRCommitError < Exception; end
+
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
@@ -306,6 +310,10 @@ module LavinMQ
           @followers << follower # Starts in Syncing state
         end
         sync_and_serve(follower)
+      rescue ISRCommitError
+        # ISR commit failed mid-join; follower is dropped by the ensure below
+        # and re-syncs on reconnect. Not an error condition for the leader.
+        Log.info { "Aborted follower join: ISR commit failed (will retry on reconnect)" }
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
@@ -340,8 +348,10 @@ module LavinMQ
             follower.mark_synced! # Change state to Synced
             # A failed ISR commit right after mark_synced! must abort the join:
             # the `ensure` below then drops the follower rather than leaving it
-            # Synced and listed while the coordinator never recorded it.
-            raise "ISR commit failed during join" unless update_isr
+            # Synced and listed while the coordinator never recorded it. A typed
+            # exception so handle_socket logs it cleanly instead of letting a
+            # bare Exception escape the fiber as an unhandled backtrace.
+            raise ISRCommitError.new unless update_isr
           end
         end
         # Wait for follower to disconnect or be closed

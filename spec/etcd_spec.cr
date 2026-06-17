@@ -227,6 +227,23 @@ private def etcd_backend_config(data_dir, endpoints, prefix, advertised_uri, nod
   config
 end
 
+# Etcd double that wins the election but fails the fenced ISR write with a
+# transient Etcd::NoLeader (etcd mid-election). Used to prove update_isr returns
+# false rather than letting NoLeader escape and crash the caller's retry loop.
+class NoLeaderEtcd < LavinMQ::Etcd
+  def initialize
+    super("localhost:1")
+  end
+
+  def election_campaign(name, value, lease = 0i64) : LavinMQ::Etcd::ElectionLeader
+    LavinMQ::Etcd::ElectionLeader.new(name, "key", lease.to_i64)
+  end
+
+  def put_if_election_leader(key, value, leader : LavinMQ::Etcd::ElectionLeader) : String?
+    raise LavinMQ::Etcd::NoLeader.new("no leader (spec)")
+  end
+end
+
 describe LavinMQ::Clustering::EtcdBackend do
   it "returns false from update_isr before winning the election (unarmed fence)" do
     with_datadir do |dir|
@@ -236,6 +253,17 @@ describe LavinMQ::Clustering::EtcdBackend do
       backend = LavinMQ::Clustering::EtcdBackend.new(config)
       # No election token yet: the fence short-circuits before any etcd write.
       backend.update_isr(Set{1, 2}).should be_false
+    end
+  end
+
+  it "returns false from update_isr on a transient etcd error (NoLeader), not raising" do
+    with_datadir do |dir|
+      config = etcd_backend_config(dir, "localhost:1", "lavinmq", "tcp://localhost:6001", 1)
+      backend = LavinMQ::Clustering::EtcdBackend.new(config, NoLeaderEtcd.new)
+      backend.win_election # arms the fence via the double
+      # NoLeader is an Etcd::Error, not IO/Socket; must still be caught so the
+      # caller (flush_isr) retries instead of the fiber crashing.
+      backend.update_isr(Set{1}).should be_false
     end
   end
 
