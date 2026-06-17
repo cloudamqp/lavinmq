@@ -1047,6 +1047,35 @@ describe LavinMQ::Federation::Upstream do
         store.get_set("set1").map(&.name).should eq ["a"]
       end
     end
+
+    it "dups the upstream and applies per-entry overrides without sharing state" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_url}", "prefetch-count": 10})))
+        # A set entry with more than the "upstream" key dups the upstream and
+        # applies the overrides to the copy. This used to crash by reading the
+        # override values off the whole set array instead of the entry, and the
+        # shallow dup shared its link tables with the original.
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "uri": "#{s.amqp_url}", "prefetch-count": 99}])))
+
+        original = store.get_set("all").find! { |u| u.name == "a" }
+        member = store.get_set("set1").first
+
+        member.should_not be original
+        member.prefetch.should eq 99_u16
+        original.prefetch.should eq 10_u16
+
+        # Linking the dup must not touch the original's links (separate tables).
+        vhost.declare_queue("q", false, false)
+        member.link(vhost.queue("q"))
+        member.links.size.should eq 1
+        original.links.size.should eq 0
+      ensure
+        store.try &.stop_all
+      end
+    end
   end
 
   describe "shutdown" do

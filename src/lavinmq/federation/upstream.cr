@@ -25,6 +25,20 @@ module LavinMQ
         @uri = URI.parse(raw_uri)
       end
 
+      # Copy the upstream's configuration but give the copy its own, empty link
+      # tables. Used by upstream sets that override settings per entry; a plain
+      # shallow dup would share @q_links/@ex_links with the original.
+      def dup
+        copy = super
+        copy.clear_links
+        copy
+      end
+
+      protected def clear_links
+        @q_links = Hash(String, QueueLink).new
+        @ex_links = Hash(String, ExchangeLink).new
+      end
+
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
