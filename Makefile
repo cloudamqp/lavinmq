@@ -48,6 +48,10 @@ benchmark: extras/benchmark.sh bin/lavinmqperf bin/lavinmqctl
 lib: shard.yml shard.lock
 	shards install --production
 
+# Development dependencies (used by specs), not installed by `lib`
+lib/time_control: shard.yml shard.lock
+	shards install
+
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
@@ -114,7 +118,7 @@ lint-openapi:
 	npx --yes --package=@stoplight/spectral-cli --package=@stoplight/spectral-rulesets@1.22.2 spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
-test: lib views
+test: lib/time_control views
 	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format

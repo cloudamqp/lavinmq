@@ -1,4 +1,5 @@
 require "amqp-client"
+require "../binding_details"
 require "../observable"
 require "../logger"
 require "../sortable_json"
@@ -338,6 +339,16 @@ module LavinMQ
       class ExchangeLink < Link
         include Observer(ExchangeEvent)
         @consumer_ex : ::AMQP::Client::Exchange?
+        @replay_queue = Deque({ExchangeEvent, BindingDetails}).new
+        @replay_lock = Mutex.new
+        @replaying = false
+        # The upstream bindings this link has created, keyed by the downstream
+        # binding's properties_key, holding the routing key and transformed
+        # arguments needed to unbind upstream. Bindings removed downstream
+        # while the link is disconnected are never observed as events, so this
+        # is what lets a reconnect unbind them upstream. Guarded by
+        # @replay_lock.
+        @upstream_bindings = Hash(String, {String, ::AMQP::Client::Arguments}).new
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -362,25 +373,36 @@ module LavinMQ
           case event
           in .deleted?
             @upstream.stop_link(@federated_ex)
-          in .bind?
+          in .bind?, .unbind?
             b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.bind(@upstream_exchange, b.routing_key, args: args)
-              end
-            end
-          in .unbind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
+            return if queued_during_replay?(event, b)
+            with_consumer_ex do |ex|
+              apply_binding_event(ex, event, b)
             end
           end
         rescue e
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+        end
+
+        private def apply_binding_event(ex, event : ExchangeEvent, b : BindingDetails)
+          updated, args = update_bound_from?(b.arguments)
+          return unless updated
+          key = b.binding_key.properties_key
+          case event
+          when .bind?
+            ex.bind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings[key] = {b.routing_key, args} }
+          when .unbind?
+            ex.unbind(@upstream_exchange, b.routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
+          end
+        end
+
+        private def queued_during_replay?(event : ExchangeEvent, b : BindingDetails) : Bool
+          @replay_lock.synchronize do
+            @replay_queue.push({event, b}) if @replaying
+            @replaying
+          end
         end
 
         private def data_as_binding_details(data) : BindingDetails
@@ -451,21 +473,70 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
-          # @consumer_ex must be set before the observer is registered:
-          # bind/unbind events are dropped while it's nil, and a binding made
-          # in that window would never be propagated to the upstream exchange.
-          # Bindings made before registration are covered by the snapshot
-          # below (exchanges store bindings before notifying observers).
-          @consumer_ex = consumer_ex
-          @federated_ex.register_observer(self)
-          @federated_ex.bindings_details.each do |binding|
-            updated, args = update_bound_from?(binding.arguments)
-            if updated
-              consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
-            end
-          end
+          replay_bindings(consumer_ex)
           upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
           {ch, upstream_q}
+        end
+
+        # Replay the downstream exchange's bindings to the upstream exchange.
+        # The observer must be registered before the snapshot is taken so that
+        # no event is missed, but events that arrive while the replay is
+        # running are queued and applied in order afterwards: applied
+        # concurrently, an unbind for a binding the replay has not reached yet
+        # is a no-op upstream, and the replay then recreates the binding from
+        # its stale snapshot.
+        private def replay_bindings(consumer_ex)
+          @replay_lock.synchronize do
+            @replay_queue.clear
+            @replaying = true
+          end
+          # On reconnect the observer is still registered, so expose the
+          # upstream exchange to the event handler only after queueing is on —
+          # a direct RPC here would race the replay below on the same channel.
+          @consumer_ex = consumer_ex
+          @federated_ex.register_observer(self)
+          snapshot = @federated_ex.bindings_details
+          unbind_removed_bindings(consumer_ex, snapshot)
+          snapshot.each do |binding|
+            apply_binding_event(consumer_ex, ExchangeEvent::Bind, binding)
+          end
+          loop do
+            event = @replay_lock.synchronize do
+              if e = @replay_queue.shift?
+                e
+              else
+                # Stop queueing atomically with observing an empty queue, so
+                # that no event is left behind in it.
+                @replaying = false
+                nil
+              end
+            end
+            break unless event
+            apply_binding_event(consumer_ex, *event)
+          end
+        ensure
+          # If the replay failed, stop queueing; the queued events are
+          # dropped, but the next setup resyncs from a fresh snapshot.
+          @replay_lock.synchronize do
+            @replaying = false
+            @replay_queue.clear
+          end
+        end
+
+        # Unbind upstream bindings this link created that are no longer in the
+        # downstream snapshot: their unbinds happened while the link was
+        # disconnected, so they were never seen as events and would otherwise
+        # stay bound upstream forever, forwarding messages the downstream no
+        # longer wants.
+        private def unbind_removed_bindings(consumer_ex, snapshot)
+          desired = snapshot.map(&.binding_key.properties_key).to_set
+          removed = @replay_lock.synchronize do
+            @upstream_bindings.reject { |key, _| desired.includes?(key) }
+          end
+          removed.each do |key, (routing_key, args)|
+            consumer_ex.unbind(@upstream_exchange, routing_key, args: args)
+            @replay_lock.synchronize { @upstream_bindings.delete(key) }
+          end
         end
 
         private def start_link
