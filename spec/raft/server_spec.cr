@@ -326,6 +326,35 @@ describe LavinMQ::Raft::Server do
     end
   end
 
+  describe "on_configuration_change" do
+    # Regression for the follower-never-follows gap: a joining follower learns
+    # leader_id from a heartbeat before the configuration entry carrying the
+    # leader's address is applied, so its one-shot leader-change resolves to a
+    # nil address. on_configuration_change re-fires once addresses are known,
+    # carrying the current leader_id, so the follow path can resolve + connect.
+    it "fires with the cluster peers after the configuration applies" do
+      with_cluster(2) do |_transports, servers|
+        saw_remote_peer = Channel(Nil).new(1)
+        servers.each do |s|
+          s.on_configuration_change do |peers|
+            # Carries the applied config; a peer other than self is the address
+            # info a freshly-joined follower needs to resolve and follow.
+            # try_send? (non-blocking): this runs on the tick fiber, which a
+            # blocking send on a full channel would freeze (stalling raft).
+            saw_remote_peer.try_send?(nil) if peers.any? { |p| p.id != s.node_id.to_u64 }
+          end
+        end
+        form_cluster(servers)
+        select
+        when saw_remote_peer.receive
+          # expected
+        when timeout(5.seconds)
+          fail "on_configuration_change never delivered the cluster peers after the config applied"
+        end
+      end
+    end
+  end
+
   describe "node_id sources" do
     it "reads .clustering_id when present (base-36)" do
       dir = tmp_data_dir

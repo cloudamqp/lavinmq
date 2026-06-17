@@ -99,15 +99,16 @@ module LavinMQ::Raft
     def campaign(& : ->)
       @transport.start
       @server.start
-      # Callback fires on the tick fiber; never block it. Enqueue
-      # non-blocking — a dedicated fiber does the real follow-leader work.
-      @server.on_leader_change do |id|
-        select
-        when @leader_changes.send(id)
-        else
-          # Channel full — drop; next change will reconcile.
-        end
-      end
+      # Both callbacks fire on the tick fiber; never block it. Enqueue
+      # non-blocking — a dedicated fiber does the real reconcile work. A leader
+      # change and a configuration change (a peer's address became known or
+      # changed) both invalidate the current follow target, so both feed the
+      # same reconcile loop.
+      @server.on_leader_change { |id| enqueue_reconcile(id) }
+      # The peers payload isn't needed here (addresses are cached in the Server);
+      # resolve the current leader on the tick fiber — where this callback runs,
+      # so the read is safe — and poke the reconcile loop with it.
+      @server.on_configuration_change { |_peers| enqueue_reconcile(@server.leader_id) }
       spawn(name: "raft.backend follow_leader") { follow_leader_loop }
 
       maybe_bootstrap_or_join
@@ -261,20 +262,47 @@ module LavinMQ::Raft
       end
     end
 
+    # Non-blocking enqueue from the tick fiber; the reconcile loop does the work.
+    private def enqueue_reconcile(leader_id : UInt64?) : Nil
+      select
+      when @leader_changes.send(leader_id)
+      else
+        # Channel full — drop; the next change/config will reconcile.
+      end
+    end
+
     private def follow_leader_loop : Nil
       loop do
         id = @leader_changes.receive
+        # Coalesce a burst (a contested election can queue X, Y, X) into a single
+        # reconcile to the most recent observed leader, so we don't tear down and
+        # rebuild the replication client for an intermediate candidate.
+        id = Backend.drain_latest(@leader_changes, id)
         begin
-          handle_leader_change(id)
+          reconcile_replication(id)
         rescue ex
-          # handle_leader_change can raise if Clustering::Client construction
+          # reconcile_replication can raise if Clustering::Client construction
           # fails. Swallow + log so the fiber survives — otherwise it'd die and
-          # subsequent leader changes would silently fill the buffered channel
-          # until they get dropped, breaking replication failover for this node.
-          Log.error(exception: ex) { "handle_leader_change failed for #{id}; will retry on next leader change" }
+          # subsequent triggers would silently fill the buffered channel until
+          # they get dropped, breaking replication failover for this node.
+          Log.error(exception: ex) { "reconcile_replication failed for #{id}; will retry on next leader/config change" }
         end
       end
     rescue ::Channel::ClosedError
+    end
+
+    # Drain any already-queued triggers, returning the most recent (or `id` when
+    # none are buffered). Collapses a burst of leader/config changes into one
+    # reconcile.
+    def self.drain_latest(channel : ::Channel(UInt64?), id : UInt64?) : UInt64?
+      loop do
+        select
+        when newer = channel.receive
+          id = newer
+        else
+          return id
+        end
+      end
     end
 
     enum LeaderChangeAction
@@ -299,7 +327,12 @@ module LavinMQ::Raft
       LeaderChangeAction::Follow
     end
 
-    private def handle_leader_change(new_leader_id : UInt64?) : Nil
+    # Reconcile the replication client to follow `new_leader_id` at its current
+    # advertised address. Idempotent: keeps the client when already following
+    # that leader, rebuilds it when the leader (or its address) changed, stops
+    # when this node is the leader. Driven by both leader-change and
+    # configuration-change events (see follow_leader_loop).
+    private def reconcile_replication(new_leader_id : UInt64?) : Nil
       self_id = @server.node_id.to_u64
 
       # Only resolve an address when there is a different leader to follow.
