@@ -412,6 +412,43 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
     end
   end
 
+  it "keeps queues_declared_total monotonic when a vhost is deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = prometheus_counter(http, "lavinmq_queues_declared_total")
+      before.should be >= 2
+
+      s.vhosts.delete("mono_vdel")
+
+      after = prometheus_counter(http, "lavinmq_queues_declared_total")
+      after.should be >= before
+    end
+  end
+
+  it "keeps global_messages_delivered_total monotonic when a vhost is deleted via the store" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel_msg")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      before.should be >= 3
+
+      # Must survive the canonical VHostStore#delete path, not just HTTP DELETE.
+      s.vhosts.delete("mono_vdel_msg")
+
+      after = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      after.should be >= before
+    end
+  end
+
   it "counts a fan-out publish once, not once per bound queue" do
     with_metrics_server do |_, s|
       vhost = s.vhosts.create("fanout_publish")

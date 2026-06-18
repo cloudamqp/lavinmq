@@ -27,9 +27,10 @@ module LavinMQ
     include SortableJSON
     include Stats
 
-    rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
-                "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
+    STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
+                  "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
+                  "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
+    rate_stats(STATS_KEYS)
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter closed = BoolChannel.new(true)
