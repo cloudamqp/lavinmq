@@ -300,7 +300,9 @@ module LavinMQ
             remaining &-= len
           end
           remaining.zero? || raise IO::EOFError.new
-          @checksums[filename] = sha1.final
+          # Persist immediately too: a file received here is complete and
+          # stable, so a crash mid-sync won't force re-hashing it on restart.
+          @checksums.append(filename, sha1.final)
         end
         Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end

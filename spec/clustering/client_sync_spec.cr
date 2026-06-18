@@ -465,6 +465,37 @@ module ClientSyncSpec
           File.read(checksums_file).should contain "#{expected} *queue1/messages.dat"
         end
       end
+
+      # A file the follower lacks is requested and received via file_from_socket;
+      # its hash must also be persisted so a crash mid-sync doesn't re-hash it.
+      it "persists hashes of received files, before close" do
+        with_datadir do |data_dir|
+          content = "received payload"
+          client = make_client(data_dir)
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {"queue1/messages.dat" => content})
+            done.send nil
+          end
+
+          client.sync_files_public(client_io, lz4_reader)
+
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+
+          File.read(File.join(data_dir, "queue1", "messages.dat")).should eq content
+          checksums_file = File.join(data_dir, "checksums.sha1")
+          File.exists?(checksums_file).should be_true
+          expected = Digest::SHA1.digest(content).hexstring
+          File.read(checksums_file).should contain "#{expected} *queue1/messages.dat"
+        end
+      end
     end
 
     describe "#close" do
