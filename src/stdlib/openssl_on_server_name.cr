@@ -19,9 +19,11 @@ lib LibSSL
 end
 
 class OpenSSL::SSL::Context::Server
-  # Whether an SNI callback has been registered on this context.
+  # Whether an SNI callback has been registered on this context. The ivar is a
+  # Pointer(Void) that Crystal zero-initialises to null until on_server_name
+  # sets it, so test for a null pointer rather than nil.
   def sni_callback? : Bool
-    !@sni_callback_box.nil?
+    !@sni_callback_box.null?
   end
 
   @[Experimental]

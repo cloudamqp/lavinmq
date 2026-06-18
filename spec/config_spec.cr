@@ -1,6 +1,16 @@
 require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/config"
+require "../src/lavinmq/launcher"
+require "../src/stdlib/openssl_on_server_name"
+
+# Test-only seam: drive the real SIGHUP reload path without raising the signal.
+# A reopened method can call the private `reload_server` because it's in the class.
+class LavinMQ::Launcher
+  def reload!
+    reload_server
+  end
+end
 
 describe LavinMQ::Config do
   it "should remember the config file path" do
@@ -726,5 +736,139 @@ describe LavinMQ::Config do
         config.tcp_proxy_protocol?.should eq {{expected}}
       end
     {% end %}
+  end
+end
+
+# Connect a TLS client requesting *servername* to a one-shot server using
+# *server_ctx*, and return the CN of the certificate the server presented.
+private def served_cn(server_ctx : OpenSSL::SSL::Context::Server, servername : String) : String?
+  tcp_server = TCPServer.new("127.0.0.1", 0)
+  port = tcp_server.local_address.port
+  spawn do
+    if client = tcp_server.accept?
+      begin
+        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
+      rescue
+        # ignore handshake errors, the client assertion will surface them
+      ensure
+        client.close rescue nil
+      end
+    end
+  end
+  Fiber.yield
+  tcp_client = TCPSocket.new("127.0.0.1", port)
+  client_ctx = OpenSSL::SSL::Context::Client.new
+  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: servername)
+  cn = ssl_client.peer_certificate.try(&.subject.to_a.to_h["CN"]?)
+  ssl_client.close
+  tcp_client.close
+  cn
+ensure
+  tcp_server.try &.close
+end
+
+private def with_launcher(ini : String, &)
+  data_dir = File.tempname("lavinmq", "reload-spec")
+  Dir.mkdir_p data_dir
+  config_file = File.tempfile("lavinmq", ".ini")
+  begin
+    File.write(config_file.path, ini)
+    config = LavinMQ::Config.new
+    config.parse(["-c", config_file.path])
+    config.data_dir = data_dir
+    config.data_dir_lock = false
+    yield LavinMQ::Launcher.new(config), config, config_file
+  ensure
+    config_file.delete
+    FileUtils.rm_rf data_dir
+  end
+end
+
+# Reload behaviour that lives in the launcher: TLS/SNI changes are applied for
+# the supported cases and warn that a restart is required for the rest.
+describe LavinMQ::Launcher do
+  describe "config reload" do
+    it "serves the configured SNI certificate, and a rotated one after reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+      [main]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+
+      [sni:foobar.localhost]
+      tls_cert = spec/resources/foobar_localhost_certificate.pem
+      tls_key = spec/resources/foobar_localhost_key.pem
+      INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+        served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
+
+        # Rotate the SNI host's certificate and reload.
+        File.write(config_file.path, <<-INI)
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
+        launcher.reload!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders"
+      end
+    end
+
+    it "warns that enabling TLS requires a restart" do
+      with_launcher("[main]\nstats_interval = 5000\n") do |launcher, _config, config_file|
+        launcher.@amqp_tls_context.should be_nil
+        File.write(config_file.path, <<-INI)
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
+        Log.capture("lmq.launcher", :warn) do |logs|
+          launcher.reload!
+          logs.check(:warn, /Enabling TLS requires a restart/)
+        end
+        launcher.@amqp_tls_context.should be_nil
+      end
+    end
+
+    it "warns that disabling TLS requires a restart" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+      [main]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      INI
+        launcher.@amqp_tls_context.should_not be_nil
+        File.write(config_file.path, "[main]\ntls_cert =\n")
+        Log.capture("lmq.launcher", :warn) do |logs|
+          launcher.reload!
+          logs.check(:warn, /Disabling TLS requires a restart/)
+        end
+      end
+    end
+
+    it "warns that enabling SNI requires a restart" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+      [main]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      INI
+        File.write(config_file.path, <<-INI)
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        Log.capture("lmq.launcher", :warn) do |logs|
+          launcher.reload!
+          logs.check(:warn, /Enabling SNI requires a restart/)
+        end
+      end
+    end
   end
 end
