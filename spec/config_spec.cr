@@ -647,6 +647,24 @@ describe LavinMQ::Config do
       end
     end
 
+    it "keeps the running config when the new config has an unwritable log_file" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nlog_level = warn\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.log_level.should eq ::Log::Severity::Warn
+
+        # The parent directory does not exist, so opening the log file fails.
+        File.write(config_file.path, "[main]\nlog_level = error\nlog_file = /nonexistent/lavinmq.log\n")
+        expect_raises(LavinMQ::Config::Error, /log_file/) { config.reload }
+        config.log_level.should eq ::Log::Severity::Warn # unchanged, not half-applied
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
     it "does not half-apply a config when a later value is invalid" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin

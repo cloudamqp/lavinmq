@@ -317,8 +317,19 @@ module LavinMQ
       new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
       new_config.parse_ini(@config_file)
       new_config.validate!
+      new_config.try_to_open_log_file
       apply(new_config)
       setup_logger
+    end
+
+    # Try to open and immediately close the configured log file so an unopenable
+    # path raises a Config::Error before the config is applied
+    protected def try_to_open_log_file
+      if path = @log_file
+        File.open(path, "a") { }
+      end
+    rescue ex : File::Error
+      raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
     end
 
     protected def fresh_sni_manager
