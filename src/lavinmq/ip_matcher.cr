@@ -50,17 +50,18 @@ module LavinMQ
       raise ArgumentError.new("Invalid IP address: #{ip_str}")
     end
 
-    # Parse a comma-separated list of IP addresses or CIDR ranges from config
+    # Parse a comma-separated list of IP addresses or CIDR ranges from config.
+    # Raises on any invalid entry so a misconfigured trusted-source list fails
+    # loudly at startup instead of silently collapsing to an empty (trust-all) list.
     def self.parse_list(sources : String) : Array(IPMatcher)
       sources.split(',')
         .map(&.strip)
         .reject(&.empty?)
-        .compact_map do |source|
+        .map do |source|
           begin
             parse(source)
           rescue ex : Socket::Error | ArgumentError
-            Log.error(exception: ex) { "Invalid IP/CIDR: #{source}" }
-            nil
+            raise ArgumentError.new("Invalid IP/CIDR '#{source}': #{ex.message}")
           end
         end
     end

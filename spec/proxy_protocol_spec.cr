@@ -203,16 +203,20 @@ describe "ProxyProtocol" do
       config.proxy_protocol_trusted_sources[3].matches?("::2").should be_false
     end
 
-    it "handles invalid entries gracefully" do
-      config = LavinMQ::Config.new
-      # This should print warnings to STDERR but not fail
-      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
-        "10.0.0.1, invalid-ip, 192.168.0.0/24, 300.0.0.1")
+    it "raises on an invalid entry mixed with valid ones" do
+      # A typo must fail loudly rather than silently dropping the entry and
+      # degrading the allow-list (potentially to trust-all).
+      expect_raises(ArgumentError, /Invalid IP\/CIDR 'invalid-ip'/) do
+        LavinMQ::IPMatcher.parse_list("10.0.0.1, invalid-ip, 192.168.0.0/24")
+      end
+    end
 
-      # Only valid entries should be parsed
-      config.proxy_protocol_trusted_sources.size.should eq 2
-      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
-      config.proxy_protocol_trusted_sources[1].matches?("192.168.0.50").should be_true
+    it "raises when every entry is invalid instead of collapsing to trust-all" do
+      # Regression for #2083: an all-invalid list must not parse to an empty
+      # array (which trusted_proxy_source? treats as trust-all).
+      expect_raises(ArgumentError, /Invalid IP\/CIDR/) do
+        LavinMQ::IPMatcher.parse_list("10.0.0.0/33, 300.0.0.1")
+      end
     end
 
     it "handles whitespace correctly" do
