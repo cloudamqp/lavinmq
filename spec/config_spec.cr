@@ -595,8 +595,117 @@ describe LavinMQ::Config do
           CONFIG
         end
         config = LavinMQ::Config.new
-        expect_raises(OptionParser::Exception, /stats_interval/) do
+        expect_raises(LavinMQ::Config::Error, /stats_interval/) do
           config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
+  describe "reload" do
+    it "keeps the running config when the new config has an invalid value" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_interval = 5000\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.stats_interval.should eq 5000
+
+        File.write(config_file.path, "[main]\nstats_interval = 0\n")
+        expect_raises(LavinMQ::Config::Error, /stats_interval/) { config.reload }
+        config.stats_interval.should eq 5000 # unchanged
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps the running config when the new config has an unknown section" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nlog_level = warn\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.log_level.should eq ::Log::Severity::Warn
+
+        File.write(config_file.path, "[bogus]\nfoo = bar\n")
+        expect_raises(LavinMQ::Config::Error, /Unknown configuration section/) { config.reload }
+        config.log_level.should eq ::Log::Severity::Warn # unchanged
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "does not half-apply a config when a later value is invalid" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_log_size = 120\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.stats_log_size.should eq 120
+
+        # stats_log_size is valid, segment_size is not an integer and raises
+        File.write(config_file.path, "[main]\nstats_log_size = 999\nsegment_size = notanumber\n")
+        expect_raises(LavinMQ::Config::Error) { config.reload }
+        config.stats_log_size.should eq 120 # the valid value was not applied either
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "applies SNI changes on a successful reload" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        config.sni_manager.get_host("foobar.localhost").should_not be_nil
+        config.sni_manager.get_host("test.example.com").should be_nil
+
+        File.write(config_file.path, <<-INI)
+        [sni:*.example.com]
+        tls_cert = spec/resources/wildcard_example_certificate.pem
+        tls_key = spec/resources/wildcard_example_key.pem
+        INI
+        config.reload
+
+        # reload swaps in a fresh SNIManager: the new host resolves, the old one is gone.
+        config.sni_manager.get_host("test.example.com").should_not be_nil
+        config.sni_manager.get_host("foobar.localhost").should be_nil
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps serving traffic after a failed reload" do
+      with_amqp_server do |s|
+        config = LavinMQ::Config.instance
+        original_config_file = config.config_file
+        original_stats_interval = config.stats_interval
+        config_file = File.tempfile("lavinmq-config", ".ini")
+        begin
+          File.write(config_file.path, "[main]\nstats_interval = 0\n")
+          config.config_file = config_file.path
+          expect_raises(LavinMQ::Config::Error) { config.reload }
+          config.stats_interval.should eq original_stats_interval
+
+          # The broker is still healthy: a publish/consume roundtrip works
+          with_channel(s) do |ch|
+            q = ch.queue
+            q.publish_confirm("msg")
+            q.get(no_ack: true).try(&.body_io.to_s).should eq "msg"
+          end
+        ensure
+          config.config_file = original_config_file
+          File.delete?(config_file.path)
+          Log.setup(:fatal)
         end
       end
     end

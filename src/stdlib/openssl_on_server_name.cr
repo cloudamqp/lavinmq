@@ -19,6 +19,11 @@ lib LibSSL
 end
 
 class OpenSSL::SSL::Context::Server
+  # Whether an SNI callback has been registered on this context.
+  def sni_callback? : Bool
+    !@sni_callback_box.nil?
+  end
+
   @[Experimental]
   def on_server_name(&block : String -> OpenSSL::SSL::Context::Server?)
     c_callback = Proc(LibSSL::SSL, LibC::Int*, Void*, LibC::Int).new do |ssl, alert_ptr, arg|

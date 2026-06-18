@@ -89,13 +89,6 @@ module LavinMQ
       )
     end
 
-    # Reload the TLS contexts (e.g., on SIGHUP)
-    def reload
-      @amqp_tls_context = nil
-      @mqtt_tls_context = nil
-      @http_tls_context = nil
-    end
-
     private def create_tls_context(cert_path, key_path, min_version, ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
@@ -189,16 +182,6 @@ module LavinMQ
       if dot_idx = hostname.index('.')
         @wildcard_hosts[hostname[dot_idx..]]?
       end
-    end
-
-    def reload
-      @hosts.each_value(&.reload)
-      @wildcard_hosts.each_value(&.reload)
-    end
-
-    def clear
-      @hosts.clear
-      @wildcard_hosts.clear
     end
 
     def empty?
