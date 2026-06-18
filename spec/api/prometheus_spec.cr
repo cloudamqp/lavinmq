@@ -467,6 +467,42 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
       vhost.message_details[:message_stats][:publish].should eq 1
     end
   end
+
+  it "keeps /api/overview message_stats monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("ov_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      before.should be >= 3
+
+      s.vhosts.delete("ov_mono")
+
+      after = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      after.should be >= before
+    end
+  end
+
+  it "keeps /api/nodes queue_declared monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("node_mono")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      before.should be >= 2
+
+      s.vhosts.delete("node_mono")
+
+      after = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      after.should be >= before
+    end
+  end
 end
 
 describe LavinMQ::HTTP::FollowerPrometheusController do
