@@ -55,16 +55,10 @@ module LavinMQ
         @permissions = claims.permissions
         @expires_at = claims.expires_at
         clear_permissions_cache
-        notify_token_updated
-      end
-
-      # Best-effort notification to the on_expiration watcher that the token was
-      # refreshed so it recomputes its timeout. If the watcher has already exited
-      # (token expired, connection closing) the channel is closed and there is
-      # nothing to notify.
-      private def notify_token_updated
         @token_updated.send nil
       rescue Channel::ClosedError
+        # The on_expiration watcher already exited (token expired, connection
+        # closing), so there is nothing to notify.
       end
 
       def find_permission(vhost : String) : Permissions?
