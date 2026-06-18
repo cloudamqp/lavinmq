@@ -323,32 +323,13 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = deliver_get = 0_u64
       each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
-        ack += q.ack_count
-        confirm += q.confirm_count
-        deliver += q.deliver_count
-        deliver_no_ack += q.deliver_no_ack_count
-        deliver_get += q.deliver_get_count
-        get += q.get_count
-        get_no_ack += q.get_no_ack_count
-        publish += q.publish_count
-        redeliver += q.redeliver_count
       end
       each_session do |s|
         ready += s.message_count
         unacked += s.unacked_count
-        ack += s.ack_count
-        confirm += s.confirm_count
-        deliver += s.deliver_count
-        deliver_no_ack += s.deliver_no_ack_count
-        deliver_get += s.deliver_get_count
-        get += s.get_count
-        get_no_ack += s.get_no_ack_count
-        publish += s.publish_count
-        redeliver += s.redeliver_count
       end
 
       {
@@ -356,15 +337,15 @@ module LavinMQ
         messages_unacknowledged: unacked,
         messages_ready:          ready,
         message_stats:           {
-          ack:               ack,
-          confirm:           confirm,
-          deliver:           deliver,
-          deliver_no_ack:    deliver_no_ack,
-          get:               get,
-          get_no_ack:        get_no_ack,
-          deliver_get:       deliver_get,
-          publish:           publish,
-          redeliver:         redeliver,
+          ack:               ack_count,
+          confirm:           confirm_count,
+          deliver:           deliver_count,
+          deliver_no_ack:    deliver_no_ack_count,
+          get:               get_count,
+          get_no_ack:        get_no_ack_count,
+          deliver_get:       deliver_get_count,
+          publish:           publish_count,
+          redeliver:         redeliver_count,
           return_unroutable: return_unroutable_count,
         },
       }
