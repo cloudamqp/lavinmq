@@ -708,6 +708,22 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "store_consumer_offset raises ClosedError after the store is closed" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.close
+        # A late ack must surface ClosedError (like find_offset/shift?/push),
+        # not a raw "Closed mfile" IO::Error that escapes the read_loop.
+        expect_raises(LavinMQ::MessageStore::ClosedError) do
+          msg_store.store_consumer_offset("ctag", 1_i64)
+        end
+      end
+    end
+
     it "cleanup_consumer_offsets removes outdated offset" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, -10_i64]
