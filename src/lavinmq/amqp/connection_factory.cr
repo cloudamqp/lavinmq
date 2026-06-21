@@ -48,13 +48,12 @@ module LavinMQ
 
       def confirm_header(socket, log : Logger) : Bool
         proto = uninitialized UInt8[8]
-        count = socket.read(proto.to_slice)
-        if count.zero? # EOF, socket closed by peer
+        if socket.read_fully?(proto.to_slice).nil?
           false
         elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
+          log.warn { "Unexpected protocol #{String.new(proto.to_slice).inspect}, closing socket" }
           false
         else
           true

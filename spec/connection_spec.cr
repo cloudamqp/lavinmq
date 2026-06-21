@@ -315,4 +315,26 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  describe "protocol header" do
+    it "accepts a protocol header delivered in fragments" do
+      with_amqp_server do |s|
+        io = TCPSocket.new("localhost", amqp_port(s))
+        io.read_timeout = 5.seconds
+        begin
+          header = AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+          io.write header[0, 4]
+          io.flush
+          sleep 50.milliseconds
+          io.write header[4, 4]
+          io.flush
+
+          stream = AMQ::Protocol::Stream.new(io)
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Connection::Start)
+        ensure
+          io.close
+        end
+      end
+    end
+  end
 end
