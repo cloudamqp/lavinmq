@@ -30,16 +30,17 @@ module LavinMQ
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
     end
 
+    # Every confirm — sync, no-sync, and clustered alike — is routed through the
+    # publish confirm loop so each channel has exactly one producer of ack
+    # frames. `sync` is a runtime-mutable INI option (SIGHUP reloads it); taking
+    # a shortcut here when it is disabled would let a later direct ack overtake
+    # an earlier batched one after a mid-stream flip, sending cumulative
+    # Basic.Ack frames out of delivery-tag order (see #2078). The loop skips the
+    # actual syncfs while sync is disabled (see drain_pending_acks), so no-sync
+    # only pays a single hop to the loop, not a disk flush.
     def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      if Config.instance.sync? || @replicator
-        @pending_acks.lock { |acks| acks[channel] = msgid }
-        @publish_confirm_requested.try_send true
-      else
-        # If sync is disabled, we can confirm immediately without waiting for
-        # the publish confirm loop to flush to disk. Clustered nodes still use
-        # the loop so no-sync only skips local syncfs, not follower/ISR fences.
-        channel.enqueue_confirm_ack(msgid)
-      end
+      @pending_acks.lock { |acks| acks[channel] = msgid }
+      @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
     end
 

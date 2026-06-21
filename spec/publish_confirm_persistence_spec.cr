@@ -81,6 +81,47 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  describe "runtime sync-mode flip (regression for #2078)" do
+    # `sync` is a runtime-mutable INI option (INI + SIGHUP). All confirms are
+    # routed through the publish confirm loop regardless of sync state, so a
+    # mid-stream flip can never let a later ack overtake an earlier one and send
+    # cumulative Basic.Ack frames out of delivery-tag order. Toggle sync while a
+    # confirm-mode publisher is in flight and assert every publish is confirmed.
+    it "keeps confirming when sync is disabled mid-stream" do
+      LavinMQ::Config.instance.sync = true
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("flip_sync_off")
+          50.times { q.publish "msg" }
+          LavinMQ::Config.instance.sync = false # operator SIGHUPs sync off mid-stream
+          50.times { q.publish "msg" }
+          ch.wait_for_confirms.should be_true
+          s.vhosts["/"].queue(q.name).message_count.should eq 100
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+
+    it "keeps confirming when sync is enabled mid-stream" do
+      LavinMQ::Config.instance.sync = false
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("flip_sync_on")
+          50.times { q.publish "msg" }
+          LavinMQ::Config.instance.sync = true
+          50.times { q.publish "msg" }
+          ch.wait_for_confirms.should be_true
+          s.vhosts["/"].queue(q.name).message_count.should eq 100
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.
