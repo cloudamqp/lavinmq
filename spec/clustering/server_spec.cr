@@ -102,6 +102,39 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 
+  describe "#each_follower broken-follower cleanup" do
+    it "removes a synced follower whose dispatch raises a socket error" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      fi = FakeFileIndex.new(data_dir)
+      sock, client = FakeSocket.pair
+      follower = LavinMQ::Clustering::Follower.new(sock, data_dir, fi)
+      follower.mark_synced!
+      server.@followers << follower
+
+      path = File.join(data_dir, "broken_follower_seg")
+      File.write(path, "")
+      server.register_file(path)
+
+      client.close # break the follower's peer socket
+
+      # Incompressible payloads large enough to force an LZ4 flush to the dead
+      # socket, raising IO::Error inside each_follower.
+      payload = Random::Secure.random_bytes(256 * 1024)
+      10.times { server.append_bytes(path, payload, 0i64) }
+
+      server.@followers.should_not contain(follower)
+    ensure
+      sock.try &.close
+      client.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "#append" do
     it "raises ArgumentError when no MFile is registered for the path" do
       data_dir = LavinMQ::Config.instance.data_dir
