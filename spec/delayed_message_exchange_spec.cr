@@ -286,6 +286,49 @@ describe "Delayed Message Exchange" do
     end
   end
 
+  it "closes cleanly without hanging the publisher when the expire loop hits a store error" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        # Long delay so the message stays parked in the internal delayed queue
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 600_000})
+        x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+      end
+      queue = s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue)
+      queue.message_count.should eq 1
+
+      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore)
+      seg_id = store.@segments.first_key
+      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore)
+
+      # Insert an index entry pointing past the segment data with an already-elapsed
+      # expire_at, so the expire loop reads it first and BytesMessage.from_bytes raises
+      # a MessageStore::Error (simulating a corrupt/truncated delayed segment).
+      bad_sp = LavinMQ::SegmentPosition.new(seg_id, 100_000_000u32, 0u32)
+      requeued.insert(bad_sp, 0i64)
+
+      # Wake the expire loop so it processes the (now-expired) bogus entry
+      queue.@message_ttl_change.send(nil)
+
+      # The store error must close the queue rather than silently killing the only
+      # release fiber and stranding all delayed messages forever.
+      wait_for { queue.closed? }
+      queue.closed?.should be_true
+
+      # delay() must return promptly (no unbuffered send to a dead fiber) even
+      # after the release fiber is gone.
+      msg = LavinMQ::Message.new("", queue.name, "after-error")
+      done = Channel(Bool).new
+      spawn { done.send(queue.delay(msg)) }
+      select
+      when result = done.receive
+        result.should be_false # closed queue refuses the message instead of blocking
+      when timeout 2.seconds
+        fail "delay() blocked the publisher after the expire fiber died"
+      end
+    end
+  end
+
   it "should prevent binding delayed exchange to its own internal queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
