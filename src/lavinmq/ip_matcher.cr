@@ -97,7 +97,23 @@ module LavinMQ
     private def ip_to_bytes_v4(address : String) : Bytes?
       if fields = Socket::IPAddress.parse_v4_fields?(address)
         Bytes.new(4) { |i| fields[i] }
+      elsif fields = Socket::IPAddress.parse_v6_fields?(address)
+        # On a dual-stack (::) listener an IPv4 peer arrives as an IPv4-mapped
+        # IPv6 address (::ffff:a.b.c.d); extract the embedded IPv4 so an IPv4
+        # trusted source still matches (issue 2070).
+        ipv4_mapped_bytes(fields)
       end
+    end
+
+    # If *fields* is an IPv4-mapped IPv6 address (::ffff:a.b.c.d), return the
+    # embedded 4-byte IPv4 address, otherwise nil.
+    private def ipv4_mapped_bytes(fields : StaticArray(UInt16, 8)) : Bytes?
+      return nil unless fields[0].zero? && fields[1].zero? && fields[2].zero? &&
+                        fields[3].zero? && fields[4].zero? && fields[5] == 0xffff_u16
+      Bytes[
+        (fields[6] >> 8).to_u8, (fields[6] & 0xFF).to_u8,
+        (fields[7] >> 8).to_u8, (fields[7] & 0xFF).to_u8,
+      ]
     end
 
     # Convert IPv6 address string to bytes
