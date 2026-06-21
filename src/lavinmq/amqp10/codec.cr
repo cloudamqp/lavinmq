@@ -348,6 +348,85 @@ module LavinMQ
         end
         io.write body
       end
+
+      def write_bool(io : IO, v : Bool) : Nil
+        io.write_byte(v ? BOOL_TRUE : BOOL_FALSE)
+      end
+
+      # ---- hot-path encoding (allocation-free) ----------------------------
+      #
+      # The methods above buffer into a temporary `IO::Memory` to compute the
+      # list/map size prefix. On the message hot path that allocation is
+      # unacceptable, so these write straight into a seekable buffer and patch
+      # the size afterwards. They always emit the 32-bit form to avoid a size
+      # pre-pass. The block must write exactly `count` elements directly.
+
+      # A described list (composite) written in place. `count` is the number of
+      # fields the block writes; trailing nulls are not trimmed (decoders ignore
+      # extra null fields), trading a few bytes for zero allocations.
+      def write_described_list(io : IO::Memory, descriptor : UInt64, count : Int32, & : IO::Memory ->) : Nil
+        io.write_byte DESCRIBED
+        write_ulong(io, descriptor)
+        io.write_byte LIST32
+        size_pos = io.pos
+        0_u32.to_io(io, BE)        # size placeholder, patched below
+        count.to_u32.to_io(io, BE) # element count
+        yield io
+        patch_size(io, size_pos)
+      end
+
+      # A map32 value written in place. `count` is the number of map *entries*
+      # (key/value pairs); the block writes count*2 values.
+      def write_map(io : IO::Memory, count : Int32, & : IO::Memory ->) : Nil
+        io.write_byte MAP32
+        size_pos = io.pos
+        0_u32.to_io(io, BE)
+        (count * 2).to_u32.to_io(io, BE)
+        yield io
+        patch_size(io, size_pos)
+      end
+
+      # Patch a 32-bit compound size field: it counts the count field (4 bytes)
+      # plus the element bytes, i.e. everything after the size field itself.
+      private def patch_size(io : IO::Memory, size_pos : Int32) : Nil
+        end_pos = io.pos
+        io.pos = size_pos
+        (end_pos - size_pos - 4).to_u32.to_io(io, BE)
+        io.pos = end_pos
+      end
+
+      # ---- hot-path decoding (no AnyValue tree) ---------------------------
+      #
+      # `skip` advances past one complete value without materialising it, using
+      # the regular structure of the AMQP type encoding (the high nibble of the
+      # format code determines the width). Used by the message parser to step
+      # over fields/sections it doesn't need.
+      # ameba:disable Metrics/CyclomaticComplexity
+      def skip(p : Bytes, pos : Int32) : Int32
+        code = p[pos]
+        pos += 1
+        case code >> 4
+        when 0x4      then pos                   # 0x4X: 0 bytes
+        when 0x5      then pos + 1               # 0x5X: 1 byte
+        when 0x6      then pos + 2               # 0x6X: 2 bytes
+        when 0x7      then pos + 4               # 0x7X: 4 bytes
+        when 0x8      then pos + 8               # 0x8X: 8 bytes
+        when 0x9      then pos + 16              # 0x9X: 16 bytes
+        when 0xa      then pos + 1 + p[pos].to_i # 0xAX: 1-byte length prefix
+        when 0xb      then pos + 4 + read_u32(p, pos)
+        when 0xc, 0xe then pos + 1 + p[pos].to_i # compound/array, 1-byte size
+        when 0xd, 0xf then pos + 4 + read_u32(p, pos)
+        else
+          raise Error::Decode.new("Cannot skip format code 0x#{code.to_s(16)}") unless code == DESCRIBED
+          skip(p, skip(p, pos)) # described: skip descriptor then value
+        end
+      end
+
+      # Read a 4-byte big-endian unsigned int from a byte slice as an Int32
+      # (frame sizes fit Int32).
+      def read_u32(p : Bytes, pos : Int32) : Int32
+        BE.decode(UInt32, p[pos, 4]).to_i32
+      end
     end
   end
 end

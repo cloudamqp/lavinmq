@@ -8,6 +8,7 @@
 require "../src/lavinmq/config"
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
+require "../src/lavinmq/amqp10/messaging"
 require "file_utils"
 
 ::Log.setup(:fatal)
@@ -231,6 +232,45 @@ measure("component: BytesMessage.from_bytes (plain)", N) do
   N.times do
     LavinMQ::BytesMessage.from_bytes(plain_buf)
   end
+end
+
+puts
+puts "== AMQP 1.0 message codec (encode into reusable buffer / parse byte cursor) =="
+
+amqp10_out = IO::Memory.new
+plain_props = AMQ::Protocol::Properties.new
+prop_props = AMQ::Protocol::Properties.new(content_type: "application/json", message_id: "m-123")
+
+# warm up
+1000.times { amqp10_out.clear; LavinMQ::AMQP10::MessageCodec.encode(amqp10_out, plain_props, BODY) }
+
+measure("amqp10 encode: plain body (reused buffer)", N) do
+  N.times do
+    amqp10_out.clear
+    LavinMQ::AMQP10::MessageCodec.encode(amqp10_out, plain_props, BODY)
+  end
+end
+
+measure("amqp10 encode: body + 2 properties (reused buffer)", N) do
+  N.times do
+    amqp10_out.clear
+    LavinMQ::AMQP10::MessageCodec.encode(amqp10_out, prop_props, BODY)
+  end
+end
+
+# parse: build payloads once, then measure the decode hot path
+amqp10_out.clear
+LavinMQ::AMQP10::MessageCodec.encode(amqp10_out, plain_props, BODY)
+plain_payload = amqp10_out.to_slice.dup
+measure("amqp10 parse: plain body (slice, no props)", N) do
+  N.times { LavinMQ::AMQP10::MessageCodec.parse(plain_payload) }
+end
+
+prop_out = IO::Memory.new
+LavinMQ::AMQP10::MessageCodec.encode(prop_out, prop_props, BODY)
+prop_payload = prop_out.to_slice
+measure("amqp10 parse: body + 2 properties (string allocs)", N) do
+  N.times { LavinMQ::AMQP10::MessageCodec.parse(prop_payload) }
 end
 
 null.close

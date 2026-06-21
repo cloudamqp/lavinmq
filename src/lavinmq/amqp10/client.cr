@@ -32,6 +32,11 @@ module LavinMQ
       @write_lock = Mutex.new(:checked)
       @sessions = Hash(UInt16, Session).new
       @dynamic_queues = [] of String
+      # Reusable frame buffers: @input for the (single-fiber) read loop, @output
+      # for outbound frame assembly under @write_lock. Avoids per-frame heap
+      # allocation on the message hot path.
+      @input = IO::Memory.new
+      @output = IO::Memory.new
       rate_stats({"send_oct", "recv_oct"})
 
       # Default link credit granted to a publishing client.
@@ -78,7 +83,7 @@ module LavinMQ
 
       private def read_loop
         loop do
-          frame = Frame.read(@socket)
+          frame = Frame.read(@socket, @input)
           @recv_oct_count.add(8_u64, :relaxed)
           next if frame.heartbeat?
           perf = frame.performative
@@ -248,11 +253,7 @@ module LavinMQ
         publish(link, full)
         link.delivery_count &+= 1
         # Settle: tell the client we accepted it (unless they pre-settled).
-        if delivery_id && !frame.settled
-          disp = Disposition.new(role: Attach::ROLE_RECEIVER, first: delivery_id,
-            settled: true, state: DeliveryState.accepted)
-          write_frame(channel) { |b| disp.to_io(b) }
-        end
+        write_accept(channel, delivery_id) if delivery_id && !frame.settled
         replenish_credit(session, link)
       end
 
@@ -301,12 +302,39 @@ module LavinMQ
         write_frame(session.channel) { |b| flow.to_io(b) }
       end
 
-      # Send a transfer + message payload (called by Consumer on delivery).
-      def send_transfer(transfer : Transfer, payload : Bytes) : Nil
-        channel = consumer_channel(transfer.handle)
+      # Send a transfer + message (called by Consumer on delivery). Builds the
+      # transfer performative and message sections straight into the reusable
+      # output buffer — no per-message allocations.
+      def deliver_message(handle : UInt32, delivery_id : UInt32, settled : Bool, msg : LavinMQ::BytesMessage) : Nil
+        channel = consumer_channel(handle)
         write_frame(channel) do |b|
-          transfer.to_io(b)
-          b.write(payload)
+          Codec.write_described_list(b, Descriptor::TRANSFER, 6) do |l|
+            Codec.write_uint(l, handle)      # handle
+            Codec.write_uint(l, delivery_id) # delivery-id
+            l.write_byte Codec::VBIN8        # delivery-tag: 4-byte delivery-id
+            l.write_byte 4_u8
+            delivery_id.to_io(l, Codec::BE)
+            Codec.write_uint(l, 0_u32)   # message-format
+            Codec.write_bool(l, settled) # settled
+            Codec.write_bool(l, false)   # more
+          end
+          MessageCodec.encode(b, msg.properties, msg.body)
+        end
+      end
+
+      # Send a settled "accepted" disposition for an inbound (published) transfer.
+      private def write_accept(channel : UInt16, delivery_id : UInt32) : Nil
+        write_frame(channel) do |b|
+          Codec.write_described_list(b, Descriptor::DISPOSITION, 5) do |l|
+            Codec.write_bool(l, Attach::ROLE_RECEIVER) # role
+            Codec.write_uint(l, delivery_id)           # first
+            Codec.write_uint(l, delivery_id)           # last
+            Codec.write_bool(l, true)                  # settled
+            # state: accepted = described(0x24, list0)
+            l.write_byte Codec::DESCRIBED
+            Codec.write_ulong(l, Descriptor::ACCEPTED)
+            l.write_byte Codec::LIST0
+          end
         end
       end
 
@@ -317,10 +345,10 @@ module LavinMQ
         0_u16
       end
 
-      private def write_frame(channel : UInt16, & : IO ->) : Nil
+      private def write_frame(channel : UInt16, & : IO::Memory ->) : Nil
         return if closed?
         @write_lock.synchronize do
-          FrameWriter.write(@socket, channel) { |b| yield b }
+          FrameWriter.write(@socket, @output, channel) { |b| yield b }
           @socket.flush
         end
         @send_oct_count.add(8_u64, :relaxed)

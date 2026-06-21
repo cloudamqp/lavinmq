@@ -35,7 +35,16 @@ module LavinMQ
         @performative.nil? && @payload.empty?
       end
 
+      # Read a frame, allocating a fresh body buffer (cold paths / specs).
       def self.read(io : IO) : Frame
+        read(io, IO::Memory.new)
+      end
+
+      # Read a frame reusing `buf` for the body — no per-frame allocation. The
+      # returned `payload` and any decoded slices reference `buf`'s storage, so
+      # they are only valid until `buf` is next reused (fine within the
+      # single-fiber read loop that processes one frame before reading the next).
+      def self.read(io : IO, buf : IO::Memory) : Frame
         size = UInt32.from_io(io, Codec::BE)
         raise Error::Decode.new("Frame size #{size} smaller than header") if size < 8
         doff = io.read_byte || raise Error::Decode.new("EOF reading data-offset")
@@ -47,11 +56,12 @@ module LavinMQ
         io.skip(ext) if ext > 0
         body_size = size.to_i - (doff.to_i * 4)
         return Frame.new(nil, channel, EMPTY_PAYLOAD, type) if body_size <= 0
-        body = Bytes.new(body_size)
-        io.read_fully(body)
-        mem = IO::Memory.new(body)
-        performative = Codec.read(mem).as(Described)
-        payload = body_size - mem.pos > 0 ? body[mem.pos, body_size - mem.pos] : EMPTY_PAYLOAD
+        buf.clear
+        copied = IO.copy(io, buf, body_size)
+        raise IO::EOFError.new if copied != body_size
+        buf.rewind
+        performative = Codec.read(buf).as(Described)
+        payload = body_size - buf.pos > 0 ? buf.to_slice[buf.pos, body_size - buf.pos] : EMPTY_PAYLOAD
         Frame.new(performative, channel, payload, type)
       end
     end
@@ -62,15 +72,22 @@ module LavinMQ
     module FrameWriter
       extend self
 
-      def write(io : IO, channel : UInt16 = 0_u16, type : UInt8 = Frame::TYPE_AMQP, & : IO ->) : Nil
-        body = IO::Memory.new
-        yield body
-        size = 8_u32 + body.bytesize
+      # Allocating overload for cold paths (handshake / specs).
+      def write(io : IO, channel : UInt16 = 0_u16, type : UInt8 = Frame::TYPE_AMQP, & : IO::Memory ->) : Nil
+        write(io, IO::Memory.new, channel, type) { |b| yield b }
+      end
+
+      # Hot-path overload: assemble the body into the caller-provided reusable
+      # buffer `scratch` (cleared each call) instead of allocating one.
+      def write(io : IO, scratch : IO::Memory, channel : UInt16 = 0_u16, type : UInt8 = Frame::TYPE_AMQP, & : IO::Memory ->) : Nil
+        scratch.clear
+        yield scratch
+        size = 8_u32 + scratch.bytesize
         size.to_io(io, Codec::BE)
         io.write_byte Frame::DOFF_MIN
         io.write_byte type
         channel.to_io(io, Codec::BE)
-        io.write(body.to_slice) if body.bytesize > 0
+        io.write(scratch.to_slice) if scratch.bytesize > 0
       end
 
       # Empty AMQP frame, used as a heartbeat.

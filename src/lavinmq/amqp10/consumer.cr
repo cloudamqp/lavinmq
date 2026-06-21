@@ -122,12 +122,7 @@ module LavinMQ
           @unacked.add(1, :relaxed)
           @unsettled_lock.synchronize { @unsettled[delivery_id] = sp }
         end
-        payload = MessageCodec.encode(msg.properties, msg.body)
-        tag = Bytes.new(4)
-        IO::ByteFormat::BigEndian.encode(delivery_id, tag)
-        transfer = Transfer.new(handle: @handle, delivery_id: delivery_id,
-          delivery_tag: tag, settled: @no_ack)
-        @client.send_transfer(transfer, payload)
+        @client.deliver_message(@handle, delivery_id, @no_ack, msg)
         # one credit consumed per transfer
         remaining = @credit.sub(1, :relaxed) - 1
         @delivery_count &+= 1
