@@ -6,7 +6,8 @@ module LavinMQ
       abstract def register_file(path : String)
       abstract def register_file(file : File)
       abstract def register_file(mfile : MFile)
-      abstract def replace_file(path : String) # only non mfiles are ever replaced
+      abstract def replace_file(path : String) # regular files, re-read from disk
+      abstract def replace_file(mfile : MFile) # mmap-backed files, read from the mmap (capped at mfile.size)
       abstract def append(path : String, pos : Int, length : Int)
       # `offset` is the absolute byte position the value/bytes are written at on
       # the leader; used to skip appends a just-joined follower already received

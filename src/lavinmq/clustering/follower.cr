@@ -284,6 +284,22 @@ module LavinMQ
         end
       end
 
+      # Replace a file's whole content from an in-memory slice (the leader's
+      # mmap, read capped at mfile.size). A positive length on the wire marks a
+      # replace; the follower streams it to <path>.tmp then renames atomically.
+      # An empty slice writes a 0 length, which the follower applies as a delete
+      # (an emptied file carries no data to restore anyway).
+      def replace(path : String, bytes : Bytes) : Int64
+        @write_lock.synchronize do
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
+          @sent_bytes.add(lag_size)
+          send_filename(path)
+          @lz4.write_bytes bytes.bytesize.to_i64, IO::ByteFormat::LittleEndian
+          @lz4.write bytes
+          lag_size
+        end
+      end
+
       def append(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
