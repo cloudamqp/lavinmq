@@ -6,6 +6,7 @@ require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
 require "./connection_reply_code"
+require "../amqp10/connection_factory"
 
 module LavinMQ
   module AMQP
@@ -15,19 +16,31 @@ module LavinMQ
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
       end
 
-      def start(socket, connection_info) : Client?
+      def start(socket, connection_info) : LavinMQ::Client?
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
-        if confirm_header(socket, logger)
-          stream = AMQ::Protocol::Stream.new(socket)
-          if start_ok = start(stream, logger)
-            if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
-              if tune_ok = tune(stream, logger)
-                if vhost = open(stream, user, logger)
-                  socket.read_timeout = heartbeat_timeout(tune_ok)
-                  return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
-                end
+        proto = uninitialized UInt8[8]
+        count = socket.read(proto.to_slice)
+        return nil if count.zero? # EOF, socket closed by peer
+        # AMQP 1.0 is a different protocol on the same port: dispatch on its header.
+        if amqp_1_0_header?(proto)
+          return LavinMQ::AMQP10::ConnectionFactory.new(@authenticator, @vhosts)
+            .start(socket, connection_info, proto.to_slice.dup)
+        end
+        unless valid_0_9_1_header?(proto)
+          socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
+          socket.flush
+          logger.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
+          return nil
+        end
+        stream = AMQ::Protocol::Stream.new(socket)
+        if start_ok = start(stream, logger)
+          if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
+            if tune_ok = tune(stream, logger)
+              if vhost = open(stream, user, logger)
+                socket.read_timeout = heartbeat_timeout(tune_ok)
+                return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
               end
             end
           end
@@ -46,19 +59,15 @@ module LavinMQ
         end
       end
 
-      def confirm_header(socket, log : Logger) : Bool
-        proto = uninitialized UInt8[8]
-        count = socket.read(proto.to_slice)
-        if count.zero? # EOF, socket closed by peer
-          false
-        elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
-          socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
-          socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
-          false
-        else
-          true
-        end
+      private def valid_0_9_1_header?(proto) : Bool
+        proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
+      end
+
+      # AMQP 1.0 protocol headers: "AMQP" then protocol-id 3 (SASL layer) or
+      # 0 with minor 1 (raw AMQP layer). 0-9-1 uses "AMQP\x00\x00\x09\x01".
+      private def amqp_1_0_header?(proto) : Bool
+        proto[0] == 0x41_u8 && proto[1] == 0x4d_u8 && proto[2] == 0x51_u8 && proto[3] == 0x50_u8 &&
+          (proto[4] == 0x03_u8 || (proto[4] == 0x00_u8 && proto[5] == 0x01_u8))
       end
 
       SERVER_PROPERTIES = AMQP::Table.new({
