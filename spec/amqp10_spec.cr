@@ -3,14 +3,14 @@ require "./spec_helper"
 private class AMQP10SpecClient
   getter io, reader
 
-  def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil)
+  def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
+                 frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false)
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
     sasl_handshake(username, password)
-    @io.write LavinMQ::AMQP10::PROTOCOL_HEADER
-    @io.flush
-    send_open(hostname)
+    send_transport_header(split_transport_header)
+    send_open(hostname, frame_max)
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
     send_begin
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::BEGIN
@@ -139,19 +139,54 @@ private class AMQP10SpecClient
     disposition.outcome.not_nil!
   end
 
+  def publish_oversized_fragment(handle : UInt32, delivery_id : UInt32, payload_size : Int32) : LavinMQ::AMQP10::Outcome
+    payload = IO::Memory.new
+    tag = delivery_id.to_s.to_slice
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, true)
+    payload.write Bytes.new(payload_size, 'x'.ord.to_u8)
+    write_amqp_frame(payload.to_slice)
+
+    frame = @reader.read
+    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
+    disposition.outcome.not_nil!
+  end
+
   def consume_one(outcome = LavinMQ::AMQP10::Outcome::Accepted) : String
     incoming = consume_one_message(outcome)
     String.new(incoming.body)
   end
 
   def consume_one_message(outcome = LavinMQ::AMQP10::Outcome::Accepted) : LavinMQ::AMQP10::MessageCodec::Incoming
+    consume_one_delivery(outcome)[1]
+  end
+
+  def consume_one_delivery(outcome = LavinMQ::AMQP10::Outcome::Accepted)
     frame = @reader.read
     reader = frame.body_reader
     transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
     incoming = LavinMQ::AMQP10::MessageCodec.decode(reader)
     LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
       transfer.delivery_id.not_nil!, outcome)
-    incoming
+    {transfer, incoming}
+  end
+
+  def consume_one_fragmented(outcome = LavinMQ::AMQP10::Outcome::Accepted, max_frame_size : UInt32? = nil) : String
+    payload = IO::Memory.new
+    delivery_id = nil
+    loop do
+      frame = @reader.read
+      if max = max_frame_size
+        (frame.body.bytesize + 8).should be <= max.to_i
+      end
+      reader = frame.body_reader
+      transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+      delivery_id ||= transfer.delivery_id
+      payload.write reader.remaining_slice
+      break unless transfer.more
+    end
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16, delivery_id.not_nil!, outcome)
+    String.new(incoming.body)
   end
 
   def detach(handle = 0_u32) : Nil
@@ -177,10 +212,22 @@ private class AMQP10SpecClient
     fields[0].uint?.not_nil!.should eq 0
   end
 
-  private def send_open(hostname)
+  private def send_transport_header(split_transport_header : Bool) : Nil
+    if split_transport_header
+      @io.write LavinMQ::AMQP10::PROTOCOL_HEADER[0, 4]
+      @io.flush
+      sleep 20.milliseconds
+      @io.write LavinMQ::AMQP10::PROTOCOL_HEADER[4, 4]
+    else
+      @io.write LavinMQ::AMQP10::PROTOCOL_HEADER
+    end
+    @io.flush
+  end
+
+  private def send_open(hostname, frame_max)
     fields = [LavinMQ::AMQP10::Value.string("spec-client")]
     fields << (hostname ? LavinMQ::AMQP10::Value.string(hostname) : LavinMQ::AMQP10::Value.null)
-    fields << LavinMQ::AMQP10::Value.uint(LavinMQ::Config.instance.frame_max)
+    fields << LavinMQ::AMQP10::Value.uint(frame_max)
     send_performative(LavinMQ::AMQP10::Descriptor::OPEN, fields)
   end
 
@@ -281,6 +328,20 @@ describe LavinMQ::AMQP10::MessageCodec do
     incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(binary_payload.to_slice))
     String.new(incoming.body).should eq "binary-body"
   end
+
+  it "concatenates multiple data sections as the message body" do
+    payload = IO::Memory.new
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, "hello ".to_slice)
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, "world".to_slice)
+
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+
+    String.new(incoming.body).should eq "hello world"
+  end
 end
 
 describe LavinMQ::AMQP10::Codec do
@@ -294,6 +355,70 @@ describe LavinMQ::AMQP10::Codec do
     LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.double(1.5_f64))
     value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(io.to_slice))
     value.double?.should eq 1.5_f64
+  end
+
+  it "includes the constructor byte in array8 encoded size" do
+    io = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.array([LavinMQ::AMQP10::Value.symbol("PLAIN")]))
+
+    io.to_slice.should eq Bytes[0xe0_u8, 0x08_u8, 0x01_u8, 0xa3_u8, 0x05_u8,
+      0x50_u8, 0x4c_u8, 0x41_u8, 0x49_u8, 0x4e_u8]
+  end
+end
+
+describe LavinMQ::AMQP10::TransferCodec do
+  it "fragments outgoing transfers to the negotiated frame max" do
+    body = "x" * 1200
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new,
+      body.bytesize.to_u64, body.to_slice)
+    io = IO::Memory.new
+
+    written = LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
+      "tag".to_slice, msg, LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE)
+
+    written.should eq io.size
+    payload = IO::Memory.new
+    more = [] of Bool
+    delivery_ids = [] of UInt32?
+    bytes = io.to_slice
+    offset = 0
+    while offset < bytes.bytesize
+      frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[offset, 4])
+      frame_size.should be <= LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+      frame_body = bytes[offset + 8, frame_size.to_i - 8]
+      reader = LavinMQ::AMQP10::SliceReader.new(frame_body)
+      transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+      more << transfer.more
+      delivery_ids << transfer.delivery_id
+      payload.write reader.remaining_slice
+      offset += frame_size.to_i
+    end
+
+    more.size.should be > 1
+    more.first.should be_true
+    more.last.should be_false
+    delivery_ids.first.should eq 7_u32
+    delivery_ids[1..].all?(Nil).should be_true
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    String.new(incoming.body).should eq body
+  end
+
+  it "writes AMQP 0-9-1 timestamps as AMQP 1.0 milliseconds" do
+    timestamp = 1_700_000_000_i64
+    props = AMQ::Protocol::Properties.new(timestamp: timestamp)
+    body = "body"
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
+    io = IO::Memory.new
+
+    LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+
+    bytes = io.to_slice
+    frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
+    reader = LavinMQ::AMQP10::SliceReader.new(bytes[8, frame_size.to_i - 8])
+    LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(reader)
+
+    incoming.properties.timestamp_raw.should eq timestamp
   end
 end
 
@@ -332,6 +457,14 @@ describe LavinMQ::AMQP10 do
   it "authenticates with SASL PLAIN" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
+      should_eventually(eq "AMQP 1.0") { s.connections.first.details_tuple[:protocol] }
+      client.close
+    end
+  end
+
+  it "accepts the AMQP transport header split across reads after SASL" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), split_transport_header: true)
       should_eventually(eq "AMQP 1.0") { s.connections.first.details_tuple[:protocol] }
       client.close
     end
@@ -381,6 +514,20 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "rejects oversized fragmented publishes before the final frame" do
+    LavinMQ::Config.instance.max_message_size = 16
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-fragment-limit", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.publish_oversized_fragment(0_u32, 1_u32, 17).should eq LavinMQ::AMQP10::Outcome::Rejected
+        q.get(no_ack: true).should be_nil
+        client.close
+      end
+    end
+  end
+
   it "routes exchange targets and anonymous sender messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -424,10 +571,29 @@ describe LavinMQ::AMQP10 do
         q = ch.queue("amqp10-consume", auto_delete: true)
         q.publish("from-091")
         client = AMQP10SpecClient.new(amqp_port(s))
+        attach = client.attach_receiver("/queues/#{q.name}")
+        attach.initial_delivery_count.should eq 0_u32
+        client.flow
+        transfer, incoming = client.consume_one_delivery
+        transfer.delivery_id.should eq 0_u32
+        String.new(incoming.body).should eq "from-091"
+        should_eventually(eq 0) { s.vhosts["/"].queue(q.name).message_count }
+        client.close
+      end
+    end
+  end
+
+  it "fragments consumed messages to the negotiated frame max" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+        body = "x" * (frame_max.to_i * 3)
+        q = ch.queue("amqp10-consume-fragmented", auto_delete: true)
+        q.publish(body)
+        client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max)
         client.attach_receiver("/queues/#{q.name}")
         client.flow
-        client.consume_one.should eq "from-091"
-        should_eventually(eq 0) { s.vhosts["/"].queue(q.name).message_count }
+        client.consume_one_fragmented(max_frame_size: frame_max).should eq body
         client.close
       end
     end

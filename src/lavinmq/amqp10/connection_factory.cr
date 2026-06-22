@@ -91,13 +91,16 @@ module LavinMQ::AMQP10
 
     private def confirm_transport_header(socket, log) : Bool
       header = uninitialized UInt8[8]
-      count = socket.read(header.to_slice)
-      if count == 8 && header.to_slice == PROTOCOL_HEADER
+      socket.read_fully(header.to_slice)
+      if header.to_slice == PROTOCOL_HEADER
         true
       else
         log.warn { "AMQP 1.0 client did not send transport header after SASL" }
         false
       end
+    rescue IO::EOFError
+      log.warn { "AMQP 1.0 client did not send transport header after SASL" }
+      false
     end
 
     private def read_open(socket, log) : Open?
