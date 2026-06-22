@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.0-rc.2] - 2026-06-22
 
 ### Changed
 
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A replication append that straddles a joining follower's full-sync cut now streams only the unsynced tail. The cut is a live file size and can land inside a record a publisher has written locally but not yet dispatched; skipping the whole append (as before) tore the record on the follower [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
 - A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates and are removed before the next durable operation or publish confirm is acknowledged [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
 - Clustered stream consumer-offsets compaction crash that broke all subsequent offset writes [#2101](https://github.com/cloudamqp/lavinmq/pull/2101)
+- Guard the stream consumer-offset store against a closed message store so a late ack no longer tears down the connection [#2098](https://github.com/cloudamqp/lavinmq/pull/2098)
 - Route all publisher confirms through the persister loop to avoid out-of-order acks when `sync` is toggled at runtime [#2102](https://github.com/cloudamqp/lavinmq/pull/2102)
 - Remove a dead follower inline in `each_follower` to stop "Follower disconnected" log spam [#2103](https://github.com/cloudamqp/lavinmq/pull/2103)
 - Restart the delayed-queue expire loop on a message-store error instead of stranding delayed messages [#2104](https://github.com/cloudamqp/lavinmq/pull/2104)
