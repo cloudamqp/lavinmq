@@ -165,7 +165,7 @@ module LavinMQ::Raft
       if File.exists?(join_target_path)
         leader_uri = File.read(join_target_path).strip
         Log.info { "Found .join_target — joining cluster at #{leader_uri}" }
-        perform_join(leader_uri)
+        return unless with_join_retry { perform_join(leader_uri) } # interrupted by stop
         File.delete(join_target_path)
         return
       end
@@ -180,7 +180,7 @@ module LavinMQ::Raft
         end
       in .join?
         Log.info { "Joining via seed URIs: #{@config.seed_uris.map(&.to_s).join(", ")}" }
-        join_via_seeds(@config.seed_uris)
+        join_with_retry(@config.seed_uris)
       end
     end
 
@@ -193,15 +193,50 @@ module LavinMQ::Raft
     JOIN_MAX_ATTEMPTS   = 30
     JOIN_RETRY_INTERVAL = 1.second
 
+    # Every seed was unreachable or still electing after a full sweep. Transient
+    # by nature (the lowest-host bootstrapper may not be up yet), so the boot
+    # path retries it rather than treating it as fatal. A malformed seed (bad
+    # scheme / empty list) is a separate, permanent error and is NOT this type.
+    class JoinExhausted < Exception; end
+
     def perform_join(leader_uri : String) : Nil
       uri = URI.parse(leader_uri)
       raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
       join_via_seeds([uri])
     end
 
+    # Retry a join sweep until it succeeds or stop() is called. join_via_seeds
+    # raises JoinExhausted when every seed is unreachable or still electing; on
+    # simultaneous boot the lowest-host bootstrapper may simply not be up yet,
+    # so retry rather than let the exception escape campaign as an unhandled
+    # backtrace. Returns true once joined, false if interrupted by stop().
+    # A permanent error (bad scheme / empty list) is not JoinExhausted and
+    # propagates.
+    def join_with_retry(seeds : Array(URI), max_attempts : Int32 = JOIN_MAX_ATTEMPTS,
+                        retry_interval : Time::Span = JOIN_RETRY_INTERVAL) : Bool
+      with_join_retry(retry_interval) { join_via_seeds(seeds, max_attempts, retry_interval) }
+    end
+
+    private def with_join_retry(retry_interval : Time::Span = JOIN_RETRY_INTERVAL, & : -> Nil) : Bool
+      until @stopped
+        begin
+          yield
+          return true
+        rescue ex : JoinExhausted
+          return false if @stopped
+          Log.warn { "#{ex.message}; retrying join sweep" }
+          sleep retry_interval
+        end
+      end
+      false
+    end
+
     # Cycle the seed URIs, asking each to add us, until one accepts (HTTP 200).
     # A non-leader seed answers non-200; the lowest seed may still be starting.
-    def join_via_seeds(seeds : Array(URI)) : Nil
+    # Raises JoinExhausted after max_attempts full sweeps so the caller can
+    # decide whether to retry (declarative boot) or surface it.
+    def join_via_seeds(seeds : Array(URI), max_attempts : Int32 = JOIN_MAX_ATTEMPTS,
+                       retry_interval : Time::Span = JOIN_RETRY_INTERVAL) : Nil
       raise "no seed URIs to join" if seeds.empty?
       seeds.each do |uri|
         unless uri.scheme == "http" || uri.scheme == "https"
@@ -210,7 +245,7 @@ module LavinMQ::Raft
       end
       address = build_advertised_address
       last_error = "unknown error"
-      JOIN_MAX_ATTEMPTS.times do |attempt|
+      max_attempts.times do |attempt|
         seeds.each do |uri|
           begin
             # The route and payload format are raft.cr's contract; AdminClient
@@ -221,15 +256,15 @@ module LavinMQ::Raft
               return
             end
             last_error = "HTTP #{status.code} from #{uri}"
-            Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{uri} got HTTP #{status.code}" }
+            Log.warn { "Join attempt #{attempt + 1}/#{max_attempts} to #{uri} got HTTP #{status.code}" }
           rescue ex
             last_error = "#{uri}: #{ex.message}"
-            Log.warn { "Join attempt #{attempt + 1}/#{JOIN_MAX_ATTEMPTS} to #{uri} failed: #{ex.message}" }
+            Log.warn { "Join attempt #{attempt + 1}/#{max_attempts} to #{uri} failed: #{ex.message}" }
           end
         end
-        sleep JOIN_RETRY_INTERVAL unless attempt == JOIN_MAX_ATTEMPTS - 1
+        sleep retry_interval unless attempt == max_attempts - 1
       end
-      raise "join exhausted #{JOIN_MAX_ATTEMPTS} attempts: #{last_error}"
+      raise JoinExhausted.new("join exhausted #{max_attempts} attempts: #{last_error}")
     end
 
     HANDOFF_RETRY_INTERVAL = 1.second
