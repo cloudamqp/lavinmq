@@ -196,20 +196,21 @@ module LavinMQ::AMQP
           capacity += ctag.bytesize + 1 + 8
         end
       end
-      @consumer_offset_positions = Hash(String, Int64).new
-      replace_offsets_file(capacity * 1000) do
-        offsets_to_save.each do |ctag, offset|
-          store_consumer_offset(ctag, offset)
-        end
-      end
+      replace_offsets_file(capacity * 1000, offsets_to_save)
     end
 
-    def replace_offsets_file(capacity : Int, &)
-      @replicator.try &.delete_file(@consumer_offsets.path) # FIXME: this is not entirely safe, but replace_file is worse
+    private def replace_offsets_file(capacity : Int, offsets_to_save : Hash(String, Int64))
       old_consumer_offsets = @consumer_offsets
+      @consumer_offset_positions = Hash(String, Int64).new
       @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
-      yield # fill the new file with correct data in this block
+      offsets_to_save.each do |consumer_tag, offset|
+        @consumer_offsets.write_byte consumer_tag.bytesize.to_u8
+        @consumer_offsets.write consumer_tag.to_slice
+        @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
+        @consumer_offsets.write_bytes offset
+      end
       @consumer_offsets.rename(old_consumer_offsets.path)
+      @replicator.try &.replace_file(@consumer_offsets)
       old_consumer_offsets.close(truncate_to_size: false)
     end
 

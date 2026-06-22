@@ -42,6 +42,9 @@ class DiskVisibilitySpyReplicator
   def replace_file(path : String)
   end
 
+  def replace_file(mfile : MFile)
+  end
+
   def append(path : String, pos : Int, length : Int)
   end
 
