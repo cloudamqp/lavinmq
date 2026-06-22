@@ -8,14 +8,47 @@ module LavinMQ
 
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
 
+      LAYOUT_INLINE_JS_SHA    = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
+      LOGIN_INLINE_JS_SHA     = "sha256-3bUZcnRc7hbNc+igS1dxqJNEEypKXCvZ9ozHwAxXIvc="
+      CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{LAYOUT_INLINE_JS_SHA}' '#{LOGIN_INLINE_JS_SHA}'"
+
+      # HTML views reachable without a session
+      PUBLIC_HTML = {"/login.html", "/401.html", "/404.html"}
+
       def call(context)
         path = context.request.path
         if context.request.method.in?("GET", "HEAD") && !path.starts_with?("/api/")
           path = "/docs/index.html" if path == "/docs/"
+          if html_view?(path)
+            return context if redirect_unless_logged_in(context, path)
+            add_security_headers(context)
+          end
           serve(context, path) || call_next(context)
         else
           call_next(context)
         end
+      end
+
+      # Management UI pages are baked as static .html files and are therefore
+      # directly addressable. They must carry the same security headers and
+      # login redirect whether reached through the clean route (ViewsController
+      # rewrites the path to .html) or requested directly. The docs are exempt.
+      private def html_view?(path)
+        path.ends_with?(".html") && !path.starts_with?("/docs/")
+      end
+
+      private def add_security_headers(context)
+        context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
+        context.response.headers.add("Referrer-Policy", "same-origin")
+        context.response.headers.add("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+      end
+
+      private def redirect_unless_logged_in(context, path)
+        return false if path.in?(PUBLIC_HTML)
+        return false if context.request.cookies.has_key?("m") || context.request.cookies.has_key?("oauth_token")
+        context.response.status = ::HTTP::Status::TEMPORARY_REDIRECT
+        context.response.headers["Location"] = "login"
+        true
       end
 
       {% if flag?(:release) || flag?(:bake_static) %}
