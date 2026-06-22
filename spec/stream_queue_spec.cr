@@ -708,6 +708,54 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "store_consumer_offset raises ClosedError after the store is closed" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.close
+        # A late ack must surface ClosedError (like find_offset/shift?/push),
+        # not a raw "Closed mfile" IO::Error that escapes the read_loop.
+        expect_raises(LavinMQ::MessageStore::ClosedError) do
+          msg_store.store_consumer_offset("ctag", 1_i64)
+        end
+      end
+    end
+
+    it "acking after the queue is deleted does not tear down the connection" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-automatic-offset-tracking": "true"})
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue(queue_name, args: stream_queue_args)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+          # Hold the message unacked so we control when the ack is sent.
+          q.subscribe(no_ack: false, tag: consumer_tag, args: c_args) do |msg|
+            msgs.send msg
+          end
+          msg = msgs.receive
+
+          # Delete the queue out from under the in-flight ack: the message store
+          # is closed while the channel's Unack still references this consumer.
+          s.vhosts["/"].queue(queue_name).delete
+
+          # The late ack stores the offset on a closed store, which raises
+          # MessageStore::ClosedError. StreamConsumer#ack must swallow it so the
+          # exception doesn't escape basic_ack and tear down the read_loop.
+          msg.ack
+
+          # Connection/read_loop survives: a follow-up RPC on the same channel
+          # still round-trips. Without the rescue this raises (connection gone).
+          ch.queue(Random::Secure.hex, args: stream_queue_args).should_not be_nil
+        end
+      end
+    end
+
     it "cleanup_consumer_offsets removes outdated offset" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, -10_i64]

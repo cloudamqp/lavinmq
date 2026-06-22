@@ -171,6 +171,7 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
+      raise ClosedError.new if @closed
       cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
       start_pos = @consumer_offsets.size
       @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
