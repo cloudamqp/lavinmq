@@ -108,6 +108,50 @@ describe "ISR Prometheus metrics" do
     end
   end
 
+  it "emits a bracket-free peer_host label for an IPv6 advertised address" do
+    dir = tmp_data_dir
+    backend = nil.as(LavinMQ::Raft::Backend?)
+    begin
+      File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+      config = LavinMQ::Config.new
+      config.data_dir = dir
+      config.clustering_bind = "::1"
+      config.clustering_raft_port = 0
+      config.clustering_port = 5679
+      config.clustering_advertised_uri = "tcp://[::1]:5679"
+      backend = LavinMQ::Raft::Backend.new(config)
+      r = backend.not_nil!
+      r.server.start
+      r.server.bootstrap
+      select
+      when r.server.is_leader.when_true.receive
+      when timeout(3.seconds)
+        fail "did not become leader"
+      end
+      # Add a peer advertising an IPv6 address (it need not be reachable — we
+      # only care about the configuration entry) so server.peers carries a
+      # bracketed IPv6 host for the emitter to render.
+      ipv6 = LavinMQ::Raft::PeerAddress.new("[::1]", 5680, 5679).to_s
+      r.server.add_server(2, ipv6).should be_true
+      deadline = Time.instant + 2.seconds
+      until r.server.peers.any?(&.id.==(2))
+        fail "configuration apply timed out" if Time.instant > deadline
+        Fiber.yield
+      end
+
+      controller = LavinMQ::HTTP::FollowerPrometheusController.new(raft_backend: r)
+      io = IO::Memory.new
+      writer = LavinMQ::HTTP::PrometheusWriter.new(io, "lavinmq")
+      controller.raft_metrics(writer, r)
+      output = io.to_s
+      output.should contain(%(peer_host="::1"))
+      output.should_not contain(%(peer_host="[::1]"))
+    ensure
+      backend.try &.stop rescue nil
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "does not emit raft metrics when no backend is set" do
     with_metrics_server do |http, _|
       response = http.get("/metrics")

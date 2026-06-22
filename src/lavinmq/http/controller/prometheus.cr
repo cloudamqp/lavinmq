@@ -150,8 +150,10 @@ module LavinMQ
                         "group_id" => "0",
                       }})
         server.peers.each do |peer|
-          raft_addr, _, _data_addr = peer.address.partition(",")
-          host, _, _port = raft_addr.rpartition(":")
+          # Reuse the tested PeerAddress codec rather than hand-parsing: it
+          # strips IPv6 brackets (rpartition kept them -> "[::1]") and yields ""
+          # for an unparseable address instead of a half-parsed host.
+          host = LavinMQ::Raft::PeerAddress.parse?(peer.address).try(&.raft_endpoint.[0]) || ""
           writer.write({name:   "raft_peer_info",
                         type:   "gauge",
                         value:  1_i64,
