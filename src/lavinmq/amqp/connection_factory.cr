@@ -6,6 +6,7 @@ require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
 require "./connection_reply_code"
+require "../amqp10"
 
 module LavinMQ
   module AMQP
@@ -13,13 +14,15 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
+        @amqp10 = LavinMQ::AMQP10::ConnectionFactory.new(@authenticator, @vhosts)
       end
 
-      def create(socket, connection_info) : Client?
+      def create(socket, connection_info) : LavinMQ::Client?
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
-        if confirm_header(socket, logger)
+        case confirm_header(socket, logger)
+        when :amqp091
           stream = AMQ::Protocol::Stream.new(socket)
           if start_ok = start(stream, logger)
             if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
@@ -31,6 +34,8 @@ module LavinMQ
               end
             end
           end
+        when :amqp10
+          @amqp10.start(socket, connection_info, logger)
         end
       rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error
         Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
@@ -46,18 +51,25 @@ module LavinMQ
         end
       end
 
-      def confirm_header(socket, log : Logger) : Bool
+      def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
         count = socket.read(proto.to_slice)
         if count.zero? # EOF, socket closed by peer
-          false
-        elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
+          nil
+        elsif proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
+          :amqp091
+        elsif proto.to_slice == LavinMQ::AMQP10::SASL_HEADER
+          :amqp10
+        elsif proto.to_slice == LavinMQ::AMQP10::PROTOCOL_HEADER
+          socket.write LavinMQ::AMQP10::SASL_HEADER
+          socket.flush
+          log.warn { "AMQP 1.0 client attempted non-SASL transport, closing socket" }
+          nil
+        else
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
           log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
-          false
-        else
-          true
+          nil
         end
       end
 
