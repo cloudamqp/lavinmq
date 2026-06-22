@@ -13,6 +13,16 @@ private def frame_roundtrip(perf) : Frame
   Frame.read(io)
 end
 
+# Build a PROPERTIES section with the given index-0 message-id value + a DATA body.
+private def message_with_id(id : Codec::AnyValue) : Bytes
+  io = IO::Memory.new
+  fl = FieldList.new
+  fl.value id
+  Codec.write_described_list(io, Descriptor::PROPERTIES, fl.fields)
+  Codec.write(io, Described.new(Descriptor::DATA, "x".to_slice.as(Codec::AnyValue)))
+  io.to_slice
+end
+
 describe LavinMQ::AMQP10 do
   describe "frame layer" do
     it "round-trips an empty heartbeat frame" do
@@ -130,6 +140,35 @@ describe LavinMQ::AMQP10 do
       parsed = MessageCodec.parse(io.to_slice)
       parsed.properties.delivery_mode.should eq 2_u8
       String.new(parsed.body).should eq "x"
+    end
+
+    it "round-trips user-id, subject(type) and creation-time" do
+      ts = Time.unix(1_700_000_000)
+      props = AMQ::Protocol::Properties.new(message_id: "m", user_id: "guest", type: "ev", timestamp: ts)
+      parsed = MessageCodec.parse(MessageCodec.encode(props, "b".to_slice))
+      parsed.properties.user_id.should eq "guest"
+      parsed.properties.type.should eq "ev"
+      parsed.properties.timestamp_raw.should eq ts.to_unix
+    end
+
+    it "coerces a ulong message-id to a string" do
+      MessageCodec.parse(message_with_id(42_u64)).properties.message_id.should eq "42"
+    end
+
+    it "coerces a uuid message-id to a string" do
+      u = UUID.new("123e4567-e89b-12d3-a456-426614174000")
+      MessageCodec.parse(message_with_id(u)).properties.message_id.should eq u.to_s
+    end
+
+    it "extracts the 'to' address for anonymous-link routing" do
+      io = IO::Memory.new
+      fl = FieldList.new
+      fl.null               # message-id
+      fl.null               # user-id
+      fl.string "/queues/q" # to
+      Codec.write_described_list(io, Descriptor::PROPERTIES, fl.fields)
+      Codec.write(io, Described.new(Descriptor::DATA, "x".to_slice.as(Codec::AnyValue)))
+      MessageCodec.parse(io.to_slice).to.should eq "/queues/q"
     end
   end
 end

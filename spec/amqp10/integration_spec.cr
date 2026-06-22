@@ -75,6 +75,56 @@ class AMQP10TestClient
     Disposition.decode(disp)
   end
 
+  # Attach a sender link with no target (anonymous relay).
+  def attach_anonymous_sender(handle : UInt32)
+    FrameWriter.write(@socket) do |b|
+      Attach.new(name: "anon-#{handle}", handle: handle, role: Attach::ROLE_SENDER,
+        initial_delivery_count: 0_u32).to_io(b)
+    end
+    read_until(Descriptor::ATTACH)
+    read_until(Descriptor::FLOW)
+  end
+
+  # Publish over an anonymous link, routing via the message's `to` property.
+  def publish_to(handle : UInt32, delivery_id : UInt32, to_addr : String, body : String)
+    io = IO::Memory.new
+    fl = FieldList.new
+    fl.null           # message-id
+    fl.null           # user-id
+    fl.string to_addr # to
+    Codec.write_described_list(io, Descriptor::PROPERTIES, fl.fields)
+    io.write_byte Codec::DESCRIBED
+    Codec.write_ulong(io, Descriptor::DATA)
+    Codec.write_binary(io, body.to_slice)
+    tag = Bytes.new(4)
+    IO::ByteFormat::BigEndian.encode(delivery_id, tag)
+    FrameWriter.write(@socket) do |b|
+      Transfer.new(handle: handle, delivery_id: delivery_id, delivery_tag: tag, settled: false).to_io(b)
+      b.write io.to_slice
+    end
+    _, disp = read_until(Descriptor::DISPOSITION)
+    Disposition.decode(disp)
+  end
+
+  # Publish a single message split across two transfer frames (more=true on the
+  # first; the continuation omits the delivery-id, as the spec allows).
+  def publish_fragmented(handle : UInt32, delivery_id : UInt32, body : String)
+    payload = MessageCodec.encode(AMQ::Protocol::Properties.new, body.to_slice)
+    mid = payload.size // 2
+    tag = Bytes.new(4)
+    IO::ByteFormat::BigEndian.encode(delivery_id, tag)
+    FrameWriter.write(@socket) do |b|
+      Transfer.new(handle: handle, delivery_id: delivery_id, delivery_tag: tag, settled: false, more: true).to_io(b)
+      b.write payload[0, mid]
+    end
+    FrameWriter.write(@socket) do |b|
+      Transfer.new(handle: handle, more: false).to_io(b)
+      b.write payload[mid, payload.size - mid]
+    end
+    _, disp = read_until(Descriptor::DISPOSITION)
+    Disposition.decode(disp)
+  end
+
   # Attach a receiver link (we consume) from a source address, then grant credit.
   def attach_receiver(handle : UInt32, source : String, credit : UInt32)
     FrameWriter.write(@socket) do |b|
@@ -160,6 +210,42 @@ describe "AMQP 1.0 end-to-end" do
       end
 
       s.vhosts["/"].delete_queue("q10")
+    end
+  end
+
+  it "routes an anonymous-link message via its 'to' address" do
+    with_amqp_server do |s|
+      with_channel(s, &.queue("q_anon", durable: true))
+      client = AMQP10TestClient.new(amqp_port(s))
+      begin
+        client.connect
+        client.attach_anonymous_sender(0_u32)
+        client.publish_to(0_u32, 0_u32, "/queues/q_anon", "routed by to")
+        wait_for { s.vhosts["/"].queue("q_anon").message_count == 1 }
+      ensure
+        client.close
+      end
+      s.vhosts["/"].delete_queue("q_anon")
+    end
+  end
+
+  it "reassembles a multi-frame (fragmented) transfer" do
+    with_amqp_server do |s|
+      with_channel(s, &.queue("q_frag", durable: true))
+      client = AMQP10TestClient.new(amqp_port(s))
+      begin
+        client.connect
+        client.attach_sender(0_u32, "/queues/q_frag")
+        client.publish_fragmented(0_u32, 0_u32, "this body was split across two frames")
+        wait_for { s.vhosts["/"].queue("q_frag").message_count == 1 }
+
+        client.attach_receiver(1_u32, "/queues/q_frag", 10_u32)
+        _, body = client.receive
+        body.should eq "this body was split across two frames"
+      ensure
+        client.close
+      end
+      s.vhosts["/"].delete_queue("q_frag")
     end
   end
 

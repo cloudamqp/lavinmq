@@ -74,10 +74,20 @@ module LavinMQ
         getter target : Address::Target?
         property credit : UInt32 = 0_u32
         property delivery_count : UInt32 = 0_u32
-        # delivery-id -> accumulating payload, for multi-frame (more) transfers
-        getter partials = Hash(UInt32, IO::Memory).new
+        # In-progress reassembly buffer for multi-frame (more=true) deliveries.
+        # A link delivers one message at a time, and continuation transfers may
+        # omit the delivery-id, so a single buffer (not a per-id map) is correct.
+        getter partial = IO::Memory.new
+        property? assembling = false
+        property partial_delivery_id : UInt32? = nil
 
         def initialize(@handle : UInt32, @name : String, @target : Address::Target?)
+        end
+
+        def reset_assembly : Nil
+          @partial.clear
+          @assembling = false
+          @partial_delivery_id = nil
         end
       end
 
@@ -236,39 +246,51 @@ module LavinMQ
         return unless session
         link = session.receivers[frame.handle]?
         return unless link
-        # Accumulate multi-frame deliveries.
-        delivery_id = frame.delivery_id
+        # The delivery-id is carried on the first transfer of a delivery; keep it
+        # for the eventual disposition even if continuation frames omit it.
+        link.partial_delivery_id = frame.delivery_id if frame.delivery_id
         if frame.more?
-          if id = delivery_id
-            (link.partials[id] ||= IO::Memory.new).write(payload)
-          end
+          link.partial.write(payload)
+          link.assembling = true
           return
         end
-        full = if (id = delivery_id) && (buf = link.partials.delete(id))
-                 buf.write(payload)
-                 buf.to_slice
+        full = if link.assembling?
+                 link.partial.write(payload)
+                 link.partial.to_slice
                else
                  payload
                end
+        delivery_id = link.partial_delivery_id
         publish(link, full)
         link.delivery_count &+= 1
         # Settle: tell the client we accepted it (unless they pre-settled).
         write_accept(channel, delivery_id) if delivery_id && !frame.settled
+        link.reset_assembly
         replenish_credit(session, link)
       end
 
       private def publish(link : ReceiverLink, payload : Bytes) : Nil
         parsed = MessageCodec.parse(payload)
-        target = link.target
-        exchange = target.try(&.exchange) || ""
-        routing_key = target.try(&.routing_key) || ""
-        unless @user.can_write?(@vhost.name, exchange)
-          @log.warn { "Access refused: user '#{@user.name}' may not publish to '#{exchange}'" }
+        # A null-target (anonymous) link routes per-message via `properties.to`.
+        target = link.target || resolve_to(parsed.to)
+        unless target
+          @log.warn { "Unroutable AMQP 1.0 message: anonymous link and no 'to' address" }
           return
         end
-        msg = LavinMQ::Message.new(RoughTime.unix_ms, exchange, routing_key,
+        unless @user.can_write?(@vhost.name, target.exchange)
+          @log.warn { "Access refused: user '#{@user.name}' may not publish to '#{target.exchange}'" }
+          return
+        end
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, target.exchange, target.routing_key,
           parsed.properties, parsed.body.size.to_u64, IO::Memory.new(parsed.body))
         @vhost.publish(msg)
+      end
+
+      private def resolve_to(to : String?) : Address::Target?
+        Address.parse_target(to)
+      rescue ex : Error
+        @log.warn { "Invalid 'to' address #{to.inspect}: #{ex.message}" }
+        nil
       end
 
       private def replenish_credit(session : Session, link : ReceiverLink) : Nil

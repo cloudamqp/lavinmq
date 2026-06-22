@@ -48,7 +48,10 @@ module LavinMQ
     # the reverse for delivery. This is the bridge that lets AMQP 1.0 and 0-9-1
     # clients share a queue (the same approach RabbitMQ takes).
     module MessageCodec
-      record Parsed, properties : AMQ::Protocol::Properties, body : Bytes
+      # `to` is the AMQP 1.0 `properties.to` address, used to route messages sent
+      # over an anonymous (null-target) link — it has no AMQP 0-9-1 equivalent so
+      # it is surfaced separately rather than folded into `properties`.
+      record Parsed, properties : AMQ::Protocol::Properties, body : Bytes, to : String? = nil
 
       # Decode the message sections from a transfer payload, reading straight
       # from the byte slice with a cursor — no intermediate `IO::Memory` and no
@@ -57,6 +60,7 @@ module LavinMQ
       def self.parse(payload : Bytes) : Parsed
         props = AMQ::Protocol::Properties.new
         body = Bytes.empty
+        to = nil
         pos = 0
         while pos < payload.size
           raise Error::Decode.new("Expected described section") unless payload[pos] == Codec::DESCRIBED
@@ -64,14 +68,14 @@ module LavinMQ
           descriptor, pos = read_ulong(payload, pos)
           case descriptor
           when Descriptor::HEADER                 then props, pos = parse_header(payload, pos, props)
-          when Descriptor::PROPERTIES             then props, pos = parse_properties(payload, pos, props)
+          when Descriptor::PROPERTIES             then props, to, pos = parse_properties(payload, pos, props)
           when Descriptor::APPLICATION_PROPERTIES then props, pos = parse_application_properties(payload, pos, props)
           when Descriptor::DATA                   then body, pos = read_binary(payload, pos)
           when Descriptor::AMQP_VALUE             then body, pos = read_amqp_value_body(payload, pos)
           else                                         pos = Codec.skip(payload, pos)
           end
         end
-        Parsed.new(props, body)
+        Parsed.new(props, body, to)
       end
 
       # `Properties` is a value-type struct, so each helper takes it and returns
@@ -93,20 +97,34 @@ module LavinMQ
         {props, pos}
       end
 
+      # The AMQP 1.0 properties list (messaging §3.2.4). message-id/correlation-id
+      # may be string/ulong/uuid/binary — all coerced to a string for the 0-9-1
+      # model. `to` (index 2) is returned separately for anonymous-link routing.
       # ameba:disable Metrics/CyclomaticComplexity
-      private def self.parse_properties(p : Bytes, pos : Int32, props : AMQ::Protocol::Properties) : {AMQ::Protocol::Properties, Int32}
+      private def self.parse_properties(p : Bytes, pos : Int32, props : AMQ::Protocol::Properties) : {AMQ::Protocol::Properties, String?, Int32}
+        to = nil
         count, pos = read_list_header(p, pos)
         count.times do |i|
           case i
-          when 0 then v, pos = read_string(p, pos); props.message_id = v if v       # message-id
-          when 4 then v, pos = read_string(p, pos); props.reply_to = v if v         # reply-to
-          when 5 then v, pos = read_string(p, pos); props.correlation_id = v if v   # correlation-id
-          when 6 then v, pos = read_string(p, pos); props.content_type = v if v     # content-type
-          when 7 then v, pos = read_string(p, pos); props.content_encoding = v if v # content-encoding
-          else        pos = Codec.skip(p, pos)                                      # user-id/to/subject/...
+          when 0 then v, pos = read_message_id(p, pos); props.message_id = short(v)            # message-id
+          when 1 then v, pos = read_binary_string(p, pos); props.user_id = short(v)            # user-id (binary)
+          when 2 then to, pos = read_string(p, pos)                                            # to
+          when 3 then v, pos = read_string(p, pos); props.type = short(v)                      # subject -> type
+          when 4 then v, pos = read_string(p, pos); props.reply_to = short(v)                  # reply-to
+          when 5 then v, pos = read_message_id(p, pos); props.correlation_id = short(v)        # correlation-id
+          when 6 then v, pos = read_string(p, pos); props.content_type = short(v)              # content-type
+          when 7 then v, pos = read_string(p, pos); props.content_encoding = short(v)          # content-encoding
+          when 9 then ms, pos = read_timestamp(p, pos); props.timestamp_raw = ms // 1000 if ms # creation-time
+          else        pos = Codec.skip(p, pos)                                                 # absolute-expiry/group-*
           end
         end
-        {props, pos}
+        {props, to, pos}
+      end
+
+      # AMQP 0-9-1 string properties are ShortStrings (max 255 bytes); drop
+      # anything longer rather than failing to serialise it later.
+      private def self.short(s : String?) : String?
+        s if s && s.bytesize <= 255
       end
 
       private def self.parse_application_properties(p : Bytes, pos : Int32, props : AMQ::Protocol::Properties) : {AMQ::Protocol::Properties, Int32}
@@ -143,16 +161,22 @@ module LavinMQ
 
       private def self.write_properties(io : IO::Memory, props : AMQ::Protocol::Properties) : Nil
         return unless props.message_id || props.correlation_id || props.content_type ||
-                      props.content_encoding || props.reply_to
-        Codec.write_described_list(io, Descriptor::PROPERTIES, 8) do |b|
-          write_string_or_null(b, props.message_id) # message-id
-          b.write_byte Codec::NULL                  # user-id
-          b.write_byte Codec::NULL                  # to
-          b.write_byte Codec::NULL                  # subject
-          write_string_or_null(b, props.reply_to)
-          write_string_or_null(b, props.correlation_id)
-          write_symbol_or_null(b, props.content_type)
-          write_symbol_or_null(b, props.content_encoding)
+                      props.content_encoding || props.reply_to || props.user_id ||
+                      props.type || props.timestamp_raw
+        # Fields up to creation-time (index 9); `to` and absolute-expiry-time are
+        # left null (the former is routing-only, the latter has no clean 0-9-1
+        # source).
+        Codec.write_described_list(io, Descriptor::PROPERTIES, 10) do |b|
+          write_string_or_null(b, props.message_id)       # 0 message-id
+          write_binary_or_null(b, props.user_id)          # 1 user-id (binary)
+          b.write_byte Codec::NULL                        # 2 to
+          write_string_or_null(b, props.type)             # 3 subject <- type
+          write_string_or_null(b, props.reply_to)         # 4 reply-to
+          write_string_or_null(b, props.correlation_id)   # 5 correlation-id
+          write_symbol_or_null(b, props.content_type)     # 6 content-type
+          write_symbol_or_null(b, props.content_encoding) # 7 content-encoding
+          b.write_byte Codec::NULL                        # 8 absolute-expiry-time
+          write_timestamp_or_null(b, props.timestamp_raw) # 9 creation-time
         end
       end
 
@@ -173,6 +197,19 @@ module LavinMQ
 
       private def self.write_symbol_or_null(io : IO::Memory, v : String?) : Nil
         v.nil? ? io.write_byte(Codec::NULL) : Codec.write_symbol(io, v)
+      end
+
+      private def self.write_binary_or_null(io : IO::Memory, v : String?) : Nil
+        v.nil? ? io.write_byte(Codec::NULL) : Codec.write_binary(io, v.to_slice)
+      end
+
+      private def self.write_timestamp_or_null(io : IO::Memory, secs : Int64?) : Nil
+        if secs
+          io.write_byte Codec::TIMESTAMP
+          (secs * 1000).to_io(io, Codec::BE)
+        else
+          io.write_byte Codec::NULL
+        end
       end
 
       private def self.write_header_value(io : IO::Memory, v) : Nil
@@ -230,6 +267,55 @@ module LavinMQ
         when Codec::STR32, Codec::SYM32
           len = Codec.read_u32(p, pos + 1)
           {String.new(p[pos + 5, len]), pos + 5 + len}
+        else
+          {nil, Codec.skip(p, pos)}
+        end
+      end
+
+      # Read a message-id / correlation-id, which AMQP 1.0 allows to be a string,
+      # ulong, uuid or binary — all coerced to a string for the 0-9-1 model.
+      private def self.read_message_id(p : Bytes, pos : Int32) : {String?, Int32}
+        case p[pos]
+        when Codec::STR8, Codec::STR32, Codec::SYM8, Codec::SYM32
+          read_string(p, pos)
+        when Codec::VBIN8, Codec::VBIN32
+          bytes, npos = read_binary(p, pos)
+          {bytes.hexstring, npos}
+        when Codec::UUID_CODE
+          {::UUID.new(p[pos + 1, 16]).to_s, pos + 17}
+        when Codec::ULONG
+          {Codec::BE.decode(UInt64, p[pos + 1, 8]).to_s, pos + 9}
+        when Codec::UINT
+          {Codec::BE.decode(UInt32, p[pos + 1, 4]).to_s, pos + 5}
+        when Codec::SMALLULONG, Codec::SMALLUINT, Codec::UBYTE
+          {p[pos + 1].to_s, pos + 2}
+        when Codec::ULONG0, Codec::UINT0
+          {"0", pos + 1}
+        else
+          {nil, Codec.skip(p, pos)}
+        end
+      end
+
+      # Read a binary (or string) field as a String; nil for other codes.
+      private def self.read_binary_string(p : Bytes, pos : Int32) : {String?, Int32}
+        case p[pos]
+        when Codec::VBIN8
+          len = p[pos + 1].to_i32
+          {String.new(p[pos + 2, len]), pos + 2 + len}
+        when Codec::VBIN32
+          len = Codec.read_u32(p, pos + 1)
+          {String.new(p[pos + 5, len]), pos + 5 + len}
+        when Codec::STR8, Codec::STR32, Codec::SYM8, Codec::SYM32
+          read_string(p, pos)
+        else
+          {nil, Codec.skip(p, pos)}
+        end
+      end
+
+      # Read a timestamp (8-byte ms since epoch); nil for any other code.
+      private def self.read_timestamp(p : Bytes, pos : Int32) : {Int64?, Int32}
+        if p[pos] == Codec::TIMESTAMP
+          {Codec::BE.decode(Int64, p[pos + 1, 8]), pos + 9}
         else
           {nil, Codec.skip(p, pos)}
         end

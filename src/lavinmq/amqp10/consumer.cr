@@ -50,13 +50,21 @@ module LavinMQ
         @unacked.get(:relaxed)
       end
 
-      # Client granted link credit via a flow performative.
+      # Client granted link credit via a flow performative. Per the spec a sender
+      # may send while its delivery-count < flow.delivery-count + flow.link-credit,
+      # so the available credit is rebased against our own delivery-count — this
+      # is what keeps credit correct across link recovery / drain when the client
+      # advances its delivery-count.
       def grant_credit(link_credit : UInt32, delivery_count : UInt32?) : Nil
-        # Re-base our delivery-count if the client advanced theirs (link recovery
-        # / drain); otherwise keep ours.
-        @credit.set(link_credit)
-        @has_capacity.set(link_credit > 0)
-        ensure_deliver_loop if link_credit > 0
+        credit = if dc = delivery_count
+                   limit = dc &+ link_credit
+                   limit > @delivery_count ? limit &- @delivery_count : 0_u32
+                 else
+                   link_credit
+                 end
+        @credit.set(credit)
+        @has_capacity.set(credit > 0)
+        ensure_deliver_loop if credit > 0
       end
 
       def accepts? : Bool
