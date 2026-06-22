@@ -183,7 +183,7 @@ module LavinMQ::AMQP10
 
     def send_begin(channel : UInt16) : Nil
       fields = Array(Value).new(4)
-      fields << Value.null
+      fields << Value.uint(channel.to_u32)
       fields << Value.uint(0_u32)
       fields << Value.uint(DEFAULT_WINDOW)
       fields << Value.uint(DEFAULT_WINDOW)
@@ -228,10 +228,19 @@ module LavinMQ::AMQP10
     end
 
     def send_flow(session : Session, link : SenderLink | ReceiverLink, credit : UInt32) : Nil
-      @write_lock.synchronize do
-        TransferCodec.write_flow(@socket, session.id, link.local_handle, link.delivery_count, credit)
+      bytes = @write_lock.synchronize do
+        TransferCodec.write_flow(@socket, session.id, session.next_incoming_id, session.incoming_window,
+          session.next_outgoing_id, DEFAULT_WINDOW, link.local_handle, link.delivery_count, credit)
       end
-      add_send_bytes(32_u64)
+      add_send_bytes(bytes)
+    end
+
+    def send_session_flow(session : Session) : Nil
+      bytes = @write_lock.synchronize do
+        TransferCodec.write_flow(@socket, session.id, session.next_incoming_id, session.incoming_window,
+          session.next_outgoing_id, DEFAULT_WINDOW)
+      end
+      add_send_bytes(bytes)
     end
 
     def send_disposition(session : Session, first : UInt32, outcome : Outcome) : Nil
