@@ -474,13 +474,22 @@ module LavinMQ
       private def each_follower(& : Follower -> Nil) : Nil
         dirty = false
         @lock.synchronize do
+          broken = nil
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
           rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
-            Fiber.yield # Allow other fiber to run to remove the follower from array
+            # Remove the dead follower inline: the lock is already held and
+            # @lock guards every @followers mutation, so a Fiber.yield here
+            # can't hand off to a removal path. The follower's handler fiber
+            # ensure remains the safety net (its @followers.delete becomes a
+            # no-op). A synced follower leaving dirties the ISR so it's
+            # committed before this operation is acknowledged.
+            (broken ||= Array(Follower).new) << f
+            @dirty_isr = true if f.synced?
           end
+          broken.try &.each { |f| @followers.delete(f) }
           dirty = @dirty_isr
         end
         flush_isr if dirty
