@@ -403,6 +403,51 @@ describe LavinMQ::AMQP10::TransferCodec do
     String.new(incoming.body).should eq body
   end
 
+  it "fragments outgoing transfers when message sections span frames" do
+    headers = AMQ::Protocol::Table.new
+    16.times do |i|
+      headers["header-#{i}"] = "value-#{i}-#{"x" * 80}"
+    end
+    props = AMQ::Protocol::Properties.new
+    props.headers = headers
+    props.content_type = "text/plain"
+    body = "body"
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
+    io = IO::Memory.new
+
+    written = LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
+      "tag".to_slice, msg, LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE)
+
+    written.should eq io.size
+    payload = IO::Memory.new
+    more = [] of Bool
+    delivery_ids = [] of UInt32?
+    bytes = io.to_slice
+    offset = 0
+    while offset < bytes.bytesize
+      frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[offset, 4])
+      frame_size.should be <= LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+      frame_body = bytes[offset + 8, frame_size.to_i - 8]
+      reader = LavinMQ::AMQP10::SliceReader.new(frame_body)
+      transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+      more << transfer.more
+      delivery_ids << transfer.delivery_id
+      payload.write reader.remaining_slice
+      offset += frame_size.to_i
+    end
+
+    more.size.should be > 2
+    more.first.should be_true
+    more.last.should be_false
+    delivery_ids.first.should eq 7_u32
+    delivery_ids[1..].all?(Nil).should be_true
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    String.new(incoming.body).should eq body
+    incoming.properties.content_type.should eq "text/plain"
+    incoming.properties.headers.not_nil!["header-0"].should eq "value-0-#{"x" * 80}"
+    incoming.properties.headers.not_nil!["header-15"].should eq "value-15-#{"x" * 80}"
+  end
+
   it "writes AMQP 0-9-1 timestamps as AMQP 1.0 milliseconds" do
     timestamp = 1_700_000_000_i64
     props = AMQ::Protocol::Properties.new(timestamp: timestamp)
