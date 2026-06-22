@@ -138,11 +138,12 @@ module LavinMQ
       end
 
       def ack(sp)
-        stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
-        super
-      rescue MessageStore::ClosedError
-        # The queue was closed/deleted while this ack was in flight. Storing the
-        # offset is now a no-op; don't let it tear down the connection read_loop.
+        begin
+          stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+        rescue MessageStore::ClosedError
+          # The queue was closed/deleted while this ack was in flight. Storing the
+          # offset is now a no-op; don't let it tear down the connection read_loop.
+        end
         super
       end
 
