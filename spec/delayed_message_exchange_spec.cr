@@ -315,8 +315,8 @@ describe "Delayed Message Exchange" do
       wait_for { queue.closed? }
       queue.closed?.should be_true
 
-      # delay() must return promptly (no unbuffered send to a dead fiber) even
-      # after the release fiber is gone.
+      # After the store error closes the queue, delay() must refuse promptly
+      # instead of blocking the publisher.
       msg = LavinMQ::Message.new("", queue.name, "after-error")
       done = Channel(Bool).new
       spawn { done.send(queue.delay(msg)) }
