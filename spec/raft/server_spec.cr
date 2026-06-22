@@ -251,6 +251,19 @@ describe LavinMQ::Raft::Server do
         leader.peers.should_not be(leader.@node.peers)
       end
     end
+
+    it "exposes voters as a stable applied-config snapshot (read off the tick fiber)" do
+      with_cluster(3) do |_transports, servers|
+        leader = form_cluster(servers)
+        leader.voters.to_set.should eq servers.map(&.node_id.to_u64).to_set
+        # Maintained on configuration apply and returned by reference: two reads
+        # share one object. The old `@node.voters.map(&.id)` allocated a fresh
+        # array each call AND scanned @node's peer list live — a torn read when
+        # hand_off_leadership (campaign fiber) raced a tick-fiber membership
+        # change. The snapshot removes that off-tick @node access.
+        leader.voters.should be(leader.voters)
+      end
+    end
   end
 
   describe "leadership loss" do
