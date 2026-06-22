@@ -234,6 +234,15 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "returns 400 when importing a user with an unsupported hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"bogus","password_hash":"abc","hashing_algorithm":"bogus","tags":[]}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.users["bogus"]?.should be_nil
+      end
+    end
+
     it "imports passwordless user (password_hash empty string)" do
       with_http_server do |http, s|
         body = %({"users":[{"name":"nopass","password_hash":"","hashing_algorithm":null,"tags":""}]})

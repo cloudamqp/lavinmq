@@ -120,6 +120,22 @@ describe LavinMQ::HTTP::UsersController do
       end
     end
 
+    it "should return 400 for an unsupported hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"password_hash": "abc", "hashing_algorithm": "rabbit_password_hashing_xyz"})
+        response = http.put("/api/users/alan", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should return 400 for an empty hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"password_hash": "abc", "hashing_algorithm": ""})
+        response = http.put("/api/users/alan", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
     it "should create user with empty password_hash" do
       with_http_server do |http, _|
         body = %({
