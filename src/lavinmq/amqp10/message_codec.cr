@@ -19,16 +19,18 @@ module LavinMQ::AMQP10
       until reader.empty?
         descriptor = read_descriptor_code(reader)
         case descriptor
-        when Descriptor::HEADER, Descriptor::DELIVERY_ANNOTATIONS, Descriptor::MESSAGE_ANNOTATIONS, Descriptor::FOOTER
+        when Descriptor::HEADER
+          props = read_header(reader, props)
+        when Descriptor::DELIVERY_ANNOTATIONS, Descriptor::MESSAGE_ANNOTATIONS, Descriptor::FOOTER
           skip_value(reader)
         when Descriptor::PROPERTIES
-          to = read_properties(reader, props)
+          props, to = read_properties(reader, props)
         when Descriptor::APPLICATION_PROPERTIES
-          skip_value(reader)
+          props = read_application_properties(reader, props)
         when Descriptor::DATA
           body = read_binary_value(reader)
         when Descriptor::AMQP_VALUE
-          skip_value(reader)
+          body = read_amqp_value_body(reader)
         else
           skip_value(reader)
         end
@@ -95,8 +97,91 @@ module LavinMQ::AMQP10
       end
     end
 
+    private def read_amqp_value_body(reader : SliceReader) : Bytes
+      case code = reader.read_byte
+      when 0x40
+        EMPTY_BODY
+      when 0xa0, 0xa1, 0xa3
+        reader.read_slice(reader.read_byte.to_i)
+      when 0xb0, 0xb1, 0xb3
+        reader.read_slice(reader.read_u32.to_i)
+      else
+        skip_value_payload(reader, code)
+        EMPTY_BODY
+      end
+    end
+
+    private def read_header(reader, props) : LavinMQ::AMQP::Properties
+      count, end_pos = read_list_header(reader)
+      index = 0
+      while index < count
+        case index
+        when 0
+          props.delivery_mode = 2_u8 if read_optional_bool_value(reader)
+        when 1
+          if priority = read_optional_ubyte_value(reader)
+            props.priority = priority
+          end
+        else
+          skip_value(reader)
+        end
+        index += 1
+      end
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
+      props
+    end
+
+    private def read_application_properties(reader, props) : LavinMQ::AMQP::Properties
+      count, end_pos = read_map_header(reader)
+      if count > 0
+        headers = LavinMQ::AMQP::Table.new
+        (count // 2).times do
+          key = read_string_value(reader)
+          value = read_application_property_value(reader)
+          headers[key] = value if key
+        end
+        props.headers = headers unless headers.empty?
+      end
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
+      props
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
-    private def read_properties(reader, props) : String?
+    private def read_application_property_value(reader) : LavinMQ::AMQP::Field
+      case code = reader.read_byte
+      when 0x40 then nil
+      when 0x41 then true
+      when 0x42 then false
+      when 0x50 then reader.read_byte
+      when 0x51 then reader.read_byte.to_i8
+      when 0x52 then reader.read_byte.to_u32
+      when 0x53 then reader.read_byte.to_i64
+      when 0x54 then reader.read_byte.to_i8.to_i32
+      when 0x55 then reader.read_byte.to_i8.to_i64
+      when 0x56 then !reader.read_byte.zero?
+      when 0x60 then reader.read_u16
+      when 0x61 then IO::ByteFormat::NetworkEndian.decode(Int16, reader.read_slice(2))
+      when 0x70 then reader.read_u32
+      when 0x71 then reader.read_i32
+      when 0x72 then reader.read_f32
+      when 0x80
+        value = reader.read_u64
+        value <= Int64::MAX ? value.to_i64 : nil
+      when 0x81       then reader.read_i64
+      when 0x82       then reader.read_f64
+      when 0x83       then Time.unix_ms(reader.read_i64)
+      when 0xa0       then reader.read_slice(reader.read_byte.to_i)
+      when 0xb0       then reader.read_slice(reader.read_u32.to_i)
+      when 0xa1, 0xa3 then String.new(reader.read_slice(reader.read_byte.to_i))
+      when 0xb1, 0xb3 then String.new(reader.read_slice(reader.read_u32.to_i))
+      else
+        skip_value_payload(reader, code)
+        nil
+      end
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def read_properties(reader, props) : Tuple(LavinMQ::AMQP::Properties, String?)
       count, end_pos = read_list_header(reader)
       to = nil
       index = 0
@@ -135,7 +220,7 @@ module LavinMQ::AMQP10
         index += 1
       end
       reader.skip(end_pos - reader.pos) if reader.pos < end_pos
-      to
+      {props, to}
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -173,6 +258,38 @@ module LavinMQ::AMQP10
       case code = reader.read_byte
       when 0x40 then nil
       when 0x83 then reader.read_i64
+      else
+        skip_value_payload(reader, code)
+        nil
+      end
+    end
+
+    private def read_optional_bool_value(reader) : Bool?
+      case code = reader.read_byte
+      when 0x40 then nil
+      when 0x41 then true
+      when 0x42 then false
+      when 0x56 then !reader.read_byte.zero?
+      else
+        skip_value_payload(reader, code)
+        nil
+      end
+    end
+
+    private def read_optional_ubyte_value(reader) : UInt8?
+      case code = reader.read_byte
+      when 0x40             then nil
+      when 0x43, 0x44       then 0_u8
+      when 0x50, 0x52, 0x53 then reader.read_byte
+      when 0x60
+        value = reader.read_u16
+        value <= UInt8::MAX ? value.to_u8 : nil
+      when 0x70
+        value = reader.read_u32
+        value <= UInt8::MAX ? value.to_u8 : nil
+      when 0x80
+        value = reader.read_u64
+        value <= UInt8::MAX ? value.to_u8 : nil
       else
         skip_value_payload(reader, code)
         nil
@@ -227,6 +344,21 @@ module LavinMQ::AMQP10
         {count, reader.pos + size - 4}
       else
         raise DecodeError.new("expected list, got 0x#{code.to_s(16)}")
+      end
+    end
+
+    private def read_map_header(reader : SliceReader) : Tuple(Int32, Int32)
+      case code = reader.read_byte
+      when 0xc1
+        size = reader.read_byte.to_i
+        count = reader.read_byte.to_i
+        {count, reader.pos + size - 1}
+      when 0xd1
+        size = reader.read_u32.to_i
+        count = reader.read_u32.to_i
+        {count, reader.pos + size - 4}
+      else
+        raise DecodeError.new("expected map, got 0x#{code.to_s(16)}")
       end
     end
   end

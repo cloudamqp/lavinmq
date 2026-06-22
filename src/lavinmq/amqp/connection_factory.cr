@@ -51,26 +51,51 @@ module LavinMQ
         end
       end
 
+      AMQP_PROTOCOL_PREFIX = UInt8.static_array('A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord)
+
       def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
-        count = socket.read(proto.to_slice)
-        if count.zero? # EOF, socket closed by peer
-          nil
-        elsif proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
+        4.times do |idx|
+          byte = socket.read_byte || return
+          proto[idx] = byte
+          next if byte == AMQP_PROTOCOL_PREFIX[idx]
+
+          socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
+          socket.flush
+          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, idx + 1).inspect}, closing socket" }
+          return
+        end
+        (4...8).each do |idx|
+          proto[idx] = socket.read_byte || return
+        end
+        if proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
           :amqp091
-        elsif proto.to_slice == LavinMQ::AMQP10::SASL_HEADER
+        elsif amqp10_sasl_header?(proto)
           :amqp10
-        elsif proto.to_slice == LavinMQ::AMQP10::PROTOCOL_HEADER
+        elsif amqp10_transport_header?(proto)
           socket.write LavinMQ::AMQP10::SASL_HEADER
           socket.flush
+          socket.close
           log.warn { "AMQP 1.0 client attempted non-SASL transport, closing socket" }
           nil
         else
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
+          log.warn { "Unexpected protocol #{String.new(proto.to_slice).inspect}, closing socket" }
           nil
         end
+      rescue IO::EOFError
+        nil
+      end
+
+      private def amqp10_sasl_header?(proto) : Bool
+        proto[0] == 'A'.ord.to_u8 && proto[1] == 'M'.ord.to_u8 && proto[2] == 'Q'.ord.to_u8 && proto[3] == 'P'.ord.to_u8 &&
+          proto[4] == 0x03 && proto[5] == 0x01 && proto[6] == 0x00 && proto[7] == 0x00
+      end
+
+      private def amqp10_transport_header?(proto) : Bool
+        proto[0] == 'A'.ord.to_u8 && proto[1] == 'M'.ord.to_u8 && proto[2] == 'Q'.ord.to_u8 && proto[3] == 'P'.ord.to_u8 &&
+          proto[4] == 0x00 && proto[5] == 0x01 && proto[6] == 0x00 && proto[7] == 0x00
       end
 
       SERVER_PROPERTIES = AMQP::Table.new({

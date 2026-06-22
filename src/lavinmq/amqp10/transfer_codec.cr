@@ -181,13 +181,15 @@ module LavinMQ::AMQP10
                        delivery_tag : Bytes, msg : BytesMessage, more = false) : Nil
       transfer_size = transfer_performative_size(handle, delivery_id, delivery_tag, more)
       properties_size = properties_section_size(msg.properties)
+      application_properties_size = application_properties_section_size(msg.properties.headers)
       data_header_size = 3 + binary_header_size(msg.bodysize)
-      frame_size = 8_u64 + transfer_size + properties_size + data_header_size + msg.bodysize
+      frame_size = 8_u64 + transfer_size + properties_size + application_properties_size + data_header_size + msg.bodysize
       raise ProtocolError.new("message too large for AMQP 1.0 frame") if frame_size > UInt32::MAX
 
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
       write_transfer_performative(io, handle, delivery_id, delivery_tag, more)
       write_properties_section(io, msg.properties)
+      write_application_properties_section(io, msg.properties.headers)
       write_descriptor(io, Descriptor::DATA)
       write_binary_header(io, msg.bodysize)
       io.write msg.body
@@ -223,6 +225,13 @@ module LavinMQ::AMQP10
       3 + list_header_size(fields_size) + fields_size
     end
 
+    private def application_properties_section_size(headers : LavinMQ::AMQP::Table?) : Int32
+      return 0 unless headers
+      return 0 if headers.empty?
+      fields_size = application_properties_fields_size(headers)
+      3 + compound_header_size(fields_size, headers.size * 2) + fields_size
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
     private def write_properties_section(io, props) : Nil
       count = properties_field_count(props)
@@ -253,6 +262,18 @@ module LavinMQ::AMQP10
           io.write_byte 0x40_u8
         end
         index += 1
+      end
+    end
+
+    private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?) : Nil
+      return unless headers
+      return if headers.empty?
+      fields_size = application_properties_fields_size(headers)
+      write_descriptor(io, Descriptor::APPLICATION_PROPERTIES)
+      write_map_header(io, fields_size, headers.size * 2)
+      headers.each do |key, value|
+        Codec.write_string(io, key)
+        write_application_property_value(io, value)
       end
     end
 
@@ -296,12 +317,20 @@ module LavinMQ::AMQP10
     end
 
     private def write_list_header(io, fields_size : Int32, count : Int32) : Nil
+      write_compound_header(io, 0xc0_u8, 0xd0_u8, fields_size, count)
+    end
+
+    private def write_map_header(io, fields_size : Int32, count : Int32) : Nil
+      write_compound_header(io, 0xc1_u8, 0xd1_u8, fields_size, count)
+    end
+
+    private def write_compound_header(io, code8 : UInt8, code32 : UInt8, fields_size : Int32, count : Int32) : Nil
       if fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX
-        io.write_byte 0xc0_u8
+        io.write_byte code8
         io.write_byte((fields_size + 1).to_u8)
         io.write_byte count.to_u8
       else
-        io.write_byte 0xd0_u8
+        io.write_byte code32
         Codec.write_u32(io, (fields_size + 4).to_u32)
         Codec.write_u32(io, count.to_u32)
       end
@@ -309,6 +338,10 @@ module LavinMQ::AMQP10
 
     private def list_header_size(fields_size) : Int32
       fields_size + 1 <= UInt8::MAX ? 3 : 9
+    end
+
+    private def compound_header_size(fields_size, count) : Int32
+      fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX ? 3 : 9
     end
 
     private def uint_size(value) : Int32
@@ -350,6 +383,15 @@ module LavinMQ::AMQP10
       (value.bytesize <= UInt8::MAX ? 2 : 5) + value.bytesize
     end
 
+    private def application_properties_fields_size(headers : LavinMQ::AMQP::Table) : Int32
+      size = 0
+      headers.each do |key, value|
+        size += string_size(key)
+        size += application_property_value_size(value)
+      end
+      size
+    end
+
     private def write_nullable_string(io, value : String?) : Nil
       value ? Codec.write_string(io, value) : io.write_byte(0x40_u8)
     end
@@ -364,6 +406,85 @@ module LavinMQ::AMQP10
         Codec.write_binary(io, bytes)
       else
         io.write_byte 0x40_u8
+      end
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def application_property_value_size(value) : Int32
+      case value
+      when Nil, Bool
+        1
+      when Int8, UInt8
+        2
+      when Int16, UInt16
+        3
+      when Int32
+        int_size(value)
+      when UInt32
+        uint_size(value)
+      when Float32
+        5
+      when Int64
+        long_size(value)
+      when Float64, Time
+        9
+      when String
+        string_size(value)
+      when Bytes
+        binary_size(value)
+      else
+        string_size(value.to_s)
+      end
+    end
+
+    private def int_size(value) : Int32
+      Int8::MIN <= value <= Int8::MAX ? 2 : 5
+    end
+
+    private def long_size(value) : Int32
+      Int8::MIN <= value <= Int8::MAX ? 2 : 9
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def write_application_property_value(io, value) : Nil
+      case value
+      when Nil
+        io.write_byte 0x40_u8
+      when Bool
+        Codec.write_bool(io, value)
+      when Int8
+        io.write_byte 0x51_u8
+        io.write_byte value.to_u8!
+      when UInt8
+        io.write_byte 0x50_u8
+        io.write_byte value
+      when Int16
+        io.write_byte 0x61_u8
+        Codec.write_i16(io, value)
+      when UInt16
+        io.write_byte 0x60_u8
+        Codec.write_u16(io, value)
+      when Int32
+        Codec.write_int(io, value)
+      when UInt32
+        Codec.write_uint(io, value)
+      when Int64
+        Codec.write_long(io, value)
+      when Float32
+        io.write_byte 0x72_u8
+        Codec.write_f32(io, value)
+      when Float64
+        io.write_byte 0x82_u8
+        Codec.write_f64(io, value)
+      when Time
+        io.write_byte 0x83_u8
+        Codec.write_i64(io, value.to_unix_ms)
+      when String
+        Codec.write_string(io, value)
+      when Bytes
+        Codec.write_binary(io, value)
+      else
+        Codec.write_string(io, value.to_s)
       end
     end
 

@@ -54,8 +54,20 @@ module LavinMQ::AMQP10
       IO::ByteFormat::NetworkEndian.decode(Int32, read_slice(4))
     end
 
+    def read_i16 : Int16
+      IO::ByteFormat::NetworkEndian.decode(Int16, read_slice(2))
+    end
+
     def read_i64 : Int64
       IO::ByteFormat::NetworkEndian.decode(Int64, read_slice(8))
+    end
+
+    def read_f32 : Float32
+      IO::ByteFormat::NetworkEndian.decode(Float32, read_slice(4))
+    end
+
+    def read_f64 : Float64
+      IO::ByteFormat::NetworkEndian.decode(Float64, read_slice(8))
     end
 
     def remaining_slice : Bytes
