@@ -41,14 +41,20 @@ module LavinMQ::AMQP10
         Value.bool(!reader.read_byte.zero?)
       when 0x60
         Value.ushort(reader.read_u16)
+      when 0x61
+        Value.int(reader.read_i16.to_i32)
       when 0x70
         Value.uint(reader.read_u32)
       when 0x71
         Value.int(reader.read_i32)
+      when 0x72
+        Value.float(reader.read_f32)
       when 0x80
         Value.ulong(reader.read_u64)
       when 0x81
         Value.long(reader.read_i64)
+      when 0x82
+        Value.double(reader.read_f64)
       when 0x83
         Value.timestamp(reader.read_i64)
       when 0xa0
@@ -191,6 +197,12 @@ module LavinMQ::AMQP10
         write_int(io, value.int_value)
       in .long?
         write_long(io, value.int_value)
+      in .float?
+        io.write_byte 0x72_u8
+        write_f32(io, value.float_value.to_f32)
+      in .double?
+        io.write_byte 0x82_u8
+        write_f64(io, value.float_value)
       in .timestamp?
         io.write_byte 0x83_u8
         write_i64(io, value.timestamp_value)
@@ -240,11 +252,23 @@ module LavinMQ::AMQP10
       io.write_bytes value, IO::ByteFormat::NetworkEndian
     end
 
+    def write_i16(io : IO, value : Int16) : Nil
+      io.write_bytes value, IO::ByteFormat::NetworkEndian
+    end
+
     def write_u64(io : IO, value : UInt64) : Nil
       io.write_bytes value, IO::ByteFormat::NetworkEndian
     end
 
     def write_i64(io : IO, value : Int64) : Nil
+      io.write_bytes value, IO::ByteFormat::NetworkEndian
+    end
+
+    def write_f32(io : IO, value : Float32) : Nil
+      io.write_bytes value, IO::ByteFormat::NetworkEndian
+    end
+
+    def write_f64(io : IO, value : Float64) : Nil
       io.write_bytes value, IO::ByteFormat::NetworkEndian
     end
 
@@ -290,6 +314,10 @@ module LavinMQ::AMQP10
         io.write_byte 0x81_u8
         write_i64(io, value)
       end
+    end
+
+    def write_bool(io : IO, value : Bool) : Nil
+      io.write_byte(value ? 0x41_u8 : 0x42_u8)
     end
 
     def write_binary(io : IO, value : Bytes) : Nil
