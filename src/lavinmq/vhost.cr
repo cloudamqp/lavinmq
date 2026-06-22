@@ -362,7 +362,7 @@ module LavinMQ
       definitions.fsync
     end
 
-    def queue_bindings(queue : Queue) : Array(BindingDetails)
+    def queue_bindings(queue : Queue)
       definitions.queue_bindings(queue)
     end
 

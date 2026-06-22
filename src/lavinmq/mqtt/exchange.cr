@@ -3,6 +3,7 @@ require "./consts"
 require "../destination"
 require "./subscription_tree"
 require "./session"
+require "./subscription_details"
 require "./retain_store"
 
 module LavinMQ
@@ -67,10 +68,10 @@ module LavinMQ
         count
       end
 
-      def bindings_details : Array(BindingDetails)
+      def bindings_details : Array(SubscriptionDetails)
         @bindings.flat_map do |binding_key, ds|
           ds.map do |d|
-            BindingDetails.new(name, vhost.name, binding_key.inner, d)
+            SubscriptionDetails.new(name, vhost.name, binding_key.inner, d)
           end
         end
       end
@@ -89,7 +90,7 @@ module LavinMQ
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
@@ -102,7 +103,7 @@ module LavinMQ
 
         @tree.unsubscribe(routing_key, destination)
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)

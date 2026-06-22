@@ -4,7 +4,7 @@ require "../exchange"
 module LavinMQ
   module HTTP
     module BindingHelpers
-      private def bindings(vhost) : Array(BindingDetails)
+      private def bindings(vhost)
         vhost.exchanges.flat_map do |e|
           e.bindings_details
         end

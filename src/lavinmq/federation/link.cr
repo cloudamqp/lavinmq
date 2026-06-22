@@ -383,9 +383,9 @@ module LavinMQ
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
-        private def data_as_binding_details(data) : BindingDetails
-          b = data.as?(BindingDetails)
-          raise ArgumentError.new("Expected data to be of type BindingDetails") unless b
+        private def data_as_binding_details(data) : AMQP::BindingDetails
+          b = data.as?(AMQP::BindingDetails)
+          raise ArgumentError.new("Expected data to be of type AMQP::BindingDetails") unless b
           b
         end
 
