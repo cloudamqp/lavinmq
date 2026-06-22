@@ -723,6 +723,25 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "does not leave a dead observer when deleted during link startup" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef delete during start", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+
+        link = upstream.link(downstream_ex)
+        # Delete while the link is parked on the upstream connect, before it
+        # has registered itself as an observer of the downstream exchange. The
+        # link's unregister_observer is a no-op at this point, so without the
+        # post-register re-check the link would resume, register, and leak.
+        upstream.delete
+        wait_for { link.state.terminated? }
+
+        downstream_ex.@__lavinmq_exchangeevent_observers.includes?(link).should be_false
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost1 = s.vhosts.create("one")
