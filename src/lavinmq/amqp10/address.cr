@@ -1,3 +1,5 @@
+require "uri"
+
 module LavinMQ::AMQP10
   record PublishAddress, exchange : String, routing_key : String
 
@@ -42,32 +44,7 @@ module LavinMQ::AMQP10
     end
 
     private def percent_decode(value : String) : String
-      return value unless value.includes?('%')
-      String.build(value.bytesize) do |io|
-        i = 0
-        while i < value.bytesize
-          byte = value.byte_at(i)
-          if byte == '%'.ord && i + 2 < value.bytesize
-            hi = hex(value.byte_at(i + 1))
-            lo = hex(value.byte_at(i + 2))
-            if hi && lo
-              io.write_byte(((hi << 4) | lo).to_u8)
-              i += 3
-              next
-            end
-          end
-          io.write_byte(byte)
-          i += 1
-        end
-      end
-    end
-
-    private def hex(byte : UInt8) : UInt8?
-      case byte
-      when '0'.ord..'9'.ord then (byte - '0'.ord).to_u8
-      when 'A'.ord..'F'.ord then (byte - 'A'.ord + 10).to_u8
-      when 'a'.ord..'f'.ord then (byte - 'a'.ord + 10).to_u8
-      end
+      URI.decode(value)
     end
   end
 end

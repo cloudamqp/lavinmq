@@ -24,6 +24,8 @@ module LavinMQ::AMQP10
       ULong
       Int
       Long
+      Float
+      Double
       Timestamp
       Binary
       String
@@ -39,6 +41,7 @@ module LavinMQ::AMQP10
     @bool = false
     @uint = 0_u64
     @int = 0_i64
+    @float = 0.0_f64
     @string = ""
     @bytes = Bytes.empty
     @list = Array(Value).new
@@ -49,6 +52,7 @@ module LavinMQ::AMQP10
                            @bool = false,
                            @uint = 0_u64,
                            @int = 0_i64,
+                           @float = 0.0_f64,
                            @string = "",
                            @bytes = Bytes.empty,
                            @list = Array(Value).new,
@@ -86,6 +90,14 @@ module LavinMQ::AMQP10
 
     def self.long(value : Int64 | Int32)
       new(Kind::Long, int: value.to_i64)
+    end
+
+    def self.float(value : Float32)
+      new(Kind::Float, float: value.to_f64)
+    end
+
+    def self.double(value : Float64 | Float32)
+      new(Kind::Double, float: value.to_f64)
     end
 
     def self.timestamp(value : Int64)
@@ -142,6 +154,18 @@ module LavinMQ::AMQP10
 
     def int_value : Int64
       @int
+    end
+
+    def float? : Float32?
+      @float.to_f32 if @kind.float?
+    end
+
+    def double? : Float64?
+      @float if @kind.double?
+    end
+
+    def float_value : Float64
+      @float
     end
 
     def timestamp? : Int64?
@@ -218,6 +242,8 @@ module LavinMQ::AMQP10
         io << @uint
       in .int?, .long?, .timestamp?
         io << @int
+      in .float?, .double?
+        io << @float
       in .binary?
         io << @bytes
       in .string?, .symbol?

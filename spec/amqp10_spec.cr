@@ -113,14 +113,45 @@ private class AMQP10SpecClient
     disposition.outcome.not_nil!
   end
 
+  def publish_fragmented(handle : UInt32, delivery_id : UInt32, body : String) : LavinMQ::AMQP10::Outcome
+    message = IO::Memory.new
+    message.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(message, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(message, body.to_slice)
+    message_bytes = message.to_slice
+    split = message_bytes.bytesize // 2
+    tag = delivery_id.to_s.to_slice
+
+    first = IO::Memory.new
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(first, handle, delivery_id, tag, true)
+    first.write message_bytes[0, split]
+    write_amqp_frame(first.to_slice)
+
+    second = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(second, LavinMQ::AMQP10::Descriptor::TRANSFER, [
+      LavinMQ::AMQP10::Value.uint(handle),
+    ])
+    second.write message_bytes[split, message_bytes.bytesize - split]
+    write_amqp_frame(second.to_slice)
+
+    frame = @reader.read
+    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
+    disposition.outcome.not_nil!
+  end
+
   def consume_one(outcome = LavinMQ::AMQP10::Outcome::Accepted) : String
+    incoming = consume_one_message(outcome)
+    String.new(incoming.body)
+  end
+
+  def consume_one_message(outcome = LavinMQ::AMQP10::Outcome::Accepted) : LavinMQ::AMQP10::MessageCodec::Incoming
     frame = @reader.read
     reader = frame.body_reader
     transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
     incoming = LavinMQ::AMQP10::MessageCodec.decode(reader)
     LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
       transfer.delivery_id.not_nil!, outcome)
-    String.new(incoming.body)
+    incoming
   end
 
   def detach(handle = 0_u32) : Nil
@@ -180,12 +211,97 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, code, fields)
   end
 
+  private def write_amqp_frame(payload : Bytes) : Nil
+    LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, (8 + payload.bytesize).to_u32,
+      LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
+    @io.write payload
+    @io.flush
+  end
+
   private def read_performative_code
     read_value.described?.not_nil!.descriptor_code?
   end
 
   private def read_value
     LavinMQ::AMQP10::Codec.decode(@reader.read.body_reader)
+  end
+end
+
+describe LavinMQ::AMQP10::MessageCodec do
+  it "maps AMQP 1.0 header and application-properties to AMQP properties" do
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::HEADER, [
+      LavinMQ::AMQP10::Value.bool(true),
+      LavinMQ::AMQP10::Value.ubyte(7_u8),
+    ])
+    LavinMQ::AMQP10::Codec.write_value(payload,
+      LavinMQ::AMQP10::Value.described(
+        LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::APPLICATION_PROPERTIES),
+        LavinMQ::AMQP10::Value.map([
+          {LavinMQ::AMQP10::Value.string("app"), LavinMQ::AMQP10::Value.string("amqp10")},
+          {LavinMQ::AMQP10::Value.symbol("enabled"), LavinMQ::AMQP10::Value.bool(true)},
+          {LavinMQ::AMQP10::Value.string("tries"), LavinMQ::AMQP10::Value.uint(3_u32)},
+          {LavinMQ::AMQP10::Value.string("ratio"), LavinMQ::AMQP10::Value.double(1.5_f64)},
+        ])
+      )
+    )
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+
+    incoming.properties.delivery_mode.should eq 2_u8
+    incoming.properties.priority.should eq 7_u8
+    incoming.properties.headers.not_nil!["app"].should eq "amqp10"
+    incoming.properties.headers.not_nil!["enabled"].should eq true
+    incoming.properties.headers.not_nil!["tries"].should eq 3_u32
+    incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
+    String.new(incoming.body).should eq "body"
+  end
+
+  it "uses string and binary amqp-value sections as the message body" do
+    string_payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(string_payload,
+      LavinMQ::AMQP10::Value.described(
+        LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE),
+        LavinMQ::AMQP10::Value.string("value-body")
+      )
+    )
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(string_payload.to_slice))
+    String.new(incoming.body).should eq "value-body"
+
+    binary_payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(binary_payload,
+      LavinMQ::AMQP10::Value.described(
+        LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE),
+        LavinMQ::AMQP10::Value.binary("binary-body".to_slice)
+      )
+    )
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(binary_payload.to_slice))
+    String.new(incoming.body).should eq "binary-body"
+  end
+end
+
+describe LavinMQ::AMQP10::Codec do
+  it "preserves float and double values" do
+    io = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.float(1.25_f32))
+    value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(io.to_slice))
+    value.float?.should eq 1.25_f32
+
+    io.clear
+    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.double(1.5_f64))
+    value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(io.to_slice))
+    value.double?.should eq 1.5_f64
+  end
+end
+
+describe LavinMQ::AMQP10::Address do
+  it "percent-decodes address components with URI decoding" do
+    LavinMQ::AMQP10::Address.parse_source("/queues/my%2Fqueue").should eq "my/queue"
+    target = LavinMQ::AMQP10::Address.parse_target("/exchanges/amq.direct/a%20b").not_nil!
+    target.routing_key.should eq "a b"
   end
 end
 
@@ -207,6 +323,8 @@ describe LavinMQ::AMQP10 do
       header = Bytes.new(8)
       io.read_fully(header)
       header.should eq LavinMQ::AMQP10::SASL_HEADER
+      eof = uninitialized UInt8[1]
+      io.read(eof.to_slice).should eq 0
       io.close
     end
   end
@@ -244,6 +362,20 @@ describe LavinMQ::AMQP10 do
         client.publish(0_u32, 1_u32, "hello").should eq LavinMQ::AMQP10::Outcome::Accepted
         msg = q.get(no_ack: true).not_nil!
         msg.body_io.gets_to_end.should eq "hello"
+        client.close
+      end
+    end
+  end
+
+  it "reassembles fragmented transfers before publishing" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-fragmented", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.publish_fragmented(0_u32, 1_u32, "hello fragmented").should eq LavinMQ::AMQP10::Outcome::Accepted
+        msg = q.get(no_ack: true).not_nil!
+        msg.body_io.gets_to_end.should eq "hello fragmented"
         client.close
       end
     end
@@ -296,6 +428,31 @@ describe LavinMQ::AMQP10 do
         client.flow
         client.consume_one.should eq "from-091"
         should_eventually(eq 0) { s.vhosts["/"].queue(q.name).message_count }
+        client.close
+      end
+    end
+  end
+
+  it "delivers AMQP headers as AMQP 1.0 application-properties" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-headers", auto_delete: true)
+        headers = AMQP::Client::Arguments.new({
+          "app"     => "lavinmq",
+          "enabled" => true,
+          "tries"   => 3_i32,
+          "ratio"   => 1.5_f64,
+        })
+        q.publish("with-headers", props: AMQP::Client::Properties.new(headers: headers))
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+        incoming = client.consume_one_message
+        String.new(incoming.body).should eq "with-headers"
+        incoming.properties.headers.not_nil!["app"].should eq "lavinmq"
+        incoming.properties.headers.not_nil!["enabled"].should eq true
+        incoming.properties.headers.not_nil!["tries"].should eq 3_i32
+        incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
         client.close
       end
     end

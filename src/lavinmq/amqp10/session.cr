@@ -21,6 +21,10 @@ module LavinMQ::AMQP10
   class ReceiverLink < Link
     @body_io = SliceIO.new
     @message_reader = SliceReader.new
+    @partial_payload = IO::Memory.new
+    @partial_delivery_id : UInt32?
+    @partial_settled = false
+    @partial_active = false
     @target : PublishAddress?
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
@@ -28,15 +32,26 @@ module LavinMQ::AMQP10
       super(session, name, remote_handle, local_handle, Role::Receiver, dynamic_queue)
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def receive(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
       return if closed?
-      return if transfer.aborted
+      if transfer.aborted
+        clear_partial
+        return
+      end
       if transfer.more
-        settle(transfer, Outcome::Rejected)
+        append_fragment(transfer, payload)
         return
       end
 
-      incoming = MessageCodec.decode(@message_reader.reset(payload))
+      incoming_payload, delivery_id, settled = if @partial_active
+                                                 append_fragment(transfer, payload)
+                                                 {@partial_payload.to_slice, @partial_delivery_id || transfer.delivery_id, @partial_settled || transfer.settled}
+                                               else
+                                                 {payload, transfer.delivery_id, transfer.settled}
+                                               end
+
+      incoming = MessageCodec.decode(@message_reader.reset(incoming_payload))
       target = @target || begin
         to = incoming.to || raise ProtocolError.new("anonymous target requires properties.to")
         @session.client.resolve_publish_target(to)
@@ -57,10 +72,12 @@ module LavinMQ::AMQP10
                 else
                   Outcome::Released
                 end
-      settle(transfer, outcome)
+      settle(delivery_id, settled, outcome)
     rescue ex : ProtocolError | DecodeError | LavinMQ::Error::PreconditionFailed
       @session.client.@log.warn { "AMQP 1.0 publish rejected: #{ex.message}" }
-      settle(transfer, Outcome::Rejected)
+      settle(@partial_delivery_id || transfer.delivery_id, @partial_settled || transfer.settled, Outcome::Rejected)
+    ensure
+      clear_partial unless transfer.more
     end
 
     private def validate_user_id(user_id)
@@ -70,9 +87,34 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def settle(transfer, outcome)
-      return if transfer.settled
-      if delivery_id = transfer.delivery_id
+    private def append_fragment(transfer, payload) : Nil
+      if @partial_active
+        if delivery_id = transfer.delivery_id
+          stored = @partial_delivery_id
+          raise ProtocolError.new("fragmented transfer delivery-id changed") if stored && stored != delivery_id
+          @partial_delivery_id ||= delivery_id
+        end
+        @partial_settled ||= transfer.settled
+      else
+        @partial_payload.clear
+        @partial_delivery_id = transfer.delivery_id
+        @partial_settled = transfer.settled
+        @partial_active = true
+      end
+      @partial_payload.write(payload)
+    end
+
+    private def clear_partial : Nil
+      return unless @partial_active
+      @partial_payload.clear
+      @partial_delivery_id = nil
+      @partial_settled = false
+      @partial_active = false
+    end
+
+    private def settle(delivery_id, settled, outcome)
+      return if settled
+      if delivery_id
         @session.client.send_disposition(@session, delivery_id, outcome)
       end
     end
