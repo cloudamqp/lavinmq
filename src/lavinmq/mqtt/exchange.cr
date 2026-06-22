@@ -3,6 +3,7 @@ require "./consts"
 require "../destination"
 require "./subscription_tree"
 require "./session"
+require "./subscription_details"
 require "./retain_store"
 
 module LavinMQ
@@ -46,12 +47,12 @@ module LavinMQ
         count
       end
 
-      def bindings_details : Array(BindingDetails)
-        result = Array(BindingDetails).new
+      def bindings_details : Array(SubscriptionDetails)
+        result = Array(SubscriptionDetails).new
         @tree.each_entry do |session, qos, filter|
           arguments = AMQP::Table.new
           arguments[QOS_HEADER] = qos
-          result << BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(filter, arguments), session)
+          result << SubscriptionDetails.new(name, vhost.name, LavinMQ::BindingKey.new(filter, arguments), session)
         end
         result
       end
@@ -69,7 +70,7 @@ module LavinMQ
         @tree.subscribe(routing_key, destination, qos)
 
         binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
-        data = BindingDetails.new(name, vhost.name, binding_key, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
@@ -78,7 +79,7 @@ module LavinMQ
         @tree.unsubscribe(routing_key, destination)
 
         binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
-        data = BindingDetails.new(name, vhost.name, binding_key, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
         delete if @auto_delete && @tree.empty?
