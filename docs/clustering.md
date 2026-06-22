@@ -84,7 +84,7 @@ If you skip this, only the node that bootstraps will have a secret (it auto-gene
 
 To rebuild a node that has lost or diverged its raft state:
 
-1. Run `lavinmqctl raft_reset` on the affected node. This wipes raft state from the data directory and signals the running node to exit. If the node is currently running and belongs to a multi-peer cluster (or its status cannot be verified), the command requires `--force` to override the safety guard; a stopped node is wiped unconditionally without `--force`.
+1. Run `lavinmqctl raft_reset` on the affected node. This wipes raft state from the data directory and, if a node is running, signals it to exit. The command **fails closed**: it proceeds without `--force` only when it can prove the node is safe to discard — a running node whose `/raft/status` reports a single-node cluster (≤1 peer). A node that is **stopped** (no control socket / unreachable), a follower, in a multi-peer cluster, or whose status omits the peer list cannot be verified, so it requires `--force` to override the guard. (Most recovery scenarios involve a stopped or unhealthy node, so expect to pass `--force`.)
 2. Restart lavinmq. If `seed_uris` is configured, the node rejoins automatically.
 
 **Exception — recovering the lowest-host node:** after `raft_reset`, the lowest-host node sees no peers and would bootstrap a new cluster, splitting the existing one. Use `lavinmqctl raft_join <other-member-uri>` instead. This writes a `.join_target` marker that forces the node to join on restart rather than bootstrap:

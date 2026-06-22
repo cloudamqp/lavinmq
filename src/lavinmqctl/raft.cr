@@ -4,6 +4,7 @@ require "json"
 require "uri"
 require "file_utils"
 require "../lavinmq/data_dir_lock"
+require "../lavinmq/http/constants"
 
 class LavinMQCtl
   class CtlExit < Exception
@@ -156,6 +157,18 @@ class LavinMQCtl
   # nothing — both require --force.
   private def ensure_safe_to_stop : Nil
     return if @options["force"]?
+    # A stopped node exposes no /raft/status, so we can't prove it's a safe
+    # single-node leader. When the default control socket is absent, `connect`
+    # would `exit` with a generic "is LavinMQ running?" before we ever reach the
+    # rescue below — produce the actionable fail-closed message instead. (An
+    # explicit --uri/--host/--hostname is a TCP endpoint whose connection
+    # failure is caught by the rescue.)
+    if local_control_socket_missing?
+      @io.puts "raft_reset: refusing — node is not running (no control socket at " \
+               "#{@options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH}), " \
+               "so its cluster membership can't be verified. Use --force to discard this node's state."
+      raise CtlExit.new(1)
+    end
     begin
       response = http.get("/raft/status", @headers)
       if response.status_code == 200
@@ -177,6 +190,16 @@ class LavinMQCtl
       @io.puts "raft_reset: refusing — node is running but /raft/status is unreachable (#{ex.message}). Use --force to override."
     end
     raise CtlExit.new(1)
+  end
+
+  # True when the local control socket the ctl would dial does not exist, i.e.
+  # no node is running locally. Only meaningful for the default unix-socket
+  # path; an explicit --uri/--host/--hostname is a remote TCP endpoint we let
+  # the HTTP call probe (its failure is rescued, not aborted).
+  private def local_control_socket_missing? : Bool
+    return false if @options["host"]? || @options["uri"]? || @options["hostname"]?
+    path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
+    !File.exists?(path)
   end
 
   def raft_join
