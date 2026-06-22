@@ -359,7 +359,7 @@ module LavinMQ
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
-        if ch = @client.vhost.direct_reply_consumer?(consumer_tag)
+        if ch = @client.vhost.direct_reply_consumer?(consumer_tag).as?(AMQP::Channel)
           confirm do
             deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
               1_u64, false,
