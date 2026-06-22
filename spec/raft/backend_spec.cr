@@ -557,6 +557,31 @@ describe LavinMQ::Raft::Backend do
       end
     end
 
+    it "raises JoinExhausted (not a bare Exception) after exhausting attempts" do
+      reject = HTTP::Server.new do |ctx|
+        ctx.response.status_code = 503
+        ctx.response.print "not leader"
+      end
+      addr = reject.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-always-503") { reject.listen }
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        started = Time.instant
+        expect_raises(LavinMQ::Raft::Backend::JoinExhausted, /exhausted/) do
+          backend.not_nil!.join_via_seeds([URI.parse("http://#{addr}")],
+            max_attempts: 2, retry_interval: 1.millisecond)
+        end
+        (Time.instant - started).should be < 1.second
+      ensure
+        reject.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
     it "tries seeds in turn and succeeds on the first that returns 200" do
       hit = [] of String
       reject = HTTP::Server.new do |ctx|
@@ -584,6 +609,59 @@ describe LavinMQ::Raft::Backend do
       ensure
         reject.close
         accept.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
+  describe "join_with_retry" do
+    it "recovers across an exhausted sweep instead of crashing the boot fiber (#6)" do
+      # 503 for the first request (one whole max_attempts:1 sweep), then 200.
+      # A single join_via_seeds would raise JoinExhausted; join_with_retry must
+      # retry the next sweep and succeed, so a slow-to-appear bootstrapper never
+      # crashes campaign with an unhandled backtrace.
+      attempts = 0
+      stub = HTTP::Server.new do |ctx|
+        attempts += 1
+        if attempts == 1
+          ctx.response.status_code = 503
+          ctx.response.print "not leader yet"
+        else
+          ctx.response.status_code = 200
+          ctx.response.print %({"status":"added"})
+        end
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-late-leader") { stub.listen }
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        joined = backend.not_nil!.join_with_retry([URI.parse("http://#{addr}")],
+          max_attempts: 1, retry_interval: 1.millisecond)
+        joined.should be_true
+        attempts.should be >= 2
+      ensure
+        stub.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "propagates a permanent error instead of retrying forever" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        # Empty seed list is a config error, not JoinExhausted, so it must not
+        # be swallowed by the retry loop.
+        expect_raises(Exception, /no seed/) do
+          backend.not_nil!.join_with_retry([] of URI, max_attempts: 1, retry_interval: 1.millisecond)
+        end
+      ensure
         backend.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
