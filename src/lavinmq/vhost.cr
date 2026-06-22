@@ -32,6 +32,7 @@ module LavinMQ
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
     getter closed = BoolChannel.new(true)
+    getter flow_change = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
 
@@ -49,6 +50,7 @@ module LavinMQ
 
     def flow=(active : Bool)
       @flow = active
+      @flow_change.set(active)
     end
 
     def closed? : Bool
