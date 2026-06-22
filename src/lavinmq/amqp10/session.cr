@@ -4,16 +4,35 @@ require "./client"
 module LavinMQ::AMQP10
   abstract class Link
     getter session, name, remote_handle, local_handle, role, dynamic_queue
-    getter delivery_count = 0_u32
-    property? closed = false
+    @closed = Atomic(Bool).new(false)
+    @delivery_count = Atomic(UInt32).new(0_u32)
 
     def initialize(@session : Session, @name : String, @remote_handle : UInt32,
                    @local_handle : UInt32, @role : Role, @dynamic_queue : LavinMQ::AMQP::Queue? = nil)
     end
 
+    def closed? : Bool
+      @closed.get(:acquire)
+    end
+
+    def delivery_count : UInt32
+      @delivery_count.get(:acquire)
+    end
+
     def close : Nil
-      return if @closed
-      @closed = true
+      return unless close_once
+      close_dynamic_queue
+    end
+
+    private def close_once : Bool
+      !@closed.swap(true, :acquire_release)
+    end
+
+    private def increment_delivery_count : Nil
+      @delivery_count.add(1_u32, :acquire_release)
+    end
+
+    private def close_dynamic_queue : Nil
       @session.client.close_dynamic_queue(@dynamic_queue)
     end
   end
@@ -127,9 +146,12 @@ module LavinMQ::AMQP10
   class SenderLink < Link
     record Unack, delivery_id : UInt32, queue : LavinMQ::AMQP::Queue, sp : SegmentPosition, delivered_at : Time::Instant
 
-    getter queue, credit = 0_u32
+    getter queue
     @consumer : Consumer?
     @unacked = Deque(Unack).new
+    @unack_lock = Mutex.new(:checked)
+    @credit = 0_u32
+    @credit_lock = Mutex.new(:checked)
     @deliver_loop_running = Atomic(Bool).new(false)
     @credit_available = BoolChannel.new(false)
     @closed_channel = ::Channel(Nil).new
@@ -147,19 +169,26 @@ module LavinMQ::AMQP10
       @queue.add_consumer(consumer)
     end
 
+    def credit : UInt32
+      @credit_lock.synchronize { @credit }
+    end
+
     def add_credit(link_credit : UInt32, delivery_count : UInt32?) : Nil
-      if delivery_count
-        sent = @delivery_count &- delivery_count
-        @credit = link_credit > sent ? link_credit - sent : 0_u32
-      else
-        @credit = link_credit
+      has_credit = @credit_lock.synchronize do
+        if delivery_count
+          sent = self.delivery_count &- delivery_count
+          @credit = link_credit > sent ? link_credit - sent : 0_u32
+        else
+          @credit = link_credit
+        end
+        @credit > 0
       end
-      @credit_available.set(@credit > 0)
+      @credit_available.set(has_credit)
       ensure_deliver_loop
     end
 
     def accepts? : Bool
-      !closed? && @credit > 0
+      !closed? && credit > 0
     end
 
     def ensure_deliver_loop
@@ -175,18 +204,19 @@ module LavinMQ::AMQP10
         break if closed?
         delivered = @queue.consume_get(false) do |env|
           delivery_id = @session.next_delivery_id
-          @delivery_count &+= 1
-          @credit &-= 1 if @credit > 0
-          @credit_available.set(@credit > 0)
+          increment_delivery_count
+          @credit_available.set(decrement_credit)
           IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, @delivery_tag)
-          @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
+          @unack_lock.synchronize do
+            @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
+          end
           unless @session.client.send_transfer(@session, self, delivery_id, @delivery_tag, env.message)
             close
           end
           @session.increment_deliver_count(env.redelivered)
         end
         unless delivered
-          @credit_available.set(@credit > 0)
+          @credit_available.set(credit > 0)
           Fiber.yield
         end
       end
@@ -194,11 +224,11 @@ module LavinMQ::AMQP10
       @session.client.@log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
     ensure
       @deliver_loop_running.set(false, :release)
-      ensure_deliver_loop if !closed? && @credit > 0 && !@queue.empty?
+      ensure_deliver_loop if !closed? && credit > 0 && !@queue.empty?
     end
 
     private def wait_for_credit
-      until closed? || @credit > 0
+      until closed? || credit > 0
         select
         when @credit_available.when_true.receive
         when @closed_channel.receive
@@ -215,38 +245,48 @@ module LavinMQ::AMQP10
       end
     end
 
+    private def decrement_credit : Bool
+      @credit_lock.synchronize do
+        @credit &-= 1 if @credit > 0
+        @credit > 0
+      end
+    end
+
     def settle(first : UInt32, last : UInt32, outcome : Outcome) : Nil
       found = false
-      @unacked.reject! do |unack|
-        next false unless first <= unack.delivery_id <= last
-        found = true
-        case outcome
-        in .accepted?
-          unack.queue.ack(unack.sp)
-          @session.increment_ack_count
-        in .released?
-          unack.queue.reject(unack.sp, requeue: true)
-          @session.increment_reject_count
-        in .rejected?, .modified?
-          unack.queue.reject(unack.sp, requeue: false)
-          @session.increment_reject_count
+      @unack_lock.synchronize do
+        @unacked.reject! do |unack|
+          next false unless first <= unack.delivery_id <= last
+          found = true
+          case outcome
+          in .accepted?
+            unack.queue.ack(unack.sp)
+            @session.increment_ack_count
+          in .released?, .modified?
+            unack.queue.reject(unack.sp, requeue: true)
+            @session.increment_reject_count
+          in .rejected?
+            unack.queue.reject(unack.sp, requeue: false)
+            @session.increment_reject_count
+          end
+          true
         end
-        true
       end
-      @credit_available.set(@credit > 0) if found
+      @credit_available.set(credit > 0) if found
     end
 
     def close : Nil
-      return if closed?
-      @closed = true
+      return unless close_once
       @credit_available.close
       @closed_channel.close
       @consumer.try &.close
-      @unacked.each do |unack|
-        unack.queue.reject(unack.sp, requeue: true)
+      @unack_lock.synchronize do
+        @unacked.each do |unack|
+          unack.queue.reject(unack.sp, requeue: true)
+        end
+        @unacked.clear
       end
-      @unacked.clear
-      super
+      close_dynamic_queue
     end
   end
 
@@ -280,7 +320,7 @@ module LavinMQ::AMQP10
     end
 
     def cancel
-      close
+      @link.close
     end
 
     def ack(sp)
@@ -305,16 +345,25 @@ module LavinMQ::AMQP10
     end
 
     def details_tuple
+      channel_details = @link.session.details_tuple
       {
         queue: {
           name:  @queue.name,
           vhost: @queue.vhost.name,
         },
-        consumer_tag:   @tag,
-        exclusive:      false,
-        ack_required:   true,
-        prefetch_count: @prefetch_count,
-        priority:       0,
+        consumer_tag:    @tag,
+        exclusive:       false,
+        ack_required:    true,
+        prefetch_count:  @prefetch_count,
+        priority:        0,
+        channel_details: {
+          peer_host:       channel_details[:connection_details][:peer_host],
+          peer_port:       channel_details[:connection_details][:peer_port],
+          connection_name: channel_details[:connection_details][:name],
+          user:            channel_details[:user],
+          number:          channel_details[:number],
+          name:            channel_details[:name],
+        },
       }
     end
   end
@@ -323,12 +372,16 @@ module LavinMQ::AMQP10
     include Stats
     include SortableJSON
 
+    INCOMING_WINDOW_REFILL_AT = DEFAULT_WINDOW // 2
+
     getter client, id, name
     property? running = true
     @links = Hash(UInt32, Link).new
     @sender_links = Array(SenderLink).new
     @next_local_handle = 0_u32
-    @next_outgoing_id = 0_u32
+    @next_outgoing_id = Atomic(UInt32).new(0_u32)
+    @next_incoming_id = Atomic(UInt32).new(0_u32)
+    @incoming_window_remaining = Atomic(UInt32).new(DEFAULT_WINDOW)
     @visited = Set(Exchange).new
     @found_queues = Set(Queue).new
 
@@ -462,6 +515,7 @@ module LavinMQ::AMQP10
     end
 
     def transfer(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
+      advance_incoming_window(transfer)
       link = @links[transfer.handle]? || raise ProtocolError.new("unknown link handle #{transfer.handle}")
       receiver = link.as?(ReceiverLink) || raise ProtocolError.new("transfer sent on non-receiver link")
       receiver.receive(transfer, payload)
@@ -489,9 +543,42 @@ module LavinMQ::AMQP10
     end
 
     def next_delivery_id : UInt32
-      delivery_id = @next_outgoing_id
-      @next_outgoing_id &+= 1
-      delivery_id
+      @next_outgoing_id.add(1_u32, :acquire_release)
+    end
+
+    def next_outgoing_id : UInt32
+      @next_outgoing_id.get(:acquire)
+    end
+
+    def next_incoming_id : UInt32
+      @next_incoming_id.get(:acquire)
+    end
+
+    def incoming_window : UInt32
+      @incoming_window_remaining.get(:acquire)
+    end
+
+    private def advance_incoming_window(transfer : TransferCodec::TransferView) : Nil
+      if delivery_id = transfer.delivery_id
+        @next_incoming_id.set(delivery_id &+ 1, :release)
+      else
+        @next_incoming_id.add(1_u32, :acquire_release)
+      end
+
+      remaining = decrement_incoming_window
+      if remaining <= INCOMING_WINDOW_REFILL_AT
+        @incoming_window_remaining.set(DEFAULT_WINDOW, :release)
+        @client.send_session_flow(self)
+      end
+    end
+
+    private def decrement_incoming_window : UInt32
+      loop do
+        current = @incoming_window_remaining.get(:acquire)
+        remaining = current > 0 ? current - 1 : 0_u32
+        _, exchanged = @incoming_window_remaining.compare_and_set(current, remaining)
+        return remaining if exchanged
+      end
     end
 
     def increment_deliver_count(redelivered : Bool)

@@ -13,7 +13,8 @@ private class AMQP10SpecClient
     send_open(hostname, frame_max)
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
     send_begin
-    read_performative_code.should eq LavinMQ::AMQP10::Descriptor::BEGIN
+    begin_frame = LavinMQ::AMQP10::Begin.from_value(read_value)
+    begin_frame.remote_channel.should eq 0_u16
   end
 
   def self.authenticate(port : Int32, username, password) : UInt8
@@ -48,7 +49,12 @@ private class AMQP10SpecClient
       source: LavinMQ::AMQP10::Value.null, target: target)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
     attach = LavinMQ::AMQP10::Attach.from_value(read_value)
-    read_performative_code.should eq LavinMQ::AMQP10::Descriptor::FLOW
+    flow = LavinMQ::AMQP10::Flow.from_value(read_value)
+    flow.next_incoming_id.should_not be_nil
+    flow.incoming_window.should_not be_nil
+    flow.next_outgoing_id.should_not be_nil
+    flow.outgoing_window.should_not be_nil
+    flow.link_credit.should eq UInt32::MAX
     attach
   end
 
@@ -93,24 +99,30 @@ private class AMQP10SpecClient
   end
 
   def publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil) : LavinMQ::AMQP10::Outcome
-    payload = IO::Memory.new
-    tag = delivery_id.to_s.to_slice
-    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, false)
-    if to
-      fields = [LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.string(to)]
-      LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES, fields)
-    end
-    payload.write_byte 0x00_u8
-    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
-    LavinMQ::AMQP10::Codec.write_binary(payload, body.to_slice)
-    LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, (8 + payload.size).to_u32,
-      LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
-    @io.write payload.to_slice
-    @io.flush
+    write_publish(handle, delivery_id, body, to)
 
     frame = @reader.read
     disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
     disposition.outcome.not_nil!
+  end
+
+  def publish_reading_flows(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil)
+    write_publish(handle, delivery_id, body, to)
+    flows = [] of LavinMQ::AMQP10::Flow
+
+    loop do
+      frame = @reader.read
+      code = LavinMQ::AMQP10::MessageCodec.read_descriptor_code(frame.body_reader)
+      case code
+      when LavinMQ::AMQP10::Descriptor::FLOW
+        flows << LavinMQ::AMQP10::Flow.from_value(LavinMQ::AMQP10::Codec.decode(frame.body_reader))
+      when LavinMQ::AMQP10::Descriptor::DISPOSITION
+        disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(frame.body_reader)
+        return {flows, disposition.outcome.not_nil!}
+      else
+        fail "unexpected AMQP 1.0 performative #{code}"
+      end
+    end
   end
 
   def publish_fragmented(handle : UInt32, delivery_id : UInt32, body : String) : LavinMQ::AMQP10::Outcome
@@ -258,6 +270,23 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, code, fields)
   end
 
+  private def write_publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil) : Nil
+    payload = IO::Memory.new
+    tag = delivery_id.to_s.to_slice
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, false)
+    if to
+      fields = [LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.string(to)]
+      LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES, fields)
+    end
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, body.to_slice)
+    LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, (8 + payload.size).to_u32,
+      LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
+    @io.write payload.to_slice
+    @io.flush
+  end
+
   private def write_amqp_frame(payload : Bytes) : Nil
     LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, (8 + payload.bytesize).to_u32,
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
@@ -271,6 +300,21 @@ private class AMQP10SpecClient
 
   private def read_value
     LavinMQ::AMQP10::Codec.decode(@reader.read.body_reader)
+  end
+end
+
+private def amqp10_session(server : LavinMQ::Server) : LavinMQ::AMQP10::Session
+  wait_for do
+    found = nil.as(LavinMQ::AMQP10::Session?)
+    server.connections.each do |conn|
+      if client = conn.as?(LavinMQ::AMQP10::Client)
+        if session = client.channel?(0_u16).as?(LavinMQ::AMQP10::Session)
+          found = session
+          break
+        end
+      end
+    end
+    found
   end
 end
 
@@ -364,9 +408,51 @@ describe LavinMQ::AMQP10::Codec do
     io.to_slice.should eq Bytes[0xe0_u8, 0x08_u8, 0x01_u8, 0xa3_u8, 0x05_u8,
       0x50_u8, 0x4c_u8, 0x41_u8, 0x49_u8, 0x4e_u8]
   end
+
+  it "rejects compound counts larger than the encoded payload" do
+    payload = Bytes[0xd0_u8, 0_u8, 0_u8, 0_u8, 4_u8, 0x7f_u8, 0xff_u8, 0xff_u8, 0xff_u8]
+
+    expect_raises(LavinMQ::AMQP10::DecodeError) do
+      LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(payload))
+    end
+  end
+
+  it "rejects excessively nested described values" do
+    payload = IO::Memory.new
+    80.times do
+      payload.write_byte 0x00_u8
+      payload.write_byte 0x43_u8
+    end
+    payload.write_byte 0x40_u8
+
+    expect_raises(LavinMQ::AMQP10::DecodeError) do
+      LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    end
+  end
 end
 
 describe LavinMQ::AMQP10::TransferCodec do
+  it "writes mandatory session fields in flow frames" do
+    io = IO::Memory.new
+
+    written = LavinMQ::AMQP10::TransferCodec.write_flow(io, 3_u16, 11_u32, 22_u32, 33_u32, 44_u32,
+      5_u32, 6_u32, 7_u32)
+
+    written.should eq io.size
+    bytes = io.to_slice
+    frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
+    reader = LavinMQ::AMQP10::SliceReader.new(bytes[8, frame_size.to_i - 8])
+    flow = LavinMQ::AMQP10::Flow.from_value(LavinMQ::AMQP10::Codec.decode(reader))
+
+    flow.next_incoming_id.should eq 11_u32
+    flow.incoming_window.should eq 22_u32
+    flow.next_outgoing_id.should eq 33_u32
+    flow.outgoing_window.should eq 44_u32
+    flow.handle.should eq 5_u32
+    flow.delivery_count.should eq 6_u32
+    flow.link_credit.should eq 7_u32
+  end
+
   it "fragments outgoing transfers to the negotiated frame max" do
     body = "x" * 1200
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new,
@@ -628,6 +714,83 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "uses unique delivery ids across sender links in a session" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q1 = ch.queue("amqp10-multi-link-1", auto_delete: true)
+        q2 = ch.queue("amqp10-multi-link-2", auto_delete: true)
+        q1.publish("one")
+        q2.publish("two")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q1.name}", handle: 0_u32, name: "receiver-1")
+        client.attach_receiver("/queues/#{q2.name}", handle: 1_u32, name: "receiver-2")
+        client.flow(handle: 0_u32)
+        client.flow(handle: 1_u32)
+
+        first = client.consume_one_delivery[0].delivery_id.not_nil!
+        second = client.consume_one_delivery[0].delivery_id.not_nil!
+
+        [first, second].sort.should eq [0_u32, 1_u32]
+        client.close
+      end
+    end
+  end
+
+  it "includes channel details for AMQP 1.0 consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-consumer-details", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+
+        consumer = wait_for { internal_q.consumers.first? }
+        details = JSON.parse(consumer.to_json)
+
+        details["channel_details"]["connection_name"].as_s.should_not be_empty
+        details["channel_details"]["number"].as_i.should eq 0
+        details["channel_details"]["name"].as_s.should_not be_empty
+        client.close
+      end
+    end
+  end
+
+  it "deletes queues with idle AMQP 1.0 consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-delete-idle-consumer")
+        internal_q = s.vhosts["/"].queue(q.name)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+
+        internal_q.delete.should be_true
+        should_eventually(be_nil) { s.vhosts["/"].queue?(q.name) }
+        client.close
+      end
+    end
+  end
+
+  it "replenishes the session incoming window after incoming transfers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-window-refill", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        session = amqp10_session(s)
+        session.@incoming_window_remaining.set(1_u32, :release)
+
+        flows, outcome = client.publish_reading_flows(0_u32, 1_u32, "window")
+
+        outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+        flows.size.should eq 1
+        flows[0].next_incoming_id.should eq 2_u32
+        flows[0].incoming_window.should eq LavinMQ::AMQP10::DEFAULT_WINDOW
+        client.close
+      end
+    end
+  end
+
   it "fragments consumed messages to the negotiated frame max" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -669,7 +832,7 @@ describe LavinMQ::AMQP10 do
     end
   end
 
-  it "uses link credit and applies accepted released and rejected dispositions" do
+  it "uses link credit and applies accepted released rejected and modified dispositions" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("amqp10-settle", auto_delete: true)
@@ -695,6 +858,16 @@ describe LavinMQ::AMQP10 do
         q.publish("drop-me")
         client.flow(delivery_count: 2_u32)
         client.consume_one(LavinMQ::AMQP10::Outcome::Rejected).should eq "drop-me"
+        should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
+
+        q.publish("modify-me")
+        client.flow(delivery_count: 3_u32)
+        client.consume_one(LavinMQ::AMQP10::Outcome::Modified).should eq "modify-me"
+        should_eventually(eq 1) { internal_q.message_count }
+        should_eventually(eq 0) { internal_q.unacked_count }
+
+        client.flow(delivery_count: 4_u32)
+        client.consume_one.should eq "modify-me"
         should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
         client.close
       end

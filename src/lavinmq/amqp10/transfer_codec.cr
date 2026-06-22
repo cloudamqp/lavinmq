@@ -164,17 +164,31 @@ module LavinMQ::AMQP10
       io.flush
     end
 
-    def write_flow(io : IO, channel : UInt16, handle : UInt32, delivery_count : UInt32, link_credit : UInt32) : Nil
-      fields_size = 1 + 1 + 1 + 1 + uint_size(handle) + uint_size(delivery_count) + uint_size(link_credit)
+    def write_flow(io : IO, channel : UInt16, next_incoming_id : UInt32, incoming_window : UInt32,
+                   next_outgoing_id : UInt32, outgoing_window : UInt32, handle : UInt32? = nil,
+                   delivery_count : UInt32? = nil, link_credit : UInt32? = nil) : UInt64
+      fields_size = uint_size(next_incoming_id) + uint_size(incoming_window) +
+                    uint_size(next_outgoing_id) + uint_size(outgoing_window)
+      fields_count = 4
+      if handle
+        fields_size += uint_size(handle) + uint_size(delivery_count || 0_u32) + uint_size(link_credit || 0_u32)
+        fields_count = 7
+      end
       frame_size = 8 + 3 + list_header_size(fields_size) + fields_size
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
       write_descriptor(io, Descriptor::FLOW)
-      write_list_header(io, fields_size, 7)
-      4.times { io.write_byte 0x40_u8 }
-      Codec.write_uint(io, handle)
-      Codec.write_uint(io, delivery_count)
-      Codec.write_uint(io, link_credit)
+      write_list_header(io, fields_size, fields_count)
+      Codec.write_uint(io, next_incoming_id)
+      Codec.write_uint(io, incoming_window)
+      Codec.write_uint(io, next_outgoing_id)
+      Codec.write_uint(io, outgoing_window)
+      if handle
+        Codec.write_uint(io, handle)
+        Codec.write_uint(io, delivery_count || 0_u32)
+        Codec.write_uint(io, link_credit || 0_u32)
+      end
       io.flush
+      frame_size.to_u64
     end
 
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,

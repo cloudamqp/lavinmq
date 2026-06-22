@@ -5,13 +5,22 @@ module LavinMQ::AMQP10
   module Codec
     extend self
 
-    # ameba:disable Metrics/CyclomaticComplexity
+    MAX_DECODE_DEPTH    =     64
+    MAX_COMPOUND_VALUES = 65_536
+
     def decode(reader : SliceReader) : Value
+      decode(reader, 0)
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def decode(reader : SliceReader, depth : Int32) : Value
+      raise DecodeError.new("AMQP 1.0 value nesting too deep") if depth > MAX_DECODE_DEPTH
+
       code = reader.read_byte
       case code
       when 0x00
-        descriptor = decode(reader)
-        value = decode(reader)
+        descriptor = decode(reader, depth + 1)
+        value = decode(reader, depth + 1)
         Value.described(descriptor, value)
       when 0x40
         Value.null
@@ -76,17 +85,17 @@ module LavinMQ::AMQP10
         size = reader.read_u32.to_i
         Value.symbol(String.new(reader.read_slice(size)))
       when 0xc0
-        decode_list8(reader)
+        decode_list8(reader, depth)
       when 0xd0
-        decode_list32(reader)
+        decode_list32(reader, depth)
       when 0xc1
-        decode_map8(reader)
+        decode_map8(reader, depth)
       when 0xd1
-        decode_map32(reader)
+        decode_map32(reader, depth)
       when 0xe0
-        decode_array8(reader)
+        decode_array8(reader, depth)
       when 0xf0
-        decode_array32(reader)
+        decode_array32(reader, depth)
       else
         raise DecodeError.new("unsupported AMQP 1.0 type code 0x#{code.to_s(16)}")
       end
@@ -94,70 +103,104 @@ module LavinMQ::AMQP10
       raise DecodeError.new("truncated AMQP 1.0 value", cause: ex)
     end
 
-    private def decode_list8(reader)
+    private def decode_list8(reader, depth)
       size = reader.read_byte.to_i
       count = reader.read_byte.to_i
-      list_end = reader.pos + size - 1
+      payload = compound_payload_reader(reader, "list8", size, 1, count)
       values = Array(Value).new(count)
-      count.times { values << decode(reader) }
-      reader.skip(list_end - reader.pos) if reader.pos < list_end
+      count.times { values << decode(payload, depth + 1) }
       Value.list(values)
     end
 
-    private def decode_list32(reader)
+    private def decode_list32(reader, depth)
       size = reader.read_u32.to_i
       count = reader.read_u32.to_i
-      list_end = reader.pos + size - 4
+      payload = compound_payload_reader(reader, "list32", size, 4, count)
       values = Array(Value).new(count)
-      count.times { values << decode(reader) }
-      reader.skip(list_end - reader.pos) if reader.pos < list_end
+      count.times { values << decode(payload, depth + 1) }
       Value.list(values)
     end
 
-    private def decode_map8(reader)
+    private def decode_map8(reader, depth)
       size = reader.read_byte.to_i
       count = reader.read_byte.to_i
-      map_end = reader.pos + size - 1
+      payload = compound_payload_reader(reader, "map8", size, 1, count)
+      validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new(count // 2)
       (count // 2).times do
-        pairs << {decode(reader), decode(reader)}
+        pairs << {decode(payload, depth + 1), decode(payload, depth + 1)}
       end
-      reader.skip(map_end - reader.pos) if reader.pos < map_end
       Value.map(pairs)
     end
 
-    private def decode_map32(reader)
+    private def decode_map32(reader, depth)
       size = reader.read_u32.to_i
       count = reader.read_u32.to_i
-      map_end = reader.pos + size - 4
+      payload = compound_payload_reader(reader, "map32", size, 4, count)
+      validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new(count // 2)
       (count // 2).times do
-        pairs << {decode(reader), decode(reader)}
+        pairs << {decode(payload, depth + 1), decode(payload, depth + 1)}
       end
-      reader.skip(map_end - reader.pos) if reader.pos < map_end
       Value.map(pairs)
     end
 
-    private def decode_array8(reader)
+    private def decode_array8(reader, depth)
       size = reader.read_byte.to_i
       count = reader.read_byte.to_i
-      array_end = reader.pos + size - 1
-      constructor = reader.read_byte
+      payload = array_payload_reader(reader, "array8", size, 1, count)
+      return Value.array(Array(Value).new) if count.zero?
+
+      constructor = payload.read_byte
       values = Array(Value).new(count)
-      count.times { values << decode_array_item(reader, constructor) }
-      reader.skip(array_end - reader.pos) if reader.pos < array_end
+      count.times { values << decode_array_item(payload, constructor) }
       Value.array(values)
     end
 
-    private def decode_array32(reader)
+    private def decode_array32(reader, depth)
       size = reader.read_u32.to_i
       count = reader.read_u32.to_i
-      array_end = reader.pos + size - 4
-      constructor = reader.read_byte
+      payload = array_payload_reader(reader, "array32", size, 4, count)
+      return Value.array(Array(Value).new) if count.zero?
+
+      constructor = payload.read_byte
       values = Array(Value).new(count)
-      count.times { values << decode_array_item(reader, constructor) }
-      reader.skip(array_end - reader.pos) if reader.pos < array_end
+      count.times { values << decode_array_item(payload, constructor) }
       Value.array(values)
+    end
+
+    private def compound_payload_reader(reader, type : String, size : Int, count_width : Int32, count : Int) : SliceReader
+      payload_size = validate_compound_header(reader, type, size, count_width, count)
+      if count > payload_size
+        raise DecodeError.new("#{type} count #{count} exceeds payload size #{payload_size}")
+      end
+      SliceReader.new(reader.read_slice(payload_size))
+    end
+
+    private def array_payload_reader(reader, type : String, size : Int, count_width : Int32, count : Int) : SliceReader
+      payload_size = validate_compound_header(reader, type, size, count_width, count)
+      if count > 0 && payload_size < 1
+        raise DecodeError.new("#{type} with values is missing constructor")
+      end
+      SliceReader.new(reader.read_slice(payload_size))
+    end
+
+    private def validate_compound_header(reader, type : String, size : Int, count_width : Int32, count : Int) : Int32
+      if size < count_width
+        raise DecodeError.new("#{type} size #{size} smaller than count field")
+      end
+      if count > MAX_COMPOUND_VALUES
+        raise DecodeError.new("#{type} count #{count} exceeds maximum #{MAX_COMPOUND_VALUES}")
+      end
+      payload_size = size - count_width
+      if payload_size > reader.remaining
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      payload_size
+    end
+
+    private def validate_map_count(count : Int) : Nil
+      raise DecodeError.new("map count #{count} is not even") unless count.even?
     end
 
     private def decode_array_item(reader, constructor : UInt8) : Value
