@@ -527,6 +527,22 @@ describe LavinMQ::Auth::OAuthUser do
       callback_called.should be_true
     end
 
+    it "closes the token-update channel when the watcher exits so a late refresh can't block (#2075)" do
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      # Already-expired token: the watcher fires its timeout immediately and exits.
+      user = OAuthUserHelper.create_user(RoughTime.utc - 1.hour, permissions)
+
+      user.on_expiration { }
+
+      # Once the watcher fiber has exited, the notification channel must be closed,
+      # otherwise refresh's `@token_updated.send` would block the read_loop forever.
+      wait_for { user.@token_updated.closed? }
+
+      expect_raises(Channel::ClosedError) do
+        user.@token_updated.send nil
+      end
+    end
+
     it "stops fiber when user is closed" do
       permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
       # Create user with token that expires in the future
