@@ -43,6 +43,15 @@ private class AMQP10SpecClient
     @io.close
   end
 
+  def expect_no_frame(timeout = 50.milliseconds) : Nil
+    @io.read_timeout = timeout
+    expect_raises(IO::TimeoutError) do
+      @reader.read
+    end
+  ensure
+    @io.read_timeout = 5.seconds
+  end
+
   def attach_sender(address : String?, handle = 0_u32, name = "sender", dynamic = false) : LavinMQ::AMQP10::Attach
     target = LavinMQ::AMQP10::Target.new(address, dynamic: dynamic).to_value
     fields = attach_fields(name, handle, role_receiver: false,
@@ -173,13 +182,26 @@ private class AMQP10SpecClient
   end
 
   def consume_one_delivery(outcome = LavinMQ::AMQP10::Outcome::Accepted)
+    transfer, incoming = read_delivery
+    settle(transfer.delivery_id.not_nil!, outcome)
+    {transfer, incoming}
+  end
+
+  def read_delivery
     frame = @reader.read
     reader = frame.body_reader
     transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
     incoming = LavinMQ::AMQP10::MessageCodec.decode(reader)
-    LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
-      transfer.delivery_id.not_nil!, outcome)
     {transfer, incoming}
+  end
+
+  def settle(delivery_id : UInt32, outcome = LavinMQ::AMQP10::Outcome::Accepted) : Nil
+    LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
+      delivery_id, outcome)
+  end
+
+  def read_detach : LavinMQ::AMQP10::Detach
+    LavinMQ::AMQP10::Detach.from_value(read_value)
   end
 
   def consume_one_fragmented(outcome = LavinMQ::AMQP10::Outcome::Accepted, max_frame_size : UInt32? = nil) : String
@@ -303,6 +325,65 @@ private class AMQP10SpecClient
   end
 end
 
+private class AMQP10PrioritySpecConsumer < LavinMQ::Client::Channel::Consumer
+  getter tag = "amqp10-priority-spec"
+  getter priority = 5
+  getter? exclusive = false
+  getter? no_ack = false
+  getter queue
+  getter has_capacity = BoolChannel.new(true)
+  getter? closed = false
+
+  def initialize(@queue : LavinMQ::AMQP::Queue)
+  end
+
+  def accepts? : Bool
+    !@closed
+  end
+
+  def close
+    return if @closed
+    @closed = true
+    @has_capacity.close
+    @queue.rm_consumer(self)
+  end
+
+  def cancel
+    close
+  end
+
+  def flow(active : Bool)
+  end
+
+  def ack(sp)
+  end
+
+  def reject(sp, requeue = false)
+  end
+
+  def deliver(msg, sp, redelivered = false, recover = false)
+  end
+
+  def unacked
+    0
+  end
+
+  def prefetch_count
+    0_u16
+  end
+
+  def prefetch_count=(value)
+  end
+
+  def unacked_messages
+    [] of UnackedMessage
+  end
+
+  def details_tuple
+    {consumer_tag: @tag}
+  end
+end
+
 private def amqp10_session(server : LavinMQ::Server) : LavinMQ::AMQP10::Session
   wait_for do
     found = nil.as(LavinMQ::AMQP10::Session?)
@@ -386,6 +467,41 @@ describe LavinMQ::AMQP10::MessageCodec do
 
     String.new(incoming.body).should eq "hello world"
   end
+
+  it "decodes UUID message-id and correlation-id properties" do
+    message_id = Bytes[0x12_u8, 0x34_u8, 0x56_u8, 0x78_u8, 0x9a_u8, 0xbc_u8, 0xde_u8, 0xf0_u8,
+      0x12_u8, 0x34_u8, 0x56_u8, 0x78_u8, 0x9a_u8, 0xbc_u8, 0xde_u8, 0xf0_u8]
+    correlation_id = Bytes[0x0f_u8, 0xed_u8, 0xcb_u8, 0xa9_u8, 0x87_u8, 0x65_u8, 0x43_u8, 0x21_u8,
+      0x0f_u8, 0xed_u8, 0xcb_u8, 0xa9_u8, 0x87_u8, 0x65_u8, 0x43_u8, 0x21_u8]
+    payload = IO::Memory.new
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES)
+    payload.write_byte 0xc0_u8
+    payload.write_byte 39_u8
+    payload.write_byte 6_u8
+    payload.write_byte 0x98_u8
+    payload.write message_id
+    4.times { payload.write_byte 0x40_u8 }
+    payload.write_byte 0x98_u8
+    payload.write correlation_id
+
+    incoming = LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+
+    incoming.properties.message_id.should eq "12345678-9abc-def0-1234-56789abcdef0"
+    incoming.properties.correlation_id.should eq "0fedcba9-8765-4321-0fed-cba987654321"
+  end
+
+  it "raises DecodeError for oversized message section lengths" do
+    payload = IO::Memory.new
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    payload.write_byte 0xb0_u8
+    LavinMQ::AMQP10::Codec.write_u32(payload, UInt32::MAX)
+
+    expect_raises(LavinMQ::AMQP10::DecodeError) do
+      LavinMQ::AMQP10::MessageCodec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    end
+  end
 end
 
 describe LavinMQ::AMQP10::Codec do
@@ -414,6 +530,16 @@ describe LavinMQ::AMQP10::Codec do
 
     expect_raises(LavinMQ::AMQP10::DecodeError) do
       LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(payload))
+    end
+  end
+
+  it "raises DecodeError for oversized variable-width values" do
+    payload = IO::Memory.new
+    payload.write_byte 0xb1_u8
+    LavinMQ::AMQP10::Codec.write_u32(payload, UInt32::MAX)
+
+    expect_raises(LavinMQ::AMQP10::DecodeError) do
+      LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
     end
   end
 
@@ -451,6 +577,21 @@ describe LavinMQ::AMQP10::TransferCodec do
     flow.handle.should eq 5_u32
     flow.delivery_count.should eq 6_u32
     flow.link_credit.should eq 7_u32
+  end
+
+  it "raises DecodeError for out-of-range uint fields" do
+    payload = IO::Memory.new
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::TRANSFER)
+    payload.write_byte 0xc0_u8
+    payload.write_byte 10_u8
+    payload.write_byte 1_u8
+    payload.write_byte 0x80_u8
+    LavinMQ::AMQP10::Codec.write_u64(payload, UInt64::MAX)
+
+    expect_raises(LavinMQ::AMQP10::DecodeError) do
+      LavinMQ::AMQP10::TransferCodec.read_transfer(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+    end
   end
 
   it "fragments outgoing transfers to the negotiated frame max" do
@@ -597,6 +738,18 @@ describe LavinMQ::AMQP10 do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s), split_transport_header: true)
       should_eventually(eq "AMQP 1.0") { s.connections.first.details_tuple[:protocol] }
+      client.close
+    end
+  end
+
+  it "tears down idle connections after management close" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s))
+      conn = wait_for { s.connections.first?.as?(LavinMQ::AMQP10::Client) }
+
+      conn.close("spec close", 50.milliseconds)
+
+      should_eventually(eq 0) { s.connections.size }
       client.close
     end
   end
@@ -766,6 +919,123 @@ describe LavinMQ::AMQP10 do
 
         internal_q.delete.should be_true
         should_eventually(be_nil) { s.vhosts["/"].queue?(q.name) }
+        client.close
+      end
+    end
+  end
+
+  it "honors single active consumer for AMQP 1.0 sender links" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new({"x-single-active-consumer" => true})
+        q = ch.queue("amqp10-sac", auto_delete: true, args: args)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("one")
+        q.publish("two")
+        first = AMQP10SpecClient.new(amqp_port(s))
+        second = AMQP10SpecClient.new(amqp_port(s))
+        first.attach_receiver("/queues/#{q.name}")
+        second.attach_receiver("/queues/#{q.name}")
+
+        first.flow(credit: 1_u32)
+        second.flow(credit: 1_u32)
+        first.consume_one.should eq "one"
+        second.expect_no_frame
+        internal_q.message_count.should eq 1
+        first.detach
+
+        second.consume_one.should eq "two"
+        first.close
+        second.close
+      end
+    end
+  end
+
+  it "does not deliver from paused queues to AMQP 1.0 sender links" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-paused", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        internal_q.pause!
+        q.publish("paused")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+
+        client.expect_no_frame
+        internal_q.unacked_count.should eq 0
+        internal_q.resume!
+
+        client.consume_one.should eq "paused"
+        client.close
+      end
+    end
+  end
+
+  it "waits behind higher priority consumers for AMQP 1.0 sender links" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-priority", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        higher_priority = AMQP10PrioritySpecConsumer.new(internal_q)
+        internal_q.add_consumer(higher_priority)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+        q.publish("priority")
+
+        client.expect_no_frame
+        internal_q.message_count.should eq 1
+        internal_q.unacked_count.should eq 0
+        higher_priority.close
+
+        client.consume_one.should eq "priority"
+        client.close
+      end
+    end
+  end
+
+  it "does not deliver to AMQP 1.0 sender links while vhost flow is stopped" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-server-flow", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("flow")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        s.flow(false)
+        client.flow
+
+        client.expect_no_frame
+        internal_q.unacked_count.should eq 0
+        s.flow(true)
+
+        client.consume_one.should eq "flow"
+        client.close
+      ensure
+        s.flow(true)
+      end
+    end
+  end
+
+  it "detaches AMQP 1.0 sender links on consumer timeout" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new({"x-consumer-timeout" => 100})
+        q = ch.queue("amqp10-consumer-timeout", auto_delete: true, args: args)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("timeout")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+
+        _transfer, incoming = client.read_delivery
+        String.new(incoming.body).should eq "timeout"
+        detach = client.read_detach
+
+        detach.closed.should be_true
+        should_eventually(eq 1) { internal_q.message_count }
+        should_eventually(eq 0) { internal_q.unacked_count }
         client.close
       end
     end

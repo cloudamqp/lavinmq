@@ -94,7 +94,7 @@ module LavinMQ::AMQP10
       when 0xa0
         reader.read_slice(reader.read_byte.to_i)
       when 0xb0
-        reader.read_slice(reader.read_u32.to_i)
+        reader.read_slice(read_size32(reader, "binary32"))
       when 0x40
         EMPTY_BODY
       else
@@ -109,7 +109,7 @@ module LavinMQ::AMQP10
       when 0xa1, 0xa3
         String.new(reader.read_slice(reader.read_byte.to_i))
       when 0xb1, 0xb3
-        String.new(reader.read_slice(reader.read_u32.to_i))
+        String.new(reader.read_slice(read_size32(reader, "string32")))
       else
         skip_value_payload(reader, code)
         nil
@@ -123,7 +123,7 @@ module LavinMQ::AMQP10
       when 0xa0, 0xa1, 0xa3
         reader.read_slice(reader.read_byte.to_i)
       when 0xb0, 0xb1, 0xb3
-        reader.read_slice(reader.read_u32.to_i)
+        reader.read_slice(read_size32(reader, "value32"))
       else
         skip_value_payload(reader, code)
         EMPTY_BODY
@@ -190,9 +190,9 @@ module LavinMQ::AMQP10
       when 0x82       then reader.read_f64
       when 0x83       then Time.unix_ms(reader.read_i64)
       when 0xa0       then reader.read_slice(reader.read_byte.to_i)
-      when 0xb0       then reader.read_slice(reader.read_u32.to_i)
+      when 0xb0       then reader.read_slice(read_size32(reader, "binary32"))
       when 0xa1, 0xa3 then String.new(reader.read_slice(reader.read_byte.to_i))
-      when 0xb1, 0xb3 then String.new(reader.read_slice(reader.read_u32.to_i))
+      when 0xb1, 0xb3 then String.new(reader.read_slice(read_size32(reader, "string32")))
       else
         skip_value_payload(reader, code)
         nil
@@ -250,7 +250,7 @@ module LavinMQ::AMQP10
       when 0xa1, 0xa3
         String.new(reader.read_slice(reader.read_byte.to_i))
       when 0xb1, 0xb3
-        String.new(reader.read_slice(reader.read_u32.to_i))
+        String.new(reader.read_slice(read_size32(reader, "string32")))
       when 0x43
         "0"
       when 0x52
@@ -266,7 +266,9 @@ module LavinMQ::AMQP10
       when 0xa0
         String.new(reader.read_slice(reader.read_byte.to_i))
       when 0xb0
-        String.new(reader.read_slice(reader.read_u32.to_i))
+        String.new(reader.read_slice(read_size32(reader, "binary32")))
+      when 0x98
+        read_uuid_value(reader)
       else
         skip_value_payload(reader, code)
         nil
@@ -339,11 +341,11 @@ module LavinMQ::AMQP10
       when 0xa0, 0xa1, 0xa3
         reader.skip(reader.read_byte.to_i)
       when 0xb0, 0xb1, 0xb3
-        reader.skip(reader.read_u32.to_i)
+        reader.skip(read_size32(reader, "value32"))
       when 0xc0, 0xc1, 0xe0
         reader.skip(reader.read_byte.to_i)
       when 0xd0, 0xd1, 0xf0
-        reader.skip(reader.read_u32.to_i)
+        reader.skip(read_size32(reader, "compound32"))
       else
         raise DecodeError.new("unsupported value 0x#{code.to_s(16)}")
       end
@@ -358,9 +360,7 @@ module LavinMQ::AMQP10
         count = reader.read_byte.to_i
         {count, reader.pos + size - 1}
       when 0xd0
-        size = reader.read_u32.to_i
-        count = reader.read_u32.to_i
-        {count, reader.pos + size - 4}
+        read_compound32_header(reader, "list32")
       else
         raise DecodeError.new("expected list, got 0x#{code.to_s(16)}")
       end
@@ -373,11 +373,43 @@ module LavinMQ::AMQP10
         count = reader.read_byte.to_i
         {count, reader.pos + size - 1}
       when 0xd1
-        size = reader.read_u32.to_i
-        count = reader.read_u32.to_i
-        {count, reader.pos + size - 4}
+        read_compound32_header(reader, "map32")
       else
         raise DecodeError.new("expected map, got 0x#{code.to_s(16)}")
+      end
+    end
+
+    private def read_size32(reader : SliceReader, type : String) : Int32
+      size = reader.read_u32
+      if size > reader.remaining.to_u32
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      size.to_i
+    end
+
+    private def read_compound32_header(reader : SliceReader, type : String) : Tuple(Int32, Int32)
+      size = reader.read_u32
+      count = reader.read_u32
+      if size < 4
+        raise DecodeError.new("#{type} size #{size} smaller than count field")
+      end
+      payload_size = size - 4
+      if payload_size > reader.remaining.to_u32
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      if count > payload_size
+        raise DecodeError.new("#{type} count #{count} exceeds payload size #{payload_size}")
+      end
+      {count.to_i, reader.pos + payload_size.to_i}
+    end
+
+    private def read_uuid_value(reader : SliceReader) : String
+      bytes = reader.read_slice(16)
+      String.build(36) do |io|
+        bytes.each_with_index do |byte, index|
+          io << '-' if index.in?(4, 6, 8, 10)
+          io << byte.to_s(16).rjust(2, '0')
+        end
       end
     end
   end

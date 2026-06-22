@@ -38,13 +38,13 @@ module LavinMQ::AMQP10
       while index < count
         case index
         when 0
-          handle = MessageCodec.read_uint_value(reader).to_u32
+          handle = read_uint32_value(reader, "transfer handle")
         when 1
-          delivery_id = read_optional_uint(reader)
+          delivery_id = read_optional_uint(reader, "transfer delivery-id")
         when 2
           delivery_tag = read_optional_binary(reader)
         when 3
-          message_format = read_optional_uint(reader)
+          message_format = read_optional_uint(reader, "transfer message-format")
         when 4
           settled = read_optional_bool(reader) || false
         when 5
@@ -78,9 +78,9 @@ module LavinMQ::AMQP10
         when 0
           role = MessageCodec.read_bool_value(reader) ? Role::Receiver : Role::Sender
         when 1
-          first = MessageCodec.read_uint_value(reader).to_u32
+          first = read_uint32_value(reader, "disposition first")
         when 2
-          last = read_optional_uint(reader)
+          last = read_optional_uint(reader, "disposition last")
         when 3
           settled = read_optional_bool(reader) || false
         when 4
@@ -98,9 +98,17 @@ module LavinMQ::AMQP10
       DispositionView.new(role_value, first_value, last, settled, outcome)
     end
 
-    private def read_optional_uint(reader) : UInt32?
+    private def read_optional_uint(reader, field : String) : UInt32?
       return nil if peek_null(reader)
-      MessageCodec.read_uint_value(reader).to_u32
+      read_uint32_value(reader, field)
+    end
+
+    private def read_uint32_value(reader, field : String) : UInt32
+      value = MessageCodec.read_uint_value(reader)
+      if value > UInt32::MAX
+        raise DecodeError.new("#{field} #{value} exceeds uint range")
+      end
+      value.to_u32
     end
 
     private def read_optional_bool(reader) : Bool?

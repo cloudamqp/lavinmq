@@ -184,11 +184,12 @@ module LavinMQ::AMQP10
         @credit > 0
       end
       @credit_available.set(has_credit)
+      set_consumer_capacity(has_credit)
       ensure_deliver_loop
     end
 
     def accepts? : Bool
-      !closed? && credit > 0
+      !closed? && @session.client.vhost.flow? && credit > 0
     end
 
     def ensure_deliver_loop
@@ -198,14 +199,24 @@ module LavinMQ::AMQP10
     end
 
     private def deliver_loop
+      wait_for_single_active_consumer
       loop do
         wait_for_credit
-        wait_for_queue
-        break if closed?
+        loop do
+          raise ClosedError.new if closed?
+          next if wait_for_priority_consumers
+          wait_for_queue
+          raise ClosedError.new if closed?
+          next if wait_for_paused_queue
+          next if wait_for_flow
+          break
+        end
         delivered = @queue.consume_get(false) do |env|
           delivery_id = @session.next_delivery_id
           increment_delivery_count
-          @credit_available.set(decrement_credit)
+          has_credit = decrement_credit
+          @credit_available.set(has_credit)
+          set_consumer_capacity(has_credit)
           IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, @delivery_tag)
           @unack_lock.synchronize do
             @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
@@ -216,15 +227,53 @@ module LavinMQ::AMQP10
           @session.increment_deliver_count(env.redelivered)
         end
         unless delivered
-          @credit_available.set(credit > 0)
+          has_credit = credit > 0
+          @credit_available.set(has_credit)
+          set_consumer_capacity(has_credit)
           Fiber.yield
         end
       end
-    rescue ex : LavinMQ::AMQP::Queue::ClosedError | IO::Error | ::Channel::ClosedError
+    rescue ex : ClosedError | LavinMQ::AMQP::Queue::ClosedError | IO::Error | ::Channel::ClosedError
       @session.client.@log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
     ensure
       @deliver_loop_running.set(false, :release)
       ensure_deliver_loop if !closed? && credit > 0 && !@queue.empty?
+    end
+
+    private def wait_for_single_active_consumer
+      active = @queue.single_active_consumer
+      return if active.nil? || active == @consumer
+      loop do
+        select
+        when sac = @queue.single_active_consumer_change.receive
+          break if sac == @consumer
+        when @closed_channel.receive
+          raise ClosedError.new
+        end
+      end
+      true
+    end
+
+    private def wait_for_priority_consumers
+      # Single-active-consumer queues choose exactly one consumer instead of using priorities.
+      if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
+        priority = @consumer.try(&.priority) || 0
+        higher_prio_consumers = @queue.consumers.select { |c| c.priority > priority }
+        return false unless higher_prio_consumers.any? &.accepts?
+        loop do
+          wait_channels = Array(::Channel(Nil)).new(higher_prio_consumers.size + 1)
+          higher_prio_consumers.each { |consumer| wait_channels << consumer.has_capacity.when_false }
+          wait_channels << @closed_channel
+          ::Channel.receive_first(wait_channels)
+          raise ClosedError.new if closed?
+          break
+        rescue ::Channel::ClosedError
+          raise ClosedError.new if closed?
+          higher_prio_consumers = @queue.consumers.select { |c| c.priority > priority }
+          break if higher_prio_consumers.empty?
+        end
+        return true
+      end
     end
 
     private def wait_for_credit
@@ -245,11 +294,51 @@ module LavinMQ::AMQP10
       end
     end
 
+    private def wait_for_paused_queue
+      if @queue.state.paused?
+        select
+        when @queue.paused.when_false.receive
+        when @closed_channel.receive
+          raise ClosedError.new
+        end
+        return true
+      end
+    end
+
+    private def wait_for_flow
+      unless @session.client.vhost.flow?
+        select
+        when @session.client.vhost.flow_change.when_true.receive
+        when @closed_channel.receive
+          raise ClosedError.new
+        end
+        return true
+      end
+    end
+
     private def decrement_credit : Bool
       @credit_lock.synchronize do
         @credit &-= 1 if @credit > 0
         @credit > 0
       end
+    end
+
+    def timed_out? : Bool
+      @unack_lock.synchronize do
+        unack = @unacked.first?
+        return false unless unack
+        timeout = unack.queue.consumer_timeout
+        return false unless timeout
+        RoughTime.instant - unack.delivered_at > timeout.milliseconds
+      end
+    end
+
+    def unacked : Int32
+      @unack_lock.synchronize { @unacked.size }
+    end
+
+    private def set_consumer_capacity(has_capacity : Bool) : Nil
+      @consumer.try &.has_capacity.set(has_capacity)
     end
 
     def settle(first : UInt32, last : UInt32, outcome : Outcome) : Nil
@@ -273,21 +362,24 @@ module LavinMQ::AMQP10
         end
       end
       @credit_available.set(credit > 0) if found
+      set_consumer_capacity(credit > 0) if found
     end
 
     def close : Nil
       return unless close_once
       @credit_available.close
       @closed_channel.close
-      @consumer.try &.close
       @unack_lock.synchronize do
         @unacked.each do |unack|
           unack.queue.reject(unack.sp, requeue: true)
         end
         @unacked.clear
       end
+      @consumer.try &.close
       close_dynamic_queue
     end
+
+    class ClosedError < Error; end
   end
 
   class Consumer < LavinMQ::Client::Channel::Consumer
@@ -316,6 +408,7 @@ module LavinMQ::AMQP10
     def close
       return if @closed
       @closed = true
+      @has_capacity.close
       @queue.rm_consumer(self)
     end
 
@@ -333,7 +426,7 @@ module LavinMQ::AMQP10
     end
 
     def unacked
-      0
+      @link.unacked
     end
 
     def prefetch_count=(value)
@@ -431,6 +524,15 @@ module LavinMQ::AMQP10
     end
 
     def check_consumer_timeout
+      @sender_links.dup.each do |link|
+        next unless link.timed_out?
+        @links.delete(link.remote_handle)
+        @sender_links.delete(link)
+        @client.send_detach(self, link.local_handle, true,
+          ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, "consumer timeout"))
+        link.close
+        break
+      end
     end
 
     def attach(frame : Attach) : Nil
@@ -512,6 +614,9 @@ module LavinMQ::AMQP10
     end
 
     def flow(active : Bool)
+      @sender_links.each do |link|
+        link.consumer.try &.flow(active)
+      end
     end
 
     def transfer(transfer : TransferCodec::TransferView, payload : Bytes) : Nil

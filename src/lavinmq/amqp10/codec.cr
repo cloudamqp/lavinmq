@@ -70,19 +70,19 @@ module LavinMQ::AMQP10
         size = reader.read_byte.to_i
         Value.binary(reader.read_slice(size))
       when 0xb0
-        size = reader.read_u32.to_i
+        size = read_size32(reader, "binary32")
         Value.binary(reader.read_slice(size))
       when 0xa1
         size = reader.read_byte.to_i
         Value.string(String.new(reader.read_slice(size)))
       when 0xb1
-        size = reader.read_u32.to_i
+        size = read_size32(reader, "string32")
         Value.string(String.new(reader.read_slice(size)))
       when 0xa3
         size = reader.read_byte.to_i
         Value.symbol(String.new(reader.read_slice(size)))
       when 0xb3
-        size = reader.read_u32.to_i
+        size = read_size32(reader, "symbol32")
         Value.symbol(String.new(reader.read_slice(size)))
       when 0xc0
         decode_list8(reader, depth)
@@ -113,10 +113,10 @@ module LavinMQ::AMQP10
     end
 
     private def decode_list32(reader, depth)
-      size = reader.read_u32.to_i
-      count = reader.read_u32.to_i
+      size = reader.read_u32
+      count = reader.read_u32
       payload = compound_payload_reader(reader, "list32", size, 4, count)
-      values = Array(Value).new(count)
+      values = Array(Value).new(count.to_i)
       count.times { values << decode(payload, depth + 1) }
       Value.list(values)
     end
@@ -134,11 +134,11 @@ module LavinMQ::AMQP10
     end
 
     private def decode_map32(reader, depth)
-      size = reader.read_u32.to_i
-      count = reader.read_u32.to_i
+      size = reader.read_u32
+      count = reader.read_u32
       payload = compound_payload_reader(reader, "map32", size, 4, count)
       validate_map_count(count)
-      pairs = Array(Tuple(Value, Value)).new(count // 2)
+      pairs = Array(Tuple(Value, Value)).new((count // 2).to_i)
       (count // 2).times do
         pairs << {decode(payload, depth + 1), decode(payload, depth + 1)}
       end
@@ -158,18 +158,18 @@ module LavinMQ::AMQP10
     end
 
     private def decode_array32(reader, depth)
-      size = reader.read_u32.to_i
-      count = reader.read_u32.to_i
+      size = reader.read_u32
+      count = reader.read_u32
       payload = array_payload_reader(reader, "array32", size, 4, count)
       return Value.array(Array(Value).new) if count.zero?
 
       constructor = payload.read_byte
-      values = Array(Value).new(count)
+      values = Array(Value).new(count.to_i)
       count.times { values << decode_array_item(payload, constructor) }
       Value.array(values)
     end
 
-    private def compound_payload_reader(reader, type : String, size : Int, count_width : Int32, count : Int) : SliceReader
+    private def compound_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : SliceReader
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > payload_size
         raise DecodeError.new("#{type} count #{count} exceeds payload size #{payload_size}")
@@ -177,7 +177,7 @@ module LavinMQ::AMQP10
       SliceReader.new(reader.read_slice(payload_size))
     end
 
-    private def array_payload_reader(reader, type : String, size : Int, count_width : Int32, count : Int) : SliceReader
+    private def array_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : SliceReader
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > 0 && payload_size < 1
         raise DecodeError.new("#{type} with values is missing constructor")
@@ -185,7 +185,7 @@ module LavinMQ::AMQP10
       SliceReader.new(reader.read_slice(payload_size))
     end
 
-    private def validate_compound_header(reader, type : String, size : Int, count_width : Int32, count : Int) : Int32
+    private def validate_compound_header(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : Int32
       if size < count_width
         raise DecodeError.new("#{type} size #{size} smaller than count field")
       end
@@ -196,11 +196,19 @@ module LavinMQ::AMQP10
       if payload_size > reader.remaining
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
-      payload_size
+      payload_size.to_i
     end
 
-    private def validate_map_count(count : Int) : Nil
+    private def validate_map_count(count : Int | UInt32) : Nil
       raise DecodeError.new("map count #{count} is not even") unless count.even?
+    end
+
+    private def read_size32(reader : SliceReader, type : String) : Int32
+      size = reader.read_u32
+      if size > reader.remaining.to_u32
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      size.to_i
     end
 
     private def decode_array_item(reader, constructor : UInt8) : Value
@@ -209,7 +217,7 @@ module LavinMQ::AMQP10
         size = reader.read_byte.to_i
         Value.symbol(String.new(reader.read_slice(size)))
       when 0xb3
-        size = reader.read_u32.to_i
+        size = read_size32(reader, "symbol32")
         Value.symbol(String.new(reader.read_slice(size)))
       when 0x70
         Value.uint(reader.read_u32)
