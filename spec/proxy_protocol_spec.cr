@@ -147,6 +147,15 @@ describe "ProxyProtocol" do
       conn_info = LavinMQ::ProxyProtocol.parse(r)
       conn_info.should be_nil
     end
+
+    it "times out on the initial peek when the peer sends nothing" do
+      r, _w = IO.pipe
+      expect_raises(IO::TimeoutError) do
+        LavinMQ::ProxyProtocol.parse(r, timeout: 100.milliseconds)
+      end
+      # read_timeout must be reset so it doesn't leak into the connection handler
+      r.read_timeout.should be_nil
+    end
   end
 
   describe "trusted sources" do

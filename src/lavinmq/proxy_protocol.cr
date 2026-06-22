@@ -14,7 +14,13 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
-    def self.parse(io : IO) : ConnectionInfo?
+    # Bound how long a pre-auth connection may keep the accept fiber (and its FD)
+    # parked while we wait for the first bytes. Without this the initial peek
+    # blocks forever on a peer that completes the handshake but sends nothing.
+    HANDSHAKE_TIMEOUT = 15.seconds
+
+    def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
+      io.read_timeout = timeout
       peeked = io.peek
       if peeked.size >= 5 && peeked[0, 5] == "PROXY".to_slice
         ProxyProtocol::V1.parse(io)
@@ -23,6 +29,8 @@ module LavinMQ
       else
         nil
       end
+    ensure
+      io.read_timeout = nil
     end
 
     struct V1
@@ -31,7 +39,7 @@ module LavinMQ
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        io.read_timeout = HANDSHAKE_TIMEOUT
         header = io.gets('\n', 107) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
@@ -105,7 +113,7 @@ module LavinMQ
       end
 
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        io.read_timeout = HANDSHAKE_TIMEOUT
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
