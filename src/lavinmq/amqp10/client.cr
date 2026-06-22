@@ -367,7 +367,16 @@ module LavinMQ::AMQP10
 
     def close(reason = "Connection closed", timeout : Time::Span = 5.seconds)
       @log.info { "Closing AMQP 1.0 connection: #{reason}" }
+      socket = @socket
+      if socket.responds_to?(:"write_timeout=")
+        socket.write_timeout = timeout
+        socket.read_timeout = timeout
+      end
       send_close(ErrorInfo.new(ErrorCondition::INTERNAL_ERROR, reason)) unless closed?
+      spawn(name: "AMQP10::Client#close timeout #{@connection_info.remote_address}") do
+        sleep timeout
+        close_socket
+      end
     end
 
     def force_close
