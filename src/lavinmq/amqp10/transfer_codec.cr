@@ -178,22 +178,101 @@ module LavinMQ::AMQP10
     end
 
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
-                       delivery_tag : Bytes, msg : BytesMessage, more = false) : Nil
-      transfer_size = transfer_performative_size(handle, delivery_id, delivery_tag, more)
-      properties_size = properties_section_size(msg.properties)
-      application_properties_size = application_properties_section_size(msg.properties.headers)
-      data_header_size = 3 + binary_header_size(msg.bodysize)
-      frame_size = 8_u64 + transfer_size + properties_size + application_properties_size + data_header_size + msg.bodysize
-      raise ProtocolError.new("message too large for AMQP 1.0 frame") if frame_size > UInt32::MAX
+                       delivery_tag : Bytes, msg : BytesMessage, max_frame_size = UInt32::MAX) : UInt64
+      if msg.bodysize > UInt32::MAX
+        raise ProtocolError.new("message too large for AMQP 1.0 data section")
+      end
 
-      FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
-      write_transfer_performative(io, handle, delivery_id, delivery_tag, more)
+      prefix = message_sections_prefix(msg)
+      message_size = prefix.bytesize.to_u64 + msg.bodysize
+      max = effective_max_frame_size(max_frame_size)
+      transfer_size = transfer_performative_size(handle, delivery_id, delivery_tag, false)
+      frame_size = 8_u64 + transfer_size.to_u64 + message_size
+
+      if frame_size <= max
+        FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
+        write_transfer_performative(io, handle, delivery_id, delivery_tag, false)
+        io.write prefix
+        io.write msg.body
+        io.flush
+        return frame_size
+      end
+
+      write_fragmented_transfer(io, channel, handle, delivery_id, delivery_tag, prefix, msg.body, max)
+    end
+
+    private def message_sections_prefix(msg : BytesMessage) : Bytes
+      io = IO::Memory.new
       write_properties_section(io, msg.properties)
       write_application_properties_section(io, msg.properties.headers)
       write_descriptor(io, Descriptor::DATA)
       write_binary_header(io, msg.bodysize)
-      io.write msg.body
+      io.to_slice
+    end
+
+    private def write_fragmented_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
+                                          delivery_tag : Bytes, prefix : Bytes, body : Bytes, max : UInt64) : UInt64
+      prefix_offset = 0
+      body_offset = 0
+      first = true
+      written = 0_u64
+
+      loop do
+        remaining = prefix.bytesize - prefix_offset + body.bytesize - body_offset
+        break if remaining <= 0
+
+        more = true
+        transfer_size = if first
+                          transfer_performative_size(handle, delivery_id, delivery_tag, true)
+                        else
+                          final_size = continuation_transfer_performative_size(handle, false)
+                          if 8_u64 + final_size.to_u64 + remaining.to_u64 <= max
+                            more = false
+                            final_size
+                          else
+                            continuation_transfer_performative_size(handle, true)
+                          end
+                        end
+        overhead = 8_u64 + transfer_size.to_u64
+        if overhead >= max
+          raise ProtocolError.new("max-frame-size too small for AMQP 1.0 transfer")
+        end
+        chunk_size = Math.min(remaining, (max - overhead).to_i)
+        frame_size = overhead + chunk_size.to_u64
+
+        FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
+        if first
+          write_transfer_performative(io, handle, delivery_id, delivery_tag, true)
+          first = false
+        else
+          write_continuation_transfer_performative(io, handle, more)
+        end
+        prefix_offset, body_offset = write_message_bytes(io, prefix, prefix_offset, body, body_offset, chunk_size)
+        written += frame_size
+      end
+
       io.flush
+      written
+    end
+
+    private def write_message_bytes(io, prefix, prefix_offset, body, body_offset, count)
+      remaining = count
+      if prefix_offset < prefix.bytesize
+        prefix_count = Math.min(remaining, prefix.bytesize - prefix_offset)
+        io.write prefix[prefix_offset, prefix_count]
+        prefix_offset += prefix_count
+        remaining -= prefix_count
+      end
+      if remaining > 0
+        io.write body[body_offset, remaining]
+        body_offset += remaining
+      end
+      {prefix_offset, body_offset}
+    end
+
+    private def effective_max_frame_size(max_frame_size : UInt32) : UInt64
+      return UInt32::MAX.to_u64 if max_frame_size.zero?
+      Math.max(max_frame_size, MIN_MAX_FRAME_SIZE).to_u64
     end
 
     def write_transfer_performative(io, handle, delivery_id, delivery_tag, more) : Nil
@@ -218,18 +297,23 @@ module LavinMQ::AMQP10
       3 + list_header_size(fields_size) + fields_size
     end
 
-    private def properties_section_size(props) : Int32
-      count = properties_field_count(props)
-      return 0 if count.zero?
-      fields_size = properties_fields_size(props, count)
-      3 + list_header_size(fields_size) + fields_size
+    private def write_continuation_transfer_performative(io, handle, more) : Nil
+      fields_count = more ? 6 : 1
+      fields_size = uint_size(handle)
+      fields_size += 5 if more
+      write_descriptor(io, Descriptor::TRANSFER)
+      write_list_header(io, fields_size, fields_count)
+      Codec.write_uint(io, handle)
+      if more
+        4.times { io.write_byte 0x40_u8 }
+        io.write_byte 0x41_u8
+      end
     end
 
-    private def application_properties_section_size(headers : LavinMQ::AMQP::Table?) : Int32
-      return 0 unless headers
-      return 0 if headers.empty?
-      fields_size = application_properties_fields_size(headers)
-      3 + compound_header_size(fields_size, headers.size * 2) + fields_size
+    private def continuation_transfer_performative_size(handle, more) : Int32
+      fields_size = uint_size(handle)
+      fields_size += 5 if more
+      3 + list_header_size(fields_size) + fields_size
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -254,7 +338,7 @@ module LavinMQ::AMQP10
         when 9
           if ts = props.timestamp_raw
             io.write_byte 0x83_u8
-            Codec.write_i64(io, ts)
+            Codec.write_i64(io, ts * 1000_i64)
           else
             io.write_byte 0x40_u8
           end
@@ -338,10 +422,6 @@ module LavinMQ::AMQP10
 
     private def list_header_size(fields_size) : Int32
       fields_size + 1 <= UInt8::MAX ? 3 : 9
-    end
-
-    private def compound_header_size(fields_size, count) : Int32
-      fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX ? 3 : 9
     end
 
     private def uint_size(value) : Int32
