@@ -3,6 +3,8 @@ module LavinMQ
     abstract class Cache(T)
       abstract def contains?(key : T) : Bool
       abstract def insert(key : T, ttl : UInt32?)
+      abstract def delete(key : T)
+      abstract def clear
     end
 
     class MemoryCache(T) < Cache(T)
@@ -30,6 +32,46 @@ module LavinMQ
           @store[key] = val
         end
       end
+
+      def delete(key : T)
+        @lock.synchronize { @store.delete(key) }
+      end
+
+      def clear
+        @lock.synchronize { @store.clear }
+      end
+    end
+
+    # Cache whose membership mirrors the messages currently in a queue.
+    # Unlike MemoryCache it has no TTL or size bound: a key is present exactly
+    # while a message bearing it is in the queue, and is removed (#delete) when
+    # that message leaves. The +ttl+ argument is ignored.
+    class SetCache(T) < Cache(T)
+      def initialize
+        @store = Set(T).new
+      end
+
+      def contains?(key : T) : Bool
+        @store.includes?(key)
+      end
+
+      def insert(key : T, ttl : UInt32? = nil)
+        @store.add(key)
+      end
+
+      # Atomically insert the key, returning true if it was newly added and
+      # false if it was already present (i.e. a duplicate).
+      def insert?(key : T, ttl : UInt32? = nil) : Bool
+        @store.add?(key)
+      end
+
+      def delete(key : T)
+        @store.delete(key)
+      end
+
+      def clear
+        @store.clear
+      end
     end
 
     class Deduper
@@ -51,7 +93,7 @@ module LavinMQ
         @cache.contains?(key)
       end
 
-      private def dedup_key(msg)
+      def dedup_key(msg)
         headers = msg.properties.headers
         return unless headers
         key = @header_key || DEFAULT_HEADER_KEY
