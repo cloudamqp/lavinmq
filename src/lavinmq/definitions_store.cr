@@ -193,7 +193,7 @@ module LavinMQ
     end
 
     def queue_bindings(queue : Queue)
-      default_binding = AMQP::BindingDetails.new("", @vhost.name, BindingKey.new(queue.name), queue)
+      default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end

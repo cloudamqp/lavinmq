@@ -1,4 +1,4 @@
-require "../binding_key"
+require "./subscription_key"
 require "../sortable_json"
 require "./session"
 
@@ -12,7 +12,7 @@ module LavinMQ
       getter source, vhost, binding_key, destination
 
       def initialize(@source : String, @vhost : String,
-                     @binding_key : LavinMQ::BindingKey, @destination : MQTT::Session)
+                     @binding_key : SubscriptionKey, @destination : MQTT::Session)
       end
 
       def arguments

@@ -1,5 +1,5 @@
 require "../../amqp"
-require "../../binding_key"
+require "../binding_key"
 require "../binding_details"
 require "../destination"
 require "../../error"

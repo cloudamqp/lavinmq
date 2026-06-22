@@ -36,7 +36,7 @@ module LavinMQ
             arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
             e.bindings_details.each { |db| arr << db if db.destination == q }
             if e.name.empty?
-              binding_key = BindingKey.new(q.name)
+              binding_key = AMQP::BindingKey.new(q.name)
               arr.unshift(AMQP::BindingDetails.new("", q.vhost.name, binding_key, q))
             end
             page(context, arr)
@@ -64,7 +64,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            props = BindingKey.new(routing_key, arguments).properties_key
+            props = AMQP::BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             Log.debug do
@@ -148,7 +148,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            props = BindingKey.new(routing_key, arguments).properties_key
+            props = AMQP::BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end
