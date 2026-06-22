@@ -258,6 +258,39 @@ describe "LavinMQCtl raft_*" do
       end
     end
 
+    it "refuses with a --force hint (not a generic abort) when the local control socket is absent (#4)" do
+      data_dir = File.tempname("raft-reset-nosock-spec")
+      begin
+        Dir.mkdir_p(File.join(data_dir, "raft"))
+        File.write(File.join(data_dir, "raft", "raft_meta"), "fake meta")
+        File.write(File.join(data_dir, ".clustering_id"), "1")
+        missing_sock = File.join(data_dir, "absent.sock")
+
+        stdout = IO::Memory.new
+        original_argv = ARGV.dup
+        begin
+          ARGV.clear
+          # Default unix-socket path (no --uri) pointing at a socket that does
+          # not exist: a stopped node must fail closed with an actionable
+          # message and a clean CtlExit, not `connect`'s "Is LavinMQ running?"
+          # process exit that bypasses the safety message entirely.
+          ARGV.concat(["--control-unix-path=#{missing_sock}", "raft_reset", "--data-dir=#{data_dir}"])
+          cli = LavinMQCtl.new(stdout)
+          expect_raises(LavinMQCtl::CtlExit) do
+            cli.run_cmd
+          end
+        ensure
+          ARGV.clear
+          ARGV.concat(original_argv)
+        end
+
+        Dir.exists?(File.join(data_dir, "raft")).should be_true
+        stdout.to_s.should contain("--force")
+      ensure
+        FileUtils.rm_rf(data_dir)
+      end
+    end
+
     it "refuses without --force when /raft/status omits the peer list" do
       stub = HTTP::Server.new do |context|
         context.response.status_code = 200
