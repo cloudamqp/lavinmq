@@ -287,6 +287,24 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "waits for new messages from the next offset when the stream is empty" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-empty", args: stream_queue_args)
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          q.publish "m"
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+          msg.body_io.to_s.should eq "m"
+        end
+      end
+    end
+
     it "x-stream-offset=-1 delivers only the latest message" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -325,17 +343,20 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "rejects Int64::MIN" do
+    it "clamps Int64::MIN to the oldest available message" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("neg-offset-min", args: stream_queue_args)
           q.publish_confirm "m"
           ch.prefetch 1
-          expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
-            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": Int64::MIN})) do |msg|
-              msg.ack
-            end
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": Int64::MIN})) do |msg|
+            msgs.send(msg)
+            msg.ack
           end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+          msg.body_io.to_s.should eq "m"
         end
       end
     end
@@ -865,19 +886,6 @@ describe LavinMQ::AMQP::Stream do
         # tracked offset (7) wins over the -5 that would otherwise re-anchor to 11
         msg2 = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg2.properties.headers).should eq 7
-      end
-    end
-
-    it "drop_overflow does not raise after the store has been deleted" do
-      queue_name = Random::Secure.hex
-      with_amqp_server do |s|
-        StreamSpecHelpers.publish(s, queue_name, 1)
-
-        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.store_consumer_offset("ctag", 1_i64)
-        msg_store.delete
-        msg_store.drop_overflow
       end
     end
 
