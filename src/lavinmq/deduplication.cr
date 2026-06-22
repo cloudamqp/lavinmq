@@ -48,29 +48,30 @@ module LavinMQ
     # that message leaves. The +ttl+ argument is ignored.
     class SetCache(T) < Cache(T)
       def initialize
+        @lock = Mutex.new
         @store = Set(T).new
       end
 
       def contains?(key : T) : Bool
-        @store.includes?(key)
+        @lock.synchronize { @store.includes?(key) }
       end
 
       def insert(key : T, ttl : UInt32? = nil)
-        @store.add(key)
+        @lock.synchronize { @store.add(key) }
       end
 
       # Atomically insert the key, returning true if it was newly added and
       # false if it was already present (i.e. a duplicate).
       def insert?(key : T, ttl : UInt32? = nil) : Bool
-        @store.add?(key)
+        @lock.synchronize { @store.add?(key) }
       end
 
       def delete(key : T)
-        @store.delete(key)
+        @lock.synchronize { @store.delete(key) }
       end
 
       def clear
-        @store.clear
+        @lock.synchronize { @store.clear }
       end
     end
 
