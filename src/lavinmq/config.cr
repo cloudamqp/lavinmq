@@ -12,6 +12,11 @@ require "./config/options"
 module LavinMQ
   class Config
     include Options
+
+    # Raised when the config file can't be parsed or is invalid. Aborts on
+    # boot, caught on SIGHUP reload to keep the running config.
+    class Error < Exception; end
+
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
@@ -64,9 +69,9 @@ module LavinMQ
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
-    private def validate!
+    protected def validate!
       unless @stats_interval.positive?
-        raise OptionParser::Exception.new("stats_interval must be positive (got #{@stats_interval})")
+        raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
     end
 
@@ -141,9 +146,9 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
-    private def parse_ini(file)
+    protected def parse_ini(file)
       return if file.empty?
-      abort "Config could not be found" unless File.file?(file)
+      raise Error.new("Config could not be found") unless File.file?(file)
       ini = INI.parse(File.read(file))
       {% begin %}
       ini.each do |section, settings|
@@ -157,15 +162,17 @@ module LavinMQ
           parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
-          abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+          raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
-          raise "Unknown configuration section: #{section}"
+          raise Error.new("Unknown configuration section: #{section}")
         end
       end
       {% end %}
     rescue ex : ::INI::ParseException
-      abort "Failed to parse config file '#{file}'. " \
-            "Error on line #{ex.line_number}, column #{ex.column_number}"
+      raise Error.new("Failed to parse config file '#{file}'. " \
+                      "Error on line #{ex.line_number}, column #{ex.column_number}")
+    rescue ex : IO::Error
+      raise Error.new("Could not read config file '#{file}': #{ex.message}")
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -251,8 +258,7 @@ module LavinMQ
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      @io.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
-      abort
+      raise Error.new("Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}")
     end
   {% end %}
     end
@@ -303,11 +309,40 @@ module LavinMQ
       @mqtt_bind = value
     end
 
+    # Re-read the config file into a fresh copy and swap it in only if parsing
+    # and validation fully succeed. On failure the running config is untouched
+    # and it raises, so the SIGHUP handler can log and keep serving.
     def reload
-      @sni_manager.clear
-      parse_ini(@config_file)
-      validate!
+      new_config = dup
+      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.parse_ini(@config_file)
+      new_config.validate!
+      new_config.try_to_open_log_file
+      apply(new_config)
       setup_logger
+    end
+
+    # Try to open and immediately close the configured log file so an unopenable
+    # path raises a Config::Error before the config is applied
+    protected def try_to_open_log_file
+      if path = @log_file
+        File.open(path, "a") { }
+      end
+    rescue ex : File::Error
+      raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
+    end
+
+    protected def fresh_sni_manager
+      @sni_manager = SNIManager.new
+    end
+
+    # Copy every instance variable from the parsed config in one non-yielding
+    # loop, so no fiber sees a half-applied state. @@instance is a class
+    # variable and is untouched, keeping `Config.instance` references valid.
+    protected def apply(other : self)
+      {% for ivar in @type.instance_vars %}
+        @{{ivar.id}} = other.@{{ivar.id}}
+      {% end %}
     end
 
     private def setup_logger

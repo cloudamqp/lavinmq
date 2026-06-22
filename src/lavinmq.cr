@@ -7,6 +7,8 @@ begin
   config.parse # both ARGV and config file
 rescue ex : OptionParser::Exception
   abort "Error: #{ex.message}\nTry '#{PROGRAM_NAME} --help' for more information."
+rescue ex : LavinMQ::Config::Error
+  abort "Error: #{ex.message}"
 end
 
 {% unless flag?(:gc_none) %}
