@@ -82,11 +82,9 @@ describe "Publish Confirm Persistence" do
   end
 
   describe "runtime sync-mode flip (regression for #2078)" do
-    # `sync` is a runtime-mutable INI option (INI + SIGHUP). All confirms are
-    # routed through the publish confirm loop regardless of sync state, so a
-    # mid-stream flip can never let a later ack overtake an earlier one and send
-    # cumulative Basic.Ack frames out of delivery-tag order. Toggle sync while a
-    # confirm-mode publisher is in flight and assert every publish is confirmed.
+    # Smoke test for #2078: confirms keep flowing across a mid-stream `sync` flip
+    # (see Persister#enqueue_ack for why). Asserts confirms + counts only, not
+    # Basic.Ack ordering - the Crystal client tolerates out-of-order tags.
     it "keeps confirming when sync is disabled mid-stream" do
       LavinMQ::Config.instance.sync = true
       with_amqp_server do |s|
