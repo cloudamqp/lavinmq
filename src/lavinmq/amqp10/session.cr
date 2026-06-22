@@ -76,6 +76,7 @@ module LavinMQ::AMQP10
     rescue ex : ProtocolError | DecodeError | LavinMQ::Error::PreconditionFailed
       @session.client.@log.warn { "AMQP 1.0 publish rejected: #{ex.message}" }
       settle(@partial_delivery_id || transfer.delivery_id, @partial_settled || transfer.settled, Outcome::Rejected)
+      clear_partial
     ensure
       clear_partial unless transfer.more
     end
@@ -102,6 +103,9 @@ module LavinMQ::AMQP10
         @partial_active = true
       end
       @partial_payload.write(payload)
+      if @partial_payload.size > Config.instance.max_message_size
+        raise ProtocolError.new("message size larger than max size #{Config.instance.max_message_size}")
+      end
     end
 
     private def clear_partial : Nil
@@ -485,7 +489,9 @@ module LavinMQ::AMQP10
     end
 
     def next_delivery_id : UInt32
+      delivery_id = @next_outgoing_id
       @next_outgoing_id &+= 1
+      delivery_id
     end
 
     def increment_deliver_count(redelivered : Bool)

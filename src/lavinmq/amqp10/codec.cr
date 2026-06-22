@@ -399,14 +399,27 @@ module LavinMQ::AMQP10
       end
 
       if values.all?(&.kind.symbol?)
-        payload = 1 + values.sum(0) { |v| 1 + v.string_value.bytesize }
-        io.write_byte 0xe0_u8
-        io.write_byte payload.to_u8
-        io.write_byte values.size.to_u8
-        io.write_byte 0xa3_u8
+        constructor = values.any? { |v| v.string_value.bytesize > UInt8::MAX } ? 0xb3_u8 : 0xa3_u8
+        length_size = constructor == 0xa3_u8 ? 1 : 4
+        elements_size = values.sum(0) { |v| length_size + v.string_value.bytesize }
+        payload = 2 + elements_size
+        if payload <= UInt8::MAX && values.size <= UInt8::MAX
+          io.write_byte 0xe0_u8
+          io.write_byte payload.to_u8
+          io.write_byte values.size.to_u8
+        else
+          io.write_byte 0xf0_u8
+          write_u32(io, (5 + elements_size).to_u32)
+          write_u32(io, values.size.to_u32)
+        end
+        io.write_byte constructor
         values.each do |v|
           sym = v.string_value
-          io.write_byte sym.bytesize.to_u8
+          if constructor == 0xa3_u8
+            io.write_byte sym.bytesize.to_u8
+          else
+            write_u32(io, sym.bytesize.to_u32)
+          end
           io << sym
         end
       else

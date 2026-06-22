@@ -15,6 +15,7 @@ module LavinMQ::AMQP10
       props = LavinMQ::AMQP::Properties.new
       to = nil
       body = EMPTY_BODY
+      body_io : IO::Memory? = nil
 
       until reader.empty?
         descriptor = read_descriptor_code(reader)
@@ -28,15 +29,33 @@ module LavinMQ::AMQP10
         when Descriptor::APPLICATION_PROPERTIES
           props = read_application_properties(reader, props)
         when Descriptor::DATA
-          body = read_binary_value(reader)
+          body, body_io = append_data_section(body, body_io, read_binary_value(reader))
         when Descriptor::AMQP_VALUE
+          body_io = nil
           body = read_amqp_value_body(reader)
         else
           skip_value(reader)
         end
       end
 
+      if chunks = body_io
+        body = chunks.to_slice
+      end
       Incoming.new(props, body, to)
+    end
+
+    private def append_data_section(body : Bytes, body_io : IO::Memory?, section : Bytes) : Tuple(Bytes, IO::Memory?)
+      if chunks = body_io
+        chunks.write section
+        {body, chunks}
+      elsif body.empty?
+        {section, nil}
+      else
+        chunks = IO::Memory.new
+        chunks.write body
+        chunks.write section
+        {EMPTY_BODY, chunks}
+      end
     end
 
     def read_descriptor_code(reader : SliceReader) : UInt64

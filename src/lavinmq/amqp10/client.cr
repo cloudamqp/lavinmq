@@ -191,7 +191,7 @@ module LavinMQ::AMQP10
     end
 
     def send_attach(session : Session, link : Link, source : Source?, target : Target?) : Nil
-      fields = Array(Value).new(7)
+      fields = Array(Value).new(link.role.sender? ? 10 : 7)
       fields << Value.string(link.name)
       fields << Value.uint(link.local_handle)
       fields << Value.bool(link.role.receiver?)
@@ -199,6 +199,11 @@ module LavinMQ::AMQP10
       fields << Value.ubyte(0_u8)
       fields << (source.try(&.to_value) || Value.null)
       fields << (target.try(&.to_value) || Value.null)
+      if link.role.sender?
+        fields << Value.null
+        fields << Value.null
+        fields << Value.uint(link.delivery_count)
+      end
       send_performative(session.id, Descriptor::ATTACH, fields)
     end
 
@@ -237,10 +242,10 @@ module LavinMQ::AMQP10
     end
 
     def send_transfer(session : Session, link : SenderLink, delivery_id : UInt32, delivery_tag : Bytes, msg : BytesMessage) : Bool
-      @write_lock.synchronize do
-        TransferCodec.write_transfer(@socket, session.id, link.local_handle, delivery_id, delivery_tag, msg)
+      bytes = @write_lock.synchronize do
+        TransferCodec.write_transfer(@socket, session.id, link.local_handle, delivery_id, delivery_tag, msg, @max_frame_size)
       end
-      add_send_bytes(8_u64 + msg.bodysize)
+      add_send_bytes(bytes)
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error | ProtocolError
       @log.debug { "Lost AMQP 1.0 connection while sending transfer: #{ex.inspect}" }

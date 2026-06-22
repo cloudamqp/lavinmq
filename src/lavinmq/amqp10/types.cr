@@ -173,7 +173,8 @@ module LavinMQ::AMQP10
     snd_settle_mode : UInt8? = nil,
     rcv_settle_mode : UInt8? = nil,
     source : Source? = nil,
-    target : Target? = nil do
+    target : Target? = nil,
+    initial_delivery_count : UInt32? = nil do
     def self.from_value(value : Value) : Attach
       described = value.described? || raise DecodeError.new("expected attach")
       raise DecodeError.new("expected attach") unless described.descriptor_code? == Descriptor::ATTACH
@@ -186,7 +187,8 @@ module LavinMQ::AMQP10
       rcv_settle_mode = fields[4]?.try(&.uint?).try(&.to_u8)
       source = Source.from_value(fields[5]?)
       target = Target.from_value(fields[6]?)
-      new(name, handle, role, snd_settle_mode, rcv_settle_mode, source, target)
+      initial_delivery_count = fields[9]?.try(&.uint?).try(&.to_u32)
+      new(name, handle, role, snd_settle_mode, rcv_settle_mode, source, target, initial_delivery_count)
     end
   end
 
