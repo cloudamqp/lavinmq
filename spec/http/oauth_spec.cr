@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "../../src/lavinmq/http/oauth2/pkce"
+require "../../src/lavinmq/http/oauth2/token_exchange"
 require "../../src/lavinmq/auth/jwt/jwks_fetcher"
 
 # Test-only fetcher that lets specs pre-seed the OIDC config and public keys
@@ -209,6 +210,39 @@ describe "OAuth2" do
     end
   end
 
+  describe "TokenResponse expires_in parsing" do
+    it "parses expires_in as a JSON number" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x","expires_in":3600}))
+      resp.expires_in.should eq 3600
+    end
+
+    it "parses expires_in as a JSON string (Azure/Entra)" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x","expires_in":"3600"}))
+      resp.expires_in.should eq 3600
+    end
+
+    it "returns nil for an unparseable expires_in string" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x","expires_in":"garbage"}))
+      resp.expires_in.should be_nil
+    end
+
+    it "returns nil when expires_in is absent" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x"}))
+      resp.expires_in.should be_nil
+    end
+
+    it "returns nil when expires_in is null" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x","expires_in":null}))
+      resp.expires_in.should be_nil
+    end
+
+    it "still parses fields following an unexpected expires_in type" do
+      resp = LavinMQ::HTTP::OAuth2::TokenExchange::TokenResponse.from_json(%({"access_token":"x","expires_in":true,"id_token":"tok"}))
+      resp.expires_in.should be_nil
+      resp.id_token.should eq "tok"
+    end
+  end
+
   describe "PKCE" do
     it "generates a verifier of at least 43 characters" do
       verifier, _ = LavinMQ::HTTP::OAuth2::PKCE.generate
@@ -365,6 +399,43 @@ describe "OAuth2" do
           identity_lower.should contain("samesite=lax")
           identity_lower.should_not contain("httponly")
           identity_cookie.not_nil!.should contain("YWxpY2VAZXhhbXBsZS5jb206")
+        end
+      ensure
+        idp_server.close
+      end
+    end
+
+    # Microsoft Entra ID / Azure AD return expires_in as a JSON string ("3600")
+    # rather than a number. Login must still succeed and set cookies.
+    it "succeeds when the IdP returns expires_in as a JSON string" do
+      idp_server, idp_addr = start_stub_idp do |ctx|
+        ctx.response.content_type = "application/json"
+        ctx.response.print %({"access_token":"dummy","expires_in":"3600"})
+      end
+      begin
+        LavinMQ::Config.instance.oauth_client_id = "test-client"
+        LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
+        LavinMQ::Config.instance.oauth_mgmt_base_url = URI.parse("https://localhost:15672")
+
+        oidc = LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration.new(
+          issuer: "https://idp.example.com",
+          jwks_uri: "http://#{idp_addr}/jwks",
+          token_endpoint: "http://#{idp_addr}/token")
+        chain = build_stub_oauth_chain(FakeBaseUser.new("alice@example.com"), oidc)
+
+        with_http_server(authenticator: chain) do |http, _|
+          headers = ::HTTP::Headers{
+            "Cookie" => "oauth_state=st8:ver1fier",
+          }
+          response = ::HTTP::Client.get(
+            http.test_uri("/oauth/callback?state=st8&code=authcode"),
+            headers: headers)
+          response.status_code.should eq 302
+          response.headers["Location"].should eq("..")
+
+          set_cookies = response.headers.get?("Set-Cookie") || [] of String
+          token_cookie = set_cookies.find { |c| c.starts_with?("oauth_token=") && !c.starts_with?("oauth_token=;") }
+          token_cookie.should_not be_nil
         end
       ensure
         idp_server.close
