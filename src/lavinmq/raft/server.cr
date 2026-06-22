@@ -30,6 +30,12 @@ module LavinMQ::Raft
     # scrape, boot decision) get a consistent view instead of racing @node.peers,
     # which the tick fiber mutates. Replaced wholesale; never mutated in place.
     @peers_snapshot = [] of ::Raft::Peer
+    # Voter node ids from the last applied configuration, kept under the same
+    # lock for the same reason: hand_off_leadership reads it off the tick fiber
+    # (the campaign fiber), so it must not iterate @node.voters live — that
+    # selects over @node's peer array while the tick fiber replaces it wholesale
+    # during a membership change, a torn read that can crash.
+    @voters_snapshot = [] of UInt64
     @on_leader_change : Proc(UInt64?, Nil)?
     @on_configuration_change : Proc(Array(::Raft::Peer), Nil)?
     @last_observed_leader_id : UInt64? = nil
@@ -187,9 +193,11 @@ module LavinMQ::Raft
       @peer_addresses_lock.synchronize { @peers_snapshot }
     end
 
-    # The node ids currently in the voting set (learners excluded).
+    # The node ids in the last applied voting set (learners excluded). A
+    # consistent snapshot captured on the tick fiber, safe to read from any
+    # fiber — see @voters_snapshot. Reflects the last applied configuration.
     def voters : Array(UInt64)
-      @node.voters.map(&.id)
+      @peer_addresses_lock.synchronize { @voters_snapshot }
     end
 
     def state : ClusterState
@@ -291,9 +299,14 @@ module LavinMQ::Raft
         host, port = addr.raft_endpoint
         @transport.register_peer(peer.id, host, port)
       end
+      # Equivalent to @node.voters (which selects voter? over @node.peers), but
+      # computed here from the applied config on the tick/start fiber so off-tick
+      # readers never touch @node.
+      voters = peers.compact_map { |peer| peer.id if peer.voter? }
       @peer_addresses_lock.synchronize do
         @peer_addresses = addresses
         @peers_snapshot = peers.dup # snapshot taken on the tick/start fiber; safe
+        @voters_snapshot = voters
       end
     end
 
