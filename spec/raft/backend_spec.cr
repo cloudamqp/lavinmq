@@ -713,6 +713,54 @@ describe LavinMQ::Raft::Backend do
       end
     end
 
+    it "regenerates when .clustering_password exists but is empty (leader)" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        # A crash between File.open(\"w\") truncation and the write, a failed
+        # `openssl rand`, or an operator `touch` leaves a 0-byte file. It must
+        # not be used verbatim — that would authenticate every follower with a
+        # blank replication secret.
+        File.write(File.join(dir, ".clustering_password"), "")
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        b = backend.not_nil!
+        b.server.start
+        b.server.bootstrap.should be_true
+        select
+        when b.server.is_leader.when_true.receive
+        when timeout(2.seconds); fail "timed out waiting for leadership"
+        end
+        pw = b.password
+        pw.should_not be_empty
+        File.read(File.join(dir, ".clustering_password")).strip.should eq pw
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "treats a whitespace-only .clustering_password as empty (leader regenerates)" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        File.write(File.join(dir, ".clustering_password"), "   \n")
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        b = backend.not_nil!
+        b.server.start
+        b.server.bootstrap.should be_true
+        select
+        when b.server.is_leader.when_true.receive
+        when timeout(2.seconds); fail "timed out waiting for leadership"
+        end
+        b.password.should_not be_empty
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
     it "reads an existing .clustering_password without regenerating" do
       dir = tmp_data_dir
       backend = nil.as(LavinMQ::Raft::Backend?)

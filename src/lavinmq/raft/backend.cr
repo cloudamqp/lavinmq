@@ -66,9 +66,18 @@ module LavinMQ::Raft
     # so replication can't delete it.
     def password : String
       path = File.join(@config.data_dir, PASSWORD_FILE)
-      return File.read(path).strip if File.exists?(path)
+      if File.exists?(path)
+        existing = File.read(path).strip
+        return existing unless existing.empty?
+        # A 0-byte/whitespace-only file (a crash between File.open("w")
+        # truncation and the write, a failed `openssl rand`, or an operator
+        # `touch`) must NOT be used verbatim — a blank secret would authenticate
+        # every follower. Treat it as missing: regenerate if we're the leader,
+        # else fail fast just like an absent file.
+        Log.warn { "Replication secret file is empty: #{path}; treating as missing" }
+      end
       unless @server.is_leader.value
-        Log.fatal { "Replication secret file missing: #{path}. Copy it from another node in the cluster." }
+        Log.fatal { "Replication secret file missing or empty: #{path}. Copy it from another node in the cluster." }
         exit 3
       end
       secret = Random::Secure.base64(32)
