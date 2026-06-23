@@ -745,6 +745,32 @@ describe LavinMQ::Raft::Backend do
     end
   end
 
+  describe "replication client lifecycle" do
+    it "closes and clears the replication client on stop (no leak) (#5)" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        config = backend_config(dir, free_port, free_port)
+        config.metrics_http_port = -1 # don't bind a metrics server for the test client
+        backend = LavinMQ::Raft::Backend.new(config)
+        b = backend.not_nil!
+        # Install an (unconnected) follower client, as reconcile_replication would.
+        client = LavinMQ::Clustering::Client.new(config, b.node_id, "secret", proxy: false)
+        pointerof(b.@repli_client).value = client
+        # close() blocks on the follower loop; we never started following, so
+        # release it so the test doesn't wait out the 5s timeout.
+        spawn { client.@follower_done.send(nil) }
+        b.stop
+        client.@closed.should be_true # closed under the guarded swap
+        b.@repli_client.should be_nil # and cleared — old stop() left it dangling
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+
   describe "coordinator role" do
     it "commits the ISR via update_isr" do
       dir = tmp_data_dir

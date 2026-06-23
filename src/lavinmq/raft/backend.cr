@@ -21,6 +21,12 @@ module LavinMQ::Raft
     getter server : Server
     getter transport : ::Raft::TCPTransport
     @repli_client : ::LavinMQ::Clustering::Client? = nil
+    # @repli_client is mutated from three fibers — campaign (main), stop (signal
+    # path) and reconcile_replication (the follow_leader fiber). Without
+    # serialization a close can interleave with a rebuild, installing a client
+    # nobody closes or leaving one following a stale leader after we became
+    # leader. Every read/close/assign goes through this lock.
+    @repli_client_lock = Mutex.new
     @leader_changes = ::Channel(UInt64?).new(8)
     @stopped = false
 
@@ -134,7 +140,7 @@ module LavinMQ::Raft
       wait_for_insync_leadership
       return if @stopped
       execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-      @repli_client.try &.close
+      close_repli_client # we're the leader now; stop following anyone
       yield
 
       # receive? (not receive): stop() closes is_leader, which would otherwise
@@ -149,9 +155,17 @@ module LavinMQ::Raft
     def stop : Nil
       @stopped = true
       @leader_changes.close
-      @repli_client.try &.close
+      close_repli_client
       @server.stop
       @transport.stop
+    end
+
+    # Close and clear the replication client under the lock. Idempotent.
+    private def close_repli_client : Nil
+      @repli_client_lock.synchronize do
+        @repli_client.try &.close
+        @repli_client = nil
+      end
     end
 
     # The boot action this node would take given its config and current raft
@@ -394,24 +408,28 @@ module LavinMQ::Raft
         data_uri = lookup_data_uri(new_leader_id)
       end
 
-      # Are we already replicating from that leader? If so, leave it alone.
-      already_following = false
-      if uri = data_uri
-        already_following = @repli_client.try(&.follows?(uri)) || false
-      end
+      # Hold the lock across the follows? read AND the swap so a concurrent
+      # close (campaign/stop) can't interleave with a rebuild here.
+      @repli_client_lock.synchronize do
+        # Are we already replicating from that leader? If so, leave it alone.
+        already_following = false
+        if uri = data_uri
+          already_following = @repli_client.try(&.follows?(uri)) || false
+        end
 
-      case Backend.leader_change_action(new_leader_id, self_id, data_uri, already_following)
-      in .keep?
-        # leave the current replication client untouched
-      in .stop_following?
-        @repli_client.try &.close
-        @repli_client = nil
-      in .follow?
-        if uri = data_uri # always set when the action is Follow
+        case Backend.leader_change_action(new_leader_id, self_id, data_uri, already_following)
+        in .keep?
+          # leave the current replication client untouched
+        in .stop_following?
           @repli_client.try &.close
-          @repli_client = client = ::LavinMQ::Clustering::Client.new(
-            @config, @server.node_id, password, raft_backend: self)
-          spawn(name: "Clustering client #{uri}") { client.follow(uri) }
+          @repli_client = nil
+        in .follow?
+          if uri = data_uri # always set when the action is Follow
+            @repli_client.try &.close
+            @repli_client = client = ::LavinMQ::Clustering::Client.new(
+              @config, @server.node_id, password, raft_backend: self)
+            spawn(name: "Clustering client #{uri}") { client.follow(uri) }
+          end
         end
       end
     end
