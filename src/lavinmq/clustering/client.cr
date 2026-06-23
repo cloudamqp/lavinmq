@@ -151,10 +151,10 @@ module LavinMQ
 
       def self.local_leader_host?(host : String) : Bool
         host = host.downcase
-        return true if host == "localhost" || host == System.hostname.downcase
-        return true if host.starts_with?("127.") || host == "::1" || host == "[::1]"
+        return true if host == System.hostname.downcase
+        host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
 
-        Socket::IPAddress.new(host, 0).loopback?
+        Socket::Addrinfo.tcp(host, 0).any?(&.ip_address.loopback?)
       rescue Socket::Error
         false
       end
