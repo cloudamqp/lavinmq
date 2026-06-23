@@ -279,6 +279,10 @@ module LavinMQ
       @replicator.try &.listen(bind_tcp(bind, port))
     end
 
+    def listen_clustering(server : TCPServer)
+      @replicator.try &.listen(server)
+    end
+
     def close
       @closed.set(true)
       Log.debug { "Closing listeners" }

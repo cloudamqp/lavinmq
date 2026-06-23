@@ -1,3 +1,4 @@
+require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
@@ -71,6 +72,48 @@ class SelfLeaderController < LavinMQ::Clustering::Controller
 
   def mark_elected_for_spec
     @elected_leader.set(true)
+  end
+end
+
+class ProxyBindEtcd < LavinMQ::Etcd
+  def initialize(@leader_uri : String)
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    yield @leader_uri
+  end
+
+  def get(_key) : String?
+    "secret"
+  end
+end
+
+describe LavinMQ::Clustering::Controller do
+  it "reports follower proxy bind failures without the generic unhandled exception log" do
+    blocker = TCPServer.new("127.0.0.1", 0)
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = "127.0.0.1"
+      config.amqp_port = blocker.local_address.port
+      config.http_port = 0
+      config.mqtt_port = 0
+      config.metrics_http_port = -1
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      etcd = ProxyBindEtcd.new("tcp://192.0.2.10:5679")
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      controller = SelfLeaderController.new(config, etcd, coordinator)
+
+      Log.capture("lmq.clustering.controller", :fatal) do |logs|
+        ex = expect_raises(SpecExit) { controller.follow_leader_public }
+        ex.code.should eq 36
+        logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
+        logs.entry.to_s.should_not contain "Unhandled exception while following leader"
+      end
+    end
+  ensure
+    blocker.try &.close
   end
 end
 
