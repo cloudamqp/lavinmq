@@ -1,6 +1,12 @@
 require "./spec_helper"
 require "../src/lavinmq/clustering/client"
 
+class LavinMQ::Clustering::Client
+  def local_leader_host_for_spec?(host : String)
+    local_leader_host?(host)
+  end
+end
+
 describe "control socket" do
   # Regression test for running multiple instances on one host: the control
   # socket path must be configurable, and both the bind and the no-auth bypass
@@ -170,11 +176,12 @@ describe "control socket" do
     end
 
     it "recognizes loopback leader hosts as local" do
+      client = LavinMQ::Clustering::Client.allocate
       {"localhost", "LOCALHOST", "127.0.0.1", "127.1", "::1", "[::1]", System.hostname}.each do |host|
-        LavinMQ::Clustering::Client.local_leader_host?(host).should be_true
+        client.local_leader_host_for_spec?(host).should be_true
       end
 
-      LavinMQ::Clustering::Client.local_leader_host?("192.0.2.10").should be_false
+      client.local_leader_host_for_spec?("192.0.2.10").should be_false
     end
   end
 end

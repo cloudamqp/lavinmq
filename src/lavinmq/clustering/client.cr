@@ -93,7 +93,7 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless self.class.local_leader_host?(host)
+        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -149,7 +149,7 @@ module LavinMQ
         @host == host && @port == port
       end
 
-      def self.local_leader_host?(host : String) : Bool
+      private def local_leader_host?(host : String) : Bool
         host = host.downcase
         return true if host == System.hostname.downcase
         host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
