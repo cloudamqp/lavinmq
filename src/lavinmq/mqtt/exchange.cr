@@ -93,10 +93,12 @@ module LavinMQ
         true
       end
 
+      # TODO: remove when Session no longer inherit AMQP::Exchange
       def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
+      # TODO: remove when Session no longer inherit AMQP::Exchange
       def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
