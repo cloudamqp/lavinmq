@@ -47,10 +47,22 @@ module LavinMQ::Raft
       @server.node_id
     end
 
-    def update_isr(synced_node_ids : Enumerable(Int32)) : Nil
-      unless @server.propose_committed(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
-        Log.warn { "ISR update did not commit (leadership lost or overwritten); will retry on next sync" }
-      end
+    # Commit the ISR through raft. propose_committed blocks until the SetIsr
+    # entry is committed under our term (true) or rejected — not leader, lost
+    # leadership, or overwritten by a newer leader (false). Returning that bool
+    # lets Clustering::Server stall a confirm and retry rather than acknowledge
+    # against a stale ISR.
+    #
+    # KNOWN LIMITATION: Clustering::Server calls this while holding its @lock
+    # (the publish/replication-dispatch lock), so a raft-quorum loss makes this
+    # block — and stalls the data plane — until leadership is lost (an election
+    # timeout), even when leader→follower data replication is otherwise healthy.
+    # This is not a regression: the etcd backend commits the ISR under the same
+    # @lock, just with a bounded single PUT. Removing the under-@lock commit
+    # (collect ids under @lock, commit outside it, serialize commits to keep
+    # last-writer-wins) is a deliberate follow-up — see docs/clustering.md.
+    def update_isr(synced_node_ids : Enumerable(Int32)) : Bool
+      @server.propose_committed(ClusterCommand::SetIsr.new(synced_node_ids.to_set))
     end
 
     PASSWORD_FILE = ".clustering_password"

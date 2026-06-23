@@ -95,6 +95,10 @@ lavinmqctl raft_join http://node2.example.com:15672
 
 The imperative `raft_join` path is retained specifically for this recovery scenario.
 
+#### Known limitation — ISR commits under quorum loss
+
+On the raft backend, the in-sync replica set (ISR) is committed through raft consensus while the leader holds its replication-dispatch lock. If the raft cluster loses quorum (e.g. two of three nodes down), an ISR commit blocks until leadership is lost (an election timeout), which can stall the data plane for that window — even when leader→follower data replication is otherwise healthy. This is not a regression from the etcd backend, which commits the ISR under the same lock (with a bounded single PUT); it is a worse latency profile specific to raft's blocking consensus. Moving the ISR commit out from under that lock is tracked as a follow-up.
+
 ## Replication
 
 ### Bulk Sync
