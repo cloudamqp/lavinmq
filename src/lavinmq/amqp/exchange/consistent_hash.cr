@@ -79,7 +79,7 @@ module LavinMQ
         true
       end
 
-      def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         key = hash_key(routing_key, headers)
         if d = @hasher.get(key)
           yield d
