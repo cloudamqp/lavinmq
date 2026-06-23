@@ -107,20 +107,25 @@ module LavinMQ
       # skipped and nil is returned, it's only a convenience for lavinmqctl users.
       def self.follower_internal_socket_http_server : ::HTTP::Server?
         path = Config.instance.control_unix_path
-        begin
-          prepare_control_socket(path)
-        rescue ex
-          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
-          return
-        end
-
         http_server = ::HTTP::Server.new do |context|
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."
         end
 
-        addr = http_server.bind_unix(path)
+        begin
+          prepare_control_socket(path)
+          addr = http_server.bind_unix(path)
+        rescue ex : Socket::BindError
+          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
+          http_server.close
+          return
+        rescue ex
+          Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
+          http_server.close
+          return
+        end
+
         File.chmod(path, 0o660)
         Log.info { "Bound to #{addr}" }
 

@@ -69,7 +69,6 @@ module LavinMQ
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         start_metrics_server unless @config.metrics_http_port == -1
-        @internal_http_server = HTTP::Server.follower_internal_socket_http_server
       end
 
       private def start_metrics_server
@@ -94,6 +93,7 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
+        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless self.class.local_leader_host?(host)
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -147,6 +147,16 @@ module LavinMQ
 
       def follows?(host : String, port : Int32) : Bool
         @host == host && @port == port
+      end
+
+      def self.local_leader_host?(host : String) : Bool
+        host = host.downcase
+        return true if host == "localhost" || host == System.hostname.downcase
+        return true if host.starts_with?("127.") || host == "::1" || host == "[::1]"
+
+        Socket::IPAddress.new(host, 0).loopback?
+      rescue Socket::Error
+        false
       end
 
       private def sync(socket, lz4)

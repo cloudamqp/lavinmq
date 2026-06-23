@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "../src/lavinmq/clustering/client"
 
 describe "control socket" do
   # Regression test for running multiple instances on one host: the control
@@ -139,6 +140,41 @@ describe "control socket" do
       server.try &.close
       config.control_unix_path = original_path if config && original_path
       File.delete?(socket_path) if socket_path
+    end
+  end
+
+  describe "clustering follower control socket" do
+    it "does not bind before the leader host is known" do
+      original_config = LavinMQ::Config.instance
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config = LavinMQ::Config.new
+      config.control_unix_path = socket_path
+      config.metrics_http_port = -1
+
+      begin
+        LavinMQ::Config.instance = config
+        with_datadir do |data_dir|
+          config.data_dir = data_dir
+          client : LavinMQ::Clustering::Client? = nil
+          begin
+            client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
+            File.exists?(socket_path).should be_false
+          ensure
+            client.try &.close
+          end
+        end
+      ensure
+        LavinMQ::Config.instance = original_config
+        File.delete?(socket_path)
+      end
+    end
+
+    it "recognizes loopback leader hosts as local" do
+      {"localhost", "LOCALHOST", "127.0.0.1", "127.1", "::1", "[::1]", System.hostname}.each do |host|
+        LavinMQ::Clustering::Client.local_leader_host?(host).should be_true
+      end
+
+      LavinMQ::Clustering::Client.local_leader_host?("192.0.2.10").should be_false
     end
   end
 end
