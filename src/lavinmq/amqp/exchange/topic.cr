@@ -150,7 +150,7 @@ module LavinMQ
         true
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         bindings = @bindings
 
         return if bindings.empty?

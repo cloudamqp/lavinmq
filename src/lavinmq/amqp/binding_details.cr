@@ -8,7 +8,7 @@ module LavinMQ
       getter source, vhost, binding_key, destination
 
       def initialize(@source : String, @vhost : String,
-                     @binding_key : AMQP::BindingKey, @destination : LavinMQ::Destination)
+                     @binding_key : AMQP::BindingKey, @destination : LavinMQ::Queue | LavinMQ::Exchange)
       end
 
       def arguments

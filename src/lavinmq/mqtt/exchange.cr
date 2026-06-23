@@ -1,6 +1,5 @@
 require "../amqp/exchange"
 require "./consts"
-require "../destination"
 require "./subscription_tree"
 require "./session"
 require "./subscription_key"
@@ -64,7 +63,7 @@ module LavinMQ
       end
 
       # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
@@ -94,11 +93,11 @@ module LavinMQ
         true
       end
 
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
+      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 

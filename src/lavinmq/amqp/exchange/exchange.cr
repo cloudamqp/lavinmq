@@ -181,7 +181,7 @@ module LavinMQ
         {% end %}
       end
 
-      def bind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
@@ -199,7 +199,7 @@ module LavinMQ
       # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
       # while `MQTT::Exchange` overrides this to return `Array(MQTT::SubscriptionDetails)`.
       abstract def bindings_details
-      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
 
       # Number of bindings on this exchange. Counted cheaply, without allocating
       # the full `bindings_details` array.
