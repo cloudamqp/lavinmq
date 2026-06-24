@@ -268,6 +268,35 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "continues with new messages after delivering the last N messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-continues", args: stream_queue_args)
+          5.times { |i| q.publish "m#{i}" }
+          ch.prefetch 10
+          msgs = Channel(AMQP::Client::DeliverMessage).new(4)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -3})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+
+          received = Array(AMQP::Client::DeliverMessage).new
+          3.times { received << msgs.receive }
+          received.map { |msg| StreamSpecHelpers.offset_from_headers(msg.properties.headers) }.should eq [3_i64, 4_i64, 5_i64]
+          received.map(&.body_io.to_s).should eq ["m2", "m3", "m4"]
+
+          q.publish "m5"
+          select
+          when msg = msgs.receive
+            StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 6
+            msg.body_io.to_s.should eq "m5"
+          when timeout(1.second)
+            fail("Consumer did not continue with the next stream message")
+          end
+        end
+      end
+    end
+
     it "clamps to oldest available when stream has fewer messages than requested" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
