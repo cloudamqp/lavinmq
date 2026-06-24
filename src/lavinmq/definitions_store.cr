@@ -605,7 +605,7 @@ module LavinMQ
     private def write_json_snapshot(path : String, &)
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") do |file|
-        JSON.build(file) { |json| yield json }
+        JSON.build(file, indent: "  ") { |json| yield json }
         file.fsync
       end
       File.rename tmpfile, path

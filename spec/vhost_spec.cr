@@ -234,7 +234,9 @@ describe LavinMQ::VHost do
       ttl_queue["auto_delete"].as_bool.should be_true
       ttl_queue["arguments"].as_h.has_key?("x-message-ttl").should be_true
 
-      bindings = JSON.parse(File.read(File.join(v.data_dir, "bindings.json"))).as_a
+      bindings_json = File.read(File.join(v.data_dir, "bindings.json"))
+      bindings_json.should contain("\n  {")
+      bindings = JSON.parse(bindings_json).as_a
       plain_binding = bindings.find! { |b| b["destination"].as_s == "plain" }
       plain_binding.as_h.has_key?("destination_type").should be_false
       plain_binding["routing_key"].as_s.should eq "plain"
