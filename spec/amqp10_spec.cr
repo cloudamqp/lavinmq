@@ -529,6 +529,18 @@ describe LavinMQ::AMQP10::Value do
 end
 
 describe LavinMQ::AMQP10::Codec do
+  it "decodes one-byte signed integer values" do
+    value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(Bytes[0x51_u8, 0xff_u8]))
+
+    value.int?.should eq -1_i64
+
+    value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(Bytes[0x54_u8, 0xff_u8]))
+    value.int?.should eq -1_i64
+
+    value = LavinMQ::AMQP10::Codec.decode(LavinMQ::AMQP10::SliceReader.new(Bytes[0x55_u8, 0xff_u8]))
+    value.int?.should eq -1_i64
+  end
+
   it "preserves float and double values" do
     io = IO::Memory.new
     LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.float(1.25_f32))

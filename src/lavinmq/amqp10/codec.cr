@@ -37,15 +37,15 @@ module LavinMQ::AMQP10
       when 0x50
         Value.ubyte(reader.read_byte)
       when 0x51
-        Value.ubyte(reader.read_byte)
+        Value.int(reader.read_byte.to_i8!.to_i32)
       when 0x52
         Value.uint(reader.read_byte.to_u32)
       when 0x53
         Value.ulong(reader.read_byte.to_u64)
       when 0x54
-        Value.int(reader.read_byte.to_i8.to_i32)
+        Value.int(reader.read_byte.to_i8!.to_i32)
       when 0x55
-        Value.long(reader.read_byte.to_i8.to_i64)
+        Value.long(reader.read_byte.to_i8!.to_i64)
       when 0x56
         Value.bool(!reader.read_byte.zero?)
       when 0x60
