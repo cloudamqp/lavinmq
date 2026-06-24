@@ -704,7 +704,7 @@ module LavinMQ
       loop do
         select
         when @compact_requested.receive
-          compact_at = @last_definition_change + compact_delay
+          compact_at = next_compact_at
         when timeout compact_timeout(compact_at)
           if compact_at
             @definitions_lock.synchronize { compact_locked }
@@ -715,8 +715,14 @@ module LavinMQ
     rescue Channel::ClosedError
     end
 
-    private def compact_delay : Time::Span
-      size = @definitions_file.size
+    private def next_compact_at : Time::Instant
+      last_definition_change, definitions_file_size = @definitions_lock.synchronize do
+        {@last_definition_change, @definitions_file.size}
+      end
+      last_definition_change + compact_delay(definitions_file_size)
+    end
+
+    private def compact_delay(size : Int) : Time::Span
       return Time::Span.zero if size >= WAL_COMPACT_SIZE
 
       delay = WAL_COMPACT_IDLE * (size.to_f64 / WAL_COMPACT_SIZE)

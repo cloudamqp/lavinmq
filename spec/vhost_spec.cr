@@ -2,8 +2,35 @@ require "./spec_helper"
 
 class LavinMQ::DefinitionsStore
   def request_idle_compaction_for_spec
-    @last_definition_change = RoughTime.instant - WAL_COMPACT_IDLE - 1.second
+    @definitions_lock.synchronize do
+      @last_definition_change = RoughTime.instant - WAL_COMPACT_IDLE - 1.second
+    end
     @compact_requested.try_send nil
+  end
+
+  def compact_at_scheduled_with_wal_closed_for_spec : String | Exception
+    result = Channel(String | Exception).new(1)
+    @definitions_lock.synchronize do
+      @last_definition_change = RoughTime.instant - WAL_COMPACT_IDLE - 1.second
+      @definitions_file.close
+      begin
+        spawn do
+          begin
+            next_compact_at
+            result.send "ok"
+          rescue ex
+            result.send ex
+          end
+        end
+        100.times { Fiber.yield }
+        if early_result = result.try_receive?
+          return early_result
+        end
+      ensure
+        @definitions_file = File.open(@definitions_file_path, "a+")
+      end
+    end
+    result.receive
   end
 end
 
@@ -250,6 +277,16 @@ describe LavinMQ::VHost do
       File.size(File.join(v.data_dir, "definitions.wal")).should eq 0
     end
   end
+
+  it "snapshots definition WAL compaction scheduling state under the lock" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      definitions = v.@definitions.not_nil!
+
+      definitions.compact_at_scheduled_with_wal_closed_for_spec.should eq "ok"
+    end
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       with_amqp_server do |s|
