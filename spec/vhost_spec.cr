@@ -159,6 +159,39 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "round-trips binary and timestamp argument values losslessly" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      ts = Time.unix(1_700_000_000)
+      bin = Bytes[0_u8, 1_u8, 2_u8, 255_u8]
+      args = AMQ::Protocol::Table.new({
+        "x-bin" => bin,
+        "x-ts"  => ts,
+        "x-int" => 123,
+      } of String => AMQ::Protocol::Field)
+      v.declare_queue("q", true, false, arguments: args)
+
+      # WAL replay path
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        reloaded = restarted.vhosts["test"].queue("q").arguments
+        reloaded["x-bin"].should eq bin
+        reloaded["x-ts"].should eq ts
+        reloaded["x-int"].should eq 123
+      end
+
+      # Snapshot (compaction) path
+      definitions = v.@definitions.not_nil!
+      definitions.request_idle_compaction_for_spec
+      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        reloaded = restarted.vhosts["test"].queue("q").arguments
+        reloaded["x-bin"].should eq bin
+        reloaded["x-ts"].should eq ts
+        reloaded["x-int"].should eq 123
+      end
+    end
+  end
+
   it "writes compact definition wal records" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")

@@ -1,5 +1,6 @@
 require "./version"
 require "../stdlib/slice"
+require "./definitions_arguments"
 require "json"
 require "amq-protocol"
 
@@ -341,9 +342,7 @@ class LavinMQCtl
 
     private def arguments_from_json(entry : JSON::Any) : AMQ::Protocol::Table
       if args = entry["arguments"]?
-        if hash = args.as_h?
-          return AMQ::Protocol::Table.new(hash)
-        end
+        return LavinMQ::DefinitionsArguments.from_json(args)
       end
       AMQ::Protocol::Table.new
     end

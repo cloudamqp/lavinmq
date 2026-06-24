@@ -1,5 +1,6 @@
 require "json"
 require "./logger"
+require "./definitions_arguments"
 require "./schema"
 require "./event_type"
 require "./queue_factory"
@@ -409,9 +410,7 @@ module LavinMQ
 
     private def arguments_from_json(entry : JSON::Any) : AMQP::Table
       if args = entry["arguments"]?
-        if hash = args.as_h?
-          return AMQP::Table.new(hash)
-        end
+        return DefinitionsArguments.from_json(args)
       end
       AMQP::Table.new
     end
@@ -599,7 +598,7 @@ module LavinMQ
       return if arguments.nil?
       return if arguments.empty?
 
-      json.field("arguments") { arguments.to_json(json) }
+      json.field("arguments") { DefinitionsArguments.to_json(json, arguments) }
     end
 
     private def write_json_snapshot(path : String, &)
