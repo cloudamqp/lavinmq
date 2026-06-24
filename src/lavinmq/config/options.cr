@@ -224,9 +224,6 @@ module LavinMQ
       property load_definitions = "" # path to a JSON definitions file to import on startup
 
       @[IniOpt(section: "main")]
-      property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
-
-      @[IniOpt(section: "main")]
       property consumer_timeout : UInt64? = nil
 
       @[IniOpt(section: "main")]

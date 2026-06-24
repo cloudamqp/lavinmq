@@ -238,7 +238,12 @@ class LavinMQCtl
       File.each_line(wal_path) do |line|
         line = line.strip
         next if line.empty?
-        apply_definition_frame(state, frame_from_wal_record(JSON.parse(line)))
+        begin
+          frame = frame_from_wal_record(JSON.parse(line))
+        rescue JSON::ParseException | TypeCastError | KeyError
+          next # tolerate a torn final record / corrupt line, like the live store
+        end
+        apply_definition_frame(state, frame)
       end
     end
 

@@ -129,6 +129,27 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "tolerates a torn final definition wal record after a crash" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "q")
+      File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
+
+      # Simulate a crash that left a half-written final record on disk.
+      File.open(File.join(v.data_dir, "definitions.wal"), "a") do |f|
+        f.print %({"op":"queue.declare","name":"tor)
+      end
+
+      s.restart
+      v = s.vhosts["test"]
+      v.queue("q").should_not be_nil
+      v.queue?("tor").should be_nil
+      v.exchange("e").bindings_details.first.destination.name.should eq "q"
+    end
+  end
+
   it "writes compact definition wal records" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")

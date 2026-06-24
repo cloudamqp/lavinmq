@@ -223,6 +223,7 @@ module LavinMQ
         elsif legacy_definitions?
           load_legacy_definitions
           compact_locked(all: true)
+          delete_legacy_definitions
         else
           load_default_definitions
           compact_locked(all: true)
@@ -236,7 +237,14 @@ module LavinMQ
 
       @compact_requested.close
       @compact_loop_done.receive?
-      @definitions_file.close
+      # Take the lock so the close can't race a writer still inside
+      # store_definition/fsync (use-after-close on the fd).
+      @definitions_lock.synchronize { @definitions_file.close }
+    end
+
+    private def delete_legacy_definitions
+      File.delete?(@legacy_definitions_file_path)
+      @replicator.try &.delete_file(@legacy_definitions_file_path)
     end
 
     private def snapshot_definitions? : Bool
@@ -300,7 +308,17 @@ module LavinMQ
       @definitions_file.each_line do |line|
         line = line.strip
         next if line.empty?
-        frame = frame_from_wal_record(JSON.parse(line))
+        begin
+          frame = frame_from_wal_record(JSON.parse(line))
+        rescue ex : JSON::ParseException | TypeCastError | KeyError
+          # A crash mid-append leaves a torn final record; a corrupt line can
+          # appear from bit-rot or a partial non-tail write. The legacy binary
+          # reader tolerated a truncated tail via IO::EOFError, so skip the bad
+          # record rather than aborting the whole vhost load — the next
+          # compaction rewrites the snapshots and clears the WAL.
+          @log.warn { "Skipping unreadable definition WAL record: #{ex.message}" }
+          next
+        end
         apply_to_definition_maps(frame, exchanges, queues, queue_bindings, exchange_bindings)
         mark_snapshot_dirty(frame)
       end
@@ -487,10 +505,20 @@ module LavinMQ
       write_exchanges_snapshot if all || @dirty_exchanges
       write_queues_snapshot if all || @dirty_queues
       write_bindings_snapshot if all || @dirty_bindings
+      # The snapshot renames must be durable before the WAL is truncated:
+      # write_json_snapshot fsyncs each file's content but not the directory
+      # entry created by the rename. Without this barrier a crash could leave
+      # the old (pre-compaction) snapshots on disk together with an already
+      # emptied WAL, permanently losing every change since the last compaction.
+      fsync_data_dir
       clear_wal
       @dirty_exchanges = false
       @dirty_queues = false
       @dirty_bindings = false
+    end
+
+    private def fsync_data_dir : Nil
+      File.open(@data_dir, &.fsync)
     end
 
     private def write_exchanges_snapshot
@@ -514,6 +542,10 @@ module LavinMQ
         json.array do
           @queues.each_value.each do |queue|
             next if !queue.durable? || queue.exclusive?
+            # Internal delayed-exchange queues are recreated by their exchange
+            # on load (register_queue), so the per-frame WAL path never persists
+            # them; keep the snapshot consistent and out of the exported defs.
+            next if queue.is_a?(AMQP::DelayedExchangeQueue)
             json.object do
               json.field "name", queue.name
               write_true(json, "exclusive", queue.exclusive?)
@@ -582,6 +614,7 @@ module LavinMQ
       tmpfile = "#{@definitions_file_path}.tmp"
       File.open(tmpfile, "w", &.fsync)
       File.rename tmpfile, @definitions_file_path
+      fsync_data_dir
       @replicator.try &.delete_file @definitions_file_path
       @definitions_file = File.open(@definitions_file_path, "a+")
     end
@@ -725,8 +758,10 @@ module LavinMQ
     private def compact_delay(size : Int) : Time::Span
       return Time::Span.zero if size >= WAL_COMPACT_SIZE
 
-      delay = WAL_COMPACT_IDLE * (size.to_f64 / WAL_COMPACT_SIZE)
-      delay < 1.second ? 1.second : delay
+      # Wait the full idle window when the WAL is small so bursts of declares
+      # batch into one compaction, and shrink the delay toward zero as the WAL
+      # approaches the size cap so a fast-growing WAL is compacted promptly.
+      WAL_COMPACT_IDLE * (1.0 - size.to_f64 / WAL_COMPACT_SIZE)
     end
 
     private def compact_timeout(compact_at : Time::Instant?) : Time::Span
