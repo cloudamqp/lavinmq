@@ -204,16 +204,17 @@ module LavinMQ
               Log.info { "Mismatching hash: #{path}" }
               File.delete path
               requested_files << filename
-              request_file(filename, socket)
             else
               Log.debug { "Matching hash: #{path}" }
             end
           else
             requested_files << filename
-            request_file(filename, socket)
           end
           file_count &+= 1
           log_limiter.do { Log.info { "Compared #{file_count} files" } }
+        end
+        requested_files.each do |filename|
+          request_file(filename, socket)
         end
         end_of_file_list(socket)
         Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
