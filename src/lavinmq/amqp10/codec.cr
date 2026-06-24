@@ -74,16 +74,16 @@ module LavinMQ::AMQP10
         Value.binary(reader.read_slice(size))
       when 0xa1
         size = reader.read_byte.to_i
-        Value.string(String.new(reader.read_slice(size)))
+        Value.string(reader.read_string(size))
       when 0xb1
         size = read_size32(reader, "string32")
-        Value.string(String.new(reader.read_slice(size)))
+        Value.string(reader.read_string(size))
       when 0xa3
         size = reader.read_byte.to_i
-        Value.symbol(String.new(reader.read_slice(size)))
+        Value.symbol(reader.read_string(size))
       when 0xb3
         size = read_size32(reader, "symbol32")
-        Value.symbol(String.new(reader.read_slice(size)))
+        Value.symbol(reader.read_string(size))
       when 0xc0
         decode_list8(reader, depth)
       when 0xd0
@@ -215,10 +215,10 @@ module LavinMQ::AMQP10
       case constructor
       when 0xa3
         size = reader.read_byte.to_i
-        Value.symbol(String.new(reader.read_slice(size)))
+        Value.symbol(reader.read_string(size))
       when 0xb3
         size = read_size32(reader, "symbol32")
-        Value.symbol(String.new(reader.read_slice(size)))
+        Value.symbol(reader.read_string(size))
       when 0x70
         Value.uint(reader.read_u32)
       when 0x80

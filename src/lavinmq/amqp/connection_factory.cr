@@ -70,9 +70,9 @@ module LavinMQ
         end
         if proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
           :amqp091
-        elsif amqp10_sasl_header?(proto)
+        elsif proto.to_slice == LavinMQ::AMQP10::SASL_HEADER
           :amqp10
-        elsif amqp10_transport_header?(proto)
+        elsif proto.to_slice == LavinMQ::AMQP10::PROTOCOL_HEADER
           socket.write LavinMQ::AMQP10::SASL_HEADER
           socket.flush
           socket.close
@@ -86,16 +86,6 @@ module LavinMQ
         end
       rescue IO::EOFError
         nil
-      end
-
-      private def amqp10_sasl_header?(proto) : Bool
-        proto[0] == 'A'.ord.to_u8 && proto[1] == 'M'.ord.to_u8 && proto[2] == 'Q'.ord.to_u8 && proto[3] == 'P'.ord.to_u8 &&
-          proto[4] == 0x03 && proto[5] == 0x01 && proto[6] == 0x00 && proto[7] == 0x00
-      end
-
-      private def amqp10_transport_header?(proto) : Bool
-        proto[0] == 'A'.ord.to_u8 && proto[1] == 'M'.ord.to_u8 && proto[2] == 'Q'.ord.to_u8 && proto[3] == 'P'.ord.to_u8 &&
-          proto[4] == 0x00 && proto[5] == 0x01 && proto[6] == 0x00 && proto[7] == 0x00
       end
 
       SERVER_PROPERTIES = AMQP::Table.new({
