@@ -370,15 +370,17 @@ module LavinMQ
 
     private def binding_from_json(entry : JSON::Any) : AMQP::Frame
       args = arguments_from_json(entry)
-      case entry["destination_type"].as_s
+      destination_type = entry["destination_type"]?.try(&.as_s) || "queue"
+      routing_key = entry["routing_key"]?.try(&.as_s) || ""
+      case destination_type
       when "queue"
         AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
-          entry["routing_key"].as_s, false, args)
+          routing_key, false, args)
       when "exchange"
         AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
-          entry["routing_key"].as_s, false, args)
+          routing_key, false, args)
       else
-        raise "Unknown binding destination type #{entry["destination_type"]} in vhost #{@vhost.name}"
+        raise "Unknown binding destination type #{destination_type} in vhost #{@vhost.name}"
       end
     end
 
@@ -568,8 +570,8 @@ module LavinMQ
               json.object do
                 json.field "source", exchange.name
                 json.field "destination", binding.destination.name
-                json.field "destination_type", destination_type
-                json.field "routing_key", binding.routing_key
+                json.field "destination_type", destination_type unless destination_type == "queue"
+                json.field "routing_key", binding.routing_key unless binding.routing_key.empty?
                 write_arguments(json, binding.arguments)
               end
             end

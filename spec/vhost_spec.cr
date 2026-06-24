@@ -199,10 +199,15 @@ describe LavinMQ::VHost do
       v = s.vhosts.create("test")
       v.declare_exchange("plain", "direct", true, false)
       v.declare_exchange("internal", "direct", true, false, internal: true)
+      v.declare_exchange("fanout", "fanout", true, false)
+      v.declare_exchange("destination", "direct", true, false)
       v.declare_queue("plain", true, false)
       v.declare_queue("ttl", true, true, arguments: AMQ::Protocol::Table.new({"x-message-ttl" => 123}))
+      v.declare_queue("empty_rk", true, false)
       v.bind_queue("plain", "plain", "plain")
       v.bind_queue("ttl", "internal", "rk", arguments: AMQ::Protocol::Table.new({"x-match" => "any"}))
+      v.bind_queue("empty_rk", "fanout", "")
+      v.bind_exchange("destination", "plain", "")
 
       definitions = v.@definitions.not_nil!
       definitions.request_idle_compaction_for_spec
@@ -231,19 +236,35 @@ describe LavinMQ::VHost do
 
       bindings = JSON.parse(File.read(File.join(v.data_dir, "bindings.json"))).as_a
       plain_binding = bindings.find! { |b| b["destination"].as_s == "plain" }
+      plain_binding.as_h.has_key?("destination_type").should be_false
+      plain_binding["routing_key"].as_s.should eq "plain"
       plain_binding.as_h.has_key?("arguments").should be_false
 
+      implicit_binding = bindings.find! { |b| b["destination"].as_s == "empty_rk" }
+      implicit_binding.as_h.has_key?("destination_type").should be_false
+      implicit_binding.as_h.has_key?("routing_key").should be_false
+
+      exchange_binding = bindings.find! { |b| b["destination"].as_s == "destination" }
+      exchange_binding["destination_type"].as_s.should eq "exchange"
+      exchange_binding.as_h.has_key?("routing_key").should be_false
+
       binding_with_args = bindings.find! { |b| b["destination"].as_s == "ttl" }
+      binding_with_args.as_h.has_key?("destination_type").should be_false
+      binding_with_args["routing_key"].as_s.should eq "rk"
       binding_with_args["arguments"].as_h.has_key?("x-match").should be_true
 
       s.restart
       v = s.vhosts["test"]
       v.exchange("plain").durable?.should be_true
       v.exchange("internal").internal?.should be_true
+      v.exchange("destination").durable?.should be_true
       v.queue("plain").durable?.should be_true
       v.queue("ttl").auto_delete?.should be_true
+      v.queue("empty_rk").durable?.should be_true
       v.queue("ttl").arguments.has_key?("x-message-ttl").should be_true
       v.exchange("internal").bindings_details.first.destination.name.should eq "ttl"
+      v.exchange("fanout").bindings_details.find! { |b| b.destination.name == "empty_rk" }.routing_key.should eq ""
+      v.exchange("plain").bindings_details.find! { |b| b.destination.name == "destination" }.routing_key.should eq ""
     end
   end
 
