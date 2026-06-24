@@ -183,20 +183,20 @@ module LavinMQ::AMQP10
 
     def send_begin(channel : UInt16) : Nil
       fields = Array(Value).new(4)
-      fields << Value.uint(channel.to_u32)
+      fields << Value.ushort(channel)
       fields << Value.uint(0_u32)
       fields << Value.uint(DEFAULT_WINDOW)
       fields << Value.uint(DEFAULT_WINDOW)
       send_performative(channel, Descriptor::BEGIN, fields)
     end
 
-    def send_attach(session : Session, link : Link, source : Source?, target : Target?) : Nil
+    def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
       fields = Array(Value).new(link.role.sender? ? 10 : 7)
       fields << Value.string(link.name)
       fields << Value.uint(link.local_handle)
       fields << Value.bool(link.role.receiver?)
-      fields << Value.ubyte(0_u8)
-      fields << Value.ubyte(0_u8)
+      fields << Value.ubyte(remote_attach.try(&.snd_settle_mode) || 0_u8)
+      fields << Value.ubyte(remote_attach.try(&.rcv_settle_mode) || 0_u8)
       fields << (source.try(&.to_value) || Value.null)
       fields << (target.try(&.to_value) || Value.null)
       if link.role.sender?

@@ -542,14 +542,14 @@ module LavinMQ::AMQP10
         target = attach_receiver(frame, local_handle)
         link = ReceiverLink.new(self, frame.name, frame.handle, local_handle, target[0], target[1])
         @links[frame.handle] = link
-        @client.send_attach(self, link, frame.source, target[2])
-        @client.send_flow(self, link, UInt32::MAX)
+        @client.send_attach(self, link, frame.source, target[2], frame)
+        @client.send_flow(self, link, Int32::MAX.to_u32)
       in .receiver?
         source = attach_sender(frame, local_handle)
         link = SenderLink.new(self, frame.name, frame.handle, local_handle, source[0], source[1])
         @links[frame.handle] = link
         @sender_links << link
-        @client.send_attach(self, link, source[2], frame.target)
+        @client.send_attach(self, link, source[2], frame.target, frame)
       end
     rescue ex : ProtocolError
       @client.@log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
@@ -716,7 +716,9 @@ module LavinMQ::AMQP10
     end
 
     private def next_local_handle : UInt32
+      handle = @next_local_handle
       @next_local_handle &+= 1
+      handle
     end
   end
 end

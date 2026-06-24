@@ -63,7 +63,7 @@ private class AMQP10SpecClient
     flow.incoming_window.should_not be_nil
     flow.next_outgoing_id.should_not be_nil
     flow.outgoing_window.should_not be_nil
-    flow.link_credit.should eq UInt32::MAX
+    flow.link_credit.should eq Int32::MAX.to_u32
     attach
   end
 
@@ -256,6 +256,9 @@ private class AMQP10SpecClient
       @io.write LavinMQ::AMQP10::PROTOCOL_HEADER
     end
     @io.flush
+    header = Bytes.new(8)
+    @io.read_fully(header)
+    header.should eq LavinMQ::AMQP10::PROTOCOL_HEADER
   end
 
   private def send_open(hostname, frame_max)

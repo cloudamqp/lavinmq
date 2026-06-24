@@ -93,6 +93,8 @@ module LavinMQ::AMQP10
       header = uninitialized UInt8[8]
       socket.read_fully(header.to_slice)
       if header.to_slice == PROTOCOL_HEADER
+        socket.write PROTOCOL_HEADER
+        socket.flush
         true
       else
         log.warn { "AMQP 1.0 client did not send transport header after SASL" }
