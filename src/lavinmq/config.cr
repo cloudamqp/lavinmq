@@ -32,6 +32,7 @@ module LavinMQ
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
         File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
@@ -43,6 +44,19 @@ module LavinMQ
       setup_logger
       if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
         Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    private def parse_info_option(argv)
+      return unless argv.size == 1
+
+      case argv.first
+      when "-v", "--version"
+        puts LavinMQ::VERSION
+        exit 0
+      when "--build-info"
+        puts LavinMQ::BUILD_INFO
+        exit 0
       end
     end
 
