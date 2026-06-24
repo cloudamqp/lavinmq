@@ -14,7 +14,7 @@ class DiskVisibilitySpyReplicator
   getter dispatched_definitions = 0
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
-    @dispatched_definitions += 1 if path.ends_with?("definitions.amqp")
+    @dispatched_definitions += 1 if path.ends_with?("definitions.wal")
     File.open(path) do |f|
       if f.size < offset + bytes.bytesize
         @violations << "#{path}: dispatched [#{offset}, #{offset + bytes.bytesize}) but only #{f.size} bytes are on disk"

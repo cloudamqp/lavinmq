@@ -181,8 +181,13 @@ module LavinMQ
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
-      load!
-      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      begin
+        load!
+        spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      rescue ex
+        @definitions.try &.close
+        raise ex
+      end
     end
 
     private def check_consumer_timeouts_loop
@@ -447,7 +452,11 @@ module LavinMQ
     end
 
     def close(reason = "Broker shutdown")
-      return if @closed.swap(true)
+      if @closed.swap(true)
+        definitions.close
+        return
+      end
+
       stop_shovels
       stop_upstream_links
 
@@ -479,6 +488,7 @@ module LavinMQ
 
     def delete
       close(reason: "VHost deleted")
+      definitions.close
       Fiber.yield
       FileUtils.rm_rf @data_dir
     end
