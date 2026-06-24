@@ -14,7 +14,11 @@ module LavinMQ::AMQP10
 
   class ProtocolError < Error; end
 
-  class Value
+  struct Value
+    alias List = Array(Value)
+    alias Map = Array(Tuple(Value, Value))
+    alias Payload = Nil | Bool | UInt64 | Int64 | Float64 | String | Bytes | List | Map | Described
+
     enum Kind
       Null
       Bool
@@ -38,26 +42,9 @@ module LavinMQ::AMQP10
 
     getter kind
 
-    @bool = false
-    @uint = 0_u64
-    @int = 0_i64
-    @float = 0.0_f64
-    @string = ""
-    @bytes = Bytes.empty
-    @list = Array(Value).new
-    @map = Array(Tuple(Value, Value)).new
-    @described : Described?
+    @payload : Payload
 
-    private def initialize(@kind : Kind,
-                           @bool = false,
-                           @uint = 0_u64,
-                           @int = 0_i64,
-                           @float = 0.0_f64,
-                           @string = "",
-                           @bytes = Bytes.empty,
-                           @list = Array(Value).new,
-                           @map = Array(Tuple(Value, Value)).new,
-                           @described : Described? = nil)
+    private def initialize(@kind : Kind, @payload : Payload = nil)
     end
 
     def self.null
@@ -65,71 +52,71 @@ module LavinMQ::AMQP10
     end
 
     def self.bool(value : Bool)
-      new(Kind::Bool, bool: value)
+      new(Kind::Bool, value)
     end
 
     def self.ubyte(value : UInt8)
-      new(Kind::UByte, uint: value.to_u64)
+      new(Kind::UByte, value.to_u64)
     end
 
     def self.ushort(value : UInt16)
-      new(Kind::UShort, uint: value.to_u64)
+      new(Kind::UShort, value.to_u64)
     end
 
     def self.uint(value : UInt32 | UInt64 | Int32 | Int64)
-      new(Kind::UInt, uint: value.to_u64)
+      new(Kind::UInt, value.to_u64)
     end
 
     def self.ulong(value : UInt64 | UInt32 | Int32 | Int64)
-      new(Kind::ULong, uint: value.to_u64)
+      new(Kind::ULong, value.to_u64)
     end
 
     def self.int(value : Int32 | Int64)
-      new(Kind::Int, int: value.to_i64)
+      new(Kind::Int, value.to_i64)
     end
 
     def self.long(value : Int64 | Int32)
-      new(Kind::Long, int: value.to_i64)
+      new(Kind::Long, value.to_i64)
     end
 
     def self.float(value : Float32)
-      new(Kind::Float, float: value.to_f64)
+      new(Kind::Float, value.to_f64)
     end
 
     def self.double(value : Float64 | Float32)
-      new(Kind::Double, float: value.to_f64)
+      new(Kind::Double, value.to_f64)
     end
 
     def self.timestamp(value : Int64)
-      new(Kind::Timestamp, int: value)
+      new(Kind::Timestamp, value)
     end
 
     def self.binary(value : Bytes)
-      new(Kind::Binary, bytes: value)
+      new(Kind::Binary, value)
     end
 
     def self.string(value : String)
-      new(Kind::String, string: value)
+      new(Kind::String, value)
     end
 
     def self.symbol(value : String)
-      new(Kind::Symbol, string: value)
+      new(Kind::Symbol, value)
     end
 
-    def self.list(value : Array(Value))
-      new(Kind::List, list: value)
+    def self.list(value : List)
+      new(Kind::List, value)
     end
 
-    def self.map(value : Array(Tuple(Value, Value)))
-      new(Kind::Map, map: value)
+    def self.map(value : Map)
+      new(Kind::Map, value)
     end
 
-    def self.array(value : Array(Value))
-      new(Kind::Array, list: value)
+    def self.array(value : List)
+      new(Kind::Array, value)
     end
 
     def self.described(descriptor : Value, value : Value)
-      new(Kind::Described, described: Described.new(descriptor, value))
+      new(Kind::Described, Described.new(descriptor, value))
     end
 
     def null? : Bool
@@ -137,91 +124,91 @@ module LavinMQ::AMQP10
     end
 
     def bool? : Bool?
-      @bool if @kind.bool?
+      @payload.as(Bool) if @kind.bool?
     end
 
     def uint? : UInt64?
-      @uint if @kind.u_byte? || @kind.u_short? || @kind.u_int? || @kind.u_long?
+      @payload.as(UInt64) if @kind.u_byte? || @kind.u_short? || @kind.u_int? || @kind.u_long?
     end
 
     def uint_value : UInt64
-      @uint
+      @payload.as(UInt64)
     end
 
     def int? : Int64?
-      @int if @kind.int? || @kind.long? || @kind.timestamp?
+      @payload.as(Int64) if @kind.int? || @kind.long? || @kind.timestamp?
     end
 
     def int_value : Int64
-      @int
+      @payload.as(Int64)
     end
 
     def float? : Float32?
-      @float.to_f32 if @kind.float?
+      @payload.as(Float64).to_f32 if @kind.float?
     end
 
     def double? : Float64?
-      @float if @kind.double?
+      @payload.as(Float64) if @kind.double?
     end
 
     def float_value : Float64
-      @float
+      @payload.as(Float64)
     end
 
     def timestamp? : Int64?
-      @int if @kind.timestamp?
+      @payload.as(Int64) if @kind.timestamp?
     end
 
     def timestamp_value : Int64
-      @int
+      @payload.as(Int64)
     end
 
     def binary? : Bytes?
-      @bytes if @kind.binary?
+      @payload.as(Bytes) if @kind.binary?
     end
 
     def binary_value : Bytes
-      @bytes
+      @payload.as(Bytes)
     end
 
     def string? : String?
-      @string if @kind.string?
+      @payload.as(String) if @kind.string?
     end
 
     def string_value : String
-      @string
+      @payload.as(String)
     end
 
     def symbol? : String?
-      @string if @kind.symbol?
+      @payload.as(String) if @kind.symbol?
     end
 
     def string_like? : String?
-      @string if @kind.string? || @kind.symbol?
+      @payload.as(String) if @kind.string? || @kind.symbol?
     end
 
-    def list? : Array(Value)?
-      @list if @kind.list? || @kind.array?
+    def list? : List?
+      @payload.as(List) if @kind.list? || @kind.array?
     end
 
-    def list_value : Array(Value)
-      @list
+    def list_value : List
+      @payload.as(List)
     end
 
-    def map? : Array(Tuple(Value, Value))?
-      @map if @kind.map?
+    def map? : Map?
+      @payload.as(Map) if @kind.map?
     end
 
-    def map_value : Array(Tuple(Value, Value))
-      @map
+    def map_value : Map
+      @payload.as(Map)
     end
 
     def described? : Described?
-      @described if @kind.described?
+      @payload.as(Described) if @kind.described?
     end
 
     def described_value : Described
-      if described = @described
+      if described = described?
         described
       else
         raise DecodeError.new("value is not described")
@@ -237,23 +224,23 @@ module LavinMQ::AMQP10
       in .null?
         io << "null"
       in .bool?
-        io << @bool
+        io << @payload.as(Bool)
       in .u_byte?, .u_short?, .u_int?, .u_long?
-        io << @uint
+        io << @payload.as(UInt64)
       in .int?, .long?, .timestamp?
-        io << @int
+        io << @payload.as(Int64)
       in .float?, .double?
-        io << @float
+        io << @payload.as(Float64)
       in .binary?
-        io << @bytes
+        io << @payload.as(Bytes)
       in .string?, .symbol?
-        io << @string.inspect
+        io << @payload.as(String).inspect
       in .list?, .array?
-        @list.inspect(io)
+        @payload.as(List).inspect(io)
       in .map?
-        @map.inspect(io)
+        @payload.as(Map).inspect(io)
       in .described?
-        @described.inspect(io)
+        @payload.as(Described).inspect(io)
       end
     end
   end

@@ -522,6 +522,12 @@ describe LavinMQ::AMQP10::MessageCodec do
   end
 end
 
+describe LavinMQ::AMQP10::Value do
+  it "keeps values compact enough for inline scalar storage" do
+    sizeof(LavinMQ::AMQP10::Value).should be <= 32
+  end
+end
+
 describe LavinMQ::AMQP10::Codec do
   it "preserves float and double values" do
     io = IO::Memory.new
