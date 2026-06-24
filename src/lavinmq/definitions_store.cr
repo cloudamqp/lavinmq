@@ -239,7 +239,10 @@ module LavinMQ
       @compact_loop_done.receive?
       # Take the lock so the close can't race a writer still inside
       # store_definition/fsync (use-after-close on the fd).
-      @definitions_lock.synchronize { @definitions_file.close }
+      @definitions_lock.synchronize do
+        compact_locked(all: true) unless @definitions_file.size.zero?
+        @definitions_file.close
+      end
     end
 
     private def delete_legacy_definitions

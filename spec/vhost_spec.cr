@@ -34,6 +34,17 @@ class LavinMQ::DefinitionsStore
   end
 end
 
+def with_crash_restarted_server(data_dir : String, &)
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  server = LavinMQ::Server.new(config)
+  begin
+    yield server
+  ensure
+    server.close
+  end
+end
+
 describe LavinMQ::VHost do
   it "should be able to create vhosts" do
     with_amqp_server do |s|
@@ -69,7 +80,6 @@ describe LavinMQ::VHost do
   end
 
   it "should be able to persist durable delayed exchanges when type = x-delayed-message" do
-    config = LavinMQ::Config.new
     with_amqp_server do |s|
       # This spec is to verify a fix where a server couldn't start again after a crash if
       # an delayed exchange had been declared by specifiying the type as "x-delayed-message".
@@ -78,13 +88,10 @@ describe LavinMQ::VHost do
       arguments = AMQ::Protocol::Table.new({"x-delayed-type": "direct"})
       v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
 
-      # Start a new server with the same data dir as `Server` without stopping
-      # `Server` first, because stopping would compact definitions and therefore "rewrite"
-      config.data_dir = s.data_dir
+      # Start a second server with the same data dir before closing `s`, because
+      # graceful close compacts definitions and removes the WAL records.
+      with_crash_restarted_server(s.data_dir) { }
     end
-    # the definitions file. This is to simulate a start after a "crash".
-    # If this succeeds we assume it worked...?
-    LavinMQ::Server.new(config).close
   end
 
   it "should be able to persist durable queues" do
@@ -121,11 +128,12 @@ describe LavinMQ::VHost do
       File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
       File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
 
-      s.restart
-      v = s.vhosts["test"]
-      v.exchange("e").should_not be_nil
-      v.queue("q").should_not be_nil
-      v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        v = restarted.vhosts["test"]
+        v.exchange("e").should_not be_nil
+        v.queue("q").should_not be_nil
+        v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      end
     end
   end
 
@@ -142,11 +150,12 @@ describe LavinMQ::VHost do
         f.print %({"op":"queue.declare","name":"tor)
       end
 
-      s.restart
-      v = s.vhosts["test"]
-      v.queue("q").should_not be_nil
-      v.queue?("tor").should be_nil
-      v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        v = restarted.vhosts["test"]
+        v.queue("q").should_not be_nil
+        v.queue?("tor").should be_nil
+        v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      end
     end
   end
 
@@ -296,6 +305,23 @@ describe LavinMQ::VHost do
       File.exists?(File.join(v.data_dir, "queues.json")).should be_true
       File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
       File.size(File.join(v.data_dir, "definitions.wal")).should eq 0
+    end
+  end
+
+  it "compacts definitions on vhost close" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_queue("q", true, false)
+      v.delete_queue("q")
+      wal_path = File.join(v.data_dir, "definitions.wal")
+      File.size(wal_path).should be > 0
+
+      v.close
+
+      File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
+      File.exists?(File.join(v.data_dir, "queues.json")).should be_true
+      File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
+      File.size(wal_path).should eq 0
     end
   end
 
