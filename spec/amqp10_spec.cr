@@ -75,7 +75,14 @@ private class AMQP10SpecClient
     fields = attach_fields(name, handle, role_receiver: false,
       source: LavinMQ::AMQP10::Value.null, target: target)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
-    LavinMQ::AMQP10::Detach.from_value(read_value)
+    attach = LavinMQ::AMQP10::Attach.from_value(read_value)
+    attach.name.should eq name
+    attach.role.should eq LavinMQ::AMQP10::Role::Receiver
+    attach.source.should be_nil
+    attach.target.should be_nil
+    detach = LavinMQ::AMQP10::Detach.from_value(read_value)
+    detach.handle.should eq attach.handle
+    detach
   end
 
   def attach_receiver(address : String?, handle = 0_u32, name = "receiver", dynamic = false) : LavinMQ::AMQP10::Attach
@@ -95,7 +102,15 @@ private class AMQP10SpecClient
     fields = attach_fields(name, handle, role_receiver: true,
       source: source, target: LavinMQ::AMQP10::Value.null)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
-    LavinMQ::AMQP10::Detach.from_value(read_value)
+    attach = LavinMQ::AMQP10::Attach.from_value(read_value)
+    attach.name.should eq name
+    attach.role.should eq LavinMQ::AMQP10::Role::Sender
+    attach.source.should be_nil
+    attach.target.should be_nil
+    attach.initial_delivery_count.should eq 0_u32
+    detach = LavinMQ::AMQP10::Detach.from_value(read_value)
+    detach.handle.should eq attach.handle
+    detach
   end
 
   def flow(handle = 0_u32, credit = 1_u32, delivery_count = 0_u32) : Nil

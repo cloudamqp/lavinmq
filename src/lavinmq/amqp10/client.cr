@@ -207,6 +207,24 @@ module LavinMQ::AMQP10
       send_performative(session.id, Descriptor::ATTACH, fields)
     end
 
+    def send_rejected_attach(session : Session, remote_attach : Attach, local_handle : UInt32) : Nil
+      local_role_receiver = remote_attach.role.sender?
+      fields = Array(Value).new(local_role_receiver ? 7 : 10)
+      fields << Value.string(remote_attach.name)
+      fields << Value.uint(local_handle)
+      fields << Value.bool(local_role_receiver)
+      fields << Value.ubyte(remote_attach.snd_settle_mode || 0_u8)
+      fields << Value.ubyte(remote_attach.rcv_settle_mode || 0_u8)
+      fields << Value.null
+      fields << Value.null
+      unless local_role_receiver
+        fields << Value.null
+        fields << Value.null
+        fields << Value.uint(0_u32)
+      end
+      send_performative(session.id, Descriptor::ATTACH, fields)
+    end
+
     def send_detach(session : Session, handle : UInt32, closed = true, error : ErrorInfo? = nil) : Nil
       fields = Array(Value).new(error ? 3 : 2)
       fields << Value.uint(handle)
