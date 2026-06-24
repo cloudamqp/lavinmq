@@ -34,11 +34,9 @@ module LavinMQ
       @dirty_bindings = false
       @last_definition_change = RoughTime.instant
       @compact_requested = Channel(Nil).new(1)
-      @compact_loop_done = Channel(Nil).new
-      spawn name: "DefinitionsStore#compact_loop #{@vhost.name}" do
+      @compact_loop = WaitGroup.new
+      @compact_loop.spawn name: "DefinitionsStore#compact_loop #{@vhost.name}" do
         compact_loop
-      ensure
-        @compact_loop_done.close
       end
     end
 
@@ -236,7 +234,7 @@ module LavinMQ
       return if @closed.swap(true)
 
       @compact_requested.close
-      @compact_loop_done.receive?
+      @compact_loop.wait
       # Take the lock so the close can't race a writer still inside
       # store_definition/fsync (use-after-close on the fd).
       @definitions_lock.synchronize do
