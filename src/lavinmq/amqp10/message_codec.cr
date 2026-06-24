@@ -107,9 +107,9 @@ module LavinMQ::AMQP10
       when 0x40
         nil
       when 0xa1, 0xa3
-        String.new(reader.read_slice(reader.read_byte.to_i))
+        reader.read_string(reader.read_byte.to_i)
       when 0xb1, 0xb3
-        String.new(reader.read_slice(read_size32(reader, "string32")))
+        reader.read_string(read_size32(reader, "string32"))
       else
         skip_value_payload(reader, code)
         nil
@@ -191,8 +191,8 @@ module LavinMQ::AMQP10
       when 0x83       then Time.unix_ms(reader.read_i64)
       when 0xa0       then reader.read_slice(reader.read_byte.to_i)
       when 0xb0       then reader.read_slice(read_size32(reader, "binary32"))
-      when 0xa1, 0xa3 then String.new(reader.read_slice(reader.read_byte.to_i))
-      when 0xb1, 0xb3 then String.new(reader.read_slice(read_size32(reader, "string32")))
+      when 0xa1, 0xa3 then reader.read_string(reader.read_byte.to_i)
+      when 0xb1, 0xb3 then reader.read_string(read_size32(reader, "string32"))
       else
         skip_value_payload(reader, code)
         nil
@@ -248,9 +248,9 @@ module LavinMQ::AMQP10
       when 0x40
         nil
       when 0xa1, 0xa3
-        String.new(reader.read_slice(reader.read_byte.to_i))
+        reader.read_string(reader.read_byte.to_i)
       when 0xb1, 0xb3
-        String.new(reader.read_slice(read_size32(reader, "string32")))
+        reader.read_string(read_size32(reader, "string32"))
       when 0x43
         "0"
       when 0x52
@@ -264,9 +264,9 @@ module LavinMQ::AMQP10
       when 0x80
         reader.read_u64.to_s
       when 0xa0
-        String.new(reader.read_slice(reader.read_byte.to_i))
+        reader.read_string(reader.read_byte.to_i)
       when 0xb0
-        String.new(reader.read_slice(read_size32(reader, "binary32")))
+        reader.read_string(read_size32(reader, "binary32"))
       when 0x98
         read_uuid_value(reader)
       else

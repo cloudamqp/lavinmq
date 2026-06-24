@@ -478,8 +478,8 @@ module LavinMQ::AMQP10
                 when 3 then nullable_string_size(props.type)
                 when 4 then nullable_string_size(props.reply_to)
                 when 5 then nullable_string_size(props.correlation_id)
-                when 6 then nullable_symbol_size(props.content_type)
-                when 7 then nullable_symbol_size(props.content_encoding)
+                when 6 then nullable_string_size(props.content_type)
+                when 7 then nullable_string_size(props.content_encoding)
                 when 9 then props.timestamp_raw ? 9 : 1
                 else        1
                 end
@@ -545,10 +545,6 @@ module LavinMQ::AMQP10
     end
 
     private def nullable_string_size(value : String?) : Int32
-      value ? string_size(value) : 1
-    end
-
-    private def nullable_symbol_size(value : String?) : Int32
       value ? string_size(value) : 1
     end
 

@@ -33,6 +33,10 @@ module LavinMQ::AMQP10
       @slice[start, size]
     end
 
+    def read_string(size : Int) : String
+      String.new(read_slice(size))
+    end
+
     def skip(size : Int) : Nil
       raise IO::EOFError.new if size < 0 || remaining < size
       @pos += size
