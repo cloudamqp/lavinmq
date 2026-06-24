@@ -536,7 +536,10 @@ module LavinMQ::AMQP10
     end
 
     def attach(frame : Attach) : Nil
-      local_handle = next_local_handle
+      attach(frame, next_local_handle)
+    end
+
+    private def attach(frame : Attach, local_handle : UInt32) : Nil
       case frame.role
       in .sender?
         target = attach_receiver(frame, local_handle)
@@ -553,7 +556,8 @@ module LavinMQ::AMQP10
       end
     rescue ex : ProtocolError
       @client.@log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
-      @client.send_detach(self, frame.handle, true,
+      @client.send_rejected_attach(self, frame, local_handle)
+      @client.send_detach(self, local_handle, true,
         ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, ex.message))
     end
 
