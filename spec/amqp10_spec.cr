@@ -594,6 +594,30 @@ describe LavinMQ::AMQP10::Codec do
 end
 
 describe LavinMQ::AMQP10::TransferCodec do
+  it "decodes transfer aborted from field 9" do
+    {true, false}.each do |aborted|
+      payload = IO::Memory.new
+      fields = [
+        LavinMQ::AMQP10::Value.uint(1_u32),
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.bool(aborted),
+        LavinMQ::AMQP10::Value.bool(!aborted),
+      ]
+      LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::TRANSFER, fields)
+
+      transfer = LavinMQ::AMQP10::Transfer.decode(LavinMQ::AMQP10::SliceReader.new(payload.to_slice))
+
+      transfer.aborted.should eq aborted
+    end
+  end
+
   it "writes mandatory session fields in flow frames" do
     io = IO::Memory.new
 
