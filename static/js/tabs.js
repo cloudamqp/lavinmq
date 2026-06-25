@@ -1,3 +1,4 @@
+/* global location, history */
 function activate (barName, tabs, tab) {
   const tabName = tab.dataset.tab
   tabs.forEach(t => t.classList.toggle('active', t === tab))

@@ -1,3 +1,4 @@
+/* global MutationObserver */
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
