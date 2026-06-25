@@ -47,6 +47,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
+| `sync` | `--no-sync` | `LAVINMQ_SYNC` | Bool | `true` | Flush pending writes to the data directory with `syncfs(2)` before acking publisher confirms (`Basic.Ack`) and transaction commits, so confirmed messages survive sudden power loss or a kernel crash. Disabling (`--no-sync` / `sync = false`) leaves durability to the OS — unsafe for production, but speeds up CI and local development. See [Publisher Confirms](publisher-confirms.md#disk-durable-confirms). |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
