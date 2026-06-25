@@ -248,6 +248,149 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "x-stream-offset negative integer" do
+    it "delivers the last N messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-last-n", args: stream_queue_args)
+          200.times { |i| q.publish "m#{i}" }
+          ch.prefetch 100
+          msgs = Channel(AMQP::Client::DeliverMessage).new(100)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          received = Array(AMQP::Client::DeliverMessage).new
+          100.times { received << msgs.receive }
+          StreamSpecHelpers.offset_from_headers(received.first.properties.headers).should eq 101
+          StreamSpecHelpers.offset_from_headers(received.last.properties.headers).should eq 200
+        end
+      end
+    end
+
+    it "continues with new messages after delivering the last N messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-continues", args: stream_queue_args)
+          5.times { |i| q.publish "m#{i}" }
+          ch.prefetch 10
+          msgs = Channel(AMQP::Client::DeliverMessage).new(4)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -3})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+
+          received = Array(AMQP::Client::DeliverMessage).new
+          3.times { received << msgs.receive }
+          received.map { |msg| StreamSpecHelpers.offset_from_headers(msg.properties.headers) }.should eq [3_i64, 4_i64, 5_i64]
+          received.map(&.body_io.to_s).should eq ["m2", "m3", "m4"]
+
+          q.publish "m5"
+          select
+          when msg = msgs.receive
+            StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 6
+            msg.body_io.to_s.should eq "m5"
+          when timeout(1.second)
+            fail("Consumer did not continue with the next stream message")
+          end
+        end
+      end
+    end
+
+    it "clamps to oldest available when stream has fewer messages than requested" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-underflow", args: stream_queue_args)
+          30.times { |i| q.publish "m#{i}" }
+          ch.prefetch 30
+          msgs = Channel(AMQP::Client::DeliverMessage).new(30)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          received = Array(AMQP::Client::DeliverMessage).new
+          30.times { received << msgs.receive }
+          StreamSpecHelpers.offset_from_headers(received.first.properties.headers).should eq 1
+          StreamSpecHelpers.offset_from_headers(received.last.properties.headers).should eq 30
+        end
+      end
+    end
+
+    it "waits for new messages from the next offset when the stream is empty" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-empty", args: stream_queue_args)
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          q.publish "m"
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+          msg.body_io.to_s.should eq "m"
+        end
+      end
+    end
+
+    it "x-stream-offset=-1 delivers only the latest message" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-one", args: stream_queue_args)
+          5.times { |i| q.publish "m#{i}" }
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -1})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 5
+          msg.body_io.to_s.should eq "m4"
+        end
+      end
+    end
+
+    it "delivers remaining messages when older segments have been dropped" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-length": 1}
+          q = ch.queue("neg-offset-after-drop", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          q.message_count.should eq 1
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+        end
+      end
+    end
+
+    it "clamps Int64::MIN to the oldest available message" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-min", args: stream_queue_args)
+          q.publish_confirm "m"
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": Int64::MIN})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          msg = msgs.receive
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+          msg.body_io.to_s.should eq "m"
+        end
+      end
+    end
+  end
+
   describe "Expiration" do
     it "segments should be removed if max-length set" do
       with_amqp_server do |s|
@@ -753,6 +896,25 @@ describe LavinMQ::AMQP::Stream do
           # still round-trips. Without the rescue this raises (connection gone).
           ch.queue(Random::Secure.hex, args: stream_queue_args).should_not be_nil
         end
+      end
+    end
+
+    it "negative x-stream-offset does not override tracked offset on reconnect" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": -5, "x-stream-automatic-offset-tracking": "true"})
+
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 10)
+        msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 6
+        sleep 0.1.seconds
+
+        StreamSpecHelpers.publish(s, queue_name, 5)
+
+        # tracked offset (7) wins over the -5 that would otherwise re-anchor to 11
+        msg2 = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamSpecHelpers.offset_from_headers(msg2.properties.headers).should eq 7
       end
     end
 

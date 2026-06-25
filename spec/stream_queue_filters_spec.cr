@@ -102,6 +102,28 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "applies negative offset before filtering" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = PublishHelper.create_queue_and_messages(s, ch)
+
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          args = AMQP::Client::Arguments.new({"x-stream-filter": "foo", "x-stream-offset": -2})
+          q.subscribe(no_ack: false, args: args) do |msg|
+            msgs.send msg
+            msg.ack
+          end
+          msg = msgs.receive
+          msg.body_io.to_s.should eq "msg with filter: foo,bar,xyz"
+          if headers = msg.properties.headers
+            headers["x-stream-offset"].should eq 5
+          else
+            fail "No headers in message"
+          end
+        end
+      end
+    end
+
     describe "Filter on any header" do
       it "should support filtering on any header" do
         with_amqp_server do |s|
