@@ -172,18 +172,34 @@ module LavinMQ
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
-        remote_hash = Bytes.new(sha1.digest_size)
-        files_to_delete, dirs_to_delete = ls_r(@data_dir)
-        requested_files = Array(String).new
-        file_count = 0
-        Log.info { "Calculating checksums and comparing files" }
-        log_limiter = RateLimiter.new(2.seconds)
+
+        # Drain the entire file list from the socket FIRST, doing no hashing in
+        # this loop. Computing local checksums is CPU-bound and would otherwise
+        # block reading between entries, so the leader's file-list flush can't
+        # complete within its write timeout and it disconnects us mid-sync. By
+        # reading the list back-to-back we let the leader's flush finish; it then
+        # blocks reading our file requests (below) while we hash, so it never
+        # write-times-out during the comparison.
+        remote_files = Array({String, Bytes}).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
           filename = lz4.read_string(filename_len)
+          remote_hash = Bytes.new(sha1.digest_size)
           lz4.read_fully(remote_hash)
+          remote_files << {filename, remote_hash}
+        end
+        Log.info { "Received list of #{remote_files.size} files" }
+
+        # Now compare against local files (CPU-bound hashing) with the socket
+        # already drained.
+        files_to_delete, dirs_to_delete = ls_r(@data_dir)
+        requested_files = Array(String).new
+        file_count = 0
+        Log.info { "Calculating checksums and comparing files" }
+        log_limiter = RateLimiter.new(2.seconds)
+        remote_files.each do |filename, remote_hash|
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           # Walk up the path to remove all ancestors from dirs_to_delete

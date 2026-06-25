@@ -19,6 +19,15 @@ module LavinMQ
       # still-connected follower can't stall publish confirms indefinitely.
       ACK_TIMEOUT = 3.seconds
 
+      # Write timeout used during full_sync. A syncing follower isn't in the ISR
+      # yet, so its slowness can't stall publish confirms, and the bulk transfer
+      # legitimately blocks the leader's writes while the follower hashes its
+      # local files or persists received ones. The aggressive ACK_TIMEOUT is for
+      # the steady-state streaming phase; using it during full_sync wrongly drops
+      # a merely-slow follower. Still bounded so a genuinely wedged follower can't
+      # hold the sync lock forever.
+      SYNC_WRITE_TIMEOUT = 60.seconds
+
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
       # Wakes the publish-confirm waiter on each ack; closed (never replaced)
@@ -67,6 +76,9 @@ module LavinMQ
       # count recorded as that follower's synced baseline, so the snapshot and
       # the baseline agree and in-flight writes aren't duplicated.
       def full_sync(caps : Hash(String, Int64)? = nil) : Nil
+        # Relax the write timeout for the bulk transfer; ack_loop restores the
+        # tight ACK_TIMEOUT when the follower enters the streaming phase.
+        @socket.write_timeout = SYNC_WRITE_TIMEOUT
         send_file_list(caps: caps)
         send_requested_files(caps: caps)
       end
@@ -74,6 +86,9 @@ module LavinMQ
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
         @running.spawn(name: "Clustering follower flush loop") { flush_loop }
+        # Tighten the write timeout for the streaming phase; full_sync relaxed it
+        # to SYNC_WRITE_TIMEOUT for the bulk transfer.
+        @socket.write_timeout = ACK_TIMEOUT
         @socket.read_timeout = 100.milliseconds # Wait for an ack max this time, otherwise flush the buffer to trigger acks
         # When data is outstanding and unacked, the time we first noticed it.
         # Reset to nil on any ack (progress) or when fully caught up, so the
@@ -339,8 +354,17 @@ module LavinMQ
 
       def close
         begin
+          # Don't @lz4.close here: it writes the end-of-frame and flushes to
+          # the socket, which blocks (and re-raises the write timeout) when the
+          # follower stopped reading and the send buffer is full — the exact
+          # case that drops a follower mid full_sync. That used to skip the
+          # @socket.close below, leaving the socket open so the follower never
+          # saw a disconnect and never reconnected. close always means the
+          # follower is being dropped and will reconnect + re-sync, so a clean
+          # frame-end has no value and any buffered (hence unacked, non-durable)
+          # data is safely discarded. Just close the socket; the LZ4 writer's
+          # context is freed by its finalizer.
           @write_lock.synchronize do
-            @lz4.close
             @socket.close
           end
         rescue IO::Error
