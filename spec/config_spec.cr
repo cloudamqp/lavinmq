@@ -528,6 +528,27 @@ describe LavinMQ::Config do
     io.to_s.should match(/\[http\] is deprecated/)
   end
 
+  it "does not parse config before printing version information" do
+    config_dir = File.tempname("lavinmq-conf")
+    Dir.mkdir_p(config_dir)
+    File.write(File.join(config_dir, "lavinmq.ini"), <<-CONFIG
+      [http]
+      port = 15699
+      CONFIG
+    )
+    io = IO::Memory.new
+    config = LavinMQ::Config.new(io)
+    begin
+      ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = config_dir
+      ex = expect_raises(SpecExit) { config.parse(["--version"]) }
+      ex.code.should eq 0
+      io.to_s.should be_empty
+    ensure
+      ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+      FileUtils.rm_rf(config_dir)
+    end
+  end
+
   it "will not parse ini sections that do not exist" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
