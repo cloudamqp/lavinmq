@@ -73,6 +73,7 @@ module LavinMQ
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
     rescue ex : Socket::BindError
+      stop
       abort "Error: #{ex.message}"
     end
 
@@ -174,23 +175,27 @@ module LavinMQ
     # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
       if @config.amqp_port > 0
-        spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
+        amqp_listener = TCPServer.new(@config.amqp_bind, @config.amqp_port)
+        spawn amqp_server.listen(amqp_listener, Server::Protocol::AMQP),
           name: "AMQP listening on #{@config.amqp_port}"
       end
 
       if @config.amqps_port > 0
         if ctx = @amqp_tls_context
-          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
+          amqps_listener = TCPServer.new(@config.amqp_bind, @config.amqps_port)
+          spawn amqp_server.listen_tls(amqps_listener, ctx, Server::Protocol::AMQP),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
       end
 
       if clustering_bind = @config.clustering_bind
-        spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
+        clustering_listener = TCPServer.new(clustering_bind, @config.clustering_port)
+        spawn amqp_server.listen_clustering(clustering_listener), name: "Clustering listener"
       end
 
       unless @config.unix_path.empty?
-        spawn amqp_server.listen_unix(@config.unix_path, Server::Protocol::AMQP), name: "AMQP listening at #{@config.unix_path}"
+        amqp_unix_listener = bind_unix(@config.unix_path)
+        spawn amqp_server.listen(amqp_unix_listener, Server::Protocol::AMQP), name: "AMQP listening at #{@config.unix_path}"
       end
 
       if @config.http_port > 0
@@ -211,19 +216,27 @@ module LavinMQ
       end
 
       if @config.mqtt_port > 0
-        spawn amqp_server.listen(@config.mqtt_bind, @config.mqtt_port, Server::Protocol::MQTT),
+        mqtt_listener = TCPServer.new(@config.mqtt_bind, @config.mqtt_port)
+        spawn amqp_server.listen(mqtt_listener, Server::Protocol::MQTT),
           name: "MQTT listening on #{@config.mqtt_port}"
       end
 
       if @config.mqtts_port > 0
         if ctx = @mqtt_tls_context
-          spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
+          mqtts_listener = TCPServer.new(@config.mqtt_bind, @config.mqtts_port)
+          spawn amqp_server.listen_tls(mqtts_listener, ctx, Server::Protocol::MQTT),
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
       end
       unless @config.mqtt_unix_path.empty?
-        spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
+        mqtt_unix_listener = bind_unix(@config.mqtt_unix_path)
+        spawn amqp_server.listen(mqtt_unix_listener, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
       end
+    end
+
+    private def bind_unix(path : String) : UNIXServer
+      File.delete?(path)
+      UNIXServer.new(path).tap { File.chmod(path, 0o666) }
     end
 
     private def dump_debug_info
