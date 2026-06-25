@@ -332,20 +332,28 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
-        deliver_get = @amqp_server.vhosts.deleted_vhosts_deliver_get_total
-        redeliver   = @amqp_server.vhosts.deleted_vhosts_redeliver_total
-        ack         = @amqp_server.vhosts.deleted_vhosts_ack_total
-        confirm     = @amqp_server.vhosts.deleted_vhosts_confirm_total
+        deliver_get = 0_u64
+        redeliver   = 0_u64
+        ack         = 0_u64
+        confirm     = 0_u64
         @amqp_server.vhosts.each_value do |v|
           deliver_get += v.deliver_get_count
           redeliver   += v.redeliver_count
           ack         += v.ack_count
           confirm     += v.confirm_count
         end
+        # Add deleted vhosts' accumulated totals after the live-vhost loop.
+        # Reading the accumulator after iterating live vhosts means a concurrently
+        # deleted vhost is counted either here (if already accumulated) or in the
+        # loop above (if still listed as live), but never in both places.
+        deliver_get += @amqp_server.vhosts.deleted_vhosts_deliver_get_total
+        redeliver   += @amqp_server.vhosts.deleted_vhosts_redeliver_total
+        ack         += @amqp_server.vhosts.deleted_vhosts_ack_total
+        confirm     += @amqp_server.vhosts.deleted_vhosts_confirm_total
         writer.write({name:  "global_messages_delivered_total",
                       value: deliver_get,
                       type:  "counter",
-                      help:  "Total number of messaged delivered to consumers"})
+                      help:  "Total number of messages delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
                       value: redeliver,
                       type:  "counter",

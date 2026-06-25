@@ -97,6 +97,9 @@ module LavinMQ
         @users.rm_vhost_permissions_for_all(name)
         # Fold this vhost's cumulative stats into the server-wide accumulators
         # so that counter-typed metrics never decrease after a vhost is deleted.
+        # :relaxed ordering is sufficient here — these are independent counters
+        # used only for stats reporting, consistent with how all other stats
+        # atomics are updated throughout the codebase (e.g. event_tick).
         stats = vhost.stats_details
         {% for stat in DELETED_VHOST_STATS %}
           @deleted_vhosts_{{ stat.id }}_total.add(stats[:{{ stat.id }}], :relaxed)
