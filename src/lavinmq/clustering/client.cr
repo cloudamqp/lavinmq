@@ -222,7 +222,7 @@ module LavinMQ
               Log.debug { "Calculating checksum for #{filename}" }
               sha1.file(path)
               local_hash = sha1.final
-              @checksums[filename] = local_hash
+              @checksums.append(filename, local_hash)
               sha1.reset
               Fiber.yield # CPU bound, so allow other fibers to run
             end
@@ -294,7 +294,10 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id")
+            # checksums.sha1(.tmp) is local-only replication metadata, never
+            # sent by the leader; skip it so the "delete files not on leader"
+            # sweep doesn't wipe our persisted hashes mid-sync.
+            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -327,7 +330,9 @@ module LavinMQ
             remaining &-= len
           end
           remaining.zero? || raise IO::EOFError.new
-          @checksums[filename] = sha1.final
+          # Persist immediately too: a file received here is complete and
+          # stable, so a crash mid-sync won't force re-hashing it on restart.
+          @checksums.append(filename, sha1.final)
         end
         Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end
