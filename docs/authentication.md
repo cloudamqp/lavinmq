@@ -105,7 +105,7 @@ If any of the three keys is missing, the SSO button is hidden and only username/
 ### How It Works
 
 1. Client connects with a JWT token as the password
-2. The server validates the token signature against cached JWKS keys and verifies the audience (if `verify_aud` is enabled)
+2. The server validates the token signature against cached JWKS keys and verifies the audience (if `verify_aud` is enabled). The token must carry a `kid` header matching a cached JWKS key; providers that omit `kid` are not supported.
 3. Username is extracted from the claims listed in `preferred_username_claims` (tried in order; first non-empty value wins)
 4. Tags and permissions are derived from the token's scopes
 5. The token's expiration time is tracked. Long-lived connections must refresh the token via `connection.update-secret` before it expires.
