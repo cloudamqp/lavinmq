@@ -101,6 +101,25 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
+    # Assigns a parsed option value to its property. When `deprecation_message` is
+    # present the option is deprecated: the message is printed verbatim and the
+    # value is forwarded only if the (getter-less) deprecated property defines a
+    # setter. An option with no replacement defines no setter, so its value is
+    # dropped after the warning. Shared by `parse_cli` and `parse_section`.
+    private macro assign_option(var_name, value, transform, deprecation_message)
+      {% if deprecation_message %}
+        @io.puts "WARNING: {{deprecation_message.id}}"
+        # Since deprecation_message is set, the variable is deprecated. It may
+        # be forwarded to another variable using a setter, but it may also be
+        # completley removed, therefore we need to check for a setter.
+        {% if @type.has_method?("#{var_name.id}=") %}
+          self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+        {% end %}
+      {% else %}
+        self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+      {% end %}
+    end
+
     private def parse_env
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
         {% for ann in ivar.annotations(EnvOpt) %}
@@ -139,10 +158,7 @@ module LavinMQ
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
           sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}) do |value|
-            {% if cli_opt[:deprecated] %}
-              @io.puts "WARNING: {{cli_opt[:deprecated].id}}"
-            {% end %}
-            self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
+            assign_option({{ivar.name}}, value, {{value_parser}}, {{cli_opt[:deprecated]}})
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -256,17 +272,14 @@ module LavinMQ
         end
     %}
 
-    # Generate a case branch for each INI setting in this section.
-    # If a setting is marked as deprecated, look up the replacement instance variable
-    # and redirect the value assignment to it instead, logging a deprecation warning.
+    # Generate a case branch for each INI setting in this section. Deprecated
+    # settings carry a verbatim warning message and are handled by `assign_option`,
+    # which forwards the value to the replacement when a setter exists.
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
-         when "{{var[:ini_name]}}"
-         {% if (deprecated = var[:deprecated]) %}
-           @io.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
-         {% end %}
-         self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+          when "{{var[:ini_name]}}"
+            assign_option({{var[:var_name]}}, v, {{var[:transform]}}, {{var[:deprecated]}})
         {% end %}
      else
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"

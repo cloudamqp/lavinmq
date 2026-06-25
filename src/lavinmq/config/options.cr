@@ -6,8 +6,105 @@ require "../http/constants"
 
 module LavinMQ
   class Config
+    # Marks a config property as settable from a command-line argument.
+    #
+    # Positional arguments (in order):
+    # 1. short flag with optional value placeholder, e.g. `"-p PORT"`
+    #    (use `""` when the option has no short flag)
+    # 2. long flag with optional value placeholder, e.g. `"--amqp-port=PORT"`
+    # 3. description shown in `--help`
+    # 4. *optional* `Proc(String, T)` that converts the raw argument to the
+    #    property's type. When omitted, the property's own type is used and the
+    #    value is converted by the matching `Config#parse_value` overload.
+    #
+    # Named arguments:
+    # - `section:` groups the flag under a heading in `--help`, one of
+    #   `"options"`, `"bindings"`, `"tls"` or `"clustering"`. Defaults to `"options"`.
+    # - `deprecated:` a complete warning message, printed verbatim, when the flag
+    #   is used. To forward the old value to a replacement, define a setter (and no
+    #   getter) on the deprecated property; an option with no replacement defines no
+    #   setter and its value is dropped after the warning.
+    #
+    # Parsed by `Config#parse_cli`. CLI args take precedence over `EnvOpt` and `IniOpt`.
+    #
+    # ```
+    # @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
+    # property amqp_port = 5672
+    # ```
+    #
+    # A deprecated flag whose value is forwarded to a replacement: declare the
+    # instance variable (not a `property`) and define only the setter, which
+    # assigns to the new property.
+    #
+    # ```
+    # @[CliOpt("", "--default-password=HASH", "(Deprecated) Hashed password for default user",
+    #   section: "options", deprecated: "--default-password is deprecated, use --default-password-hash")]
+    # @default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH
+    #
+    # def default_password=(value)
+    #   @default_password_hash = value # forward to the replacement
+    # end
+    # ```
     annotation CliOpt; end
+
+    # Marks a config property as settable from a section in the INI config file.
+    #
+    # Named arguments:
+    # - `section:` the INI section the key belongs to, one of `INI_SECTIONS`
+    #   (e.g. `"main"`, `"amqp"`, `"mqtt"`, `"mgmt"`, `"clustering"`, `"oauth"`,
+    #   `"experimental"`). Used to select which properties belong to a section.
+    # - `ini_name:` the key name within the section, given as a bare identifier
+    #   (e.g. `ini_name: port`). Defaults to the property name.
+    # - `transform:` a `Proc(String, T)` that converts the raw value to the
+    #   property's type. When omitted, the property's own type is used and the
+    #   value is converted by the matching `Config#parse_value` overload.
+    # - `deprecated:` a complete warning message, printed verbatim, when the key
+    #   is used. To forward the old value to a replacement, define a setter (and no
+    #   getter) on the deprecated property; an option with no replacement defines no
+    #   setter and its value is dropped after the warning.
+    #
+    # Parsed by `Config#parse_section`.
+    #
+    # ```
+    # @[IniOpt(ini_name: port, section: "amqp")]
+    # property amqp_port = 5672
+    # ```
+    #
+    # A deprecated key whose value is forwarded to a replacement: declare the
+    # instance variable (not a `property`) and define only the setter, which
+    # assigns to the new property.
+    #
+    # ```
+    # @[IniOpt(ini_name: tls_cert, section: "amqp",
+    #   deprecated: "Ini config tls_cert in [amqp] is deprecated, use tls_cert in [main] instead")]
+    # @amqp_tls_cert = ""
+    #
+    # def amqp_tls_cert=(value)
+    #   @tls_cert_path = value # forward to the replacement
+    # end
+    # ```
     annotation IniOpt; end
+
+    # Marks a config property as settable from an environment variable.
+    #
+    # Positional arguments (in order):
+    # 1. the environment variable name, e.g. `"LAVINMQ_AMQP_PORT"`
+    # 2. *optional* `Proc(String, T)` that converts the raw value to the
+    #    property's type. When omitted, the property's own type is used and the
+    #    value is converted by the matching `Config#parse_value` overload.
+    #
+    # May be applied multiple times to accept several variable names for the same
+    # property. The value is assigned directly to the instance variable, bypassing
+    # any setter.
+    #
+    # Parsed by `Config#parse_env`. Env vars take precedence over `IniOpt` but are
+    # overridden by `CliOpt`.
+    #
+    # ```
+    # @[EnvOpt("STATE_DIRECTORY")]
+    # @[EnvOpt("LAVINMQ_DATADIR")]
+    # property data_dir : String = "/var/lib/lavinmq"
+    # ```
     annotation EnvOpt; end
     INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
 
@@ -248,8 +345,9 @@ module LavinMQ
 
       @[CliOpt("", "--default-password=PASSWORD-HASH",
         "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))",
-        deprecated: "--default-password is deprecated, use --default-password-hash", section: "options")]
-      @[IniOpt(section: "main", deprecated: "default_password_hash")]
+        section: "options", deprecated: "--default-password is deprecated, use --default-password-hash")]
+      @[IniOpt(section: "main",
+        deprecated: "Ini config default_password is deprecated, use default_password_hash instead")]
       @default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH # Hashed password for default user
 
       def default_password=(value)
@@ -271,8 +369,10 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property? default_user_only_loopback : Bool = true
 
-      @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Deprecated: Use --default-user-only-loopback instead.", section: "options")]
-      @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
+      @[CliOpt("", "--guest-only-loopback=BOOL", "(Deprecated) Limit guest user to only connect from loopback address",
+        section: "options", deprecated: "--guest-only-loopback is deprecated, use --default-user-only-loopback")]
+      @[IniOpt(section: "main",
+        deprecated: "Ini config guest_only_loopback is deprecated, use default_user_only_loopback instead")]
       @guest_only_loopback : Bool = true
 
       def guest_only_loopback=(value : Bool)
@@ -314,14 +414,12 @@ module LavinMQ
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far
       # a follower may lag is governed by the leader's ack deadline, not this.
-      @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "(Deprecated) No longer used", section: "clustering")]
-      @[IniOpt(ini_name: max_unsynced_actions, section: "clustering")]
+      @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "(Deprecated) No longer used",
+        section: "clustering", deprecated: "--clustering-max-unsynced-actions is deprecated and no longer used")]
+      @[IniOpt(ini_name: max_unsynced_actions, section: "clustering",
+        deprecated: "Ini config max_unsynced_actions is deprecated and no longer used")]
       @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
       @clustering_max_unsynced_actions = 8192 # deprecated, no longer used
-
-      def clustering_max_unsynced_actions=(_value)
-        @io.puts "WARNING: clustering_max_unsynced_actions is deprecated and has no effect"
-      end
 
       @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)", section: "clustering")]
       @[IniOpt(ini_name: port, section: "clustering")]
@@ -336,49 +434,56 @@ module LavinMQ
 
       # Deprecated options - these forward to the primary option in [main]
 
-      @[IniOpt(ini_name: tls_cert, section: "amqp", deprecated: "tls_cert in [main]")]
+      @[IniOpt(ini_name: tls_cert, section: "amqp",
+        deprecated: "Ini config tls_cert in [amqp] is deprecated, use tls_cert in [main] instead")]
       @amqp_tls_cert = ""
 
       def amqp_tls_cert=(value)
         @tls_cert_path = value
       end
 
-      @[IniOpt(ini_name: tls_key, section: "amqp", deprecated: "tls_key in [main]")]
+      @[IniOpt(ini_name: tls_key, section: "amqp",
+        deprecated: "Ini config tls_key in [amqp] is deprecated, use tls_key in [main] instead")]
       @amqp_tls_key = ""
 
       def amqp_tls_key=(value)
         @tls_key_path = value
       end
 
-      @[IniOpt(ini_name: tls_cert, section: "mgmt", deprecated: "tls_cert in [main]")]
+      @[IniOpt(ini_name: tls_cert, section: "mgmt",
+        deprecated: "Ini config tls_cert in [mgmt] is deprecated, use tls_cert in [main] instead")]
       @mgmt_tls_cert = ""
 
       def mgmt_tls_cert=(value)
         @tls_cert_path = value
       end
 
-      @[IniOpt(ini_name: tls_key, section: "mgmt", deprecated: "tls_key in [main]")]
+      @[IniOpt(ini_name: tls_key, section: "mgmt",
+        deprecated: "Ini config tls_key in [mgmt] is deprecated, use tls_key in [main] instead")]
       @mgmt_tls_key = ""
 
       def mgmt_tls_key=(value)
         @tls_key_path = value
       end
 
-      @[IniOpt(ini_name: set_timestamp, section: "amqp", deprecated: "set_timestamp in [main]")]
+      @[IniOpt(ini_name: set_timestamp, section: "amqp",
+        deprecated: "Ini config set_timestamp in [amqp] is deprecated, use set_timestamp in [main] instead")]
       @amqp_set_timestamp = false
 
       def amqp_set_timestamp=(value)
         @set_timestamp = value
       end
 
-      @[IniOpt(ini_name: consumer_timeout, section: "amqp", deprecated: "consumer_timeout in [main]")]
+      @[IniOpt(ini_name: consumer_timeout, section: "amqp",
+        deprecated: "Ini config consumer_timeout in [amqp] is deprecated, use consumer_timeout in [main] instead")]
       @amqp_consumer_timeout : UInt64? = nil
 
       def amqp_consumer_timeout=(value)
         @consumer_timeout = value
       end
 
-      @[IniOpt(ini_name: default_consumer_prefetch, section: "amqp", deprecated: "default_consumer_prefetch in [main]")]
+      @[IniOpt(ini_name: default_consumer_prefetch, section: "amqp",
+        deprecated: "Ini config default_consumer_prefetch in [amqp] is deprecated, use default_consumer_prefetch in [main] instead")]
       @amqp_default_consumer_prefetch = UInt16::MAX
 
       def amqp_default_consumer_prefetch=(value)
