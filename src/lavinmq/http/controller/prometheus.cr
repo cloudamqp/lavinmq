@@ -332,27 +332,32 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
-        message_stats = @amqp_server.vhosts.map { |_, v| v.message_details[:message_stats] }
+        deliver_get = @amqp_server.vhosts.deleted_vhosts_deliver_get_total
+        redeliver   = @amqp_server.vhosts.deleted_vhosts_redeliver_total
+        ack         = @amqp_server.vhosts.deleted_vhosts_ack_total
+        confirm     = @amqp_server.vhosts.deleted_vhosts_confirm_total
+        @amqp_server.vhosts.each_value do |v|
+          deliver_get += v.deliver_get_count
+          redeliver   += v.redeliver_count
+          ack         += v.ack_count
+          confirm     += v.confirm_count
+        end
         writer.write({name:  "global_messages_delivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_delivered_total +
-                             message_stats.sum { |ms| ms[:deliver_get] },
-                      type: "counter",
-                      help: "Total number of messaged delivered to consumers"})
+                      value: deliver_get,
+                      type:  "counter",
+                      help:  "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_redelivered_total +
-                             message_stats.sum { |ms| ms[:redeliver] },
-                      type: "counter",
-                      help: "Total number of messages redelivered to consumers"})
+                      value: redeliver,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
-                      value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
-                             message_stats.sum { |ms| ms[:ack] },
-                      type: "counter",
-                      help: "Total number of messages acknowledged by consumers"})
+                      value: ack,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: @amqp_server.deleted_vhosts_messages_confirmed_total +
-                             message_stats.sum { |ms| ms[:confirm] },
-                      type: "counter",
-                      help: "Total number of messages confirmed to publishers"})
+                      value: confirm,
+                      type:  "counter",
+                      help:  "Total number of messages confirmed to publishers"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
@@ -459,6 +464,10 @@ module LavinMQ
             {{ sm.id }} += stats_details[:{{ sm.id }}]
           {% end %}
         end
+        # Add deleted vhosts' accumulated totals so these counters never decrease.
+        {% for sm in SERVER_METRICS %}
+          {{ sm.id }} += @amqp_server.vhosts.deleted_vhosts_{{ sm.id }}_total
+        {% end %}
         {% begin %}
         {
           {% for sm in SERVER_METRICS %}

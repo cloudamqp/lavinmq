@@ -29,6 +29,10 @@ module LavinMQ
             add_logs!({{ sm.id }}_log, stats_details[:{{ sm.id }}_details][:log])
           {% end %}
         end
+        # Add deleted vhosts' accumulated totals so counters never decrease.
+        {% for sm in SERVER_METRICS %}
+          {{ sm.id }} += @amqp_server.vhosts.deleted_vhosts_{{ sm.id }}_total
+        {% end %}
         {% begin %}
         {
           messages_unacknowledged: messages_unacknowledged,

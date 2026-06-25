@@ -137,6 +137,79 @@ describe LavinMQ::HTTP::PrometheusController do
         server.uptime.should be > uptime1
       end
     end
+
+    it "global_messages_delivered_total does not decrease when a queue is deleted" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q_del_test", durable: false)
+          3.times { q.publish("msg") }
+          3.times { q.get(no_ack: true) }
+        end
+
+        raw_before = http.get("/metrics").body
+        parsed_before = PrometheusSpecHelper.parse_prometheus(raw_before)
+        before = parsed_before.find! { |m| m[:key] == "lavinmq_global_messages_delivered_total" }[:value]
+
+        s.vhosts["/"].delete_queue("q_del_test")
+
+        raw_after = http.get("/metrics").body
+        parsed_after = PrometheusSpecHelper.parse_prometheus(raw_after)
+        after_val = parsed_after.find! { |m| m[:key] == "lavinmq_global_messages_delivered_total" }[:value]
+
+        after_val.should be >= before
+      end
+    end
+
+    it "queues_declared_total does not decrease when a vhost is deleted" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vhost_del_test")
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("q2", true, false)
+
+        raw_before = http.get("/metrics").body
+        parsed_before = PrometheusSpecHelper.parse_prometheus(raw_before)
+        before = parsed_before.find! { |m| m[:key] == "lavinmq_queues_declared_total" }[:value]
+
+        s.vhosts.delete("vhost_del_test")
+
+        raw_after = http.get("/metrics").body
+        parsed_after = PrometheusSpecHelper.parse_prometheus(raw_after)
+        after_val = parsed_after.find! { |m| m[:key] == "lavinmq_queues_declared_total" }[:value]
+
+        after_val.should be >= before
+      end
+    end
+
+    it "global_messages_*_total does not decrease when a vhost is deleted" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("msg_del_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("q1", durable: true)
+          3.times { q.publish_confirm("msg") }
+          3.times { q.get(no_ack: false).try &.ack }
+        end
+
+        raw_before = http.get("/metrics").body
+        parsed_before = PrometheusSpecHelper.parse_prometheus(raw_before)
+        delivered_before = parsed_before.find! { |m| m[:key] == "lavinmq_global_messages_delivered_total" }[:value]
+        acked_before     = parsed_before.find! { |m| m[:key] == "lavinmq_global_messages_acknowledged_total" }[:value]
+        confirmed_before = parsed_before.find! { |m| m[:key] == "lavinmq_global_messages_confirmed_total" }[:value]
+
+        s.vhosts.delete("msg_del_test")
+
+        raw_after = http.get("/metrics").body
+        parsed_after = PrometheusSpecHelper.parse_prometheus(raw_after)
+        delivered_after  = parsed_after.find! { |m| m[:key] == "lavinmq_global_messages_delivered_total" }[:value]
+        acked_after      = parsed_after.find! { |m| m[:key] == "lavinmq_global_messages_acknowledged_total" }[:value]
+        confirmed_after  = parsed_after.find! { |m| m[:key] == "lavinmq_global_messages_confirmed_total" }[:value]
+
+        delivered_after.should be >= delivered_before
+        acked_after.should be >= acked_before
+        confirmed_after.should be >= confirmed_before
+      end
+    end
   end
 
   describe "vhost access control" do

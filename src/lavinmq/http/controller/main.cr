@@ -69,6 +69,13 @@ module LavinMQ
             {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
             {% end %}
           end
+          # Add deleted vhosts' accumulated totals so counters never decrease.
+          {% for sm in OVERVIEW_STATS %}
+            {{ sm.id }}_count += @amqp_server.vhosts.deleted_vhosts_{{ sm.id }}_total
+          {% end %}
+          {% for sm in CHURN_STATS %}
+            {{ sm.id }} += @amqp_server.vhosts.deleted_vhosts_{{ sm.id }}_total
+          {% end %}
           {
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",

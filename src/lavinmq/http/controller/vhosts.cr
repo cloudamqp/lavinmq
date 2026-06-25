@@ -54,13 +54,7 @@ module LavinMQ
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, vhost_key: "name") do |vhost|
-            if deleted_vhost = @amqp_server.vhosts.delete(vhost.name)
-              message_stats = deleted_vhost.message_details[:message_stats]
-              # Add stats to global stats for accurate prometheus metrics counters
-              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver_get]
-              @amqp_server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
-              @amqp_server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
-              @amqp_server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
+            if @amqp_server.vhosts.delete(vhost.name)
               context.response.status_code = 204
             else
               context.response.status_code = 404

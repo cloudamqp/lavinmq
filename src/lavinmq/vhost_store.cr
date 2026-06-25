@@ -15,6 +15,23 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost_store"
 
+    # All per-vhost stat names that must be accumulated when a vhost is deleted
+    # so that server-wide counters remain monotonic across vhost deletions.
+    DELETED_VHOST_STATS = {:ack, :deliver, :get, :deliver_get, :publish, :confirm,
+                           :redeliver, :reject,
+                           :connection_created, :connection_closed,
+                           :channel_created, :channel_closed,
+                           :queue_declared, :queue_deleted,
+                           :consumer_added, :consumer_removed}
+
+    {% for stat in DELETED_VHOST_STATS %}
+      @deleted_vhosts_{{ stat.id }}_total = Atomic(UInt64).new(0_u64)
+
+      def deleted_vhosts_{{ stat.id }}_total : UInt64
+        @deleted_vhosts_{{ stat.id }}_total.get(:relaxed)
+      end
+    {% end %}
+
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
       @save_lock = Mutex.new
@@ -78,6 +95,12 @@ module LavinMQ
       if vhost = @vhosts.delete name
         Log.info { "Deleting vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
+        # Fold this vhost's cumulative stats into the server-wide accumulators
+        # so that counter-typed metrics never decrease after a vhost is deleted.
+        stats = vhost.stats_details
+        {% for stat in DELETED_VHOST_STATS %}
+          @deleted_vhosts_{{ stat.id }}_total.add(stats[:{{ stat.id }}], :relaxed)
+        {% end %}
         vhost.delete
         notify_observers(Event::Deleted, name)
         Log.info { "Deleted vhost #{name}" }
