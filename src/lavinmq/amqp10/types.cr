@@ -243,7 +243,7 @@ module LavinMQ::AMQP10
       settled = fields[4]?.try(&.bool?) || false
       more = fields[5]?.try(&.bool?) || false
       state = fields[7]?
-      aborted = fields[10]?.try(&.bool?) || false
+      aborted = fields[9]?.try(&.bool?) || false
       new(handle, delivery_id, delivery_tag, message_format, settled, more, state, aborted)
     end
   end
