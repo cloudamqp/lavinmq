@@ -89,6 +89,7 @@ describe "LavinMQCtl" do
         result[:stdout].should contain("Version")
         result[:stdout].should contain("Connections")
         result[:stdout].should contain("Queues")
+        result[:stdout].should contain("Bindings")
       end
     end
 
@@ -100,6 +101,17 @@ describe "LavinMQCtl" do
         json.as_h?.should_not be_nil
         json.as_h.has_key?("Version").should be_true
         json.as_h.has_key?("Queues").should be_true
+        json.as_h.has_key?("Bindings").should be_true
+      end
+    end
+
+    it "should trigger garbage collection and print stats" do
+      with_http_server do |(http, s)|
+        before = GC.prof_stats.gc_no
+        result = run_lavinmqctl(http.addr.to_s, ["gc_collect"])
+        result[:exit].should eq(0)
+        GC.prof_stats.gc_no.should be > before
+        result[:stdout].should contain("gc_no")
       end
     end
 

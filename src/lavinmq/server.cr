@@ -24,6 +24,8 @@ require "./auth/jwt/jwks_fetcher"
 
 module LavinMQ
   class Server
+    PROCESS_START = Time.instant
+
     enum Protocol
       AMQP
       MQTT
@@ -32,7 +34,6 @@ module LavinMQ
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 
-    @start = Time.instant
     @closed = BoolChannel.new(false)
     @flow = true
 
@@ -49,17 +50,27 @@ module LavinMQ
     @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = nil)
+    def initialize(@config : Config, @replicator = nil, authenticator : Auth::Authenticator? = nil)
+      # Seed from rusage so counters survive Server re-creation on leader transitions.
+      rusage = System.resource_usage
+      @user_time = rusage.user_time.total_milliseconds.to_i64
+      @sys_time = rusage.sys_time.total_milliseconds.to_i64
+      @blocks_in = rusage.blocks_in.to_i64
+      @blocks_out = rusage.blocks_out.to_i64
+
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
+      @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @authenticator = Auth::Chain.create(@config, @users)
+      @authenticator = authenticator || Auth::Chain.create(@config, @users)
+      if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
+        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
+      end
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(@authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config),
@@ -105,7 +116,7 @@ module LavinMQ
       stop
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
+      @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
@@ -151,25 +162,27 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      case @config.tcp_proxy_protocol
-      when 1 then ProxyProtocol::V1.parse(client)
-      when 2 then ProxyProtocol::V2.parse(client)
-      else
-        # Allow proxy connection from followers
-        if @config.clustering? &&
-           client.peek[0, 5]? == "PROXY".to_slice &&
-           all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V1.parse(client)
-        elsif @config.clustering? &&
-              client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V2.parse(client)
+
+      if @config.tcp_proxy_protocol?
+        parsed_proxy = ProxyProtocol.parse(client)
+        if trusted_proxy_source?(remote_address.address)
+          return parsed_proxy if parsed_proxy
         else
-          ConnectionInfo.new(remote_address, client.local_address)
+          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
+        end
+      else
+        if @config.clustering? && all_followers.any? { |f| f.remote_address.address == remote_address.address }
+          parsed_proxy = ProxyProtocol.parse(client)
+          return parsed_proxy if parsed_proxy
         end
       end
+      ConnectionInfo.new(remote_address, client.local_address)
+    end
+
+    private def trusted_proxy_source?(address : String) : Bool
+      # If no trusted sources are configured, accept from all sources for backward compatibility
+      return true if @config.proxy_protocol_trusted_sources.empty?
+      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 
     def listen(s : UNIXServer, protocol : Protocol)
@@ -190,12 +203,11 @@ module LavinMQ
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
         set_buffer_size(client)
-        conn_info =
-          case @config.unix_proxy_protocol
-          when 1 then ProxyProtocol::V1.parse(client)
-          when 2 then ProxyProtocol::V2.parse(client)
-          else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
-          end
+        if conn_info = ProxyProtocol.parse(client)
+          # PROXY protocol over unix socket
+        else
+          conn_info = ConnectionInfo.local # TODO: use unix socket address, don't fake local
+        end
         handle_connection(client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
@@ -276,9 +288,15 @@ module LavinMQ
       @vhosts.close
     end
 
-    def add_parameter(parameter : Parameter)
-      @parameters.create parameter
+    def add_parameter(parameter : Parameter, save = true)
+      @parameters.create parameter, save: save
       apply_parameter(parameter)
+    end
+
+    # Persist the global parameter store; used to flush after a bulk import that
+    # created parameters with save: false.
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -356,7 +374,7 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval.milliseconds.to_i
+      interval = @config.stats_interval / 1000.0
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 
@@ -475,7 +493,7 @@ module LavinMQ
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
-      getter {{ m.id }} = 0_i64
+      getter {{ m.id }} : Int64
       getter {{ m.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
     getter mem_limit = 0_i64
@@ -524,7 +542,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.instant - @start
+      Time.instant - PROCESS_START
     end
   end
 end

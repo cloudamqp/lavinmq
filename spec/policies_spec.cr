@@ -65,6 +65,46 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "should apply classic_queues policy only to non-stream queues" do
+    PoliciesSpec.with_vhost do |vhost|
+      defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+      vhost.add_policy("cq", "^.*$", "classic_queues", defs, 11_i8)
+      sleep 10.milliseconds
+      vhost.queue("classic").policy.try(&.name).should eq "cq"
+      vhost.queue("stream").policy.should be_nil
+    end
+  end
+
+  it "should apply streams policy only to stream queues" do
+    PoliciesSpec.with_vhost do |vhost|
+      defs = {"max-age" => JSON::Any.new("1D")} of String => JSON::Any
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+      vhost.add_policy("sp", "^.*$", "streams", defs, 11_i8)
+      sleep 10.milliseconds
+      vhost.queue("stream").policy.try(&.name).should eq "sp"
+      vhost.queue("classic").policy.should be_nil
+    end
+  end
+
+  it "should apply quorum_queues policy to non-stream queues" do
+    PoliciesSpec.with_vhost do |vhost|
+      defs = {"delivery-limit" => JSON::Any.new(3_i64)} of String => JSON::Any
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "classic"))
+      vhost.register_queue(LavinMQ::QueueFactory.make(vhost, "stream",
+        arguments: LavinMQ::AMQP::Table.new({"x-queue-type" => "stream"})))
+      vhost.add_policy("qq", "^.*$", "quorum_queues", defs, 11_i8)
+      sleep 10.milliseconds
+      vhost.policies["qq"].apply_to.should eq LavinMQ::Policy::Target::QuorumQueues
+      vhost.queue("classic").policy.try(&.name).should eq "qq"
+      vhost.queue("stream").policy.should be_nil
+    end
+  end
+
   it "should respect priority" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
@@ -258,16 +298,17 @@ describe LavinMQ::VHost do
           3.times do
             q.publish_confirm "body"
           end
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          queue.message_count.should eq 2
           s.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
+          wait_for { queue.message_count == 1 }
 
           # deleting operator policy should make normal policy active again
           s.vhosts["/"].delete_operator_policy("ml1")
           3.times do
             q.publish_confirm "body"
           end
-          ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
+          queue.message_count.should eq 2
         end
       end
     end

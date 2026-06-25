@@ -1,5 +1,5 @@
 ---
-"/api/shovels":
+"/shovels":
   get:
     tags:
       - shovels
@@ -26,7 +26,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 
-"/api/shovels/{vhost}":
+"/shovels/{vhost}":
   parameters:
     - in: path
       name: vhost
@@ -60,7 +60,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 
-"/api/shovels/{vhost}/{name}":
+"/shovels/{vhost}/{name}":
   parameters:
     - in: path
       name: vhost
@@ -106,7 +106,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 
-"/api/shovels/{vhost}/{name}/pause":
+"/shovels/{vhost}/{name}/pause":
   parameters:
     - in: path
       name: vhost
@@ -154,7 +154,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 
-"/api/shovels/{vhost}/{name}/resume":
+"/shovels/{vhost}/{name}/resume":
   parameters:
     - in: path
       name: vhost

@@ -310,9 +310,9 @@ module LavinMQ
       }
     end
 
-    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
+    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-        auto_delete, false, arguments)
+        auto_delete, false, arguments), fsync: fsync
       @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -322,9 +322,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new)
+                         arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments)
+        auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -333,14 +333,14 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -353,8 +353,13 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false) : Bool
-      definitions.apply(f, loading)
+    def apply(f, loading = false, fsync = true) : Bool
+      definitions.apply(f, loading, fsync)
+    end
+
+    # Flush definitions written with fsync: false (e.g. during bulk import).
+    def fsync_definitions
+      definitions.fsync
     end
 
     def queue_bindings(queue : Queue) : Array(BindingDetails)
@@ -362,23 +367,37 @@ module LavinMQ
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
-                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+                            definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : OperatorPolicy
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
-      @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @operator_policies.create(op, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}" if apply
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
 
     def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+                   definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
-      @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @policies.create(p, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}" if apply
       @log.info { "Policy=#{name} Created" }
       p
+    end
+
+    # Persist the policy/operator-policy/parameter stores; used to flush after a
+    # bulk import that created entries with save: false.
+    def save_policies!
+      @policies.save!
+    end
+
+    def save_operator_policies!
+      @operator_policies.save!
+    end
+
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_operator_policy(name)
@@ -397,11 +416,11 @@ module LavinMQ
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
-    def add_parameter(p : Parameter)
+    def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
-      @parameters.create(p)
+      @parameters.create(p, save: save)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
     def delete_parameter(component_name, parameter_name)

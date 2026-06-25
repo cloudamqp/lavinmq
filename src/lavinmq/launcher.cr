@@ -9,6 +9,7 @@ require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
+require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -40,8 +41,9 @@ module LavinMQ
 
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        @runner = controller = Clustering::Controller.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, etcd, controller.id)
+        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
+        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
+        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
       end
@@ -254,10 +256,23 @@ module LavinMQ
         Log.info { "No configuration file to reload" }
       else
         Log.info { "Reloading configuration file '#{@config.config_file}'" }
-        @config.reload
-        reload_tls_context
+        reload_config
       end
       SystemD.notify_ready
+    end
+
+    private def reload_config
+      @config.reload
+    rescue ex : Config::Error
+      Log.warn { "Invalid configuration, keeping the running configuration: #{ex.message}" }
+    else
+      reload_tls
+    end
+
+    private def reload_tls
+      reload_tls_context
+    rescue ex
+      Log.error { "Could not apply TLS changes on reload, a restart is required: #{ex.message}" }
     end
 
     private def shutdown_server
@@ -299,11 +314,25 @@ module LavinMQ
     end
 
     private def reload_tls_context
+      # Enabling TLS or SNI needs listeners/callbacks set up at boot, so it
+      # requires a restart. Cert rotation and updates to existing SNI hosts
+      # are applied below.
+      if @config.tls_configured? && @amqp_tls_context.nil?
+        Log.warn { "Enabling TLS requires a restart to take effect" }
+        return
+      end
+      if !@config.tls_configured? && @amqp_tls_context
+        Log.warn { "Disabling TLS requires a restart to take effect" }
+        return
+      end
+      if (amqp_ctx = @amqp_tls_context) && !amqp_ctx.sni_callback? && !@config.sni_manager.empty?
+        Log.warn { "Enabling SNI requires a restart to take effect" }
+        return
+      end
       {@amqp_tls_context, @mqtt_tls_context, @http_tls_context}.each do |ctx|
         next if ctx.nil?
         configure_tls_context(ctx)
       end
-      @config.sni_manager.reload
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
@@ -345,14 +374,16 @@ module LavinMQ
       end
     end
 
+    # Registers the SNI callbacks once at boot, only when SNI hosts exist. The
+    # callbacks read `@config.sni_manager` dynamically so reloads that update
+    # existing hosts are picked up without re-registering.
     private def setup_sni_callbacks
       return if @config.sni_manager.empty?
 
       # Set up SNI callback for AMQP TLS context
       if amqp_tls = @amqp_tls_context
-        sni_manager = @config.sni_manager
         amqp_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
+          if sni_host = @config.sni_manager.get_host(hostname)
             Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
             sni_host.amqp_tls_context
           else
@@ -364,9 +395,8 @@ module LavinMQ
 
       # Set up SNI callback for MQTT TLS context
       if mqtt_tls = @mqtt_tls_context
-        sni_manager = @config.sni_manager
         mqtt_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
+          if sni_host = @config.sni_manager.get_host(hostname)
             Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
             sni_host.mqtt_tls_context
           else
@@ -378,9 +408,8 @@ module LavinMQ
 
       # Set up SNI callback for HTTP TLS context
       if http_tls = @http_tls_context
-        sni_manager = @config.sni_manager
         http_tls.on_server_name do |hostname|
-          if sni_host = sni_manager.get_host(hostname)
+          if sni_host = @config.sni_manager.get_host(hostname)
             Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
             sni_host.http_tls_context
           else

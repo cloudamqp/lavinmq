@@ -132,7 +132,11 @@ module LavinMQ
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
           state:             state,
-        }.merge(stats_details)
+        }.merge(current_stats_details)
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge(stats_details).to_json(json)
       end
 
       def search_match?(value : String) : Bool
@@ -395,11 +399,20 @@ module LavinMQ
           when AMQP::Frame::Body
             @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             frame.body.skip(frame.body_size)
+          when AMQP::Frame::Basic::Ack, AMQP::Frame::Basic::Nack, AMQP::Frame::Basic::Reject
+            # A settlement can race a channel close in another fiber and arrive
+            # after we've removed the channel; discard it rather than killing the
+            # connection.
+            @log.warn { "Discarding #{frame.class.name} for unknown channel #{frame.channel}" }
           else
-            @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
-            close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "Channel #{frame.channel} not open")
+            reject_unknown_channel(frame)
           end
         end
+      end
+
+      private def reject_unknown_channel(frame) : Nil
+        @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
+        close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "Channel #{frame.channel} not open")
       end
 
       private def open_channel(frame)

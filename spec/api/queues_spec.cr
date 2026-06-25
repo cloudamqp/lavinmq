@@ -92,6 +92,14 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "writes message_stats only once" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("stats_q", false, false)
+        response = http.get("/api/queues/%2f/stats_q")
+        response.body.scan(/"message_stats"/).size.should eq 1
+      end
+    end
+
     it "should return no persistent message count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

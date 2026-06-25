@@ -178,7 +178,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter many rejects" do
+      it "should dead letter many rejects", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(100, q)
           done = Channel(Nil).new
@@ -216,7 +216,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter when ttl expires while unacked and reject(requeue=true)" do
+      it "should dead letter when ttl expires while unacked and reject(requeue=true)", tags: "slow" do
         with_dead_lettering_setup do |q, dlq, ch, _|
           # Generous TTL so the message is still alive when we get it: the gap
           # between publish_confirm and q.get is two AMQP round-trips, which can
@@ -615,7 +615,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should not stack overflow with two mutually dead-lettering queues" do
+      it "should not stack overflow with two mutually dead-lettering queues", tags: "slow" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
             n = 10_000

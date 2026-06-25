@@ -19,6 +19,10 @@ module LavinMQ
         end
       end
 
+      def binding_count : Int32
+        @bindings.each_value.sum(&.size)
+      end
+
       def bind(destination : Destination, routing_key, arguments = nil) : Bool
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
@@ -30,7 +34,7 @@ module LavinMQ
 
       def unbind(destination : Destination, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
-        rk_bindings = @bindings[routing_key]
+        rk_bindings = @bindings[routing_key]? || return false
         return false unless rk_bindings.delete({destination, binding_key})
         @bindings.delete routing_key if rk_bindings.empty?
 
@@ -42,8 +46,12 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        @bindings[routing_key].each do |destination, _arguments|
-          yield destination
+        # Use []? to not allocate (and keep forever) an empty set in the
+        # bindings hash for every unbound routing key published to
+        if bindings = @bindings[routing_key]?
+          bindings.each do |destination, _arguments|
+            yield destination
+          end
         end
       end
     end

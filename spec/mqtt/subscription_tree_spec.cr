@@ -77,6 +77,27 @@ describe LavinMQ::MQTT::SubscriptionTree do
       tree.empty?.should be_true
     end
 
+    it "doesn't keep entries for unsubscribed non-wildcard filters" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
+      10.times do |i|
+        tree.subscribe("topic#{i}", session, 0u8)
+        tree.unsubscribe("topic#{i}", session)
+      end
+      tree.@non_wildcards.size.should eq 0
+    end
+
+    it "keeps the entry when other subscribers remain on the filter" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("topic", "session1", 0u8)
+      tree.subscribe("topic", "session2", 0u8)
+      tree.unsubscribe("topic", "session1")
+      tree.@non_wildcards.size.should eq 1
+      matched = 0
+      tree.each_entry("topic") { matched += 1 }
+      matched.should eq 1
+    end
+
     it "returns true after unsubscribing only existing +-wildcard subscription" do
       tree = LavinMQ::MQTT::SubscriptionTree(String).new
       session = "session"
@@ -176,6 +197,21 @@ describe LavinMQ::MQTT::SubscriptionTree do
     tree.each_entry "a/b" { |_sess, qos| qos.should eq 0u8 }
     tree.subscribe("a/b", session, 1u8)
     tree.each_entry "a/b" { |_sess, qos| qos.should eq 1u8 }
+  end
+
+  it "matches topic levels with multibyte UTF-8 characters" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    tree.subscribe("café/naïve/日本", "exact", 0u8)
+    tree.subscribe("café/+/日本", "wildcard", 0u8)
+
+    matched = [] of String
+    tree.each_entry("café/naïve/日本") { |session, _qos| matched << session }
+    matched.sort.should eq ["exact", "wildcard"]
+
+    # A different (also multibyte) middle level only hits the wildcard
+    matched.clear
+    tree.each_entry("café/résumé/日本") { |session, _qos| matched << session }
+    matched.should eq ["wildcard"]
   end
 
   it "can iterate all entries" do

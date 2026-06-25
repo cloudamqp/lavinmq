@@ -1,7 +1,21 @@
 require "./spec_helper"
 require "benchmark"
+require "log/spec"
 
 describe LavinMQ::Server do
+  it "logs kTLS=off for TLS connections without kernel offload" do
+    with_amqp_server(tls: true) do |s|
+      uri = URI.parse(s.amqp_url)
+      Log.capture("lmq.server", :info) do |logs|
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!, port: uri.port.not_nil!, tls: client_ctx).connect
+        conn.close
+        logs.check(:info, /connected with .* kTLS=off/)
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -1269,7 +1283,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports consumer timeouts" do
+  it "supports consumer timeouts", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("", exclusive: true, args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))
@@ -1281,7 +1295,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "restarts fast even with large messages" do
+  it "restarts fast even with large messages", tags: "slow" do
     with_amqp_server do |s|
       data = Bytes.new 128 * 1024**2
       with_channel(s) do |ch|

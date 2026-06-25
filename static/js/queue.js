@@ -278,12 +278,20 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
+const moveMessagesForm = document.querySelector('#moveMessages')
+if (Auth.getPassword() === null) {
+  moveMessagesForm.classList.add('hide')
+}
+moveMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const username = Auth.getUsername()
   const password = Auth.getPassword()
   const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
+  if (dest === '') {
+    DOM.toast.error('Please select a destination queue')
+    return
+  }
   const name = 'Move ' + queue + ' to ' + dest
   const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {

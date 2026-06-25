@@ -1,5 +1,6 @@
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
+require "../../src/lavinmq/clustering/etcd_coordinator"
 
 class SpecClustering
   getter replicator, config, follower_config, repli
@@ -9,7 +10,7 @@ class SpecClustering
   @stopped = false
 
   def initialize(@config : LavinMQ::Config, follower_data_dir : String)
-    @replicator = LavinMQ::Clustering::Server.new(config, LavinMQ::Etcd.new("localhost:12379"), 0)
+    @replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
 
     @follower_config = @config.dup.tap &.data_dir = follower_data_dir

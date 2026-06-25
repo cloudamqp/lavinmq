@@ -12,6 +12,11 @@ require "./config/options"
 module LavinMQ
   class Config
     include Options
+
+    # Raised when the config file can't be parsed or is invalid. Aborts on
+    # boot, caught on SIGHUP reload to keep the running config.
+    class Error < Exception; end
+
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
@@ -27,6 +32,7 @@ module LavinMQ
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
         File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
@@ -34,7 +40,53 @@ module LavinMQ
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
+      validate!
       setup_logger
+      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
+        Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    private def parse_info_option(argv)
+      return unless argv.size == 1
+
+      case argv.first
+      when "-v", "--version"
+        puts LavinMQ::VERSION
+        exit 0
+      when "--build-info"
+        puts LavinMQ::BUILD_INFO
+        exit 0
+      end
+    end
+
+    def oauth_mgmt_ui_enabled? : Bool
+      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
+      oauth_mgmt_base_url_allowed?(base_url)
+    end
+
+    private def oauth_mgmt_base_url_allowed?(uri : URI) : Bool
+      return true if uri.scheme == "https"
+      return false unless uri.scheme == "http"
+      host = uri.host.try(&.downcase)
+      {"localhost", "127.0.0.1", "::1", "[::1]"}.includes?(host)
+    end
+
+    private def oauth_mgmt_ui_disabled_reason : String
+      missing = [] of String
+      missing << "oauth.client_id" unless @oauth_client_id
+      missing << "oauth.issuer" unless @oauth_issuer_url
+      missing << "oauth.mgmt_base_url" unless @oauth_mgmt_base_url
+      unless missing.empty?
+        return "OAuth management UI SSO not enabled: missing #{missing.join(", ")}"
+      end
+      "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
+    end
+
+    protected def validate!
+      unless @stats_interval.positive?
+        raise Error.new("stats_interval must be positive (got #{@stats_interval})")
+      end
     end
 
     private def parse_config_from_cli(argv)
@@ -108,9 +160,9 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
-    private def parse_ini(file)
+    protected def parse_ini(file)
       return if file.empty?
-      abort "Config could not be found" unless File.file?(file)
+      raise Error.new("Config could not be found") unless File.file?(file)
       ini = INI.parse(File.read(file))
       {% begin %}
       ini.each do |section, settings|
@@ -124,15 +176,17 @@ module LavinMQ
           parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
-          abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+          raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
-          raise "Unknown configuration section: #{section}"
+          raise Error.new("Unknown configuration section: #{section}")
         end
       end
       {% end %}
     rescue ex : ::INI::ParseException
-      abort "Failed to parse config file '#{file}'. " \
-            "Error on line #{ex.line_number}, column #{ex.column_number}"
+      raise Error.new("Failed to parse config file '#{file}'. " \
+                      "Error on line #{ex.line_number}, column #{ex.column_number}")
+    rescue ex : IO::Error
+      raise Error.new("Could not read config file '#{file}': #{ex.message}")
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -218,8 +272,7 @@ module LavinMQ
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      @io.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
-      abort
+      raise Error.new("Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}")
     end
   {% end %}
     end
@@ -270,10 +323,40 @@ module LavinMQ
       @mqtt_bind = value
     end
 
+    # Re-read the config file into a fresh copy and swap it in only if parsing
+    # and validation fully succeed. On failure the running config is untouched
+    # and it raises, so the SIGHUP handler can log and keep serving.
     def reload
-      @sni_manager.clear
-      parse_ini(@config_file)
+      new_config = dup
+      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.parse_ini(@config_file)
+      new_config.validate!
+      new_config.try_to_open_log_file
+      apply(new_config)
       setup_logger
+    end
+
+    # Try to open and immediately close the configured log file so an unopenable
+    # path raises a Config::Error before the config is applied
+    protected def try_to_open_log_file
+      if path = @log_file
+        File.open(path, "a") { }
+      end
+    rescue ex : File::Error
+      raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
+    end
+
+    protected def fresh_sni_manager
+      @sni_manager = SNIManager.new
+    end
+
+    # Copy every instance variable from the parsed config in one non-yielding
+    # loop, so no fiber sees a half-applied state. @@instance is a class
+    # variable and is untouched, keeping `Config.instance` references valid.
+    protected def apply(other : self)
+      {% for ivar in @type.instance_vars %}
+        @{{ivar.id}} = other.@{{ivar.id}}
+      {% end %}
     end
 
     private def setup_logger
@@ -291,6 +374,13 @@ module LavinMQ
       broadcast_backend.append(in_memory_backend, @log_level)
 
       ::Log.setup(@log_level, broadcast_backend)
+      # Federation and shovels use the embedded amqp-client, whose connection
+      # read loop logs routine teardown (EOF / failed CloseOk) at ERROR whenever
+      # a connection drops — unavoidable on broker shutdown and under connection
+      # churn. LavinMQ already reports those events through its own
+      # federation/shovel layers (lmq.*), so keep the library's redundant
+      # connection log out of the broker log.
+      ::Log.builder.bind("amqp.client.*", :fatal, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end

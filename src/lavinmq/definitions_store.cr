@@ -9,14 +9,33 @@ module LavinMQ
   class DefinitionsStore
     Log = LavinMQ::Log.for "definitions_store"
 
+    @definitions_file : File
+
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      @definitions_file = File.open(@definitions_file_path, "a+")
+      # Unbuffered (sync) writes: replication offsets (store_definition) and a
+      # joining follower's cut + full_sync (Clustering::Server#snapshot_sizes,
+      # #files_with_hash) read this file's size and content through separate
+      # fds, so a frame must never sit in a user-space write buffer where they
+      # can't see it — a follower joining in that window would be marked
+      # synced while permanently missing the frame.
+      @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
       @replicator.try &.register_file(@definitions_file)
       @definitions_deletes = 0
+    end
+
+    # Flush buffered definition writes to disk. Used after a bulk operation
+    # (e.g. import) that stored its definitions with fsync: false; the whole
+    # batch is acknowledged after this, so it waits for follower acks like
+    # the per-frame path does.
+    def fsync
+      @definitions_lock.synchronize do
+        @definitions_file.fsync
+        @replicator.try &.wait_for_followers
+      end
     end
 
     # Exchange accessors
@@ -101,7 +120,7 @@ module LavinMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false) : Bool
+    def apply(f, loading = false, fsync = true) : Bool
       @definitions_lock.synchronize do
         case f
         when AMQP::Frame::Exchange::Declare
@@ -109,7 +128,7 @@ module LavinMQ
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
-          store_definition(f) if !loading && f.durable
+          store_definition(f, fsync: fsync) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
             unless @vhost.closed?
@@ -129,7 +148,7 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f) if !loading && src.durable? && dst.durable?
+          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
@@ -139,7 +158,7 @@ module LavinMQ
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(@vhost, f)
           @vhost.apply_policies([q] of Queue) unless loading
-          store_definition(f) if !loading && f.durable && !f.exclusive
+          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
           @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
           if q = @queues.delete(f.queue_name)
@@ -161,7 +180,7 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, fsync: fsync) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
@@ -278,7 +297,9 @@ module LavinMQ
     private def compact!
       @definitions_lock.synchronize do
         @log.info { "Compacting definitions" }
-        io = File.open("#{@definitions_file_path}.tmp", "a+")
+        # sync = true for the same reason as in #initialize: this file becomes
+        # @definitions_file after the rename.
+        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -315,12 +336,27 @@ module LavinMQ
       end
     end
 
-    private def store_definition(frame, dirty = false)
+    private def store_definition(frame, dirty = false, fsync = true)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
+      offset = @definitions_file.size.to_i64
+      # The write goes straight to the file (sync = true), so by dispatch time
+      # the frame is readable at `offset` through any fd: a follower joining
+      # between write and dispatch gets it via its full_sync cut, and
+      # already_synced then skips (or tail-slices) this append against the
+      # baseline instead of duplicating it.
       @definitions_file.write bytes
-      @replicator.try &.append @definitions_file_path, bytes
-      @definitions_file.fsync
+      @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+      if fsync
+        @definitions_file.fsync
+        # The caller acknowledges the change to the client right after this
+        # returns (Declare-Ok etc.), so like a publish confirm it must be
+        # durable on every in-sync follower first — otherwise a leader crash
+        # could elect a follower lacking the acknowledged change. A follower
+        # that doesn't ack within its deadline is disconnected and its ISR
+        # removal committed before this returns.
+        @replicator.try &.wait_for_followers
+      end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
           compact!

@@ -12,6 +12,13 @@ module LavinMQ
     abstract def fetch_vhost?(json)
     abstract def vhosts
 
+    # The queue/exchange/binding imports store definitions with fsync: false to
+    # avoid an fsync per object; this flushes each vhost's definitions file once
+    # at the end instead.
+    private def fsync_definition_files
+      vhosts.each_value(&.fsync_definitions)
+    end
+
     private def export_vhost_parameters(json)
       json.array do
         vhosts.each_value do |vhost|
@@ -60,10 +67,14 @@ module LavinMQ
 
     private def import_vhosts(body)
       if vhosts = body["vhosts"]?
+        # Create with save: false so each vhost doesn't rewrite+fsync vhosts.json
+        # (and users.json, via the permissions create adds); save both once at the end.
         vhosts.as_a.each do |v|
           name = v["name"].as_s
-          @amqp_server.vhosts.create name
+          @amqp_server.vhosts.create name, save: false
         end
+        @amqp_server.vhosts.save!
+        @amqp_server.users.save!
       end
     end
 
@@ -75,7 +86,7 @@ module LavinMQ
             durable = q["durable"].as_bool
             auto_delete = q["auto_delete"].as_bool
             arguments = AMQP::Table.new(q["arguments"].as_h)
-            v.declare_queue(name, durable, auto_delete, arguments)
+            v.declare_queue(name, durable, auto_delete, arguments, fsync: false)
           end
         end
       end
@@ -91,7 +102,7 @@ module LavinMQ
             internal = e["internal"].as_bool
             auto_delete = e["auto_delete"].as_bool
             arguments = AMQP::Table.new(e["arguments"].as_h)
-            v.declare_exchange(name, type, durable, auto_delete, internal, arguments)
+            v.declare_exchange(name, type, durable, auto_delete, internal, arguments, fsync: false)
           end
         end
       end
@@ -108,9 +119,9 @@ module LavinMQ
             arguments = AMQP::Table.new(b["arguments"].as_h?)
             case destination_type
             when "queue"
-              v.bind_queue(destination, source, routing_key, arguments)
+              v.bind_queue(destination, source, routing_key, arguments, fsync: false)
             when "exchange"
-              v.bind_exchange(destination, source, routing_key, arguments)
+              v.bind_exchange(destination, source, routing_key, arguments, fsync: false)
             end
           end
         end
@@ -154,42 +165,80 @@ module LavinMQ
         users.as_a.each do |u|
           name = u["name"].as_s
           next if skip_existing && @amqp_server.users[name]?
-          pass_hash = u["password_hash"].as_s
-          hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-
-          # Support both array and comma-separated string formats for tags
-          if tags = u["tags"]?.try &.as_s?
-            parsed_tags = tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
-          elsif tags = u["tags"]?.try &.as_a?
-            parsed_tags = tags.compact_map { |t| Tag.parse?(t.as_s) }
-          else
-            parsed_tags = [] of LavinMQ::Tag
-          end
-
+          pass_hash = parse_user_password_hash(u)
+          hash_algo = parse_user_hash_algo(u)
+          parsed_tags = parse_user_tags(u)
           @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false)
         end
         @amqp_server.users.save!
       end
     end
 
+    private def parse_user_password_hash(u : JSON::Any) : String
+      raise ArgumentError.new("Field 'password_hash' is required for each user") unless u["password_hash"]?
+      raw = u["password_hash"]
+      raise ArgumentError.new("Field 'password_hash' must be a string or null") unless raw.raw.nil? || raw.raw.is_a?(String)
+      raw.as_s? || ""
+    end
+
+    private def parse_user_hash_algo(u : JSON::Any) : String?
+      raw = u["hashing_algorithm"]?
+      raise ArgumentError.new("Field 'hashing_algorithm' must be a string or null") if raw && !raw.raw.nil? && !raw.raw.is_a?(String)
+      raw.try(&.as_s?)
+    end
+
+    private def parse_user_tags(u : JSON::Any) : Array(Tag)
+      if tags = u["tags"]?.try &.as_s?
+        tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
+      elsif tags = u["tags"]?.try &.as_a?
+        tags.compact_map { |t| Tag.parse?(t.as_s) }
+      else
+        [] of Tag
+      end
+    end
+
     private def import_parameters(body, skip_existing = false)
       if parameters = body["parameters"]?
+        # Parse and validate every entry before applying any, so a malformed
+        # entry makes the whole import a clean no-op instead of partially
+        # applying and leaving memory and disk inconsistent (issue #2073).
+        limits = Array({VHost, Hash(String, JSON::Any)}).new
+        operator_policies = Array({VHost, String, String, String, Hash(String, JSON::Any), Int8}).new
+        params = Array({VHost, Parameter}).new
         parameters.as_a.each do |p|
-          if v = fetch_vhost?(p)
-            name = p["name"].as_s
-            value = p["value"].as_h
-            component = p["component"].as_s
-            case component
-            when "vhost-limits"
-              import_vhost_limits(v, value, skip_existing)
-            when "operator_policy"
-              import_operator_policy(v, name, value, skip_existing)
-            else
-              next if skip_existing && v.parameters[{component, name}]?
-              v.add_parameter(Parameter.new(component, name, p["value"]))
-            end
+          next unless v = fetch_vhost?(p)
+          name = p["name"].as_s
+          value = p["value"].as_h
+          case component = p["component"].as_s
+          when "vhost-limits"
+            limits << {v, value}
+          when "operator_policy"
+            next if skip_existing && v.operator_policies[name]?
+            operator_policies << {v, name, value["pattern"].as_s, value["apply-to"].as_s,
+                                  value["definition"].as_h, value["priority"].as_i.to_i8}
+          else
+            next if skip_existing && v.parameters[{component, name}]?
+            params << {v, Parameter.new(component, name, p["value"])}
           end
         end
+
+        # add with save: false and save each touched store once at the end, so a
+        # large import doesn't rewrite the whole parameters/operator_policies
+        # JSON file per entry.
+        touched_parameters = Set(VHost).new
+        touched_operator_policies = Set(VHost).new
+        limits.each { |v, value| import_vhost_limits(v, value, skip_existing) }
+        operator_policies.each do |v, name, pattern, apply_to, definition, priority|
+          v.add_operator_policy(name, pattern, apply_to, definition, priority, save: false, apply: false)
+          touched_operator_policies << v
+        end
+        params.each do |v, param|
+          v.add_parameter(param, save: false, apply: false)
+          touched_parameters << v
+        end
+        touched_parameters.each(&.save_parameters!)
+        touched_operator_policies.each(&.save_operator_policies!)
+        apply_policies(touched_parameters | touched_operator_policies)
       end
     end
 
@@ -203,40 +252,48 @@ module LavinMQ
       end
     end
 
-    private def import_operator_policy(v, name, value, skip_existing)
-      return if skip_existing && v.operator_policies[name]?
-      v.add_operator_policy(name,
-        value["pattern"].as_s,
-        value["apply-to"].as_s,
-        value["definition"].as_h,
-        value["priority"].as_i.to_i8)
-    end
-
     private def import_global_parameters(body, skip_existing = false)
       if parameters = body["global_parameters"]?
-        parameters.as_a.each do |p|
+        # Parse all entries before applying any, so a malformed entry makes the
+        # whole import a clean no-op (issue #2073).
+        parsed = parameters.as_a.compact_map do |p|
           name = p["name"].as_s
           next if skip_existing && @amqp_server.parameters[{nil, name}]?
-          param = Parameter.new(nil, name, p["value"])
-          @amqp_server.add_parameter(param)
+          Parameter.new(nil, name, p["value"])
         end
+        return if parsed.empty?
+        parsed.each { |param| @amqp_server.add_parameter(param, save: false) }
+        @amqp_server.save_parameters!
       end
     end
 
     private def import_policies(body, skip_existing = false)
       if policies = body["policies"]?
+        # Parse and validate every entry before applying any, so a malformed
+        # entry makes the whole import a clean no-op instead of partially
+        # applying and leaving memory and disk inconsistent (issue #2073).
+        parsed = Array({VHost, String, String, String, Hash(String, JSON::Any), Int8}).new
         policies.as_a.each do |p|
-          if v = fetch_vhost?(p)
-            name = p["name"].as_s
-            next if skip_existing && v.policies[name]?
-            v.add_policy(
-              name,
-              p["pattern"].as_s,
-              p["apply-to"].as_s,
-              p["definition"].as_h,
-              p["priority"].as_i.to_i8)
-          end
+          next unless v = fetch_vhost?(p)
+          name = p["name"].as_s
+          next if skip_existing && v.policies[name]?
+          parsed << {v, name, p["pattern"].as_s, p["apply-to"].as_s,
+                     p["definition"].as_h, p["priority"].as_i.to_i8}
         end
+        touched = Set(VHost).new
+        parsed.each do |v, name, pattern, apply_to, definition, priority|
+          v.add_policy(name, pattern, apply_to, definition, priority, save: false, apply: false)
+          touched << v
+        end
+        touched.each(&.save_policies!)
+        apply_policies(touched)
+      end
+    end
+
+    # Apply policies once per vhost after a bulk import, instead of per entry.
+    private def apply_policies(vhosts : Set(VHost))
+      vhosts.each do |v|
+        spawn v.apply_policies, name: "ApplyPolicies (import) #{v.name}"
       end
     end
 
@@ -337,6 +394,7 @@ module LavinMQ
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
+      fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
     end
@@ -374,6 +432,7 @@ module LavinMQ
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
+      fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
       import_global_parameters(body, skip_existing)

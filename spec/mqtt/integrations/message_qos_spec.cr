@@ -292,7 +292,7 @@ module MqttSpecs
         LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
       end
 
-      it "delivery resumes after acking" do
+      it "delivery resumes after acking", tags: "slow" do
         LavinMQ::Config.instance.max_inflight_messages = 3u16
         with_server do |server|
           with_client_io(server) do |io|

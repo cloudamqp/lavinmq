@@ -26,10 +26,10 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `unix_proxy_protocol` | `[amqp]` | `1` | PROXY protocol version on Unix sockets, applies to all protocols (0 = disabled) |
-| `tcp_proxy_protocol` | `[amqp]` | `0` | PROXY protocol version on TCP, applies to AMQP and MQTT (0 = disabled) |
+| `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on TCP, applies to AMQP and MQTT. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
+| `proxy_protocol_trusted_sources` | `[amqp]` | (empty) | Comma-separated list of IPs and CIDR blocks (IPv4/IPv6) allowed to send PROXY headers, e.g. `10.0.0.1, 192.168.0.0/24, 2001:db8::/32`. |
 
-Supports PROXY protocol v1 (text) and v2 (binary).
+PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
 
 ## Low Disk Space
 
@@ -71,4 +71,4 @@ LavinMQ can listen on Unix domain sockets for all protocols:
 | `unix_path` | `[mqtt]` | MQTT Unix socket path |
 | `unix_path` | `[mgmt]` | HTTP Unix socket path |
 
-Unix sockets have PROXY protocol v1 enabled by default to receive connection metadata.
+Unix sockets auto-detect PROXY protocol headers if present to receive connection metadata.
