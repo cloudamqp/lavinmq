@@ -32,6 +32,10 @@ module LavinMQ::AMQP10
       @delivery_count.add(1_u32, :acquire_release)
     end
 
+    private def advance_delivery_count(by : UInt32) : Nil
+      @delivery_count.add(by, :acquire_release) if by > 0
+    end
+
     private def close_dynamic_queue : Nil
       @session.client.close_dynamic_queue(@dynamic_queue)
     end
@@ -152,6 +156,7 @@ module LavinMQ::AMQP10
     @unack_lock = Mutex.new(:checked)
     @credit = 0_u32
     @credit_lock = Mutex.new(:checked)
+    @drain = Atomic(Bool).new(false)
     @deliver_loop_running = Atomic(Bool).new(false)
     @credit_available = BoolChannel.new(false)
     @closed_channel = ::Channel(Nil).new
@@ -173,7 +178,7 @@ module LavinMQ::AMQP10
       @credit_lock.synchronize { @credit }
     end
 
-    def add_credit(link_credit : UInt32, delivery_count : UInt32?) : Nil
+    def add_credit(link_credit : UInt32, delivery_count : UInt32?, drain : Bool = false, echo : Bool = false) : Nil
       has_credit = @credit_lock.synchronize do
         if delivery_count
           sent = self.delivery_count &- delivery_count
@@ -183,9 +188,36 @@ module LavinMQ::AMQP10
         end
         @credit > 0
       end
+      @drain.set(drain)
       @credit_available.set(has_credit)
       set_consumer_capacity(has_credit)
-      ensure_deliver_loop
+      if has_credit
+        # The deliver loop delivers messages and, in drain mode, echoes a drained
+        # flow once the queue runs dry. A plain echo is answered here directly.
+        ensure_deliver_loop
+        @session.client.send_flow(@session, self, credit) if echo && !drain
+      elsif drain
+        # No credit left to consume, so the drain is already complete: echo a flow
+        # advertising zero credit so the receiver stops waiting.
+        @session.client.send_flow(@session, self, 0_u32, drain: true)
+      elsif echo
+        @session.client.send_flow(@session, self, credit)
+      end
+    end
+
+    private def drain? : Bool
+      @drain.get(:acquire)
+    end
+
+    private def complete_drain : Nil
+      @credit_lock.synchronize do
+        advance_delivery_count(@credit)
+        @credit = 0_u32
+      end
+      @drain.set(false)
+      @credit_available.set(false)
+      set_consumer_capacity(false)
+      @session.client.send_flow(@session, self, 0_u32, drain: true)
     end
 
     def accepts? : Bool
@@ -202,42 +234,63 @@ module LavinMQ::AMQP10
       wait_for_single_active_consumer
       loop do
         wait_for_credit
-        loop do
-          raise ClosedError.new if closed?
-          next if wait_for_priority_consumers
-          wait_for_queue
-          raise ClosedError.new if closed?
-          next if wait_for_paused_queue
-          next if wait_for_flow
-          break
-        end
-        delivered = @queue.consume_get(false) do |env|
-          delivery_id = @session.next_delivery_id
-          increment_delivery_count
-          has_credit = decrement_credit
-          @credit_available.set(has_credit)
-          set_consumer_capacity(has_credit)
-          IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, @delivery_tag)
-          @unack_lock.synchronize do
-            @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
-          end
-          unless @session.client.send_transfer(@session, self, delivery_id, @delivery_tag, env.message)
-            close
-          end
-          @session.increment_deliver_count(env.redelivered)
-        end
-        unless delivered
-          has_credit = credit > 0
-          @credit_available.set(has_credit)
-          set_consumer_capacity(has_credit)
-          Fiber.yield
-        end
+        deliver_one if wait_until_deliverable
       end
     rescue ex : ClosedError | LavinMQ::AMQP::Queue::ClosedError | IO::Error | ::Channel::ClosedError
       @session.client.@log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
     ensure
       @deliver_loop_running.set(false, :release)
       ensure_deliver_loop if !closed? && credit > 0 && !@queue.empty?
+    end
+
+    # Blocks until a message can be delivered. Returns false (after completing the
+    # drain) when drain mode catches the queue empty, so no message should be sent.
+    private def wait_until_deliverable : Bool
+      loop do
+        raise ClosedError.new if closed?
+        next if wait_for_priority_consumers
+        # In drain mode an empty queue must not block: the remaining credit is
+        # consumed by advancing delivery-count instead of waiting for messages.
+        if drain? && @queue.empty?
+          complete_drain
+          return false
+        end
+        wait_for_queue
+        raise ClosedError.new if closed?
+        next if wait_for_paused_queue
+        next if wait_for_flow
+        return true
+      end
+    end
+
+    private def deliver_one : Nil
+      delivered = @queue.consume_get(false) do |env|
+        delivery_id = @session.next_delivery_id
+        increment_delivery_count
+        has_credit = decrement_credit
+        @credit_available.set(has_credit)
+        set_consumer_capacity(has_credit)
+        IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, @delivery_tag)
+        @unack_lock.synchronize do
+          @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
+        end
+        unless @session.client.send_transfer(@session, self, delivery_id, @delivery_tag, env.message)
+          close
+        end
+        @session.increment_deliver_count(env.redelivered)
+      end
+      if delivered
+        # All requested credit was consumed by real transfers; echo the drained
+        # flow so the receiver knows the drain is complete.
+        complete_drain if drain? && credit.zero?
+      elsif drain?
+        complete_drain
+      else
+        has_credit = credit > 0
+        @credit_available.set(has_credit)
+        set_consumer_capacity(has_credit)
+        Fiber.yield
+      end
     end
 
     private def wait_for_single_active_consumer
@@ -610,10 +663,15 @@ module LavinMQ::AMQP10
         link = @links[handle]? || raise ProtocolError.new("unknown link handle #{handle}")
         case link
         when SenderLink
-          link.add_credit(frame.link_credit || 0_u32, frame.delivery_count)
+          link.add_credit(frame.link_credit || 0_u32, frame.delivery_count, frame.drain, frame.echo)
         when ReceiverLink
-          # Client-side credit on a sender-to-server link is irrelevant.
+          # We grant the sender effectively unlimited credit at attach, so the
+          # client's credit accounting is irrelevant; only honour an echo request.
+          @client.send_flow(self, link, Int32::MAX.to_u32) if frame.echo
         end
+      elsif frame.echo
+        # Session-level echo request: reply with the current session flow state.
+        @client.send_session_flow(self)
       end
     end
 

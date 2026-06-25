@@ -174,13 +174,18 @@ module LavinMQ::AMQP10
 
     def write_flow(io : IO, channel : UInt16, next_incoming_id : UInt32, incoming_window : UInt32,
                    next_outgoing_id : UInt32, outgoing_window : UInt32, handle : UInt32? = nil,
-                   delivery_count : UInt32? = nil, link_credit : UInt32? = nil) : UInt64
+                   delivery_count : UInt32? = nil, link_credit : UInt32? = nil, drain : Bool = false) : UInt64
       fields_size = uint_size(next_incoming_id) + uint_size(incoming_window) +
                     uint_size(next_outgoing_id) + uint_size(outgoing_window)
       fields_count = 4
       if handle
         fields_size += uint_size(handle) + uint_size(delivery_count || 0_u32) + uint_size(link_credit || 0_u32)
         fields_count = 7
+        if drain
+          # available (field 7) is encoded as null, drain (field 8) as a boolean
+          fields_size += 1 + 1
+          fields_count = 9
+        end
       end
       frame_size = 8 + 3 + list_header_size(fields_size) + fields_size
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
@@ -194,6 +199,10 @@ module LavinMQ::AMQP10
         Codec.write_uint(io, handle)
         Codec.write_uint(io, delivery_count || 0_u32)
         Codec.write_uint(io, link_credit || 0_u32)
+        if drain
+          io.write_byte 0x40_u8 # available: null
+          Codec.write_bool(io, true)
+        end
       end
       io.flush
       frame_size.to_u64

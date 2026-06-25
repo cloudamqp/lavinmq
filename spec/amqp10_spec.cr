@@ -113,13 +113,22 @@ private class AMQP10SpecClient
     detach
   end
 
-  def flow(handle = 0_u32, credit = 1_u32, delivery_count = 0_u32) : Nil
-    fields = Array(LavinMQ::AMQP10::Value).new(7)
+  def flow(handle = 0_u32, credit = 1_u32, delivery_count = 0_u32, drain = false, echo = false) : Nil
+    fields = Array(LavinMQ::AMQP10::Value).new(10)
     4.times { fields << LavinMQ::AMQP10::Value.null }
     fields << LavinMQ::AMQP10::Value.uint(handle)
     fields << LavinMQ::AMQP10::Value.uint(delivery_count)
     fields << LavinMQ::AMQP10::Value.uint(credit)
+    if drain || echo
+      fields << LavinMQ::AMQP10::Value.null # available
+      fields << LavinMQ::AMQP10::Value.bool(drain)
+      fields << LavinMQ::AMQP10::Value.bool(echo)
+    end
     send_performative(LavinMQ::AMQP10::Descriptor::FLOW, fields)
+  end
+
+  def read_flow : LavinMQ::AMQP10::Flow
+    LavinMQ::AMQP10::Flow.from_value(read_value)
   end
 
   def publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil) : LavinMQ::AMQP10::Outcome
@@ -922,6 +931,62 @@ describe LavinMQ::AMQP10 do
         transfer.delivery_id.should eq 0_u32
         String.new(incoming.body).should eq "from-091"
         should_eventually(eq 0) { s.vhosts["/"].queue(q.name).message_count }
+        client.close
+      end
+    end
+  end
+
+  it "drains unused credit on an empty queue and echoes a flow" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-drain-empty", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 5_u32, drain: true)
+
+        flow = client.read_flow
+        flow.link_credit.should eq 0_u32
+        flow.delivery_count.should eq 5_u32
+        flow.drain.should be_true
+        client.close
+      end
+    end
+  end
+
+  it "delivers available messages then drains remaining credit" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-drain-partial", auto_delete: true)
+        q.publish("only-one")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 5_u32, drain: true)
+
+        transfer, incoming = client.read_delivery
+        String.new(incoming.body).should eq "only-one"
+        client.settle(transfer.delivery_id.not_nil!)
+
+        flow = client.read_flow
+        flow.link_credit.should eq 0_u32
+        flow.delivery_count.should eq 5_u32
+        flow.drain.should be_true
+        client.close
+      end
+    end
+  end
+
+  it "echoes a flow with the current credit when echo is requested" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-flow-echo", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 3_u32, echo: true)
+
+        flow = client.read_flow
+        flow.link_credit.should eq 3_u32
+        flow.drain.should be_false
+        client.expect_no_frame
         client.close
       end
     end
