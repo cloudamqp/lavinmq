@@ -23,16 +23,12 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
-            if user_and_broker = authenticate(io, packet)
-              user, broker = user_and_broker
-              packet = assign_client_id(packet) if packet.client_id.empty?
-              session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-              connack io, session_present, Protocol::Connack::ReturnCode::Accepted
-              return broker.add_client(io, connection_info, user, packet)
-            else
-              logger.warn { "Authentication failure for user \"#{packet.username}\"" }
-              connack io, false, Protocol::Connack::ReturnCode::NotAuthorized
-            end
+            user, broker = authenticate(io, packet)
+            packet = assign_client_id(packet, user.name) if packet.client_id.empty?
+            validate_client_id!(packet.client_id, user.name)
+            session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+            connack io, session_present, Protocol::Connack::ReturnCode::Accepted
+            return broker.add_client(io, connection_info, user, packet)
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
@@ -54,7 +50,9 @@ module LavinMQ
       end
 
       def authenticate(io : Protocol::IO, packet)
-        return unless (username = packet.username) && (password = packet.password)
+        username = packet.username
+        password = packet.password
+        raise Protocol::Error::NotAuthorized.new("missing credentials") unless username && password
 
         vhost = @config.default_mqtt_vhost
         if split_pos = username.index(':')
@@ -65,22 +63,35 @@ module LavinMQ
         context = Auth::Context.new(username, password, io.io)
 
         user = @authenticator.authenticate(context)
-        return unless user
-        return unless user.find_permission(vhost)
+        raise Protocol::Error::NotAuthorized.new("authentication failure for user \"#{username}\"") unless user
+        raise Protocol::Error::NotAuthorized.new("user \"#{username}\" lacks permission for vhost \"#{vhost}\"") unless user.find_permission(vhost)
         broker = @brokers[vhost]?
-        return unless broker
+        raise Protocol::Error::NotAuthorized.new("no broker for vhost \"#{vhost}\"") unless broker
 
         {user, broker}
       end
 
-      def assign_client_id(packet)
-        client_id = Random::Secure.base64(32)
+      def assign_client_id(packet, username : String)
+        client_id = case @config.mqtt_client_id_validation
+                    in .none?     then Random::Secure.base64(32)
+                    in .username? then username
+                    end
         Protocol::Connect.new(client_id,
           packet.clean_session?,
           packet.keepalive,
           packet.username,
           packet.password,
           packet.will)
+      end
+
+      private def validate_client_id!(client_id : String, username : String) : Nil
+        valid = case @config.mqtt_client_id_validation
+                in .none?     then true
+                in .username? then client_id == username
+                end
+        return if valid
+        raise Protocol::Error::IdentifierRejected.new(
+          "client_id \"#{client_id}\" rejected for user \"#{username}\" (client_id_validation=#{@config.mqtt_client_id_validation})")
       end
     end
   end

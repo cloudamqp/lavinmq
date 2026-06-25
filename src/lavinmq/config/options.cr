@@ -3,6 +3,7 @@ require "../auth/password"
 require "../amqp/exchange/consistent_hash_algorithm"
 require "../ip_matcher"
 require "../http/constants"
+require "../mqtt/client_id_validation"
 
 module LavinMQ
   class Config
@@ -240,6 +241,9 @@ module LavinMQ
 
       @[IniOpt(ini_name: permission_check_enabled, section: "mqtt")]
       property? mqtt_permission_check_enabled : Bool = false
+
+      @[IniOpt(ini_name: client_id_validation, section: "mqtt", transform: ->MQTT::ClientIdValidation.parse(String))]
+      property mqtt_client_id_validation : MQTT::ClientIdValidation = MQTT::ClientIdValidation::None
 
       @[IniOpt(ini_name: on_leader_elected, section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-elected=COMMAND", "Shell command to execute when elected leader", section: "clustering")]
