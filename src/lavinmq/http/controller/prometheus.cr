@@ -541,6 +541,24 @@ module LavinMQ
             writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
         end
+
+        writer.write_header("detailed_queue_messages_delivered_total", "counter",
+          "Total number of messages delivered to consumers or fetched via basic.get for this queue")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_delivered_total", q.deliver_get_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_messages_acked_total", "counter",
+          "Total number of messages acknowledged for this queue")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_acked_total", q.ack_count, labels)
+          end
+        end
       end
 
       private def detailed_queue_consumer_count(vhosts, writer)
