@@ -93,6 +93,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `max_packet_size` | — | — | UInt32 | `268435455` | Max MQTT packet size (bytes) |
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | — | — | Bool | `false` | Enable MQTT permission checks |
+| `client_id_validation` | — | — | String | `none` | Validate client_id against the username: `none` or `username` |
 
 ## [mgmt] Section
 

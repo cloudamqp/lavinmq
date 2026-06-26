@@ -157,6 +157,7 @@ describe LavinMQ::Config do
           max_packet_size = 536870910
           max_inflight_messages = 100
           default_vhost = /mqtt
+          client_id_validation = username
 
           [mgmt]
           bind = 0.0.0.0
@@ -241,6 +242,7 @@ describe LavinMQ::Config do
       config.mqtt_max_packet_size.should eq 536870910
       config.max_inflight_messages.should eq 100
       config.default_mqtt_vhost.should eq "/mqtt"
+      config.mqtt_client_id_validation.should eq LavinMQ::MQTT::ClientIdValidation::Username
 
       # MGMT section
       config.http_bind.should eq "0.0.0.0"
