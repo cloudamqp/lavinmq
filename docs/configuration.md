@@ -17,6 +17,12 @@ lavinmq --config /etc/lavinmq/lavinmq.ini
 
 Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (or the systemd-standard `CONFIGURATION_DIRECTORY`) to a directory; LavinMQ will load `lavinmq.ini` from that directory. Defaults to `/etc/lavinmq`.
 
+## Reloading
+
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+
+Not every setting takes effect on reload. The log level and TLS certificates are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+
 ## [main] Section
 
 | INI Key | CLI Flag | Env Var | Type | Default | Description |

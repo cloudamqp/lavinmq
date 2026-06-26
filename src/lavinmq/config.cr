@@ -12,6 +12,11 @@ require "./config/options"
 module LavinMQ
   class Config
     include Options
+
+    # Raised when the config file can't be parsed or is invalid. Aborts on
+    # boot, caught on SIGHUP reload to keep the running config.
+    class Error < Exception; end
+
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
@@ -27,6 +32,7 @@ module LavinMQ
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
         File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
@@ -38,6 +44,19 @@ module LavinMQ
       setup_logger
       if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
         Log.warn { oauth_mgmt_ui_disabled_reason }
+      end
+    end
+
+    private def parse_info_option(argv)
+      return unless argv.size == 1
+
+      case argv.first
+      when "-v", "--version"
+        puts LavinMQ::VERSION
+        exit 0
+      when "--build-info"
+        puts LavinMQ::BUILD_INFO
+        exit 0
       end
     end
 
@@ -64,9 +83,9 @@ module LavinMQ
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
-    private def validate!
+    protected def validate!
       unless @stats_interval.positive?
-        raise OptionParser::Exception.new("stats_interval must be positive (got #{@stats_interval})")
+        raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
     end
 
@@ -80,6 +99,25 @@ module LavinMQ
       parser.invalid_option { }
       parser.missing_option { }
       parser.parse(argv.dup)
+    end
+
+    # Assigns a parsed option value to its property. When `deprecation_message` is
+    # present the option is deprecated: the message is printed verbatim and the
+    # value is forwarded only if the (getter-less) deprecated property defines a
+    # setter. An option with no replacement defines no setter, so its value is
+    # dropped after the warning. Shared by `parse_cli` and `parse_section`.
+    private macro assign_option(var_name, value, transform, deprecation_message)
+      {% if deprecation_message %}
+        @io.puts "WARNING: {{deprecation_message.id}}"
+        # Since deprecation_message is set, the variable is deprecated. It may
+        # be forwarded to another variable using a setter, but it may also be
+        # completley removed, therefore we need to check for a setter.
+        {% if @type.has_method?("#{var_name.id}=") %}
+          self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+        {% end %}
+      {% else %}
+        self.{{var_name.id}} = parse_value({{value}}, {{transform}})
+      {% end %}
     end
 
     private def parse_env
@@ -120,10 +158,7 @@ module LavinMQ
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
           sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}) do |value|
-            {% if cli_opt[:deprecated] %}
-              @io.puts "WARNING: {{cli_opt[:deprecated].id}}"
-            {% end %}
-            self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
+            assign_option({{ivar.name}}, value, {{value_parser}}, {{cli_opt[:deprecated]}})
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -141,9 +176,9 @@ module LavinMQ
       parser.parse(argv.dup)
     end
 
-    private def parse_ini(file)
+    protected def parse_ini(file)
       return if file.empty?
-      abort "Config could not be found" unless File.file?(file)
+      raise Error.new("Config could not be found") unless File.file?(file)
       ini = INI.parse(File.read(file))
       {% begin %}
       ini.each do |section, settings|
@@ -157,15 +192,17 @@ module LavinMQ
           parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
-          abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+          raise Error.new("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
-          raise "Unknown configuration section: #{section}"
+          raise Error.new("Unknown configuration section: #{section}")
         end
       end
       {% end %}
     rescue ex : ::INI::ParseException
-      abort "Failed to parse config file '#{file}'. " \
-            "Error on line #{ex.line_number}, column #{ex.column_number}"
+      raise Error.new("Failed to parse config file '#{file}'. " \
+                      "Error on line #{ex.line_number}, column #{ex.column_number}")
+    rescue ex : IO::Error
+      raise Error.new("Could not read config file '#{file}': #{ex.message}")
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -235,24 +272,20 @@ module LavinMQ
         end
     %}
 
-    # Generate a case branch for each INI setting in this section.
-    # If a setting is marked as deprecated, look up the replacement instance variable
-    # and redirect the value assignment to it instead, logging a deprecation warning.
+    # Generate a case branch for each INI setting in this section. Deprecated
+    # settings carry a verbatim warning message and are handled by `assign_option`,
+    # which forwards the value to the replacement when a setter exists.
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
-         when "{{var[:ini_name]}}"
-         {% if (deprecated = var[:deprecated]) %}
-           @io.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
-         {% end %}
-         self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+          when "{{var[:ini_name]}}"
+            assign_option({{var[:var_name]}}, v, {{var[:transform]}}, {{var[:deprecated]}})
         {% end %}
      else
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      @io.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
-      abort
+      raise Error.new("Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}")
     end
   {% end %}
     end
@@ -303,11 +336,40 @@ module LavinMQ
       @mqtt_bind = value
     end
 
+    # Re-read the config file into a fresh copy and swap it in only if parsing
+    # and validation fully succeed. On failure the running config is untouched
+    # and it raises, so the SIGHUP handler can log and keep serving.
     def reload
-      @sni_manager.clear
-      parse_ini(@config_file)
-      validate!
+      new_config = dup
+      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
+      new_config.parse_ini(@config_file)
+      new_config.validate!
+      new_config.try_to_open_log_file
+      apply(new_config)
       setup_logger
+    end
+
+    # Try to open and immediately close the configured log file so an unopenable
+    # path raises a Config::Error before the config is applied
+    protected def try_to_open_log_file
+      if path = @log_file
+        File.open(path, "a") { }
+      end
+    rescue ex : File::Error
+      raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
+    end
+
+    protected def fresh_sni_manager
+      @sni_manager = SNIManager.new
+    end
+
+    # Copy every instance variable from the parsed config in one non-yielding
+    # loop, so no fiber sees a half-applied state. @@instance is a class
+    # variable and is untouched, keeping `Config.instance` references valid.
+    protected def apply(other : self)
+      {% for ivar in @type.instance_vars %}
+        @{{ivar.id}} = other.@{{ivar.id}}
+      {% end %}
     end
 
     private def setup_logger

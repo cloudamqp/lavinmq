@@ -84,18 +84,45 @@ describe LavinMQ::Auth::JWT::PublicKeys do
   end
 end
 
+# Builds an (unsigned) JWT with the given kid in its header. A nil kid omits
+# the header field entirely.
+def jwt_with_kid(kid : String?, signature = "c2lnbmF0dXJl") : String
+  header = kid.nil? ? %({"alg":"RS256","typ":"JWT"}) : %({"alg":"RS256","typ":"JWT","kid":"#{kid}"})
+  header_b64 = Base64.urlsafe_encode(header, padding: false)
+  payload_b64 = Base64.urlsafe_encode(%({"sub":"1234567890"}), padding: false)
+  "#{header_b64}.#{payload_b64}.#{signature}"
+end
+
 describe LavinMQ::Auth::JWT::PublicKeys do
   describe "#decode" do
+    # GH #2077: a forged token with no kid must be rejected cheaply, without
+    # attempting an RS256 verification against any of the cached keys.
+    it "raises VerificationError when the token has no kid header" do
+      public_keys = LavinMQ::Auth::JWT::PublicKeys.new
+      public_keys.update({"key1" => "dummy_pem", "key2" => "dummy_pem"}, 1.hour)
+
+      expect_raises(LavinMQ::Auth::JWT::VerificationError, "missing kid header") do
+        public_keys.decode(jwt_with_kid(nil))
+      end
+    end
+
+    # GH #2077: a kid that matches no cached key is rejected without iterating
+    # (and verifying against) every key.
+    it "raises VerificationError when no key matches the token's kid" do
+      public_keys = LavinMQ::Auth::JWT::PublicKeys.new
+      public_keys.update({"key1" => "dummy_pem", "key2" => "dummy_pem"}, 1.hour)
+
+      expect_raises(LavinMQ::Auth::JWT::VerificationError, "No key matching kid 'unknown'") do
+        public_keys.decode(jwt_with_kid("unknown"))
+      end
+    end
+
     it "raises VerificationError when no keys are provided" do
       public_keys = LavinMQ::Auth::JWT::PublicKeys.new
-      empty_keys = {} of String => String
-      public_keys.update(empty_keys, 1.hour)
+      public_keys.update({} of String => String, 1.hour)
 
-      # Sample JWT token (invalid signature for our keys)
-      token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.POstGetfAytaZS82wHcjoTyoqhMyxXiWdR7Nn7A29DNSl0EiXLdwJ6xC6AfgZWF1bOsS_TuYI3OG85AmiExREkrS6tDfTQ2B3WXlrr-wp5AokiRbz3_oB4OxG-W9KcEEbDRcZc0nH3L7LzYptiy1PtAylQGxHTWZXtGz4ht0bAecBgmpdgXMguEIcoqPJ1n3pIWk_dUZegpqx0Lka21H6XxUTxiy8OcaarA8zdnPUnV6AmNP3ecFawIFYdvJB_cm-GvpCSbr8G8y_Mllj8f4x9nBH8pQux89_6gUY618iYv7tuPWBFfEbLxtF2pZS6YC1aSfLQxeNe8djT9YjpvRZA"
-
-      expect_raises(LavinMQ::Auth::JWT::VerificationError, "Could not verify JWT with any key") do
-        public_keys.decode(token)
+      expect_raises(LavinMQ::Auth::JWT::VerificationError, "No key matching kid 'key1'") do
+        public_keys.decode(jwt_with_kid("key1"))
       end
     end
 
@@ -108,10 +135,8 @@ describe LavinMQ::Auth::JWT::PublicKeys do
       }
       public_keys.update(invalid_keys, 1.hour)
 
-      token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.POstGetfAytaZS82wHcjoTyoqhMyxXiWdR7Nn7A29DNSl0EiXLdwJ6xC6AfgZWF1bOsS_TuYI3OG85AmiExREkrS6tDfTQ2B3WXlrr-wp5AokiRbz3_oB4OxG-W9KcEEbDRcZc0nH3L7LzYptiy1PtAylQGxHTWZXtGz4ht0bAecBgmpdgXMguEIcoqPJ1n3pIWk_dUZegpqx0Lka21H6XxUTxiy8OcaarA8zdnPUnV6AmNP3ecFawIFYdvJB_cm-GvpCSbr8G8y_Mllj8f4x9nBH8pQux89_6gUY618iYv7tuPWBFfEbLxtF2pZS6YC1aSfLQxeNe8djT9YjpvRZA"
-
       expect_raises(LavinMQ::Auth::JWT::VerificationError) do
-        public_keys.decode(token)
+        public_keys.decode(jwt_with_kid("key1"))
       end
     end
 
@@ -133,10 +158,8 @@ describe LavinMQ::Auth::JWT::PublicKeys do
       public_keys.update(keys, 1.hour)
 
       # Valid JWT structure but empty signature
-      token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
-
       expect_raises(LavinMQ::Auth::JWT::VerificationError) do
-        public_keys.decode(token)
+        public_keys.decode(jwt_with_kid("key1", signature: ""))
       end
     end
 
@@ -145,10 +168,8 @@ describe LavinMQ::Auth::JWT::PublicKeys do
       keys = {"key1" => ""}
       public_keys.update(keys, 1.hour)
 
-      token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
-
       expect_raises(LavinMQ::Auth::JWT::DecodeError) do
-        public_keys.decode(token)
+        public_keys.decode(jwt_with_kid("key1", signature: "signature"))
       end
     end
   end
@@ -506,6 +527,22 @@ describe LavinMQ::Auth::OAuthUser do
       callback_called.should be_true
     end
 
+    it "closes the token-update channel when the watcher exits so a late refresh can't block (#2075)" do
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      # Already-expired token: the watcher fires its timeout immediately and exits.
+      user = OAuthUserHelper.create_user(RoughTime.utc - 1.hour, permissions)
+
+      user.on_expiration { }
+
+      # Once the watcher fiber has exited, the notification channel must be closed,
+      # otherwise refresh's `@token_updated.send` would block the read_loop forever.
+      wait_for { user.@token_updated.closed? }
+
+      expect_raises(Channel::ClosedError) do
+        user.@token_updated.send nil
+      end
+    end
+
     it "stops fiber when user is closed" do
       permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
       # Create user with token that expires in the future
@@ -541,6 +578,43 @@ describe LavinMQ::HTTP::OAuthController do
     with_http_server(authenticator: oauth) do |http, _|
       response = http.get "/oauth/enabled"
       response.status_code.should eq 200
+    end
+  end
+
+  # GH #2077: the oauth_token cookie must only be verified on management API
+  # paths, so a forged cookie can't force JWT verification on every request.
+  describe "oauth_token cookie authentication" do
+    # Well-formed token (passes prevalidation) but with a bogus signature.
+    forged_token = begin
+      header = Base64.urlsafe_encode(%({"alg":"RS256","typ":"JWT"}), padding: false)
+      payload = Base64.urlsafe_encode(%({"sub":"x","exp":9999999999}), padding: false)
+      "#{header}.#{payload}.c2lnbmF0dXJl"
+    end
+
+    it "ignores the cookie on non-API paths" do
+      oauth = create_oauth_test_authenticator
+      # Pretend the JWKS keys have already been fetched.
+      oauth.token_verifier.fetcher.public_keys.update({"k1" => "not-a-real-pem"}, 1.hour)
+      with_http_server(authenticator: oauth) do |http, _|
+        req = ::HTTP::Request.new("GET", "/oauth/enabled",
+          ::HTTP::Headers{"Cookie" => "oauth_token=#{forged_token}"})
+        response = http.exec(req)
+        response.status_code.should eq 200
+        # Cookie was never inspected, so it isn't expired.
+        response.headers.get?("Set-Cookie").should be_nil
+      end
+    end
+
+    it "verifies and expires an invalid cookie on management API paths" do
+      oauth = create_oauth_test_authenticator
+      oauth.token_verifier.fetcher.public_keys.update({"k1" => "not-a-real-pem"}, 1.hour)
+      with_http_server(authenticator: oauth) do |http, _|
+        req = ::HTTP::Request.new("GET", "/api/overview",
+          ::HTTP::Headers{"Cookie" => "oauth_token=#{forged_token}"})
+        response = http.exec(req)
+        set_cookies = response.headers.get?("Set-Cookie") || [] of String
+        set_cookies.any?(&.starts_with?("oauth_token=")).should be_true
+      end
     end
   end
 end

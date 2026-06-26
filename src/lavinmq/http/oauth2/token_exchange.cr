@@ -4,12 +4,31 @@ require "json"
 module LavinMQ
   module HTTP
     module OAuth2
+      # Parses an integer that may arrive as a JSON number or a JSON string,
+      # returning nil for unparseable values instead of raising. Microsoft
+      # Entra ID / Azure AD return `expires_in` as a string, which would
+      # otherwise abort the whole token exchange.
+      module FlexibleIntConverter
+        def self.from_json(pull : JSON::PullParser) : Int64?
+          case pull.kind
+          when .int?    then pull.read_int
+          when .string? then pull.read_string.to_i64?
+          else               pull.skip; nil
+          end
+        end
+
+        def self.to_json(value : Int64?, json : JSON::Builder)
+          value.to_json(json)
+        end
+      end
+
       class TokenExchange
         struct TokenResponse
           include JSON::Serializable
 
           property access_token : String
           property token_type : String?
+          @[JSON::Field(converter: FlexibleIntConverter)]
           property expires_in : Int64?
           property id_token : String?
         end

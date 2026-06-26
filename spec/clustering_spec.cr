@@ -1,3 +1,4 @@
+require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
@@ -71,6 +72,48 @@ class SelfLeaderController < LavinMQ::Clustering::Controller
 
   def mark_elected_for_spec
     @elected_leader.set(true)
+  end
+end
+
+class ProxyBindEtcd < LavinMQ::Etcd
+  def initialize(@leader_uri : String)
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    yield @leader_uri
+  end
+
+  def get(_key) : String?
+    "secret"
+  end
+end
+
+describe LavinMQ::Clustering::Controller do
+  it "reports follower proxy bind failures without the generic unhandled exception log" do
+    blocker = TCPServer.new("127.0.0.1", 0)
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = "127.0.0.1"
+      config.amqp_port = blocker.local_address.port
+      config.http_port = 0
+      config.mqtt_port = 0
+      config.metrics_http_port = -1
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      etcd = ProxyBindEtcd.new("tcp://192.0.2.10:5679")
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      controller = SelfLeaderController.new(config, etcd, coordinator)
+
+      Log.capture("lmq.clustering.controller", :fatal) do |logs|
+        ex = expect_raises(SpecExit) { controller.follow_leader_public }
+        ex.code.should eq 36
+        logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
+        logs.entry.to_s.should_not contain "Unhandled exception while following leader"
+      end
+    end
+  ensure
+    blocker.try &.close
   end
 end
 
@@ -747,6 +790,50 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
           Dir.children(repl_qdir).size.should be < files_before
         end
       end
+    end
+  end
+
+  it "compacts and replicates a stream's consumer_offsets file when it fills [#2068]" do
+    with_clustering do |cluster|
+      expected = Bytes.new(0)
+      follower_offsets_path = ""
+      ctag = "ctag-" + "x" * 100
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        queue_name = Random::Secure.hex
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m"
+        end
+
+        store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::AMQP::StreamMessageStore)
+        offsets_path = store.@consumer_offsets.path
+        follower_offsets_path = File.join(cluster.follower_config.data_dir, offsets_path[(s.data_dir.size + 1)..])
+
+        # Fill consumer_offsets past its capacity to trigger compaction. Before
+        # #2068's fix the first compaction raised ArgumentError because the
+        # rebuilt .tmp MFile was never replication-registered.
+        cap = store.@consumer_offsets.capacity
+        entry = 1 + ctag.bytesize + 8
+        ((cap // entry) + 10).times do |i|
+          store.store_consumer_offset(ctag, i.to_i64 + 1)
+        end
+        store.@consumer_offsets.size.should be < cap # got compacted
+
+        # A write AFTER compaction must still succeed and replicate, proving the
+        # MFile stayed registered through replace_file.
+        store.store_consumer_offset(ctag, 9999_i64)
+        store.last_offset_by_consumer_tag(ctag).should eq 9999_i64
+
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        expected = store.@consumer_offsets.to_slice.dup
+      end
+
+      # The follower received the compacted file verbatim — its real data
+      # length, not the sparse ftruncate capacity.
+      File.exists?(follower_offsets_path).should be_true
+      follower_bytes = File.open(follower_offsets_path, &.getb_to_end)
+      follower_bytes.should eq expected
     end
   end
 

@@ -234,6 +234,15 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "returns 400 when importing a user with an unsupported hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"bogus","password_hash":"abc","hashing_algorithm":"bogus","tags":[]}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.users["bogus"]?.should be_nil
+      end
+    end
+
     it "imports passwordless user (password_hash empty string)" do
       with_http_server do |http, s|
         body = %({"users":[{"name":"nopass","password_hash":"","hashing_algorithm":null,"tags":""}]})
@@ -457,6 +466,77 @@ describe LavinMQ::HTTP::Server do
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true
+      end
+    end
+
+    it "applies no parameters when one entry is malformed (issue #2073)" do
+      with_http_server do |http, s|
+        # A valid shovel followed by an operator_policy with priority > 127, which
+        # overflows Int8 and raises while parsing. Entries are validated up front,
+        # so a malformed entry makes the whole import a clean no-op: the shovel
+        # before it is neither applied in memory nor written to disk.
+        body = %({ "parameters": [
+          {
+            "name": "regression_shovel_2073",
+            "component": "shovel",
+            "vhost": "/",
+            "value": {
+              "src-uri": "#{s.amqp_url}",
+              "src-queue": "regression_q_2073",
+              "dest-uri": "#{s.amqp_url}",
+              "dest-queue": "regression_q_2073"
+            }
+          },
+          {
+            "name": "regression_op_2073",
+            "component": "operator_policy",
+            "vhost": "/",
+            "value": {
+              "pattern": "^.*",
+              "apply-to": "queues",
+              "priority": 999,
+              "definition": { "max-length": 10 }
+            }
+          }
+        ]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should_not eq 200
+        vhost = s.vhosts["/"]
+        vhost.parameters.any? { |_, p| p.parameter_name == "regression_shovel_2073" }.should be_false
+        params_file = File.join(vhost.data_dir, "parameters.json")
+        File.read(params_file).should_not contain("regression_shovel_2073") if File.exists?(params_file)
+      end
+    end
+
+    it "applies no policies when one entry is malformed (issue #2073)" do
+      with_http_server do |http, s|
+        # A valid policy followed by one with priority > 127, which overflows Int8
+        # while parsing. The whole import is a clean no-op: the first policy is
+        # neither applied in memory nor written to disk.
+        body = %({ "policies": [
+          {
+            "name": "regression_policy_2073",
+            "vhost": "/",
+            "pattern": "^.*",
+            "apply-to": "queues",
+            "priority": 1,
+            "definition": { "max-length": 10 }
+          },
+          {
+            "name": "regression_bad_policy_2073",
+            "vhost": "/",
+            "pattern": "^.*",
+            "apply-to": "queues",
+            "priority": 999,
+            "definition": { "max-length": 10 }
+          }
+        ]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should_not eq 200
+        vhost = s.vhosts["/"]
+        vhost.policies.has_key?("regression_policy_2073").should be_false
+        policies_file = File.join(vhost.data_dir, "policies.json")
+        File.read(policies_file).should_not contain("regression_policy_2073") if File.exists?(policies_file)
       end
     end
 

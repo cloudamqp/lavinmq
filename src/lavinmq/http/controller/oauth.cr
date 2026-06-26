@@ -17,8 +17,16 @@ module LavinMQ
       end
 
       def call(context)
-        authenticate_jwt_cookie(context)
+        authenticate_jwt_cookie(context) if management_api_request?(context)
         super
+      end
+
+      # The oauth_token cookie is only consumed to authenticate management HTTP
+      # API requests. Limiting the (relatively expensive) JWT verification to
+      # the /api path keeps a forged cookie from forcing signature checks on
+      # every unrelated request, e.g. static assets or the login page (GH #2077).
+      private def management_api_request?(context) : Bool
+        context.request.path.starts_with?("/api/")
       end
 
       private def authenticate_jwt_cookie(context)

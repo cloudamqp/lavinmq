@@ -69,4 +69,30 @@ describe LavinMQ::HTTP::MainController do
       hashes.each { |h| csp.should contain(h) }
     end
   end
+
+  it "sets security headers on .html pages requested directly" do
+    with_http_server do |http, _|
+      response = http.get "/overview.html", HEADERS
+      response.status_code.should eq 200
+      response.headers["X-Frame-Options"].should eq "SAMEORIGIN"
+      response.headers["Referrer-Policy"].should eq "same-origin"
+      response.headers["Content-Security-Policy"]?.should_not be_nil
+    end
+  end
+
+  it "redirects unauthenticated .html requests to login" do
+    with_http_server do |http, _|
+      response = http.get "/queues.html"
+      response.status_code.should eq 307
+      response.headers["Location"].should eq "login"
+    end
+  end
+
+  it "serves login.html without requiring authentication" do
+    with_http_server do |http, _|
+      response = http.get "/login.html"
+      response.status_code.should eq 200
+      response.headers["Content-Security-Policy"]?.should_not be_nil
+    end
+  end
 end

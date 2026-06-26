@@ -119,10 +119,58 @@ module FollowerSpec
         client_socket.try &.close
       end
     end
+
+    # A syncing follower isn't in the ISR, so the aggressive streaming-phase
+    # write timeout must not apply during the bulk transfer — otherwise a
+    # follower that's merely slow at hashing or persisting files gets dropped
+    # mid-sync. full_sync relaxes it; ack_loop tightens it again.
+    it "relaxes the write timeout during full_sync and restores it for ack_loop" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        follower_socket.write_timeout.should eq 3.seconds # initialize default
+
+        done = Channel(Nil).new
+        spawn do
+          follower.full_sync
+          done.send nil
+        end
+
+        # Drain the file list and request no files so full_sync completes.
+        loop do
+          len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+          break if len == 0
+          hash = Bytes.new(20)
+          client_lz4.read_string len
+          client_lz4.read_fully hash
+        end
+        client_socket.write_bytes 0, IO::ByteFormat::LittleEndian # request no files
+
+        select
+        when done.receive
+        when timeout(2.seconds)
+          fail "full_sync did not complete"
+        end
+        follower_socket.write_timeout.should eq LavinMQ::Clustering::Follower::SYNC_WRITE_TIMEOUT
+
+        spawn { follower.ack_loop }
+        # ack_loop tightens the write timeout to ACK_TIMEOUT when it starts.
+        10.times do
+          break if follower_socket.write_timeout == LavinMQ::Clustering::Follower::ACK_TIMEOUT
+          sleep 20.milliseconds
+        end
+        follower_socket.write_timeout.should eq LavinMQ::Clustering::Follower::ACK_TIMEOUT
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
   end
 
   describe "#stream changes" do
-    it "should fully sync on graceful shutdown" do
+    it "delivers and acks outstanding data, then shuts down cleanly" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
@@ -138,31 +186,28 @@ module FollowerSpec
           # socket closed
         end
 
+        spawn { follower.ack_loop }
         10.times do
           follower.append("#{data_dir}/file", "hello world".to_slice)
         end
-        spawn do
-          follower.ack_loop
+        target = follower.lag_in_bytes
+
+        # Ack the outstanding bytes and wait until the follower has registered
+        # them, so the lag-0 assertion is deterministic (close no longer flushes
+        # or waits for acks itself).
+        client_socket.write_bytes target, IO::ByteFormat::LittleEndian
+        confirmed = Channel(Bool).new
+        spawn { confirmed.send follower.wait_for_confirm }
+        select
+        when confirmed.receive
+        when timeout(2.seconds)
+          fail "follower never acked outstanding data"
         end
-
-        closed = false
-        wg = WaitGroup.new
-        wg.add(1)
-        spawn do
-          follower.close
-          closed = true
-          wg.done
-        end
-
-        # Send an ack back to satisfy lag check if needed,
-        # though close doesn't strictly depend on it now.
-        # But let's verify lag reaches 0.
-        client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
-
-        # Wait for closing fiber to finish
-        wg.wait
-        closed.should be_true
         follower.lag_in_bytes.should eq 0
+
+        # A clean shutdown closes the socket and marks the follower dead.
+        follower.close
+        follower.dead?.should be_true
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -179,11 +224,11 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        lag_ch = Channel(Int64).new(1)
-        spawn do
-          lag_ch.send follower.replace("file1")
-          follower.close
-        end
+        # close no longer flushes buffered data, so drive the flush via ack_loop
+        # + request_flush (see the #request_flush test) to read it off the wire.
+        spawn { follower.ack_loop }
+        lag = follower.replace("file1")
+        follower.request_flush
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
@@ -193,7 +238,7 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
+        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -233,11 +278,9 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        lag_ch = Channel(Int64).new(1)
-        spawn do
-          lag_ch.send follower.append("bar", "foo".to_slice)
-          follower.close
-        end
+        spawn { follower.ack_loop }
+        lag = follower.append("bar", "foo".to_slice)
+        follower.request_flush
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "bar"
@@ -247,7 +290,7 @@ module FollowerSpec
         client_lz4.read_fully(buf)
         String.new(buf).should eq "foo"
 
-        lag_ch.receive.should eq(sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 3)
+        lag.should eq(sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 3)
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -260,18 +303,16 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        lag_ch = Channel(Int64).new(1)
-        spawn do
-          lag_ch.send follower.append("file1", 123i32)
-          follower.close
-        end
+        spawn { follower.ack_loop }
+        lag = follower.append("file1", 123i32)
+        follower.request_flush
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq(-4i64)
         client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 123i32
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(Int32))
+        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(Int32))
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -284,18 +325,16 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        lag_ch = Channel(Int64).new(1)
-        spawn do
-          lag_ch.send follower.append("file1", 123u32)
-          follower.close
-        end
+        spawn { follower.ack_loop }
+        lag = follower.append("file1", 123u32)
+        follower.request_flush
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq(-4i64)
         client_lz4.read_bytes(UInt32, IO::ByteFormat::LittleEndian).should eq 123u32
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(UInt32))
+        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64) + sizeof(UInt32))
       ensure
         follower_socket.try &.close
         client_socket.try &.close
@@ -638,6 +677,39 @@ module FollowerSpec
         client_socket.try &.close
       end
     end
+
+    # Regression: when a follower stopped reading (e.g. slow hashing during
+    # full_sync) the send buffer fills. close() used to call @lz4.close first,
+    # whose flush re-blocked on the full buffer until the write timeout and
+    # raised — skipping @socket.close, so the socket stayed open. The follower
+    # then never saw a disconnect and never reconnected. close must always
+    # close the socket.
+    it "closes the socket even when the send buffer is full" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        # Fail a blocked write fast instead of after the production timeout.
+        follower_socket.write_timeout = 200.milliseconds
+
+        # Buffered data that a (now removed) flush-on-close would try to send.
+        follower.append("#{data_dir}/file", "hello world".to_slice)
+
+        # Fill the socket send buffer; the client never reads, so any further
+        # write blocks until the write timeout.
+        junk = Bytes.new(65536)
+        begin
+          loop { follower_socket.write junk }
+        rescue IO::TimeoutError
+        end
+
+        follower.close
+        follower_socket.closed?.should be_true
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
   end
 
   describe "#already_synced" do
@@ -722,17 +794,15 @@ module FollowerSpec
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        lag_ch = Channel(Int64).new(1)
-        spawn do
-          lag_ch.send follower.delete("file1")
-          follower.close
-        end
+        spawn { follower.ack_loop }
+        lag = follower.delete("file1")
+        follower.request_flush
 
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         read_filename(client_lz4).should eq "file1"
         read_data_size(client_lz4).should eq 0i64
 
-        lag_ch.receive.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64))
+        lag.should eq(sizeof(Int32) + "file1".bytesize + sizeof(Int64))
       ensure
         follower_socket.try &.close
         client_socket.try &.close

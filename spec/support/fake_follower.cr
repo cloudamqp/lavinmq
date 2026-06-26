@@ -59,6 +59,12 @@ class FakeSocket < TCPSocket
     @io.write_timeout = timeout
   end
 
+  # Expose the backing socket's write_timeout so specs can assert the follower
+  # relaxes it during full_sync and tightens it for the streaming phase.
+  def write_timeout
+    @io.write_timeout
+  end
+
   def remote_address : Socket::IPAddress
     Socket::IPAddress.parse("tcp://127.0.0.1:1234")
   end

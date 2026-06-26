@@ -45,26 +45,46 @@ module LavinMQ
       {% end %}
     end
 
-    # Returns names of all instance variables marked as deprecated (via CliOpt or IniOpt)
-    def self.deprecated_option_names : Set(String)
+    # Returns names of deprecated options (CliOpt or IniOpt) that forward to a
+    # replacement, i.e. that define a setter. Options deprecated without a
+    # replacement define no setter and are excluded. Uses the same `has_method?`
+    # predicate the parser uses to decide whether to forward.
+    def self.forwarded_deprecated_names
       {% begin %}
-        Set{
-          {% for ivar in @type.instance_vars %}
-            {% if (ivar.annotation(IniOpt) && ivar.annotation(IniOpt)[:deprecated]) ||
-                    (ivar.annotation(CliOpt) && ivar.annotation(CliOpt)[:deprecated]) %}
-              {{ivar.name.stringify}},
-            {% end %}
-          {% end %}
-        }
+        {%
+          vars = @type.instance_vars.select do |ivar|
+            ((ivar.annotation(IniOpt) && ivar.annotation(IniOpt)[:deprecated]) ||
+              (ivar.annotation(CliOpt) && ivar.annotation(CliOpt)[:deprecated])) &&
+              @type.has_method?("#{ivar.name}=")
+          end.uniq
+        %}
+        Tuple.new({{ vars.map(&.name.stringify).sort.splat }})
+      {% end %}
+    end
+
+    # Returns names of deprecated options that expose a getter. Deprecated options
+    # must not have a getter (to avoid accidentally reading the stale value), so
+    # this should always be empty.
+    def self.deprecated_getters
+      {% begin %}
+        {%
+          vars = @type.instance_vars.select do |ivar|
+            ((ivar.annotation(IniOpt) && ivar.annotation(IniOpt)[:deprecated]) ||
+              (ivar.annotation(CliOpt) && ivar.annotation(CliOpt)[:deprecated])) &&
+              @type.has_method?(ivar.name.stringify)
+          end.uniq
+        %}
+        Tuple.new({{ vars.map(&.name.stringify).sort.splat }})
       {% end %}
     end
   end
 end
 
 # Deprecated option forwarding map.
-# Each entry maps a deprecated ivar name to its forwarding target and a test value.
-# If a new deprecated annotation is added without an entry here, the
-# completeness check will fail.
+# Each entry maps a deprecated ivar name (one that forwards to a replacement via a
+# setter) to its forwarding target and a test value. Deprecated options with no
+# replacement (no setter) are intentionally excluded. If a new forwarding deprecated
+# annotation is added without an entry here, the completeness check will fail.
 DEPRECATED_FORWARDS = {
   "default_password"               => {target: "default_password_hash", value: "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"},
   "guest_only_loopback"            => {target: "default_user_only_loopback", value: "false"},
@@ -78,8 +98,15 @@ DEPRECATED_FORWARDS = {
 }
 
 describe LavinMQ::Config, "deprecated options" do
-  it "has entries in DEPRECATED_FORWARDS for all deprecated options" do
-    LavinMQ::Config.deprecated_option_names.should eq DEPRECATED_FORWARDS.keys.to_set
+  it "has entries in DEPRECATED_FORWARDS for all forwarding deprecated options" do
+    {% begin %}
+      {% expected = DEPRECATED_FORWARDS.keys.sort.splat %}
+      LavinMQ::Config.forwarded_deprecated_names.should eq Tuple.new({{ expected }})
+    {% end %}
+  end
+
+  it "exposes no getter for deprecated options" do
+    LavinMQ::Config.deprecated_getters.should be_empty
   end
 
   it "forwards all deprecated INI options to their replacements" do
@@ -142,6 +169,36 @@ describe LavinMQ::Config, "deprecated options" do
       io = IO::Memory.new
       config = LavinMQ::Config.new(io)
       config.parse([clean_flag, value])
+      io.to_s.should match(/deprecated/i)
+    end
+  end
+
+  # Options that are deprecated without a replacement (no setter) must still be
+  # accepted and warned about, but their value is dropped rather than forwarded.
+  it "warns for deprecated INI options without a replacement without error" do
+    ini_info = LavinMQ::Config.deprecated_ini_info
+    ini_info.each do |deprecated, (section, key)|
+      next if DEPRECATED_FORWARDS[deprecated]?
+      config_file = File.tempfile do |file|
+        file.print "[#{section}]\n#{key} = 1"
+      end
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      io.to_s.should match(/deprecated/i)
+    ensure
+      config_file.try &.delete
+    end
+  end
+
+  it "warns for deprecated CLI options without a replacement without error" do
+    cli_info = LavinMQ::Config.deprecated_cli_info
+    cli_info.each do |deprecated, flag|
+      next if DEPRECATED_FORWARDS[deprecated]?
+      clean_flag = flag.split("=").first
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse([clean_flag, "1"])
       io.to_s.should match(/deprecated/i)
     end
   end

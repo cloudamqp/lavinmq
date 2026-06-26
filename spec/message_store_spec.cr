@@ -27,6 +27,10 @@ class SpyReplicator
     @replaced_files << path
   end
 
+  def replace_file(mfile : MFile)
+    @replaced_files << mfile.path
+  end
+
   def append(path : String, pos : Int, length : Int)
   end
 

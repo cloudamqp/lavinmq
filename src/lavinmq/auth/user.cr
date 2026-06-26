@@ -147,7 +147,7 @@ module LavinMQ
         end
       end
 
-      class UnknownHashAlgoritm < Exception; end
+      class UnknownHashAlgoritm < ArgumentError; end
     end
   end
 end

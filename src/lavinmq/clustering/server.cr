@@ -78,7 +78,7 @@ module LavinMQ
         end
       end
 
-      def replace_file(path : String) # only non mfiles are ever replaced
+      def replace_file(path : String) # regular files, re-read from disk
         path = strip_datadir path
         @file_index.lock do |files, checksums|
           files[path] = nil
@@ -90,6 +90,25 @@ module LavinMQ
           # at this follower's join) no longer describes its content and would
           # wrongly skip appends at offsets below the old cut (e.g. after a
           # definitions compaction shrinks the file).
+          f.forget_baseline(path)
+        end
+      end
+
+      # Replace an mmap-backed file's entire content on all followers — used
+      # after an in-place compaction (e.g. a stream's consumer_offsets file).
+      # Unlike replace_file(path) the MFile stays registered, so the
+      # zero-syscall append(path, pos, length) overload keeps working for later
+      # writes, and the bytes are read from the mmap capped at mfile.size
+      # (File.size would be the sparse ftruncate capacity, not the data length).
+      def replace_file(mfile : MFile)
+        path = strip_datadir mfile.path
+        bytes = mfile.to_slice
+        @file_index.lock do |files, checksums|
+          files[path] = mfile
+          checksums.delete(path)
+        end
+        each_follower do |f|
+          f.replace(path, bytes)
           f.forget_baseline(path)
         end
       end
@@ -455,13 +474,22 @@ module LavinMQ
       private def each_follower(& : Follower -> Nil) : Nil
         dirty = false
         @lock.synchronize do
+          broken = nil
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
           rescue IO::Error | Socket::Error
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
-            Fiber.yield # Allow other fiber to run to remove the follower from array
+            # Remove the dead follower inline: the lock is already held and
+            # @lock guards every @followers mutation, so a Fiber.yield here
+            # can't hand off to a removal path. The follower's handler fiber
+            # ensure remains the safety net (its @followers.delete becomes a
+            # no-op). A synced follower leaving dirties the ISR so it's
+            # committed before this operation is acknowledged.
+            (broken ||= Array(Follower).new) << f
+            @dirty_isr = true if f.synced?
           end
+          broken.try &.each { |f| @followers.delete(f) }
           dirty = @dirty_isr
         end
         flush_isr if dirty

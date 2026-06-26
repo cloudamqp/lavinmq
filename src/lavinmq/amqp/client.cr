@@ -495,7 +495,10 @@ module LavinMQ
         when AMQP::Frame::Tx::Rollback
           with_channel frame, &.tx_rollback(frame)
         when AMQP::Frame::Heartbeat
-          nil
+          unless frame.channel.zero?
+            close_connection(frame, ConnectionReplyCode::UNEXPECTED_FRAME, "Heartbeat frame must be on channel 0")
+            return
+          end
         else
           send_not_implemented(frame)
         end

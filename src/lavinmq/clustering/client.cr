@@ -69,7 +69,6 @@ module LavinMQ
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         start_metrics_server unless @config.metrics_http_port == -1
-        @internal_http_server = HTTP::Server.follower_internal_socket_http_server
       end
 
       private def start_metrics_server
@@ -94,6 +93,7 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
+        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -149,6 +149,16 @@ module LavinMQ
         @host == host && @port == port
       end
 
+      private def local_leader_host?(host : String) : Bool
+        host = host.downcase
+        return true if host == System.hostname.downcase
+        host = host[1...-1] if host.starts_with?("[") && host.ends_with?("]")
+
+        Socket::Addrinfo.tcp(host, 0).any?(&.ip_address.loopback?)
+      rescue Socket::Error
+        false
+      end
+
       private def sync(socket, lz4)
         Log.info { "Connected" }
         authenticate(socket)
@@ -172,18 +182,34 @@ module LavinMQ
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
-        remote_hash = Bytes.new(sha1.digest_size)
-        files_to_delete, dirs_to_delete = ls_r(@data_dir)
-        requested_files = Array(String).new
-        file_count = 0
-        Log.info { "Calculating checksums and comparing files" }
-        log_limiter = RateLimiter.new(2.seconds)
+
+        # Drain the entire file list from the socket FIRST, doing no hashing in
+        # this loop. Computing local checksums is CPU-bound and would otherwise
+        # block reading between entries, so the leader's file-list flush can't
+        # complete within its write timeout and it disconnects us mid-sync. By
+        # reading the list back-to-back we let the leader's flush finish; it then
+        # blocks reading our file requests (below) while we hash, so it never
+        # write-times-out during the comparison.
+        remote_files = Array({String, Bytes}).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
           filename = lz4.read_string(filename_len)
+          remote_hash = Bytes.new(sha1.digest_size)
           lz4.read_fully(remote_hash)
+          remote_files << {filename, remote_hash}
+        end
+        Log.info { "Received list of #{remote_files.size} files" }
+
+        # Now compare against local files (CPU-bound hashing) with the socket
+        # already drained.
+        files_to_delete, dirs_to_delete = ls_r(@data_dir)
+        requested_files = Array(String).new
+        file_count = 0
+        Log.info { "Calculating checksums and comparing files" }
+        log_limiter = RateLimiter.new(2.seconds)
+        remote_files.each do |filename, remote_hash|
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           # Walk up the path to remove all ancestors from dirs_to_delete
@@ -196,7 +222,7 @@ module LavinMQ
               Log.debug { "Calculating checksum for #{filename}" }
               sha1.file(path)
               local_hash = sha1.final
-              @checksums[filename] = local_hash
+              @checksums.append(filename, local_hash)
               sha1.reset
               Fiber.yield # CPU bound, so allow other fibers to run
             end
@@ -204,16 +230,17 @@ module LavinMQ
               Log.info { "Mismatching hash: #{path}" }
               File.delete path
               requested_files << filename
-              request_file(filename, socket)
             else
               Log.debug { "Matching hash: #{path}" }
             end
           else
             requested_files << filename
-            request_file(filename, socket)
           end
           file_count &+= 1
           log_limiter.do { Log.info { "Compared #{file_count} files" } }
+        end
+        requested_files.each do |filename|
+          request_file(filename, socket)
         end
         end_of_file_list(socket)
         Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
@@ -267,7 +294,10 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".clustering_id")
+            # checksums.sha1(.tmp) is local-only replication metadata, never
+            # sent by the leader; skip it so the "delete files not on leader"
+            # sweep doesn't wipe our persisted hashes mid-sync.
+            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -300,7 +330,9 @@ module LavinMQ
             remaining &-= len
           end
           remaining.zero? || raise IO::EOFError.new
-          @checksums[filename] = sha1.final
+          # Persist immediately too: a file received here is complete and
+          # stable, so a crash mid-sync won't force re-hashing it on restart.
+          @checksums.append(filename, sha1.final)
         end
         Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end

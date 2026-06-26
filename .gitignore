@@ -19,3 +19,5 @@ package-lock.json
 /static/*.html
 .DS_Store
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/

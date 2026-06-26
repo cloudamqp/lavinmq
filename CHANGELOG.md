@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.9.0-rc.1] - 2026-06-11
+## [2.9.0] - 2026-06-25
 
-This release adds OAuth2/OIDC SSO login to the management UI, sends publish confirms only after messages are flushed to disk (with a `--no-sync` opt-out), verifies PROXY protocol trusted sources, switches to Crystal's native kTLS support and supports per-queue-type policy `apply-to` targets. It also brings a number of stream, clustering and HTTP API fixes.
+This release makes local publish confirms wait until messages are flushed to disk with `syncfs` (with a `--no-sync` opt-out), reworks clustered durability so confirms and durable definition changes are acknowledged only once every in-sync replica holds the data, and adds OAuth2/OIDC SSO login to the management UI. It also adds PROXY protocol trusted sources, `load_definitions`, per-queue-type policy `apply-to` targets and a configurable control socket, alongside a wide range of bugfixes and performance optimizations across the broker.
 
 ### Added
 
@@ -24,7 +24,12 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 
 ### Changed
 
+- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). When a follower disconnects mid-confirm, the confirm is held until the follower's removal from the etcd ISR is committed, so a leader crash right after the confirm can't elect a replica that lacks the data [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
+- Durable definition changes (queue/exchange declares, deletes, bindings) are likewise acknowledged only once every in-sync follower has acked them - or a non-acking follower's removal from the etcd ISR is committed - so a leader crash right after a Declare-Ok can't elect a replica that lacks the acknowledged definition [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
+- Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
 - Send publish confirms only after messages are flushed to disk with `syncfs` [#1891](https://github.com/cloudamqp/lavinmq/pull/1891)
+- Eliminate heap allocations in the message publish/deliver hot path [#2045](https://github.com/cloudamqp/lavinmq/pull/2045)
+- Zero-allocation MQTT subscription-tree matching [#2090](https://github.com/cloudamqp/lavinmq/pull/2090)
 - Use Crystal's native kTLS support [#1937](https://github.com/cloudamqp/lavinmq/pull/1937)
 - Fiber-free synchronous replication [a011ec99](https://github.com/cloudamqp/lavinmq/commit/a011ec993089408d23c3b76e0cb008e2cda4b39a)
 - On-demand deliver_loop fibers for AMQP consumers [#1722](https://github.com/cloudamqp/lavinmq/pull/1722)
@@ -32,16 +37,17 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 - Replace periodic GC.collect with on-demand GC [#2016](https://github.com/cloudamqp/lavinmq/pull/2016)
 - Batch persistence during definitions import [#2014](https://github.com/cloudamqp/lavinmq/pull/2014)
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
-- Followers ack replicated data incrementally as it's written, so a single large action (big message or file sync) keeps a healthy follower in the replica set instead of being evicted on the leader's ack deadline
-- A publish is confirmed once every in-sync follower has the data; local syncfs is only used as a fallback when there are no in-sync followers (or the node is standalone). When a follower disconnects mid-confirm, the confirm is held until the follower's removal from the etcd ISR is committed, so a leader crash right after the confirm can't elect a replica that lacks the data
-- Durable definition changes (queue/exchange declares, deletes, bindings) are likewise acknowledged only once every in-sync follower has acked them — or a non-acking follower's removal from the etcd ISR is committed — so a leader crash right after a Declare-Ok can't elect a replica that lacks the acknowledged definition
+
+### Deprecated
+
+- `clustering_max_unsynced_actions` is now a no-op (still accepted to avoid breaking existing configs); the follower ack buffer is a fixed size and how far a follower may lag is governed by the leader's ack deadline [#2002](https://github.com/cloudamqp/lavinmq/pull/2002)
+
+### Removed
+
+- `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
 
 ### Fixed
 
-- A node that won the etcd leader election while no longer in the ISR (its candidacy was queued before it fell behind or disconnected) now releases the lease and exits instead of serving, preventing confirmed messages from being lost cluster-wide when an out-of-sync replica would otherwise be promoted
-- A follower joining the replica set while the leader was publishing could duplicate bytes in its segment files (the local write to a segment races the full sync); the join now snapshots a per-file cut, caps the sync to it, and skips already-synced bytes from the change stream
-- A replication append that straddles a joining follower's full-sync cut now streams only the unsynced tail. The cut is a live file size and can land inside a record a publisher has written locally but not yet dispatched; skipping the whole append (as before) tore the record on the follower
-- A follower that was behind when it disconnected is now removed from the etcd ISR immediately instead of on the next replication write, so it can't be promoted on failover lacking already-confirmed data while the cluster is idle; caught-up followers stay in the ISR as valid candidates and are removed before the next durable operation or publish confirm is acknowledged
 - Print clean error messages on boot failures instead of stacktraces [aba7361b](https://github.com/cloudamqp/lavinmq/commit/aba7361b8a434f1ab2776ec0fbb393c73e94861d)
 - Group `lavinmqctl` help output by command category [#1830](https://github.com/cloudamqp/lavinmq/pull/1830)
 - Use `amq.default` in UI related operations [#1913](https://github.com/cloudamqp/lavinmq/pull/1913)
@@ -49,20 +55,8 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 - Bake static assets as string literals to reduce compile memory [#1944](https://github.com/cloudamqp/lavinmq/pull/1944)
 - Bump amq-protocol to 1.2.0 [#1996](https://github.com/cloudamqp/lavinmq/pull/1996)
 - Update amqp-client to 1.3.3, lz4 and systemd 3.0.1 dependencies [cd2f4c58](https://github.com/cloudamqp/lavinmq/commit/cd2f4c586dd55aae15d6223181c178a8e1025e71)
-
-### Removed
-
-- `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
-
-### Deprecated
-
-- `clustering_max_unsynced_actions` is now a no-op (still accepted to avoid breaking existing configs); the follower ack buffer is a fixed size and how far a follower may lag is governed by the leader's ack deadline
-
-### Fixed
-
 - `GET /api/queues/:vhost/:name` no longer emits the `message_stats` field twice [#2031](https://github.com/cloudamqp/lavinmq/pull/2031)
 - `GET /api/channels` and `GET /api/connections` no longer include the per-metric rate-history `log` arrays in every list row, matching `GET /api/queues`. The logs are only needed by the per-object detail pages, so they are now returned solely by `GET /api/channels/:name` and `GET /api/connections/:name`, greatly reducing list response size and latency on large deployments [#2025](https://github.com/cloudamqp/lavinmq/pull/2025)
-- Skip the message-expire fiber on streams to avoid a `Closed mfile` crash when the last consumer disconnects after retention dropped segments [ded4b69b](https://github.com/cloudamqp/lavinmq/commit/ded4b69ba5b5a24c5a4aa09efc9695d22306caa9)
 - Discard settlement frames (`ack`/`nack`/`reject`) for an already-closed channel instead of closing the connection with `CHANNEL_ERROR` [f421d6e3](https://github.com/cloudamqp/lavinmq/commit/f421d6e3e8359a686453b45a33b423b5ea129a32)
 - Treat a publish to a concurrently-closed queue as dropped instead of raising, which previously surfaced as an HTTP publish `500` [93f88429](https://github.com/cloudamqp/lavinmq/commit/93f88429be1d9b3692d2d945c14964f0622a0db9)
 - Stop federation and shovel links before tearing down vhosts on shutdown, and keep the embedded amqp-client's routine connection-teardown logging (already reported via the `lmq.*` federation/shovel layers) out of the broker log [2b213d3c](https://github.com/cloudamqp/lavinmq/commit/2b213d3cbce52a1782dcec6143cc41e55cd816d3)
@@ -90,6 +84,22 @@ This release adds OAuth2/OIDC SSO login to the management UI, sends publish conf
 - MQTT packet ID overflow in lavinmqperf [#1997](https://github.com/cloudamqp/lavinmq/pull/1997)
 - `-q` flag collision between QoS and quiet in mqttperf [#1951](https://github.com/cloudamqp/lavinmq/pull/1951)
 - Smooth pacing in lavinmqperf AMQP throughput [85711b32](https://github.com/cloudamqp/lavinmq/commit/85711b3290335c367908b0896c4e200bf1ba71f4)
+- Federation upstream-set deletion and per-entry overrides [#2089](https://github.com/cloudamqp/lavinmq/pull/2089)
+- Lost exchange-federation bindings created during link startup [#2037](https://github.com/cloudamqp/lavinmq/pull/2037)
+- Federation exchange link leaking a dead observer when the upstream is deleted during startup [#2105](https://github.com/cloudamqp/lavinmq/pull/2105)
+- Remove a dead follower inline in `each_follower` to stop "Follower disconnected" log spam [#2103](https://github.com/cloudamqp/lavinmq/pull/2103)
+- Use `f_frsize` for disk size reporting on Linux, fixing inflated `disk_total`/`disk_free` on virtiofs and NFS [#2055](https://github.com/cloudamqp/lavinmq/pull/2055)
+- Sub-second `stats_interval` produced `NaN`/`Inf` rates that broke stats-endpoint JSON [#2024](https://github.com/cloudamqp/lavinmq/pull/2024)
+- Guard against an empty destination in the Move messages UI [#2042](https://github.com/cloudamqp/lavinmq/pull/2042)
+- Skip config parsing for exact `--version`/build-info requests so a deprecated config file no longer warns on version output [#2115](https://github.com/cloudamqp/lavinmq/pull/2115)
+
+## [2.9.0-rc.2] - 2026-06-22
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.9.0-rc.2> for changes in this pre-release
+
+## [2.9.0-rc.1] - 2026-06-11
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.9.0-rc.1> for changes in this pre-release
 
 ## [2.8.1] - 2026-05-18
 

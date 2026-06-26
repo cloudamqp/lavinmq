@@ -81,6 +81,45 @@ describe "Publish Confirm Persistence" do
     end
   end
 
+  describe "runtime sync-mode flip (regression for #2078)" do
+    # Smoke test for #2078: confirms keep flowing across a mid-stream `sync` flip
+    # (see Persister#enqueue_ack for why). Asserts confirms + counts only, not
+    # Basic.Ack ordering - the Crystal client tolerates out-of-order tags.
+    it "keeps confirming when sync is disabled mid-stream" do
+      LavinMQ::Config.instance.sync = true
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("flip_sync_off")
+          50.times { q.publish "msg" }
+          LavinMQ::Config.instance.sync = false # operator SIGHUPs sync off mid-stream
+          50.times { q.publish "msg" }
+          ch.wait_for_confirms.should be_true
+          s.vhosts["/"].queue(q.name).message_count.should eq 100
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+
+    it "keeps confirming when sync is enabled mid-stream" do
+      LavinMQ::Config.instance.sync = false
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.confirm_select
+          q = ch.queue("flip_sync_on")
+          50.times { q.publish "msg" }
+          LavinMQ::Config.instance.sync = true
+          50.times { q.publish "msg" }
+          ch.wait_for_confirms.should be_true
+          s.vhosts["/"].queue(q.name).message_count.should eq 100
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
+  end
+
   it "correctly acknowledges multiple messages with one ack frame" do
     # This is hard to verify from the client side without internal access,
     # but we can verify that everything is eventually acked.

@@ -117,6 +117,9 @@ class LavinMQ::Clustering::Controller
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
+  rescue ex : Socket::BindError
+    Log.fatal { ex.message }
+    exit 36 # 36 for CF (Cluster Follower)
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)

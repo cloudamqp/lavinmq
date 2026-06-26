@@ -50,17 +50,18 @@ module LavinMQ
       raise ArgumentError.new("Invalid IP address: #{ip_str}")
     end
 
-    # Parse a comma-separated list of IP addresses or CIDR ranges from config
+    # Parse a comma-separated list of IP addresses or CIDR ranges from config.
+    # Raises on any invalid entry so a misconfigured trusted-source list fails
+    # loudly at startup instead of silently collapsing to an empty (trust-all) list.
     def self.parse_list(sources : String) : Array(IPMatcher)
       sources.split(',')
         .map(&.strip)
         .reject(&.empty?)
-        .compact_map do |source|
+        .map do |source|
           begin
             parse(source)
           rescue ex : Socket::Error | ArgumentError
-            Log.error(exception: ex) { "Invalid IP/CIDR: #{source}" }
-            nil
+            raise ArgumentError.new("Invalid IP/CIDR '#{source}': #{ex.message}")
           end
         end
     end
@@ -96,7 +97,23 @@ module LavinMQ
     private def ip_to_bytes_v4(address : String) : Bytes?
       if fields = Socket::IPAddress.parse_v4_fields?(address)
         Bytes.new(4) { |i| fields[i] }
+      elsif fields = Socket::IPAddress.parse_v6_fields?(address)
+        # On a dual-stack (::) listener an IPv4 peer arrives as an IPv4-mapped
+        # IPv6 address (::ffff:a.b.c.d); extract the embedded IPv4 so an IPv4
+        # trusted source still matches (issue 2070).
+        ipv4_mapped_bytes(fields)
       end
+    end
+
+    # If *fields* is an IPv4-mapped IPv6 address (::ffff:a.b.c.d), return the
+    # embedded 4-byte IPv4 address, otherwise nil.
+    private def ipv4_mapped_bytes(fields : StaticArray(UInt16, 8)) : Bytes?
+      return nil unless fields[0].zero? && fields[1].zero? && fields[2].zero? &&
+                        fields[3].zero? && fields[4].zero? && fields[5] == 0xffff_u16
+      Bytes[
+        (fields[6] >> 8).to_u8, (fields[6] & 0xFF).to_u8,
+        (fields[7] >> 8).to_u8, (fields[7] & 0xFF).to_u8,
+      ]
     end
 
     # Convert IPv6 address string to bytes

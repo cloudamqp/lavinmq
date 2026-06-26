@@ -1,9 +1,13 @@
 require "./session"
-require "./string_token_iterator"
+require "./bytes_token_iterator"
 
 module LavinMQ
   module MQTT
     class SubscriptionTree(T)
+      # MQTT wildcard markers, compared by content against the Bytes tokens.
+      HASH = "#".to_slice
+      PLUS = "+".to_slice
+
       @wildcard_rest = Hash(T, UInt8).new
       @wildcard_rest_filter : String?
       @plus : SubscriptionTree(T)?
@@ -14,7 +18,10 @@ module LavinMQ
       @non_wildcards = Hash(String, Hash(T, UInt8)).new do |h, k|
         h[k] = Hash(T, UInt8).new.compare_by_identity
       end
-      @sublevels = Hash(String, SubscriptionTree(T)).new
+      # Keyed by owned Bytes copies of each level. Bytes hash and compare by
+      # content, so matching can look up with zero-allocation views into the
+      # published topic.
+      @sublevels = Hash(Bytes, SubscriptionTree(T)).new
 
       def initialize
         @wildcard_rest.compare_by_identity
@@ -26,29 +33,28 @@ module LavinMQ
           @non_wildcards[filter][session] = qos
           return
         end
-        subscribe(StringTokenIterator.new(filter), session, qos)
+        subscribe(BytesTokenIterator.new(filter.to_slice), session, qos)
       end
 
-      protected def subscribe(iter : StringTokenIterator, session : T, qos : UInt8)
-        unless current = iter.next
-          @leaf_filter = iter.to_s
+      protected def subscribe(filter : BytesTokenIterator, session : T, qos : UInt8)
+        unless current = filter.next
+          @leaf_filter = filter.to_s
           @leafs[session] = qos
           return
         end
-        if current == "#"
-          @wildcard_rest_filter = iter.to_s
+        if current == HASH
           @wildcard_rest[session] = qos
+          @wildcard_rest_filter = filter.to_s
           return
         end
-        if current == "+"
+        if current == PLUS
           plus = (@plus ||= SubscriptionTree(T).new)
-          plus.subscribe iter, session, qos
+          plus.subscribe filter, session, qos
           return
         end
-        if !(sublevels = @sublevels[current]?)
-          sublevels = @sublevels[current] ||= SubscriptionTree(T).new
-        end
-        sublevels.subscribe iter, session, qos
+        # dup the token to own it as a persistent hash key (subscribe is cold)
+        sublevel = @sublevels[current]? || (@sublevels[current.dup] = SubscriptionTree(T).new)
+        sublevel.subscribe filter, session, qos
         return
       end
 
@@ -61,18 +67,18 @@ module LavinMQ
             return
           end
         end
-        unsubscribe(StringTokenIterator.new(filter), session)
+        unsubscribe(BytesTokenIterator.new(filter.to_slice), session)
       end
 
-      protected def unsubscribe(filter : StringTokenIterator, session : T)
+      protected def unsubscribe(filter : BytesTokenIterator, session : T)
         unless current = filter.next
           @leafs.delete session
           return
         end
-        if current == "#"
+        if current == HASH
           @wildcard_rest.delete session
         end
-        if (plus = @plus) && current == "+"
+        if (plus = @plus) && current == PLUS
           plus.unsubscribe filter, session
         end
         if sublevel = @sublevels[current]?
@@ -88,10 +94,10 @@ module LavinMQ
         if subs = @non_wildcards[filter]?
           return !subs.empty?
         end
-        any?(StringTokenIterator.new(filter))
+        any?(BytesTokenIterator.new(filter.to_slice))
       end
 
-      protected def any?(filter : StringTokenIterator)
+      protected def any?(filter : BytesTokenIterator)
         return !@leafs.empty? unless current = filter.next
         return true if !@wildcard_rest.empty?
         return true if @plus.try &.any?(filter)
@@ -123,10 +129,12 @@ module LavinMQ
         if subs = @non_wildcards[topic]?
           subs.each { |s, q| yield s, q, topic }
         end
-        each_entry(StringTokenIterator.new(topic), &block)
+        # Nothing to walk when there are no wildcard subscriptions.
+        return if @wildcard_rest.empty? && @plus.nil? && @sublevels.empty?
+        each_entry(BytesTokenIterator.new(topic.to_slice), &block)
       end
 
-      protected def each_entry(topic : StringTokenIterator, &block : (T, UInt8, String) -> _)
+      protected def each_entry(topic : BytesTokenIterator, &block : (T, UInt8, String) -> _)
         unless current = topic.next
           if f = @leaf_filter
             @leafs.each { |s, q| yield s, q, f }
@@ -137,7 +145,7 @@ module LavinMQ
           @wildcard_rest.each { |s, q| yield s, q, f }
         end
         @plus.try &.each_entry topic, &block
-        if sublevel = @sublevels.fetch(current, nil)
+        if sublevel = @sublevels[current]?
           sublevel.each_entry topic, &block
         end
       end

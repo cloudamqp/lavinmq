@@ -147,6 +147,51 @@ describe "ProxyProtocol" do
       conn_info = LavinMQ::ProxyProtocol.parse(r)
       conn_info.should be_nil
     end
+
+    it "times out on the initial peek when the peer sends nothing" do
+      r, _w = IO.pipe
+      expect_raises(IO::TimeoutError) do
+        LavinMQ::ProxyProtocol.parse(r, timeout: 100.milliseconds)
+      end
+      # read_timeout must be reset so it doesn't leak into the connection handler
+      r.read_timeout.should be_nil
+    end
+
+    it "detects a V2 header split across TCP segments" do
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x0c,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27
+      )
+      r, w = IO.pipe
+      ch = Channel(LavinMQ::ConnectionInfo?).new
+      spawn { ch.send LavinMQ::ProxyProtocol.parse(r) }
+
+      # First segment carries fewer than the 12 signature bytes
+      w.write pp_bytes.to_slice[0, 6]
+      Fiber.yield
+      w.write pp_bytes.to_slice[6..]
+
+      conn_info = ch.receive
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
+    end
+
+    it "detects a V1 header split across TCP segments" do
+      header = "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+      r, w = IO.pipe
+      ch = Channel(LavinMQ::ConnectionInfo?).new
+      spawn { ch.send LavinMQ::ProxyProtocol.parse(r) }
+
+      w.write header[0, 3] # "PRO"
+      Fiber.yield
+      w.write header[3..]
+
+      conn_info = ch.receive
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "1.2.3.4:34567"
+    end
   end
 
   describe "trusted sources" do
@@ -203,16 +248,20 @@ describe "ProxyProtocol" do
       config.proxy_protocol_trusted_sources[3].matches?("::2").should be_false
     end
 
-    it "handles invalid entries gracefully" do
-      config = LavinMQ::Config.new
-      # This should print warnings to STDERR but not fail
-      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
-        "10.0.0.1, invalid-ip, 192.168.0.0/24, 300.0.0.1")
+    it "raises on an invalid entry mixed with valid ones" do
+      # A typo must fail loudly rather than silently dropping the entry and
+      # degrading the allow-list (potentially to trust-all).
+      expect_raises(ArgumentError, /Invalid IP\/CIDR 'invalid-ip'/) do
+        LavinMQ::IPMatcher.parse_list("10.0.0.1, invalid-ip, 192.168.0.0/24")
+      end
+    end
 
-      # Only valid entries should be parsed
-      config.proxy_protocol_trusted_sources.size.should eq 2
-      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
-      config.proxy_protocol_trusted_sources[1].matches?("192.168.0.50").should be_true
+    it "raises when every entry is invalid instead of collapsing to trust-all" do
+      # Regression for #2083: an all-invalid list must not parse to an empty
+      # array (which trusted_proxy_source? treats as trust-all).
+      expect_raises(ArgumentError, /Invalid IP\/CIDR/) do
+        LavinMQ::IPMatcher.parse_list("10.0.0.0/33, 300.0.0.1")
+      end
     end
 
     it "handles whitespace correctly" do
@@ -230,6 +279,19 @@ describe "ProxyProtocol" do
       config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("")
 
       config.proxy_protocol_trusted_sources.size.should eq 0
+    end
+
+    it "fails loudly on an invalid entry (does not collapse to trust-all)" do
+      expect_raises(ArgumentError, /Invalid IP\/CIDR/) do
+        LavinMQ::IPMatcher.parse_list("10.0.0.0/33, not-an-ip")
+      end
+    end
+
+    it "matches an IPv4 trusted source for an IPv4-mapped IPv6 peer (dual-stack)" do
+      sources = LavinMQ::IPMatcher.parse_list("10.0.0.0/24")
+      # An IPv4 load balancer behind a `bind = ::` listener arrives mapped
+      sources.any?(&.matches?("::ffff:10.0.0.5")).should be_true
+      sources.any?(&.matches?("::ffff:10.0.1.5")).should be_false
     end
   end
 end

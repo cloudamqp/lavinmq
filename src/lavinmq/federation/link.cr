@@ -458,6 +458,11 @@ module LavinMQ
           # below (exchanges store bindings before notifying observers).
           @consumer_ex = consumer_ex
           @federated_ex.register_observer(self)
+          # A concurrent delete can set the link Terminating while we were
+          # parked on the upstream connect above; its unregister_observer ran
+          # before we registered, so re-check and unregister to avoid leaking
+          # a dead link in the exchange's observer set.
+          @federated_ex.unregister_observer(self) if stop_link?
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
             if updated
@@ -471,6 +476,10 @@ module LavinMQ
         private def start_link
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
+            # setup may have observed a concurrent delete and unregistered;
+            # don't go Running (which would defeat the run_loop terminate
+            # check and trigger a reconnect of a deleted link).
+            return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)

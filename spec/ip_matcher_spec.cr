@@ -327,14 +327,22 @@ describe LavinMQ::IPMatcher do
         matcher.matches?("2001:db8:0:2::").should be_false
       end
 
-      it "IPv4 matcher rejects IPv4-mapped IPv6" do
+      it "IPv4 matcher matches IPv4-mapped IPv6 (dual-stack listener)" do
         matcher = LavinMQ::IPMatcher.parse("192.168.1.1")
-        matcher.matches?("::ffff:192.168.1.1").should be_false
+        matcher.matches?("::ffff:192.168.1.1").should be_true
+        matcher.matches?("::ffff:192.168.1.2").should be_false
       end
 
-      it "IPv4 CIDR rejects IPv4-mapped IPv6" do
+      it "IPv4 CIDR matches IPv4-mapped IPv6 (dual-stack listener)" do
         matcher = LavinMQ::IPMatcher.parse("192.168.1.0/24")
-        matcher.matches?("::ffff:192.168.1.50").should be_false
+        matcher.matches?("::ffff:192.168.1.50").should be_true
+        matcher.matches?("::ffff:192.168.2.50").should be_false
+      end
+
+      it "IPv4 matcher doesn't match a real (non-mapped) IPv6 address" do
+        matcher = LavinMQ::IPMatcher.parse("192.168.1.1")
+        matcher.matches?("2001:db8::c0a8:0101").should be_false
+        matcher.matches?("::1").should be_false
       end
 
       it "IPv6 matcher rejects raw IPv4" do

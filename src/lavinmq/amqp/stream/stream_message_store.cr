@@ -64,7 +64,9 @@ module LavinMQ::AMQP
         consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
         find_offset_in_segments(consumer_last_offset)
       when Int
-        if offset > @last_offset
+        if offset.negative?
+          find_negative_offset(offset)
+        elsif offset > @last_offset
           last_offset_seg_pos
         else
           find_offset_in_segments(offset)
@@ -98,6 +100,15 @@ module LavinMQ::AMQP
 
     private def last_offset_seg_pos
       {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
+    end
+
+    private def find_negative_offset(offset : Int) : Tuple(Int64, UInt32, UInt32)
+      return last_offset_seg_pos if @size.zero?
+
+      first_offset, _seg, _pos = offset_at(@segments.first_key, 4u32)
+      target_offset = @last_offset + offset.to_i64 + 1
+      target_offset = first_offset if target_offset < first_offset
+      find_offset_in_segments(target_offset)
     end
 
     private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
@@ -171,6 +182,7 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
+      raise ClosedError.new if @closed
       cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
       start_pos = @consumer_offsets.size
       @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
@@ -196,20 +208,21 @@ module LavinMQ::AMQP
           capacity += ctag.bytesize + 1 + 8
         end
       end
-      @consumer_offset_positions = Hash(String, Int64).new
-      replace_offsets_file(capacity * 1000) do
-        offsets_to_save.each do |ctag, offset|
-          store_consumer_offset(ctag, offset)
-        end
-      end
+      replace_offsets_file(capacity * 1000, offsets_to_save)
     end
 
-    def replace_offsets_file(capacity : Int, &)
-      @replicator.try &.delete_file(@consumer_offsets.path) # FIXME: this is not entirely safe, but replace_file is worse
+    private def replace_offsets_file(capacity : Int, offsets_to_save : Hash(String, Int64))
       old_consumer_offsets = @consumer_offsets
+      @consumer_offset_positions = Hash(String, Int64).new
       @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
-      yield # fill the new file with correct data in this block
+      offsets_to_save.each do |consumer_tag, offset|
+        @consumer_offsets.write_byte consumer_tag.bytesize.to_u8
+        @consumer_offsets.write consumer_tag.to_slice
+        @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
+        @consumer_offsets.write_bytes offset
+      end
       @consumer_offsets.rename(old_consumer_offsets.path)
+      @replicator.try &.replace_file(@consumer_offsets)
       old_consumer_offsets.close(truncate_to_size: false)
     end
 
