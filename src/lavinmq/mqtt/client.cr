@@ -209,7 +209,22 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : Protocol::Subscribe)
-        if Config.instance.mqtt_permission_check_enabled?
+        if Config.instance.mqtt_topic_permissions_enabled?
+          read = topic_permissions.read
+          allowed = [] of Protocol::Subscribe::TopicFilter
+          return_codes = packet.topic_filters.map do |tf|
+            if read.overlaps?(tf.topic)
+              allowed << tf
+              Protocol::SubAck::ReturnCode.from_int(tf.qos)
+            else
+              Log.debug { "Subscribe refused: user '#{user.name}' not allowed to read filter '#{tf.topic}'" }
+              Protocol::SubAck::ReturnCode::Failure
+            end
+          end
+          @broker.subscribe(self, allowed) unless allowed.empty?
+          send(Protocol::SubAck.new(return_codes, packet.packet_id))
+          return
+        elsif Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             close_socket
