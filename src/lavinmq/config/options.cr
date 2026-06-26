@@ -242,6 +242,9 @@ module LavinMQ
       @[IniOpt(ini_name: permission_check_enabled, section: "mqtt")]
       property? mqtt_permission_check_enabled : Bool = false
 
+      @[IniOpt(ini_name: topic_permissions, section: "mqtt")]
+      property? mqtt_topic_permissions_enabled : Bool = false
+
       @[IniOpt(ini_name: client_id_validation, section: "mqtt", transform: ->MQTT::ClientIdValidation.parse(String))]
       property mqtt_client_id_validation : MQTT::ClientIdValidation = MQTT::ClientIdValidation::None
 
