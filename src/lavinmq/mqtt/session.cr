@@ -9,6 +9,7 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
+require "./topic_filter_set"
 
 module LavinMQ
   module MQTT
@@ -35,6 +36,7 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      property topic_read : TopicFilterSet? = nil
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
 
@@ -174,6 +176,10 @@ module LavinMQ
       end
 
       def publish(msg : Message) : Bool
+        if Config.instance.mqtt_topic_permissions_enabled?
+          read = @client.try(&.topic_permissions.read) || @topic_read
+          return true if read.nil? || !read.matches?(msg.routing_key)
+        end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do

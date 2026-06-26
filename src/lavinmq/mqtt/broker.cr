@@ -59,7 +59,10 @@ module LavinMQ
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          if session = sessions[client.client_id]?
+            session.client = client
+            session.topic_read = client.topic_permissions.read
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -83,6 +86,7 @@ module LavinMQ
 
       def subscribe(client, topics)
         session = sessions.declare(client)
+        session.topic_read = client.topic_permissions.read
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)
