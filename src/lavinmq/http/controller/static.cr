@@ -10,7 +10,8 @@ module LavinMQ
 
       LAYOUT_INLINE_JS_SHA    = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
       LOGIN_INLINE_JS_SHA     = "sha256-3bUZcnRc7hbNc+igS1dxqJNEEypKXCvZ9ozHwAxXIvc="
-      CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{LAYOUT_INLINE_JS_SHA}' '#{LOGIN_INLINE_JS_SHA}'"
+      VERSION_INLINE_JS_SHA   = "sha256-GgZA/DYl7oCp6n7XdT+Bi2RHOQdZ/onfVRmY6d8/Jow="
+      CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{LAYOUT_INLINE_JS_SHA}' '#{LOGIN_INLINE_JS_SHA}' '#{VERSION_INLINE_JS_SHA}'"
 
       # HTML views reachable without a session
       PUBLIC_HTML = {"/login.html", "/401.html", "/404.html"}

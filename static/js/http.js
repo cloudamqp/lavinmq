@@ -14,6 +14,7 @@ function request (method, path, options = {}) {
   }
   return window.fetch(path, opts)
     .then(response => {
+      updateVersionFromResponse(response)
       if (!response.ok) {
         const error = { status: response.status, reason: response.statusText, is_error: true }
         return response.json()
@@ -21,6 +22,17 @@ function request (method, path, options = {}) {
           .finally(() => { standardErrorHandler(error) })
       } else { return response.json().catch(() => null) }
     })
+}
+
+// The server advertises its version via the `LavinMQ-Version` header on every
+// response. Pick it up here so the UI shows the current version (cached in
+// sessionStorage, displayed by inline script in header.shtml) without an extra request.
+function updateVersionFromResponse (response) {
+  const version = response.headers.get('LavinMQ-Version')
+  if (!version) return
+  window.sessionStorage.setItem('lavinmq_version', version)
+  const el = document.getElementById('version')
+  if (el) el.textContent = version
 }
 
 function alertErrorHandler (e) {
