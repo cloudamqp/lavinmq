@@ -73,4 +73,39 @@ module MqttSpecs
       end
     end
   end
+
+  describe "MQTT topic permissions: feature disabled" do
+    before_each do
+      LavinMQ::Config.instance.mqtt_topic_permissions_enabled = false
+    end
+
+    after_each do
+      LavinMQ::Config.instance.mqtt_topic_permissions_enabled = false
+    end
+
+    it "subscribe succeeds with granted QoS when topic_permissions is OFF" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub")
+
+          topic_filters = mk_topic_filters({"test/topic", 1})
+          suback = subscribe(sub_io, topic_filters: topic_filters)
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback = suback.as(MQTT::Protocol::SubAck)
+          suback.return_codes.size.should eq(1)
+          suback.return_codes[0].should eq(MQTT::Protocol::SubAck::ReturnCode::QoS1)
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            payload = "hello".to_slice
+            publish(pub_io, topic: "test/topic", payload: payload, qos: 0u8)
+
+            msg = read_packet(sub_io)
+            msg.should be_a(MQTT::Protocol::Publish)
+            msg.as(MQTT::Protocol::Publish).payload.should eq payload
+          end
+        end
+      end
+    end
+  end
 end

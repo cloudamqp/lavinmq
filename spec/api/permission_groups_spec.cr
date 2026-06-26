@@ -72,4 +72,35 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       response.status_code.should eq 403
     end
   end
+
+  it "refuses non-administrators on get" do
+    with_http_server do |http, s|
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"} # arnold:pw
+      response = http.get("/api/permission-groups/anything", headers: hdrs)
+      response.status_code.should eq 403
+    end
+  end
+
+  it "refuses non-administrators on delete" do
+    with_http_server do |http, s|
+      s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+      hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"} # arnold:pw
+      response = http.delete("/api/permission-groups/anything", headers: hdrs)
+      response.status_code.should eq 403
+    end
+  end
+
+  it "returns 400 when a rule is missing the pattern key" do
+    with_http_server do |http, _|
+      body = {
+        protocol:     "mqtt",
+        apply_to_all: false,
+        members:      [] of String,
+        rules:        [{read: true, write: false}],
+      }.to_json
+      response = http.put("/api/permission-groups/bad-rule", body: body)
+      response.status_code.should eq 400
+    end
+  end
 end

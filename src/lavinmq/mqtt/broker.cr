@@ -61,7 +61,7 @@ module LavinMQ
           # it will be created on first subscribe
           if session = sessions[client.client_id]?
             session.client = client
-            session.topic_read = client.topic_permissions.read
+            session.topic_read = client.topic_permissions.read if Config.instance.mqtt_topic_permissions_enabled?
           end
         end
         @clients[packet.client_id] = client
@@ -86,7 +86,7 @@ module LavinMQ
 
       def subscribe(client, topics)
         session = sessions.declare(client)
-        session.topic_read = client.topic_permissions.read
+        session.topic_read = client.topic_permissions.read if Config.instance.mqtt_topic_permissions_enabled?
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)

@@ -33,8 +33,10 @@ module LavinMQ
           apply_to_all = body["apply_to_all"]?.try(&.as_bool?) || false
           members = body["members"]?.try(&.as_a?.try(&.map(&.as_s))) || [] of String
           rules = (body["rules"]?.try(&.as_a?) || [] of JSON::Any).map do |r|
+            pattern = r["pattern"]?.try(&.as_s)
+            bad_request(context, "Each rule requires a 'pattern'") unless pattern
             Auth::PermissionGroup::Rule.new(
-              r["pattern"].as_s,
+              pattern,
               r["read"]?.try(&.as_bool?) || false,
               r["write"]?.try(&.as_bool?) || false,
             )
