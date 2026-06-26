@@ -27,6 +27,21 @@ describe LavinMQ::MQTT::BytesTokenIterator do
     end
   end
 
+  it "to_s returns the whole filter regardless of how far it has been iterated" do
+    itr = LavinMQ::MQTT::BytesTokenIterator.new("a/b/#".to_slice, '/')
+    itr.to_s.should eq "a/b/#"
+    # Consuming tokens must not shrink what to_s reports; the subscription tree
+    # stores this as the binding's routing key so unbind can find it again.
+    while itr.next; end
+    itr.to_s.should eq "a/b/#"
+  end
+
+  it "to_s handles multibyte UTF-8 filters" do
+    itr = LavinMQ::MQTT::BytesTokenIterator.new("café/+/日本".to_slice, '/')
+    itr.next
+    itr.to_s.should eq "café/+/日本"
+  end
+
   it "yields views into the backing buffer, never copies" do
     # Every token must point into the original buffer, not a fresh copy. This is
     # what keeps the subscription-tree match path allocation-free.

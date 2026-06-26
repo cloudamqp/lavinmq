@@ -16,6 +16,30 @@ module MqttSpecs
           end
         end
       end
+
+      it "keeps the reconnected client registered when a stale client is removed" do
+        with_server do |server|
+          broker = server.@mqtt_brokers["/"]?.not_nil!
+          with_client_io(server) do |io|
+            connect(io)
+            old_client = broker.@clients["client_id"]
+            with_client_io(server) do |io2|
+              connect(io2)
+              # add_client runs after the CONNACK is sent, so wait until the
+              # reconnecting client has replaced the old one in @clients.
+              new_client = wait_for do
+                c = broker.@clients["client_id"]?
+                c if c && !c.same?(old_client)
+              end.not_nil!
+              # A stale read loop for the replaced client may call
+              # remove_client after the new client is already registered;
+              # removing by client_id alone would evict the live client.
+              broker.remove_client(old_client)
+              broker.@clients["client_id"]?.should eq(new_client)
+            end
+          end
+        end
+      end
     end
 
     describe "receives connack" do
@@ -314,7 +338,7 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queue("mqtt.client_id").consumers_empty?.should be_true
+            server.vhosts["/"].session("mqtt.client_id").consumer_count.should eq 0
           end
         end
       end

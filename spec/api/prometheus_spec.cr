@@ -248,6 +248,24 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should count mqtt sessions in detailed_vhost_queues" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vq_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("mqtt.c1", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+
+        raw = http.get("/metrics/detailed?family=vhost_message_stats").body
+        parsed = PrometheusSpecHelper.parse_prometheus(raw)
+
+        queues = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_queues" &&
+            m[:attrs]["vhost"] == "vq_test"
+        end
+        queues[:value].should eq 2
+      end
+    end
+
     it "should label channel metrics with vhost and connection" do
       with_metrics_server do |http, s|
         vhost = s.vhosts.create("ch_label_test")
