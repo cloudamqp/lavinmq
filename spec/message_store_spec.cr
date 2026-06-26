@@ -40,6 +40,9 @@ class SpyReplicator
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
   end
 
+  def append_bytes(file : File, offset : Int64, length : Int64)
+  end
+
   def delete_file(path : String)
     @deleted_files << path
   end

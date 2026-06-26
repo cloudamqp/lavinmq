@@ -311,6 +311,22 @@ module LavinMQ
         end
       end
 
+      def append(path : String, file : File, offset : Int64, length : Int64) : Int64
+        raise ArgumentError.new("append length must not be negative") if length < 0
+        return 0i64 if length.zero?
+
+        @write_lock.synchronize do
+          lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + length).to_i64
+          @sent_bytes.add(lag_size)
+          send_filename(path)
+          @lz4.write_bytes -length, IO::ByteFormat::LittleEndian
+          file.read_at(offset, length) do |io|
+            IO.copy(io, @lz4, length) == length || raise IO::EOFError.new
+          end
+          lag_size
+        end
+      end
+
       def append(path : String, value : UInt32 | Int32) : Int64
         @write_lock.synchronize do
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64

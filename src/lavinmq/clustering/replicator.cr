@@ -15,6 +15,7 @@ module LavinMQ
       # the positional append(path, pos, length) overload.
       abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
       abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
+      abstract def append_bytes(file : File, offset : Int64, length : Int64)
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)

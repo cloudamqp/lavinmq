@@ -45,6 +45,20 @@ def with_crash_restarted_server(data_dir : String, &)
   end
 end
 
+def read_legacy_definition_frames(path : String) : Array(AMQ::Protocol::Frame)
+  frames = [] of AMQ::Protocol::Frame
+  File.open(path) do |io|
+    LavinMQ::SchemaVersion.verify(io, :definition)
+    stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
+    loop do
+      frames << stream.next_frame
+    rescue IO::EOFError
+      break
+    end
+  end
+  frames
+end
+
 describe LavinMQ::VHost do
   it "should be able to create vhosts" do
     with_amqp_server do |s|
@@ -300,6 +314,59 @@ describe LavinMQ::VHost do
       v.exchange("internal").bindings_details.first.destination.name.should eq "ttl"
       v.exchange("fanout").bindings_details.find! { |b| b.destination.name == "empty_rk" }.routing_key.should eq ""
       v.exchange("plain").bindings_details.find! { |b| b.destination.name == "destination" }.routing_key.should eq ""
+    end
+  end
+
+  it "keeps appending to an existing legacy definitions file for downgrades" do
+    vhost_dir_name = Digest::SHA1.hexdigest("test")
+    vhost_dir = File.join(LavinMQ::Config.instance.data_dir, vhost_dir_name)
+    Dir.mkdir_p vhost_dir
+    File.open(File.join(LavinMQ::Config.instance.data_dir, "vhosts.json"), "w") do |f|
+      [{"name": "test", "dir": vhost_dir_name}].to_json(f)
+    end
+    legacy_path = File.join(vhost_dir, "definitions.amqp")
+    FileUtils.cp(File.join(__DIR__, "fixtures", "v243_e2e_binding.amqp"), legacy_path)
+    legacy_size = File.size(legacy_path)
+
+    with_amqp_server do |s|
+      v = s.vhosts["test"]
+
+      File.exists?(legacy_path).should be_true
+      v.declare_queue("downgrade-q", true, false)
+      File.size(legacy_path).should be > legacy_size
+      frames = read_legacy_definition_frames(legacy_path)
+      frames.any? do |frame|
+        frame.is_a?(AMQ::Protocol::Frame::Queue::Declare) && frame.queue_name == "downgrade-q"
+      end.should be_true
+
+      v.declare_queue("removed-before-compact", true, false)
+      v.delete_queue("removed-before-compact")
+      definitions = v.@definitions.not_nil!
+      definitions.request_idle_compaction_for_spec
+      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      compacted_frames = read_legacy_definition_frames(legacy_path)
+      compacted_frames.any? do |frame|
+        frame.is_a?(AMQ::Protocol::Frame::Queue::Declare) && frame.queue_name == "downgrade-q"
+      end.should be_true
+      compacted_frames.any? do |frame|
+        frame.is_a?(AMQ::Protocol::Frame::Queue::Declare) && frame.queue_name == "removed-before-compact"
+      end.should be_false
+      compacted_frames.any?(AMQ::Protocol::Frame::Queue::Delete).should be_false
+
+      File.delete(legacy_path)
+      v.declare_queue("after-delete", true, false)
+      File.exists?(legacy_path).should be_false
+    end
+  end
+
+  it "does not create a legacy definitions file when none exists" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      legacy_path = File.join(v.data_dir, "definitions.amqp")
+
+      File.exists?(legacy_path).should be_false
+      v.declare_queue("q", true, false)
+      File.exists?(legacy_path).should be_false
     end
   end
 

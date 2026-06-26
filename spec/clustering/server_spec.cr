@@ -153,6 +153,46 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     ensure
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
+
+    it "streams a File range through append_bytes" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      fi = FakeFileIndex.new(data_dir)
+      sock, client = FakeSocket.pair
+      follower = LavinMQ::Clustering::Follower.new(sock, data_dir, fi)
+      follower.mark_synced!
+      server.@followers << follower
+      path = File.join(data_dir, "path_only_file")
+      file = File.open(path, "w+")
+      file.write "0123456789".to_slice
+      file.flush
+      server.register_file(file)
+
+      done = Channel(Nil).new(1)
+      spawn do
+        server.append_bytes(file, 2i64, 5i64)
+        follower.close
+        done.send nil
+      end
+
+      client_lz4 = Compress::LZ4::Reader.new(client)
+      len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+      client_lz4.read_string(len).should eq "path_only_file"
+      data_size = client_lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+      data_size.should eq(-5i64)
+      client_lz4.read_string(5).should eq "23456"
+      done.receive
+    ensure
+      file.try &.close
+      sock.try &.close
+      client.try &.close
+      server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
   end
 
   describe "join baseline (full_sync cut)" do

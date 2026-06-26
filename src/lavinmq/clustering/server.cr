@@ -165,6 +165,22 @@ module LavinMQ
         end
       end
 
+      # Replicate `length` bytes from a regular File, starting at `offset`.
+      # The file must already be flushed far enough for File#read_at to see
+      # the range. This avoids materializing the appended bytes in memory on
+      # the leader while keeping the same append frame on the wire.
+      def append_bytes(file : File, offset : Int64, length : Int64)
+        raise ArgumentError.new("append_bytes length must not be negative") if length < 0
+        return if length.zero?
+
+        path = strip_datadir file.path
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
+        each_follower do |f|
+          skip = f.already_synced(path, offset, length)
+          f.append(path, file, offset + skip, length - skip) if skip < length
+        end
+      end
+
       def delete_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|

@@ -254,6 +254,37 @@ module FollowerSpec
       end
     end
 
+    it "writes a File range with a negative size header" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        file = File.open(File.join(data_dir, "append_source"), "w+")
+        file.write "0123456789".to_slice
+        file.flush
+
+        lag_ch = Channel(Int64).new(1)
+        spawn do
+          lag_ch.send follower.append("bar", file, 2i64, 5i64)
+          follower.close
+        end
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "bar"
+        data_size = read_data_size(client_lz4)
+        data_size.should eq(-5i64)
+        buf = Bytes.new(-data_size)
+        client_lz4.read_fully(buf)
+        String.new(buf).should eq "23456"
+
+        lag_ch.receive.should eq(sizeof(Int32) + "bar".bytesize + sizeof(Int64) + 5)
+      ensure
+        file.try &.close
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
     it "writes Int32 value little-endian with a -4 size header" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair

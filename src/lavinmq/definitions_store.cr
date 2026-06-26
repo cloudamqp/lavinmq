@@ -15,6 +15,7 @@ module LavinMQ
     WAL_COMPACT_SIZE = 8_i64 * 1024 * 1024
 
     @definitions_file : File
+    @legacy_definitions_file : File?
     @closed = Atomic(Bool).new(false)
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
@@ -26,6 +27,7 @@ module LavinMQ
       @exchanges_file_path = File.join(@data_dir, "exchanges.json")
       @queues_file_path = File.join(@data_dir, "queues.json")
       @bindings_file_path = File.join(@data_dir, "bindings.json")
+      @legacy_definitions_file = open_legacy_definitions_file
       # Buffered writes are flushed before replication so the WAL record is
       # visible through separate fds used by follower full sync.
       @definitions_file = File.open(@definitions_file_path, "a+")
@@ -49,6 +51,7 @@ module LavinMQ
       @definitions_lock.synchronize do
         @definitions_file.flush
         @definitions_file.fsync
+        fsync_legacy_definitions
         @replicator.try &.wait_for_followers
       end
     end
@@ -222,7 +225,6 @@ module LavinMQ
         elsif legacy_definitions?
           load_legacy_definitions
           compact_locked(all: true)
-          delete_legacy_definitions
         else
           load_default_definitions
           compact_locked(all: true)
@@ -241,12 +243,9 @@ module LavinMQ
       @definitions_lock.synchronize do
         compact_locked(all: true) unless @definitions_file.size.zero?
         @definitions_file.close
+        @legacy_definitions_file.try &.close
+        @legacy_definitions_file = nil
       end
-    end
-
-    private def delete_legacy_definitions
-      File.delete?(@legacy_definitions_file_path)
-      @replicator.try &.delete_file(@legacy_definitions_file_path)
     end
 
     private def snapshot_definitions? : Bool
@@ -507,6 +506,7 @@ module LavinMQ
       write_exchanges_snapshot if all || @dirty_exchanges
       write_queues_snapshot if all || @dirty_queues
       write_bindings_snapshot if all || @dirty_bindings
+      write_legacy_definitions_snapshot
       # The snapshot renames must be durable before the WAL is truncated:
       # write_json_snapshot fsyncs each file's content but not the directory
       # entry created by the rename. Without this barrier a crash could leave
@@ -543,11 +543,7 @@ module LavinMQ
       write_json_snapshot(@queues_file_path) do |json|
         json.array do
           @queues.each_value.each do |queue|
-            next if !queue.durable? || queue.exclusive?
-            # Internal delayed-exchange queues are recreated by their exchange
-            # on load (register_queue), so the per-frame WAL path never persists
-            # them; keep the snapshot consistent and out of the exported defs.
-            next if queue.is_a?(AMQP::DelayedExchangeQueue)
+            next unless persisted_queue?(queue)
             json.object do
               json.field "name", queue.name
               write_true(json, "exclusive", queue.exclusive?)
@@ -557,6 +553,16 @@ module LavinMQ
           end
         end
       end
+    end
+
+    private def persisted_queue?(queue : Queue) : Bool
+      return false if !queue.durable? || queue.exclusive?
+      # Internal delayed-exchange queues are recreated by their exchange on load
+      # (register_queue), so the per-frame WAL path never persists them; keep
+      # snapshots consistent and out of exported defs.
+      return false if queue.is_a?(AMQP::DelayedExchangeQueue)
+
+      true
     end
 
     private def write_bindings_snapshot
@@ -611,6 +617,69 @@ module LavinMQ
       @replicator.try &.replace_file path
     end
 
+    private def write_legacy_definitions_snapshot : Nil
+      file = legacy_definitions_file? || return
+      file.close
+      @legacy_definitions_file = nil
+
+      tmpfile = "#{@legacy_definitions_file_path}.tmp"
+      File.open(tmpfile, "w") do |tmp|
+        SchemaVersion.prefix(tmp, :definition)
+        write_legacy_definition_frames(tmp)
+        tmp.fsync
+      end
+
+      unless File.exists?(@legacy_definitions_file_path)
+        File.delete?(tmpfile)
+        return
+      end
+
+      File.rename tmpfile, @legacy_definitions_file_path
+      @replicator.try &.replace_file @legacy_definitions_file_path
+    ensure
+      @legacy_definitions_file ||= open_legacy_definitions_file
+    end
+
+    private def write_legacy_definition_frames(io : IO) : Nil
+      @exchanges.each_value.select(&.durable?).each do |exchange|
+        legacy_exchange_declare(exchange).to_io(io, IO::ByteFormat::SystemEndian)
+      end
+      @queues.each_value.each do |queue|
+        next unless persisted_queue?(queue)
+
+        legacy_queue_declare(queue).to_io(io, IO::ByteFormat::SystemEndian)
+      end
+      @exchanges.each_value.each do |exchange|
+        next unless exchange.durable?
+
+        exchange.bindings_details.each do |binding|
+          legacy_binding_frame(exchange.name, binding).try &.to_io(io, IO::ByteFormat::SystemEndian)
+        end
+      end
+    end
+
+    private def legacy_exchange_declare(exchange : Exchange) : AMQP::Frame::Exchange::Declare
+      AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, exchange.name, exchange.type,
+        false, true, exchange.auto_delete?, exchange.internal?, false, exchange.arguments)
+    end
+
+    private def legacy_queue_declare(queue : Queue) : AMQP::Frame::Queue::Declare
+      AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, queue.name, false,
+        true, queue.exclusive?, queue.auto_delete?, false, queue.arguments)
+    end
+
+    private def legacy_binding_frame(source : String, binding : BindingDetails) : AMQP::Frame?
+      args = binding.arguments || AMQP::Table.new
+      case destination = binding.destination
+      when Queue
+        return unless persisted_destination_type?(destination)
+        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination.name, source, binding.routing_key, false, args)
+      when Exchange
+        return unless persisted_destination_type?(destination)
+        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination.name, source, binding.routing_key, false, args)
+      end
+    end
+
     private def clear_wal
       @definitions_file.close
       tmpfile = "#{@definitions_file_path}.tmp"
@@ -631,6 +700,7 @@ module LavinMQ
       @definitions_file.fsync if fsync
       @replicator.try &.register_file(@definitions_file) if offset.zero?
       @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+      append_legacy_definition(frame, fsync)
       @last_definition_change = RoughTime.instant
       mark_snapshot_dirty(frame)
       if fsync
@@ -647,6 +717,47 @@ module LavinMQ
       else
         request_compaction
       end
+    end
+
+    private def append_legacy_definition(frame, fsync : Bool) : Nil
+      file = legacy_definitions_file? || return
+
+      offset = file.size.to_i64
+      frame.to_io(file, IO::ByteFormat::SystemEndian)
+      length = frame.bytesize.to_i64 + 8
+
+      if replicator = @replicator
+        file.flush
+        replicator.append_bytes file, offset, length
+      elsif !fsync
+        file.flush
+      end
+      file.fsync if fsync
+    end
+
+    private def fsync_legacy_definitions : Nil
+      file = legacy_definitions_file? || return
+
+      file.flush
+      file.fsync
+    end
+
+    private def open_legacy_definitions_file : File?
+      return unless File.exists?(@legacy_definitions_file_path)
+
+      file = File.open(@legacy_definitions_file_path, "a+")
+      SchemaVersion.prefix(file, :definition) if file.size.zero?
+      @replicator.try &.register_file(file)
+      file
+    end
+
+    private def legacy_definitions_file? : File?
+      file = @legacy_definitions_file || return
+      path_info = File.info?(@legacy_definitions_file_path)
+      return file if path_info && file.info.same_file?(path_info)
+
+      file.close
+      @legacy_definitions_file = nil
     end
 
     private def definition_record(frame) : String

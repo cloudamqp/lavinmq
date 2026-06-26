@@ -29,6 +29,18 @@ class DiskVisibilitySpyReplicator
     @violations << "#{path}: dispatched but the file doesn't exist on disk"
   end
 
+  def append_bytes(file : File, offset : Int64, length : Int64)
+    path = file.path
+    File.open(path) do |f|
+      if f.size < offset + length
+        @violations << "#{path}: dispatched [#{offset}, #{offset + length}) but only #{f.size} bytes are on disk"
+        return
+      end
+    end
+  rescue File::NotFoundError
+    @violations << "#{path}: dispatched but the file doesn't exist on disk"
+  end
+
   # The rest of the interface is irrelevant to this spec.
   def register_file(path : String)
   end
