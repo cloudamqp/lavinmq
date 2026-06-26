@@ -8,11 +8,11 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.queue?("mqtt.#{client_id}").try &.as(Session)
+        @vhost.session?("mqtt.#{client_id}")
       end
 
       def [](client_id : String) : Session
-        @vhost.queue("mqtt.#{client_id}").as(Session)
+        @vhost.session("mqtt.#{client_id}")
       end
 
       def declare(client : Client)
@@ -21,14 +21,6 @@ module LavinMQ
           self[client.client_id].client = client
           self[client.client_id]
         end
-      end
-
-      def delete(client_id : String)
-        @vhost.delete_queue("mqtt.#{client_id}")
-      end
-
-      def delete(session : Session)
-        session.delete
       end
     end
   end

@@ -29,6 +29,13 @@ module LavinMQ
       def next?
         @pos < @bytes.size
       end
+
+      # Renders the whole filter the iterator was built from. The cursor only
+      # tracks how far iteration has progressed; it never narrows the backing
+      # buffer, so this returns the complete filter regardless of position.
+      def to_s
+        String.new(@bytes)
+      end
     end
   end
 end

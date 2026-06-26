@@ -446,9 +446,7 @@ describe LavinMQ::Federation::Upstream do
             msgs.first.not_nil!.body_io.to_s.should eq("federate me")
           end
         end
-        all_empty = true
-        upstream_vhost.each_queue { |q| all_empty = false unless q.empty? }
-        all_empty.should be_true
+        upstream_vhost.queues.all?(&.empty).should be_true
       end
     end
 
@@ -517,9 +515,7 @@ describe LavinMQ::Federation::Upstream do
             msgs.try &.close
           end
         end
-        all_empty = true
-        upstream_vhost.each_queue { |q| all_empty = false unless q.empty? }
-        all_empty.should be_true
+        upstream_vhost.queues.all?(&.empty).should be_true
       end
     end
 

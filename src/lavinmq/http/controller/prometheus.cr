@@ -368,7 +368,7 @@ module LavinMQ
               consumers += ch.consumers_size
             end
           end
-          queues += vhost.queues_size
+          queues += vhost.queues_size + vhost.sessions_size
           vhost.each_exchange { |e| bindings += e.binding_count }
         end
         writer.write({name:  "connections",
@@ -513,6 +513,10 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
           end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_ready", s.message_count, labels)
+          end
         end
 
         writer.write_header("detailed_queue_messages_unacked", "gauge",
@@ -522,6 +526,10 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
           end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_unacked", s.unacked_count, labels)
+          end
         end
 
         writer.write_header("detailed_queue_messages", "gauge",
@@ -530,6 +538,10 @@ module LavinMQ
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
+          end
+          vhost.each_session do |s|
+            labels = {queue: s.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages", s.message_count + s.unacked_count, labels)
           end
         end
 
@@ -551,7 +563,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_consumers", q.consumers_size, labels)
+            writer.write_value("detailed_queue_consumers", q.consumer_count, labels)
           end
         end
       end
@@ -589,7 +601,7 @@ module LavinMQ
           "Number of queues on a vhost")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_vhost_queues", vhost.queues_size, labels)
+          writer.write_value("detailed_vhost_queues", vhost.queues_size + vhost.sessions_size, labels)
         end
       end
 

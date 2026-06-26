@@ -2,7 +2,6 @@ require "socket"
 require "openssl"
 require "systemd"
 require "./amqp"
-require "./mqtt/protocol"
 require "./rough_time"
 require "../stdlib/*"
 require "./persister"
@@ -369,6 +368,7 @@ module LavinMQ
       @vhosts.each_value do |vhost|
         vhost.each_queue(&.update_rates)
         vhost.each_exchange(&.update_rates)
+        vhost.each_session(&.update_rates)
         vhost.each_connection do |connection|
           connection.update_rates
           connection.each_channel(&.update_rates)
