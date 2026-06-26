@@ -29,7 +29,6 @@ module LavinMQ
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
-      @reject_on_overflow = false
       @msg_store_lock = Mutex.new(:reentrant)
       @msg_store : MessageStore
       @metadata : ::Log::Metadata
@@ -273,20 +272,15 @@ module LavinMQ
         @log.debug { "Applying policy #{key}: #{value}" }
         case key
         when "max-length"
-          unless @max_length.try &.< value.as_i64
+          if @max_length.nil?
             @max_length = value.as_i64
-            drop_overflow
             return true
           end
         when "max-length-bytes"
-          unless @max_length_bytes.try &.< value.as_i64
+          if @max_length_bytes.nil?
             @max_length_bytes = value.as_i64
-            drop_overflow
             return true
           end
-        when "overflow"
-          @reject_on_overflow ||= value.as_s == "reject-publish"
-          return true
         end
         false
       end
@@ -353,6 +347,8 @@ module LavinMQ
       end
 
       private def clear_policy_arguments
+        @max_length = nil
+        @max_length_bytes = nil
       end
 
       private def handle_arguments
