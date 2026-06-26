@@ -85,13 +85,14 @@ module LavinMQ
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil
-        valid = case @config.mqtt_client_id_validation
-                in .none?     then true
-                in .username? then client_id == username
-                end
-        return if valid
-        raise Protocol::Error::IdentifierRejected.new(
-          "client_id \"#{client_id}\" rejected for user \"#{username}\" (client_id_validation=#{@config.mqtt_client_id_validation})")
+        case @config.mqtt_client_id_validation
+        in .none?
+          return
+        in .username?
+          return if client_id == username
+          raise Protocol::Error::IdentifierRejected.new(
+            %(client_id "#{client_id}" rejected: it must be the same as the username "#{username}"))
+        end
       end
     end
   end
