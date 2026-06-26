@@ -94,6 +94,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | — | — | Bool | `false` | Enable MQTT permission checks |
 | `client_id_validation` | — | — | String | `none` | Validate client_id against the username: `none` or `username` |
+| `topic_permissions` | — | — | Boolean | `false` | Enable per-topic MQTT publish/receive authorization via permission groups. When enabled, topic rules govern access (default-deny) and replace the coarse `permission_check_enabled` check for MQTT. |
 
 ## [mgmt] Section
 

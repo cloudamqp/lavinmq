@@ -104,6 +104,29 @@ By default, MQTT permission checks are disabled. When `permission_check_enabled`
 
 When disabled, any authenticated MQTT client can publish and subscribe to any topic.
 
+## Topic permissions
+
+Enable with `topic_permissions = true` in the `[mqtt]` config section. When enabled, MQTT publish and receive are authorized per topic using permission groups, and the feature is default-deny: a connection may only publish to or receive on topics granted by a matched rule.
+
+Permission groups are global objects managed via `/api/permission-groups`. A group has a protocol (`mqtt`), an optional `apply_to_all` flag, a member list, and rules. Each rule is an MQTT topic filter with `read` and `write` booleans:
+
+```json
+{
+  "protocol": "mqtt",
+  "apply_to_all": false,
+  "members": ["alice"],
+  "rules": [
+    { "pattern": "chat/{client_id}/#", "read": true, "write": true }
+  ]
+}
+```
+
+Patterns use MQTT wildcards (`+`, `#`) and support the substitution variables `{username}` and `{client_id}`, expanded per connection.
+
+`{client_id}` only provides isolation when client ids are trustworthy. Set `client_id_validation = username` (see below) so a client cannot claim another client's id; otherwise `{client_id}` rules give no real isolation.
+
+A SUBSCRIBE to a filter that overlaps no read rule is rejected with a SUBACK failure. A broad subscription such as `#` is accepted and then filtered at delivery, so a client receives only messages it is allowed to read.
+
 ## Authentication
 
 MQTT clients authenticate using the CONNECT packet's username and password fields. These are validated against the same authentication chain as AMQP (local users, OAuth2). For OAuth2, the password field carries the JWT token.
