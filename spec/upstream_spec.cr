@@ -1048,8 +1048,8 @@ describe LavinMQ::Federation::Upstream do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         store = vhost.upstreams.not_nil!
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_url}"})))
-        store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_url}"})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream("b", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
         # The set lists a non-matching upstream ("a") before the one we
         # delete ("b"). The bare `return` in do_delete_upstream used to abort
         # the reject! on the first non-matching entry, leaving the deleted "b"
@@ -1067,13 +1067,13 @@ describe LavinMQ::Federation::Upstream do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         store = vhost.upstreams.not_nil!
-        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_url}", "prefetch-count": 10})))
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}", "prefetch-count": 10})))
         # A set entry with more than the "upstream" key dups the upstream and
         # applies the overrides to the copy. This used to crash by reading the
         # override values off the whole set array instead of the entry, and the
         # shallow dup shared its link tables with the original.
         store.create_upstream_set("set1",
-          JSON.parse(%([{"upstream": "a", "uri": "#{s.amqp_url}", "prefetch-count": 99}])))
+          JSON.parse(%([{"upstream": "a", "uri": "#{s.amqp_server.url}", "prefetch-count": 99}])))
 
         original = store.get_set("all").find! { |u| u.name == "a" }
         member = store.get_set("set1").first

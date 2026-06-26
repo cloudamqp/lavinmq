@@ -115,7 +115,7 @@ module LavinMQ
     end
 
     def close
-      @closed.set(true)
+      return if @closed.swap(true)
       close_log_exchange
       @persister.close
       Log.debug { "Closing vhosts" }

@@ -126,7 +126,7 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      s.restart
+      restart_server(s)
       session = s.vhosts["/"].session?("mqtt.persist")
       session.should_not be_nil
       s.vhosts["/"].queue?("mqtt.persist").should be_nil

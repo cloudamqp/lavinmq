@@ -19,7 +19,7 @@ module MqttSpecs
 
       it "keeps the reconnected client registered when a stale client is removed" do
         with_server do |server|
-          broker = server.@mqtt_brokers["/"]?.not_nil!
+          broker = server.mqtt_server.brokers["/"]?.not_nil!
           with_client_io(server) do |io|
             connect(io)
             old_client = broker.@clients["client_id"]

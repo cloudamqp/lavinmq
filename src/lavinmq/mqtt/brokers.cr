@@ -9,7 +9,7 @@ module LavinMQ
 
       def initialize(@vhosts : VHostStore)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
-        @closed = false
+        @closed = Atomic(Bool).new(false)
         populate
         @vhosts.register_observer(self)
       end
@@ -29,7 +29,7 @@ module LavinMQ
       end
 
       def on(event : VHostStore::Event, data : Object?)
-        return if @closed
+        return if @closed.get(:acquire)
         return if data.nil?
         vhost = data.to_s
         case event
@@ -43,8 +43,7 @@ module LavinMQ
       end
 
       def close
-        return if @closed
-        @closed = true
+        return if @closed.swap(true)
         @vhosts.unregister_observer(self)
         close_brokers
       end

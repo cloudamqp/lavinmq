@@ -31,6 +31,24 @@ describe LavinMQ::AMQP::Server do
     end
   end
 
+  it "closes idempotently" do
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    amqp_server = LavinMQ::AMQP::Server.new(server)
+    begin
+      amqp_server.bind_tcp(tcp_server)
+
+      amqp_server.close
+      amqp_server.close
+
+      amqp_server.closed?.should be_true
+      amqp_server.listening?.should be_false
+      amqp_server.@listeners.empty?.should be_true
+    ensure
+      server.close unless server.closed?
+    end
+  end
+
   it "keeps listening state when a second listen call is rejected" do
     tcp_server = TCPServer.new("127.0.0.1", 0)
     server = LavinMQ::Server.new(LavinMQ::Config.instance)

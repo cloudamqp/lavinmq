@@ -68,35 +68,29 @@ module LavinMQ
     end
 
     def listen : Nil
-      listening = false
-      raise "Can't re-start closed #{@protocol} server" if closed?
-      raise "Can't start #{@protocol} server with no sockets to listen to, use bind first" if @listeners.empty?
-      raise "Can't start running #{@protocol} server" if listening?
-
-      @listening = true
-      listening = true
-      sockets = @listeners.dup
-
-      WaitGroup.wait do |wg|
-        sockets.each do |socket|
-          wg.spawn(name: "#{@protocol} listener") do
-            case socket
-            when TCPServer
-              if context = @tls_contexts[socket]?
-                listen_tls(socket, context)
+      sockets = start_listening
+      begin
+        WaitGroup.wait do |wg|
+          sockets.each do |socket|
+            wg.spawn(name: "#{@protocol} listener") do
+              case socket
+              when TCPServer
+                if context = @tls_contexts[socket]?
+                  listen_tls(socket, context)
+                else
+                  listen_tcp(socket)
+                end
+              when UNIXServer
+                listen_unix(socket)
               else
-                listen_tcp(socket)
+                raise "Unexpected listener '#{socket.class}'"
               end
-            when UNIXServer
-              listen_unix(socket)
-            else
-              raise "Unexpected listener '#{socket.class}'"
             end
           end
         end
+      ensure
+        @listening = false
       end
-    ensure
-      @listening = false if listening
     end
 
     private def bind(s : Socket::Server)
@@ -104,6 +98,15 @@ module LavinMQ
       raise "Can't add socket to closed #{@protocol} server" if closed?
 
       @listeners << s unless @listeners.includes?(s)
+    end
+
+    private def start_listening
+      raise "Can't re-start closed #{@protocol} server" if closed?
+      raise "Can't start #{@protocol} server with no sockets to listen to, use bind first" if @listeners.empty?
+      raise "Can't start running #{@protocol} server" if listening?
+
+      @listening = true
+      @listeners.dup
     end
 
     private def listen_tcp(s : TCPServer)
@@ -161,8 +164,7 @@ module LavinMQ
     end
 
     def close
-      return if closed?
-      @closed.set(true)
+      return if @closed.swap(true)
       Log.debug { "Closing #{@protocol} listeners" }
       @listeners.each do |listener|
         listener.close rescue nil

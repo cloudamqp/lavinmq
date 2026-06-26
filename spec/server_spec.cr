@@ -3,6 +3,13 @@ require "benchmark"
 require "log/spec"
 
 describe LavinMQ::Server do
+  it "closes idempotently" do
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    server.close
+    server.close
+    server.closed?.should be_true
+  end
+
   it "replaces server stores on restart" do
     server = LavinMQ::Server.new(LavinMQ::Config.instance)
     users = server.users
