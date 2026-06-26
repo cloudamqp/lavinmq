@@ -23,6 +23,11 @@ test.describe('menu', _ => {
 
   for (const { path, cls, label } of pages) {
     test(`${label} menu item is active on ${path} page`, async ({ page }) => {
+      // The /logs page (logs.js) opens an EventSource to api/livelog that would
+      // otherwise stream indefinitely; fail that request so navigation doesn't
+      // hang on an open connection. Harmless on the other pages, which never
+      // request it.
+      await page.route('**/api/livelog', route => route.abort())
       await page.goto(path)
       const activeLink = page.locator(`#menu-content li.${cls} > a`)
       await expect(activeLink).toHaveText(label)

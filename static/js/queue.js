@@ -1,3 +1,4 @@
+/* global MutationObserver */
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
@@ -5,6 +6,7 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import './tabs.js'
 
 Helpers.disableUserMenuVhost()
 
@@ -109,6 +111,7 @@ function updateQueue (all) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
@@ -164,6 +167,11 @@ const tableOptions = {
   keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
+const bindingsTabBadge = document.querySelector('[data-tab="bindings"] .badge')
+new MutationObserver(() => {
+  bindingsTabBadge.textContent = document.getElementById('bindings-count').textContent
+}).observe(document.getElementById('bindings-count'), { childList: true, subtree: true })
+
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
