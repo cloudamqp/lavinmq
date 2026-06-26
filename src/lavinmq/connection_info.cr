@@ -26,18 +26,26 @@ module LavinMQ
 
     # Suspecting memory problem with Socket::IPAddress in Crystal 1.15.0
     struct IPAddress
+      private IPV4_MAPPED_IPV6_PREFIX = "::ffff:"
+
       getter address : String
       getter port : UInt16
       getter? loopback : Bool
 
       def initialize(ip_address : Socket::IPAddress)
-        @address = ip_address.address
+        @address = unmap_ipv6(ip_address.address)
         @port = ip_address.port.to_u16!
         @loopback = ip_address.loopback?
       end
 
       def to_s(io)
         io << @address << ':' << @port
+      end
+
+      private def unmap_ipv6(address : String) : String
+        return address unless address.starts_with?(IPV4_MAPPED_IPV6_PREFIX)
+
+        address.byte_slice(IPV4_MAPPED_IPV6_PREFIX.bytesize)
       end
     end
   end
