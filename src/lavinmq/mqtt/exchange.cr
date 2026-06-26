@@ -1,32 +1,15 @@
 require "../amqp/exchange"
 require "./consts"
-require "../destination"
 require "./subscription_tree"
 require "./session"
+require "./subscription_key"
+require "./subscription_details"
 require "./retain_store"
 
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      # In MQTT only topic/routing key is used in routing, but arguments is used to
-      # store QoS level for each subscription. To make @bingings treat the same subscription
-      # with different QoS as the same subscription this "custom" BindingKey is used which
-      # only includes the routing key in the hash.
-      struct BindingKey
-        def initialize(routing_key : String, arguments : AMQP::Table? = nil)
-          @binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
-        end
-
-        def inner
-          @binding_key
-        end
-
-        def hash
-          @binding_key.routing_key.hash
-        end
-      end
-
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
+      @bindings = Hash(SubscriptionKey, Set(MQTT::Session)).new do |h, k|
         h[k] = Set(MQTT::Session).new
       end
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
@@ -67,10 +50,10 @@ module LavinMQ
         count
       end
 
-      def bindings_details : Array(BindingDetails)
+      def bindings_details : Array(SubscriptionDetails)
         @bindings.flat_map do |binding_key, ds|
           ds.map do |d|
-            BindingDetails.new(name, vhost.name, binding_key.inner, d)
+            SubscriptionDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end
@@ -80,40 +63,43 @@ module LavinMQ
       end
 
       # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
-        binding_key = BindingKey.new(routing_key, arguments)
+        binding_key = SubscriptionKey.new(routing_key, qos)
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        binding_key = BindingKey.new(routing_key, arguments)
+        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        binding_key = SubscriptionKey.new(routing_key, qos)
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
 
         @tree.unsubscribe(routing_key, destination)
 
-        data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
+        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true
       end
 
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
+      # TODO: remove when Session no longer inherit AMQP::Exchange
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
+      # TODO: remove when Session no longer inherit AMQP::Exchange
+      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 

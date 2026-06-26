@@ -1,8 +1,8 @@
 require "./spec_helper"
 
 module MessageRoutingSpec
-  def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Destination)
-    s = Set(LavinMQ::Destination).new
+  def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Queue | LavinMQ::Exchange)
+    s = Set(LavinMQ::Queue | LavinMQ::Exchange).new
     qs = Set(LavinMQ::Queue).new
     es = Set(LavinMQ::Exchange).new
     exchange.find_queues(routing_key, headers, qs, es)
