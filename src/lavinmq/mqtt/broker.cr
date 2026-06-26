@@ -71,7 +71,7 @@ module LavinMQ
             session.delete if session.clean_session?
           end
         end
-        @clients.delete client_id
+        @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)
       end
 
