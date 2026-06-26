@@ -718,6 +718,30 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "exports and imports permission groups" do
+      with_http_server do |http, s|
+        rule = LavinMQ::Auth::PermissionGroup::Rule.new("sensors/#", read: true, write: false)
+        group = LavinMQ::Auth::PermissionGroup.new("testers", "mqtt", false, ["alice"], [rule])
+        s.permission_groups.put(group, save: false)
+
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["permission_groups"].as_a.empty?.should be_false
+        exported = body["permission_groups"].as_a.find { |g| g["name"] == "testers" }
+        exported.should_not be_nil
+        exported.not_nil!["members"].as_a.map(&.as_s).should contain("alice")
+
+        s.permission_groups.delete("testers", save: false)
+        s.permission_groups["testers"]?.should be_nil
+
+        response = http.post("/api/definitions", body: body.to_json)
+        response.status_code.should eq 200
+        s.permission_groups["testers"]?.should_not be_nil
+        s.permission_groups["testers"].members.should contain("alice")
+      end
+    end
+
     it "exports policies" do
       with_http_server do |http, s|
         d = {"x-max-lenght" => JSON::Any.new(10_i64)}
