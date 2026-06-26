@@ -7,6 +7,7 @@ require "../stdlib/*"
 require "./persister"
 require "./vhost_store"
 require "./auth/user_store"
+require "./auth/permission_group_store"
 require "./exchange"
 require "./amqp/queue"
 require "./parameter"
@@ -30,7 +31,7 @@ module LavinMQ
       MQTT
     end
 
-    getter vhosts, users, data_dir, parameters, authenticator
+    getter vhosts, users, data_dir, parameters, authenticator, permission_groups
     include ParameterTarget
 
     @closed = BoolChannel.new(false)
@@ -62,6 +63,7 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
+      @permission_groups = Auth::PermissionGroupStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
@@ -117,6 +119,7 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
+      @permission_groups = Auth::PermissionGroupStore.new(@data_dir, @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
