@@ -2,16 +2,18 @@ require "./broker"
 require "../clustering/replicator"
 require "../observable"
 require "../vhost_store"
+require "../auth/permission_group_store"
 
 module LavinMQ
   module MQTT
     class Brokers
       include Observer(VHostStore::Event)
 
-      def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator?)
+      def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator?,
+                     @permission_groups : Auth::PermissionGroupStore)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
         @vhosts.each do |(name, vhost)|
-          @brokers[name] = Broker.new(vhost, @replicator)
+          @brokers[name] = Broker.new(vhost, @replicator, @permission_groups)
         end
         @vhosts.register_observer(self)
       end
@@ -25,7 +27,7 @@ module LavinMQ
         vhost = data.to_s
         case event
         in VHostStore::Event::Added
-          @brokers[vhost] = Broker.new(@vhosts[vhost], @replicator)
+          @brokers[vhost] = Broker.new(@vhosts[vhost], @replicator, @permission_groups)
         in VHostStore::Event::Deleted
           @brokers.delete(vhost)
         in VHostStore::Event::Closed

@@ -66,7 +66,7 @@ module LavinMQ
       @permission_groups = Auth::PermissionGroupStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @vhosts.load!
-      @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
+      @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator, @permission_groups)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = authenticator || Auth::Chain.create(@config, @users)
       if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?

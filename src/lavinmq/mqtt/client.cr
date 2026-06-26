@@ -8,6 +8,7 @@ require "./protocol"
 require "../bool_channel"
 require "./consts"
 require "../stats"
+require "./topic_permissions"
 
 module LavinMQ
   module MQTT
@@ -20,6 +21,8 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
+      @topic_permissions : TopicPermissions? = nil
+      @topic_permissions_revision : UInt32 = 0_u32
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -69,6 +72,21 @@ module LavinMQ
 
       def client_name
         "mqtt-client-#{@client_id}"
+      end
+
+      # Compiled topic permissions for this connection, recompiled lazily when
+      # the global permission group store revision changes.
+      def topic_permissions : TopicPermissions
+        store = @broker.permission_groups
+        rev = store.revision
+        tp = @topic_permissions
+        if tp.nil? || rev != @topic_permissions_revision
+          groups = store.for_mqtt_user(@user.name)
+          tp = TopicPermissions.build(groups, @user.name, @client_id)
+          @topic_permissions = tp
+          @topic_permissions_revision = rev
+        end
+        tp
       end
 
       private def read_loop
@@ -164,7 +182,15 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
-        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+        if Config.instance.mqtt_topic_permissions_enabled?
+          unless topic_permissions.write.matches?(packet.topic)
+            Log.debug { "Publish refused: user '#{user.name}' not allowed to write topic '#{packet.topic}'" }
+            if packet.qos > 0 && (packet_id = packet.packet_id)
+              send(Protocol::PubAck.new(packet_id))
+            end
+            return
+          end
+        elsif Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
           return
@@ -232,7 +258,12 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          if Config.instance.mqtt_topic_permissions_enabled?
+            unless topic_permissions.write.matches?(will.topic)
+              Log.debug { "Will publish refused: user '#{user.name}' not allowed to write topic '#{will.topic}'" }
+              return
+            end
+          elsif Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
