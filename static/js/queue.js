@@ -110,12 +110,17 @@ function updateQueue (all) {
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
-      item.consumer_details.filtered_count = item.consumers
-      consumersDataSource.setConsumers(item.consumer_details)
-      const hasMoreConsumers = item.consumer_details.length < item.consumers
-      loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
-      if (hasMoreConsumers) {
-        loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
+      // MQTT sessions are rendered through this page too but don't expose a
+      // consumer_details array; guard so the rest of the page (policy, args, …)
+      // still renders instead of aborting on a TypeError.
+      if (item.consumer_details) {
+        item.consumer_details.filtered_count = item.consumers
+        consumersDataSource.setConsumers(item.consumer_details)
+        const hasMoreConsumers = item.consumer_details.length < item.consumers
+        loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
+        if (hasMoreConsumers) {
+          loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
+        }
       }
       if (all) {
         const features = []
