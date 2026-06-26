@@ -8,8 +8,8 @@ module LavinMQ
       struct Rule
         include JSON::Serializable
         getter pattern : String
-        getter read : Bool = false
-        getter write : Bool = false
+        getter? read : Bool = false
+        getter? write : Bool = false
 
         def initialize(@pattern : String, @read : Bool = false, @write : Bool = false)
         end
@@ -17,7 +17,7 @@ module LavinMQ
 
       getter name : String
       getter protocol : String
-      getter apply_to_all : Bool
+      getter? apply_to_all : Bool
       getter members : Array(String)
       getter rules : Array(Rule)
 

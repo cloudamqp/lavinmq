@@ -41,23 +41,28 @@ module LavinMQ
         overlap?(a.split('/'), b.split('/'), 0, 0)
       end
 
+      # True if segment seg is a multi-level wildcard consuming all remaining levels.
+      private def self.hash_wildcard?(seg : String) : Bool
+        seg == "#"
+      end
+
+      # True if two segments at the same level are compatible (either is '+' or they are equal).
+      private def self.segments_match?(ai : String, bj : String) : Bool
+        ai == "+" || bj == "+" || ai == bj
+      end
+
       private def self.overlap?(a : Array(String), b : Array(String), i : Int32, j : Int32) : Bool
         loop do
           a_done = i >= a.size
           b_done = j >= b.size
           return true if a_done && b_done
           # '#' matches the remainder, including zero further levels.
-          return true if !a_done && a[i] == "#"
-          return true if !b_done && b[j] == "#"
+          return true if !a_done && hash_wildcard?(a[i])
+          return true if !b_done && hash_wildcard?(b[j])
           return false if a_done || b_done
-          ai = a[i]
-          bj = b[j]
-          if ai == "+" || bj == "+" || ai == bj
-            i += 1
-            j += 1
-            next
-          end
-          return false
+          return false unless segments_match?(a[i], b[j])
+          i += 1
+          j += 1
         end
       end
     end

@@ -18,8 +18,8 @@ module LavinMQ
         groups.each do |group|
           group.rules.each do |rule|
             pattern = TopicFilterSet.expand(rule.pattern, username, client_id)
-            read.add(pattern) if rule.read
-            write.add(pattern) if rule.write
+            read.add(pattern) if rule.read?
+            write.add(pattern) if rule.write?
           end
         end
         new(read, write)
