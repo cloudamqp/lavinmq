@@ -56,6 +56,7 @@ module LavinMQ
           VHostLimitsController.new(@amqp_server),
           UsersController.new(@amqp_server),
           PermissionsController.new(@amqp_server),
+          PermissionGroupsController.new(@amqp_server),
           ParametersController.new(@amqp_server),
           ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
