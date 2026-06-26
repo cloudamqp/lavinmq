@@ -117,7 +117,6 @@ describe LavinMQ::Config do
           log_exchange = true
           free_disk_min = 1073741824
           free_disk_warn = 5368709120
-          max_deleted_definitions = 16384
           consumer_timeout = 3600
           consumer_timeout_loop_interval = 120
           auth_backends = ldap,basic
@@ -202,7 +201,6 @@ describe LavinMQ::Config do
       config.log_exchange?.should be_true
       config.free_disk_min.should eq 1073741824
       config.free_disk_warn.should eq 5368709120
-      config.max_deleted_definitions.should eq 16384
       config.consumer_timeout.should eq 3600
       config.consumer_timeout_loop_interval.should eq 120
       config.auth_backends.should eq ["ldap", "basic"]

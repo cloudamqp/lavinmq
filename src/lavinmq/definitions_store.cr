@@ -1,30 +1,44 @@
+require "json"
 require "./logger"
+require "./definitions_arguments"
 require "./schema"
 require "./event_type"
 require "./queue_factory"
+require "./rough_time"
 require "./amqp/exchange/*"
 require "./amqp/queue"
 
 module LavinMQ
   class DefinitionsStore
-    Log = LavinMQ::Log.for "definitions_store"
+    Log              = LavinMQ::Log.for "definitions_store"
+    WAL_COMPACT_IDLE = 30.seconds
+    WAL_COMPACT_SIZE = 8_i64 * 1024 * 1024
 
     @definitions_file : File
+    @closed = Atomic(Bool).new(false)
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, Queue).new
       @definitions_lock = Mutex.new(:reentrant)
-      @definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      # Unbuffered (sync) writes: replication offsets (store_definition) and a
-      # joining follower's cut + full_sync (Clustering::Server#snapshot_sizes,
-      # #files_with_hash) read this file's size and content through separate
-      # fds, so a frame must never sit in a user-space write buffer where they
-      # can't see it — a follower joining in that window would be marked
-      # synced while permanently missing the frame.
-      @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
+      @legacy_definitions_file_path = File.join(@data_dir, "definitions.amqp")
+      @definitions_file_path = File.join(@data_dir, "definitions.wal")
+      @exchanges_file_path = File.join(@data_dir, "exchanges.json")
+      @queues_file_path = File.join(@data_dir, "queues.json")
+      @bindings_file_path = File.join(@data_dir, "bindings.json")
+      # Buffered writes are flushed before replication so the WAL record is
+      # visible through separate fds used by follower full sync.
+      @definitions_file = File.open(@definitions_file_path, "a+")
       @replicator.try &.register_file(@definitions_file)
-      @definitions_deletes = 0
+      @dirty_exchanges = false
+      @dirty_queues = false
+      @dirty_bindings = false
+      @last_definition_change = RoughTime.instant
+      @compact_requested = Channel(Nil).new(1)
+      @compact_loop = WaitGroup.new
+      @compact_loop.spawn name: "DefinitionsStore#compact_loop #{@vhost.name}" do
+        compact_loop
+      end
     end
 
     # Flush buffered definition writes to disk. Used after a bulk operation
@@ -33,6 +47,7 @@ module LavinMQ
     # the per-frame path does.
     def fsync
       @definitions_lock.synchronize do
+        @definitions_file.flush
         @definitions_file.fsync
         @replicator.try &.wait_for_followers
       end
@@ -140,7 +155,7 @@ module LavinMQ
               end
             end
             x.delete
-            store_definition(f, dirty: true) if !loading && x.durable?
+            store_definition(f) if !loading && x.durable?
           else
             return false
           end
@@ -153,7 +168,7 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
+          store_definition(f) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(@vhost, f)
@@ -170,7 +185,7 @@ module LavinMQ
                 end
               end
             end
-            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
+            store_definition(f) if !loading && q.durable? && !q.exclusive?
             @vhost.event_tick(EventType::QueueDeleted) unless loading
             q.delete
           else
@@ -185,7 +200,7 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
         end
         true
@@ -200,82 +215,273 @@ module LavinMQ
       [default_binding] + bindings
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     def load!
+      @definitions_lock.synchronize do
+        if snapshot_definitions?
+          load_snapshot_definitions
+        elsif legacy_definitions?
+          load_legacy_definitions
+          compact_locked(all: true)
+          delete_legacy_definitions
+        else
+          load_default_definitions
+          compact_locked(all: true)
+        end
+      end
+      request_compaction
+    end
+
+    def close : Nil
+      return if @closed.swap(true)
+
+      @compact_requested.close
+      @compact_loop.wait
+      # Take the lock so the close can't race a writer still inside
+      # store_definition/fsync (use-after-close on the fd).
+      @definitions_lock.synchronize do
+        compact_locked(all: true) unless @definitions_file.size.zero?
+        @definitions_file.close
+      end
+    end
+
+    private def delete_legacy_definitions
+      File.delete?(@legacy_definitions_file_path)
+      @replicator.try &.delete_file(@legacy_definitions_file_path)
+    end
+
+    private def snapshot_definitions? : Bool
+      File.exists?(@exchanges_file_path) ||
+        File.exists?(@queues_file_path) ||
+        File.exists?(@bindings_file_path)
+    end
+
+    private def legacy_definitions? : Bool
+      File.exists?(@legacy_definitions_file_path) && File.size(@legacy_definitions_file_path) > 0
+    end
+
+    private def wal_dirty? : Bool
+      @dirty_exchanges || @dirty_queues || @dirty_bindings
+    end
+
+    private def load_snapshot_definitions
       exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
       queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
-      should_compact = false
-      io = @definitions_file
-      if io.size.zero?
-        load_default_definitions
-        compact!
-        return
-      end
 
-      @log.info { "Loading definitions" }
-      @definitions_lock.synchronize do
-        @log.debug { "Verifying schema" }
+      @log.info { "Loading definition snapshots" }
+      if File.exists?(@exchanges_file_path)
+        load_json_array(@exchanges_file_path) { |entry| exchanges[entry["name"].as_s] = exchange_declare_from_json(entry) }
+      else
+        default_exchange_frames.each { |frame| exchanges[frame.exchange_name] = frame }
+      end
+      load_json_array(@queues_file_path) { |entry| queues[entry["name"].as_s] = queue_declare_from_json(entry) } if File.exists?(@queues_file_path)
+      load_json_array(@bindings_file_path) { |entry| add_binding_to_maps(binding_from_json(entry), queue_bindings, exchange_bindings) } if File.exists?(@bindings_file_path)
+      replay_wal(exchanges, queues, queue_bindings, exchange_bindings)
+      apply_definition_maps(exchanges, queues, queue_bindings, exchange_bindings)
+    end
+
+    private def load_legacy_definitions
+      exchanges = Hash(String, AMQP::Frame::Exchange::Declare).new
+      queues = Hash(String, AMQP::Frame::Queue::Declare).new
+      queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
+      exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+
+      @log.info { "Loading legacy definitions" }
+      File.open(@legacy_definitions_file_path) do |io|
         SchemaVersion.verify(io, :definition)
         stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         loop do
-          f = stream.next_frame
-          @log.trace { "Reading frame #{f.inspect}" }
-          case f
-          when AMQP::Frame::Exchange::Declare
-            exchanges[f.exchange_name] = f
-          when AMQP::Frame::Exchange::Delete
-            exchanges.delete f.exchange_name
-            exchange_bindings.delete f.exchange_name
-            should_compact = true
-          when AMQP::Frame::Exchange::Bind
-            exchange_bindings[f.destination] << f
-          when AMQP::Frame::Exchange::Unbind
-            exchange_bindings[f.destination].reject! do |b|
-              b.source == f.source &&
-                b.routing_key == f.routing_key &&
-                b.arguments == f.arguments
-            end
-            should_compact = true
-          when AMQP::Frame::Queue::Declare
-            queues[f.queue_name] = f
-          when AMQP::Frame::Queue::Delete
-            queues.delete f.queue_name
-            queue_bindings.delete f.queue_name
-            should_compact = true
-          when AMQP::Frame::Queue::Bind
-            queue_bindings[f.queue_name] << f
-          when AMQP::Frame::Queue::Unbind
-            queue_bindings[f.queue_name].reject! do |b|
-              b.exchange_name == f.exchange_name &&
-                b.routing_key == f.routing_key &&
-                b.arguments == f.arguments
-            end
-            should_compact = true
-          else
-            raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
-          end
+          frame = stream.next_frame
+          @log.trace { "Reading legacy frame #{frame.inspect}" }
+          apply_to_definition_maps(frame, exchanges, queues, queue_bindings, exchange_bindings)
         rescue ex : IO::EOFError
           break
         end
       end
-
-      @log.info { "Applying #{exchanges.size} exchanges" }
-      exchanges.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{queues.size} queues" }
-      queues.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{exchange_bindings.each_value.sum(0, &.size)} exchange bindings" }
-      exchange_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
-      @log.info { "Applying #{queue_bindings.each_value.sum(0, &.size)} queue bindings" }
-      queue_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
-
-      @log.info { "Definitions loaded" }
-      compact! if should_compact
+      apply_definition_maps(exchanges, queues, queue_bindings, exchange_bindings)
     end
 
-    def close : Nil
-      @definitions_file.close
+    private def replay_wal(exchanges, queues, queue_bindings, exchange_bindings)
+      return if @definitions_file.size.zero?
+
+      @log.info { "Replaying definition WAL" }
+      @definitions_file.rewind
+      @definitions_file.each_line do |line|
+        line = line.strip
+        next if line.empty?
+        begin
+          frame = frame_from_wal_record(JSON.parse(line))
+        rescue ex : JSON::ParseException | TypeCastError | KeyError
+          # A crash mid-append leaves a torn final record; a corrupt line can
+          # appear from bit-rot or a partial non-tail write. The legacy binary
+          # reader tolerated a truncated tail via IO::EOFError, so skip the bad
+          # record rather than aborting the whole vhost load — the next
+          # compaction rewrites the snapshots and clears the WAL.
+          @log.warn { "Skipping unreadable definition WAL record: #{ex.message}" }
+          next
+        end
+        apply_to_definition_maps(frame, exchanges, queues, queue_bindings, exchange_bindings)
+        mark_snapshot_dirty(frame)
+      end
+      @definitions_file.seek(0, IO::Seek::End)
+    end
+
+    private def apply_definition_maps(exchanges, queues, queue_bindings, exchange_bindings)
+      @log.info { "Applying #{exchanges.size} exchanges" }
+      exchanges.each_value { |frame| load_apply(frame) }
+      @log.info { "Applying #{queues.size} queues" }
+      queues.each_value { |frame| load_apply(frame) }
+      @log.info { "Applying #{exchange_bindings.each_value.sum(0, &.size)} exchange bindings" }
+      exchange_bindings.each_value { |frames| frames.each { |frame| load_apply(frame) } }
+      @log.info { "Applying #{queue_bindings.each_value.sum(0, &.size)} queue bindings" }
+      queue_bindings.each_value { |frames| frames.each { |frame| load_apply(frame) } }
+      @log.info { "Definitions loaded" }
+    end
+
+    private def load_json_array(path : String, &)
+      File.open(path) do |file|
+        JSON.parse(file).as_a.each { |entry| yield entry }
+        @replicator.try &.register_file(file)
+      end
+    end
+
+    private def default_exchange_frames
+      [
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "", "direct", false, true, false, false, false, AMQP::Table.new),
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "amq.direct", "direct", false, true, false, false, false, AMQP::Table.new),
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "amq.fanout", "fanout", false, true, false, false, false, AMQP::Table.new),
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "amq.topic", "topic", false, true, false, false, false, AMQP::Table.new),
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "amq.headers", "headers", false, true, false, false, false, AMQP::Table.new),
+        AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, "amq.match", "headers", false, true, false, false, false, AMQP::Table.new),
+      ]
+    end
+
+    private def exchange_declare_from_json(entry : JSON::Any) : AMQP::Frame::Exchange::Declare
+      AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, entry["name"].as_s, entry["type"].as_s,
+        false, json_bool(entry, "durable", default: true), json_bool(entry, "auto_delete"), json_bool(entry, "internal"),
+        false, arguments_from_json(entry))
+    end
+
+    private def queue_declare_from_json(entry : JSON::Any) : AMQP::Frame::Queue::Declare
+      AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, entry["name"].as_s, false,
+        json_bool(entry, "durable", default: true), json_bool(entry, "exclusive"),
+        json_bool(entry, "auto_delete"), false, arguments_from_json(entry))
+    end
+
+    private def binding_from_json(entry : JSON::Any) : AMQP::Frame
+      args = arguments_from_json(entry)
+      destination_type = entry["destination_type"]?.try(&.as_s) || "queue"
+      routing_key = entry["routing_key"]?.try(&.as_s) || ""
+      case destination_type
+      when "queue"
+        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          routing_key, false, args)
+      when "exchange"
+        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          routing_key, false, args)
+      else
+        raise "Unknown binding destination type #{destination_type} in vhost #{@vhost.name}"
+      end
+    end
+
+    private def frame_from_wal_record(entry : JSON::Any) : AMQP::Frame
+      case op = entry["op"].as_s
+      when "exchange.declare" then exchange_declare_from_json(entry)
+      when "exchange.delete"  then AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, entry["name"].as_s, false, false)
+      when "exchange.bind"
+        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "exchange.unbind"
+        AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "queue.declare" then queue_declare_from_json(entry)
+      when "queue.delete"  then AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, entry["name"].as_s, false, false, false)
+      when "queue.bind"
+        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "queue.unbind"
+        AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
+          entry["routing_key"].as_s, arguments_from_json(entry))
+      else
+        raise "Unknown definition WAL operation #{op} in vhost #{@vhost.name}"
+      end
+    end
+
+    private def arguments_from_json(entry : JSON::Any) : AMQP::Table
+      if args = entry["arguments"]?
+        return DefinitionsArguments.from_json(args)
+      end
+      AMQP::Table.new
+    end
+
+    private def json_bool(entry : JSON::Any, field : String, default = false) : Bool
+      if value = entry[field]?
+        value.as_bool
+      else
+        default
+      end
+    end
+
+    private def apply_to_definition_maps(frame, exchanges, queues, queue_bindings, exchange_bindings)
+      case frame
+      when AMQP::Frame::Exchange::Declare
+        exchanges[frame.exchange_name] = frame
+      when AMQP::Frame::Exchange::Delete
+        exchanges.delete frame.exchange_name
+        remove_exchange_bindings(frame.exchange_name, queue_bindings, exchange_bindings)
+      when AMQP::Frame::Exchange::Bind
+        add_binding_to_maps(frame, queue_bindings, exchange_bindings)
+      when AMQP::Frame::Exchange::Unbind
+        exchange_bindings[frame.destination].reject! { |b| exchange_binding_matches?(b, frame) }
+      when AMQP::Frame::Queue::Declare
+        queues[frame.queue_name] = frame
+      when AMQP::Frame::Queue::Delete
+        queues.delete frame.queue_name
+        queue_bindings.delete frame.queue_name
+      when AMQP::Frame::Queue::Bind
+        add_binding_to_maps(frame, queue_bindings, exchange_bindings)
+      when AMQP::Frame::Queue::Unbind
+        queue_bindings[frame.queue_name].reject! { |b| queue_binding_matches?(b, frame) }
+      else
+        raise "Cannot load frame #{frame.class} in vhost #{@vhost.name}"
+      end
+    end
+
+    private def add_binding_to_maps(frame : AMQP::Frame::Queue::Bind, queue_bindings, _exchange_bindings)
+      bindings = queue_bindings[frame.queue_name]
+      bindings << frame unless bindings.any? { |b| queue_binding_matches?(b, frame) }
+    end
+
+    private def add_binding_to_maps(frame : AMQP::Frame::Exchange::Bind, _queue_bindings, exchange_bindings)
+      bindings = exchange_bindings[frame.destination]
+      bindings << frame unless bindings.any? { |b| exchange_binding_matches?(b, frame) }
+    end
+
+    private def add_binding_to_maps(frame, queue_bindings, exchange_bindings)
+      case frame
+      when AMQP::Frame::Queue::Bind    then add_binding_to_maps(frame, queue_bindings, exchange_bindings)
+      when AMQP::Frame::Exchange::Bind then add_binding_to_maps(frame, queue_bindings, exchange_bindings)
+      else                                  raise "Cannot add frame #{frame.class} as a binding in vhost #{@vhost.name}"
+      end
+    end
+
+    private def queue_binding_matches?(a : AMQP::Frame::Queue::Bind, b : AMQP::Frame::Queue::Bind | AMQP::Frame::Queue::Unbind) : Bool
+      a.exchange_name == b.exchange_name &&
+        a.routing_key == b.routing_key &&
+        a.arguments == b.arguments
+    end
+
+    private def exchange_binding_matches?(a : AMQP::Frame::Exchange::Bind, b : AMQP::Frame::Exchange::Bind | AMQP::Frame::Exchange::Unbind) : Bool
+      a.source == b.source &&
+        a.routing_key == b.routing_key &&
+        a.arguments == b.arguments
+    end
+
+    private def remove_exchange_bindings(name : String, queue_bindings, exchange_bindings)
+      exchange_bindings.delete name
+      exchange_bindings.each_value &.reject! { |b| b.source == name }
+      queue_bindings.each_value &.reject! { |b| b.exchange_name == name }
     end
 
     protected def load_apply(frame : AMQP::Frame)
@@ -294,61 +500,140 @@ module LavinMQ
       @exchanges["amq.match"] = AMQP::HeadersExchange.new(@vhost, "amq.match", true, false, false)
     end
 
-    private def compact!
-      @definitions_lock.synchronize do
-        @log.info { "Compacting definitions" }
-        # sync = true for the same reason as in #initialize: this file becomes
-        # @definitions_file after the rename.
-        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
-        SchemaVersion.prefix(io, :definition)
-        @exchanges.each_value.select(&.durable?).each do |e|
-          f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-            false, e.durable?, e.auto_delete?, e.internal?,
-            false, e.arguments)
-          io.write_bytes f
-        end
-        @queues.each_value.select(&.durable?).each do |q|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, q.arguments)
-          io.write_bytes f
-        end
-        @exchanges.each_value.select(&.durable?).each do |e|
-          e.bindings_details.each do |binding|
-            args = binding.arguments || AMQP::Table.new
-            frame = case binding.destination
-                    when Queue
-                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
-                    when Exchange
-                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
-                        binding.routing_key, false, args)
-                    end
-            if f = frame
-              io.write_bytes f
+    private def compact_locked(all = false)
+      return unless all || wal_dirty?
+
+      @log.info { "Compacting definitions" }
+      write_exchanges_snapshot if all || @dirty_exchanges
+      write_queues_snapshot if all || @dirty_queues
+      write_bindings_snapshot if all || @dirty_bindings
+      # The snapshot renames must be durable before the WAL is truncated:
+      # write_json_snapshot fsyncs each file's content but not the directory
+      # entry created by the rename. Without this barrier a crash could leave
+      # the old (pre-compaction) snapshots on disk together with an already
+      # emptied WAL, permanently losing every change since the last compaction.
+      fsync_data_dir
+      clear_wal
+      @dirty_exchanges = false
+      @dirty_queues = false
+      @dirty_bindings = false
+    end
+
+    private def fsync_data_dir : Nil
+      File.open(@data_dir, &.fsync)
+    end
+
+    private def write_exchanges_snapshot
+      write_json_snapshot(@exchanges_file_path) do |json|
+        json.array do
+          @exchanges.each_value.select(&.durable?).each do |exchange|
+            json.object do
+              json.field "name", exchange.name
+              json.field "type", exchange.type
+              write_true(json, "auto_delete", exchange.auto_delete?)
+              write_true(json, "internal", exchange.internal?)
+              write_arguments(json, exchange.arguments)
             end
           end
         end
-        io.fsync
-        File.rename io.path, @definitions_file_path
-        @replicator.try &.replace_file @definitions_file_path
-        @definitions_file.close
-        @definitions_file = io
       end
     end
 
-    private def store_definition(frame, dirty = false, fsync = true)
+    private def write_queues_snapshot
+      write_json_snapshot(@queues_file_path) do |json|
+        json.array do
+          @queues.each_value.each do |queue|
+            next if !queue.durable? || queue.exclusive?
+            # Internal delayed-exchange queues are recreated by their exchange
+            # on load (register_queue), so the per-frame WAL path never persists
+            # them; keep the snapshot consistent and out of the exported defs.
+            next if queue.is_a?(AMQP::DelayedExchangeQueue)
+            json.object do
+              json.field "name", queue.name
+              write_true(json, "exclusive", queue.exclusive?)
+              write_true(json, "auto_delete", queue.auto_delete?)
+              write_arguments(json, queue.arguments)
+            end
+          end
+        end
+      end
+    end
+
+    private def write_bindings_snapshot
+      write_json_snapshot(@bindings_file_path) do |json|
+        json.array do
+          @exchanges.each_value.each do |exchange|
+            next unless exchange.durable?
+            exchange.bindings_details.each do |binding|
+              destination_type = persisted_destination_type?(binding.destination) || next
+              json.object do
+                json.field "source", exchange.name
+                json.field "destination", binding.destination.name
+                json.field "destination_type", destination_type unless destination_type == "queue"
+                json.field "routing_key", binding.routing_key unless binding.routing_key.empty?
+                write_arguments(json, binding.arguments)
+              end
+            end
+          end
+        end
+      end
+    end
+
+    private def persisted_destination_type?(destination : Destination) : String?
+      case destination
+      when Queue
+        return if !destination.durable? || destination.exclusive?
+        "queue"
+      when Exchange
+        return unless destination.durable?
+        "exchange"
+      end
+    end
+
+    private def write_true(json : JSON::Builder, field : String, value : Bool) : Nil
+      json.field(field, true) if value
+    end
+
+    private def write_arguments(json : JSON::Builder, arguments : AMQP::Table?) : Nil
+      return if arguments.nil?
+      return if arguments.empty?
+
+      json.field("arguments") { DefinitionsArguments.to_json(json, arguments) }
+    end
+
+    private def write_json_snapshot(path : String, &)
+      tmpfile = "#{path}.tmp"
+      File.open(tmpfile, "w") do |file|
+        JSON.build(file, indent: "  ") { |json| yield json }
+        file.fsync
+      end
+      File.rename tmpfile, path
+      @replicator.try &.replace_file path
+    end
+
+    private def clear_wal
+      @definitions_file.close
+      tmpfile = "#{@definitions_file_path}.tmp"
+      File.open(tmpfile, "w", &.fsync)
+      File.rename tmpfile, @definitions_file_path
+      fsync_data_dir
+      @replicator.try &.delete_file @definitions_file_path
+      @definitions_file = File.open(@definitions_file_path, "a+")
+    end
+
+    private def store_definition(frame, fsync = true)
       @log.debug { "Storing definition: #{frame.inspect}" }
-      bytes = frame.to_slice
+      record = definition_record(frame)
+      bytes = record.to_slice
       offset = @definitions_file.size.to_i64
-      # The write goes straight to the file (sync = true), so by dispatch time
-      # the frame is readable at `offset` through any fd: a follower joining
-      # between write and dispatch gets it via its full_sync cut, and
-      # already_synced then skips (or tail-slices) this append against the
-      # baseline instead of duplicating it.
       @definitions_file.write bytes
+      @definitions_file.flush
+      @definitions_file.fsync if fsync
+      @replicator.try &.register_file(@definitions_file) if offset.zero?
       @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+      @last_definition_change = RoughTime.instant
+      mark_snapshot_dirty(frame)
       if fsync
-        @definitions_file.fsync
         # The caller acknowledges the change to the client right after this
         # returns (Declare-Ok etc.), so like a publish confirm it must be
         # durable on every in-sync follower first — otherwise a leader crash
@@ -357,12 +642,135 @@ module LavinMQ
         # removal committed before this returns.
         @replicator.try &.wait_for_followers
       end
-      if dirty
-        if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
-          compact!
-          @definitions_deletes = 0
+      if @definitions_file.size >= WAL_COMPACT_SIZE
+        compact_locked
+      else
+        request_compaction
+      end
+    end
+
+    private def definition_record(frame) : String
+      String.build do |io|
+        JSON.build(io) do |json|
+          json.object do
+            write_wal_fields(frame, json)
+          end
+        end
+        io << '\n'
+      end
+    end
+
+    private def write_wal_fields(frame, json : JSON::Builder)
+      case frame
+      when AMQP::Frame::Exchange::Declare
+        json.field "op", "exchange.declare"
+        json.field "name", frame.exchange_name
+        json.field "type", frame.exchange_type
+        write_true(json, "auto_delete", frame.auto_delete)
+        write_true(json, "internal", frame.internal)
+        write_arguments(json, frame.arguments)
+      when AMQP::Frame::Exchange::Delete
+        json.field "op", "exchange.delete"
+        json.field "name", frame.exchange_name
+      when AMQP::Frame::Exchange::Bind
+        json.field "op", "exchange.bind"
+        json.field "destination", frame.destination
+        json.field "source", frame.source
+        json.field "routing_key", frame.routing_key
+        write_arguments(json, frame.arguments)
+      when AMQP::Frame::Exchange::Unbind
+        json.field "op", "exchange.unbind"
+        json.field "destination", frame.destination
+        json.field "source", frame.source
+        json.field "routing_key", frame.routing_key
+        write_arguments(json, frame.arguments)
+      when AMQP::Frame::Queue::Declare
+        json.field "op", "queue.declare"
+        json.field "name", frame.queue_name
+        write_true(json, "exclusive", frame.exclusive)
+        write_true(json, "auto_delete", frame.auto_delete)
+        write_arguments(json, frame.arguments)
+      when AMQP::Frame::Queue::Delete
+        json.field "op", "queue.delete"
+        json.field "name", frame.queue_name
+      when AMQP::Frame::Queue::Bind
+        json.field "op", "queue.bind"
+        json.field "queue", frame.queue_name
+        json.field "exchange", frame.exchange_name
+        json.field "routing_key", frame.routing_key
+        write_arguments(json, frame.arguments)
+      when AMQP::Frame::Queue::Unbind
+        json.field "op", "queue.unbind"
+        json.field "queue", frame.queue_name
+        json.field "exchange", frame.exchange_name
+        json.field "routing_key", frame.routing_key
+        write_arguments(json, frame.arguments)
+      else
+        raise "Cannot store frame #{frame.class} in vhost #{@vhost.name}"
+      end
+    end
+
+    private def mark_snapshot_dirty(frame)
+      case frame
+      when AMQP::Frame::Exchange::Declare
+        @dirty_exchanges = true
+      when AMQP::Frame::Exchange::Delete
+        @dirty_exchanges = true
+        @dirty_bindings = true
+      when AMQP::Frame::Exchange::Bind, AMQP::Frame::Exchange::Unbind
+        @dirty_bindings = true
+      when AMQP::Frame::Queue::Declare
+        @dirty_queues = true
+      when AMQP::Frame::Queue::Delete
+        @dirty_queues = true
+        @dirty_bindings = true
+      when AMQP::Frame::Queue::Bind, AMQP::Frame::Queue::Unbind
+        @dirty_bindings = true
+      end
+    end
+
+    private def request_compaction
+      @compact_requested.try_send nil
+    rescue Channel::ClosedError
+    end
+
+    private def compact_loop
+      compact_at = nil
+      loop do
+        select
+        when @compact_requested.receive
+          compact_at = next_compact_at
+        when timeout compact_timeout(compact_at)
+          if compact_at
+            @definitions_lock.synchronize { compact_locked }
+            compact_at = nil
+          end
         end
       end
+    rescue Channel::ClosedError
+    end
+
+    private def next_compact_at : Time::Instant
+      last_definition_change, definitions_file_size = @definitions_lock.synchronize do
+        {@last_definition_change, @definitions_file.size}
+      end
+      last_definition_change + compact_delay(definitions_file_size)
+    end
+
+    private def compact_delay(size : Int) : Time::Span
+      return Time::Span.zero if size >= WAL_COMPACT_SIZE
+
+      # Wait the full idle window when the WAL is small so bursts of declares
+      # batch into one compaction, and shrink the delay toward zero as the WAL
+      # approaches the size cap so a fast-growing WAL is compacted promptly.
+      WAL_COMPACT_IDLE * (1.0 - size.to_f64 / WAL_COMPACT_SIZE)
+    end
+
+    private def compact_timeout(compact_at : Time::Instant?) : Time::Span
+      return 1.day unless compact_at
+
+      remaining = compact_at - RoughTime.instant
+      remaining > Time::Span.zero ? remaining : Time::Span.zero
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)

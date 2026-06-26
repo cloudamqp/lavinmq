@@ -1,5 +1,6 @@
 require "./version"
 require "../stdlib/slice"
+require "./definitions_arguments"
 require "json"
 require "amq-protocol"
 
@@ -9,6 +10,7 @@ class LavinMQCtl
       {"vhosts.json", "users.json"}.each do |f|
         abort "#{f} not found. Is #{@data_dir} a data directory?" unless File.exists?(File.join(@data_dir, f))
       end
+      @definitions_cache = Hash(String, DefinitionState).new
     end
 
     def generate(io)
@@ -183,80 +185,190 @@ class LavinMQCtl
 
     alias Frame = AMQ::Protocol::Frame
 
+    private class DefinitionState
+      getter queues = Array(Frame::Method::Queue::Declare).new
+      getter exchanges = Array(Frame::Method::Exchange::Declare).new
+      getter queue_bindings = Array(Frame::Method::Queue::Bind).new
+      getter exchange_bindings = Array(Frame::Method::Exchange::Bind).new
+    end
+
     private def queues(vhost_dir)
-      queues = Array(Frame::Method::Queue::Declare).new
-      File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
-        _schema = defs.read_bytes Int32
-        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
-        loop do
-          case frame = stream.next_frame
-          when Frame::Method::Queue::Declare
-            queues << frame
-          when Frame::Method::Queue::Delete
-            queues.reject! { |q| q.queue_name == frame.queue_name }
-          end
-        rescue IO::EOFError
-          break
-        end
-      end
-      queues
+      definitions(vhost_dir).queues
     end
 
     private def exchanges(vhost_dir)
-      exchanges = Array(Frame::Method::Exchange::Declare).new
-      File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
-        _schema = defs.read_bytes Int32
-        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
-        loop do
-          case frame = stream.next_frame
-          when Frame::Method::Exchange::Declare
-            exchanges << frame
-          when Frame::Method::Exchange::Delete
-            exchanges.reject! { |e| e.exchange_name == frame.exchange_name }
-          end
-        rescue IO::EOFError
-          break
-        end
-      end
-      exchanges
+      definitions(vhost_dir).exchanges
     end
 
     private def queue_bindings(vhost_dir)
-      bindings = Array(Frame::Method::Queue::Bind).new
-      File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
-        _schema = defs.read_bytes Int32
-        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
-        loop do
-          case frame = stream.next_frame
-          when Frame::Method::Queue::Bind
-            bindings << frame
-          when Frame::Method::Queue::Unbind
-            bindings.reject! { |b| b.exchange_name == frame.exchange_name && b.queue_name == frame.queue_name && b.routing_key == frame.routing_key && b.arguments == frame.arguments }
-          end
-        rescue IO::EOFError
-          break
-        end
-      end
-      bindings
+      definitions(vhost_dir).queue_bindings
     end
 
     private def exchange_bindings(vhost_dir)
-      bindings = Array(Frame::Method::Exchange::Bind).new
-      File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
+      definitions(vhost_dir).exchange_bindings
+    end
+
+    private def definitions(vhost_dir)
+      @definitions_cache[vhost_dir] ||= load_definitions(vhost_dir)
+    end
+
+    private def load_definitions(vhost_dir)
+      state = DefinitionState.new
+      if File.exists?(File.join(vhost_dir, "exchanges.json")) ||
+         File.exists?(File.join(vhost_dir, "queues.json")) ||
+         File.exists?(File.join(vhost_dir, "bindings.json"))
+        load_snapshot_definitions(vhost_dir, state)
+      elsif File.exists?(legacy_path = File.join(vhost_dir, "definitions.amqp"))
+        load_legacy_definitions(legacy_path, state)
+      end
+      state
+    end
+
+    private def load_snapshot_definitions(vhost_dir, state)
+      load_json_array(File.join(vhost_dir, "exchanges.json")) do |entry|
+        apply_definition_frame(state, exchange_declare_from_json(entry))
+      end
+      load_json_array(File.join(vhost_dir, "queues.json")) do |entry|
+        apply_definition_frame(state, queue_declare_from_json(entry))
+      end
+      load_json_array(File.join(vhost_dir, "bindings.json")) do |entry|
+        apply_definition_frame(state, binding_from_json(entry))
+      end
+      wal_path = File.join(vhost_dir, "definitions.wal")
+      return unless File.exists?(wal_path)
+      File.each_line(wal_path) do |line|
+        line = line.strip
+        next if line.empty?
+        begin
+          frame = frame_from_wal_record(JSON.parse(line))
+        rescue JSON::ParseException | TypeCastError | KeyError
+          next # tolerate a torn final record / corrupt line, like the live store
+        end
+        apply_definition_frame(state, frame)
+      end
+    end
+
+    private def load_json_array(path, &)
+      return unless File.exists?(path)
+      File.open(path) { |file| JSON.parse(file).as_a.each { |entry| yield entry } }
+    end
+
+    private def load_legacy_definitions(path, state)
+      File.open(path) do |defs|
         _schema = defs.read_bytes Int32
         stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
         loop do
-          case frame = stream.next_frame
-          when Frame::Method::Exchange::Bind
-            bindings << frame
-          when Frame::Method::Exchange::Unbind
-            bindings.reject! { |b| b.source == frame.source && b.destination == frame.destination && b.routing_key == frame.routing_key && b.arguments == frame.arguments }
-          end
+          apply_definition_frame(state, stream.next_frame)
         rescue IO::EOFError
           break
         end
       end
-      bindings
+    end
+
+    private def apply_definition_frame(state, frame)
+      case frame
+      when Frame::Method::Queue::Declare
+        state.queues.reject! { |q| q.queue_name == frame.queue_name }
+        state.queues << frame
+      when Frame::Method::Queue::Delete
+        state.queues.reject! { |q| q.queue_name == frame.queue_name }
+        state.queue_bindings.reject! { |b| b.queue_name == frame.queue_name }
+      when Frame::Method::Queue::Bind
+        state.queue_bindings << frame unless state.queue_bindings.any? { |b| queue_binding_matches?(b, frame) }
+      when Frame::Method::Queue::Unbind
+        state.queue_bindings.reject! { |b| queue_binding_matches?(b, frame) }
+      when Frame::Method::Exchange::Declare
+        state.exchanges.reject! { |e| e.exchange_name == frame.exchange_name }
+        state.exchanges << frame
+      when Frame::Method::Exchange::Delete
+        state.exchanges.reject! { |e| e.exchange_name == frame.exchange_name }
+        state.exchange_bindings.reject! { |b| b.source == frame.exchange_name || b.destination == frame.exchange_name }
+        state.queue_bindings.reject! { |b| b.exchange_name == frame.exchange_name }
+      when Frame::Method::Exchange::Bind
+        state.exchange_bindings << frame unless state.exchange_bindings.any? { |b| exchange_binding_matches?(b, frame) }
+      when Frame::Method::Exchange::Unbind
+        state.exchange_bindings.reject! { |b| exchange_binding_matches?(b, frame) }
+      end
+    end
+
+    private def exchange_declare_from_json(entry : JSON::Any) : Frame::Method::Exchange::Declare
+      Frame::Method::Exchange::Declare.new(0_u16, 0_u16, entry["name"].as_s, entry["type"].as_s,
+        false, json_bool(entry, "durable", default: true), json_bool(entry, "auto_delete"), json_bool(entry, "internal"),
+        false, arguments_from_json(entry))
+    end
+
+    private def queue_declare_from_json(entry : JSON::Any) : Frame::Method::Queue::Declare
+      Frame::Method::Queue::Declare.new(0_u16, 0_u16, entry["name"].as_s, false,
+        json_bool(entry, "durable", default: true), json_bool(entry, "exclusive"),
+        json_bool(entry, "auto_delete"), false, arguments_from_json(entry))
+    end
+
+    private def binding_from_json(entry : JSON::Any) : Frame::Method
+      args = arguments_from_json(entry)
+      destination_type = entry["destination_type"]?.try(&.as_s) || "queue"
+      routing_key = entry["routing_key"]?.try(&.as_s) || ""
+      case destination_type
+      when "queue"
+        Frame::Method::Queue::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          routing_key, false, args)
+      when "exchange"
+        Frame::Method::Exchange::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          routing_key, false, args)
+      else
+        raise "Unknown binding destination type #{destination_type}"
+      end
+    end
+
+    private def frame_from_wal_record(entry : JSON::Any) : Frame::Method
+      case op = entry["op"].as_s
+      when "exchange.declare" then exchange_declare_from_json(entry)
+      when "exchange.delete"  then Frame::Method::Exchange::Delete.new(0_u16, 0_u16, entry["name"].as_s, false, false)
+      when "exchange.bind"
+        Frame::Method::Exchange::Bind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "exchange.unbind"
+        Frame::Method::Exchange::Unbind.new(0_u16, 0_u16, entry["destination"].as_s, entry["source"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "queue.declare" then queue_declare_from_json(entry)
+      when "queue.delete"  then Frame::Method::Queue::Delete.new(0_u16, 0_u16, entry["name"].as_s, false, false, false)
+      when "queue.bind"
+        Frame::Method::Queue::Bind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
+          entry["routing_key"].as_s, false, arguments_from_json(entry))
+      when "queue.unbind"
+        Frame::Method::Queue::Unbind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
+          entry["routing_key"].as_s, arguments_from_json(entry))
+      else
+        raise "Unknown definition WAL operation #{op}"
+      end
+    end
+
+    private def arguments_from_json(entry : JSON::Any) : AMQ::Protocol::Table
+      if args = entry["arguments"]?
+        return LavinMQ::DefinitionsArguments.from_json(args)
+      end
+      AMQ::Protocol::Table.new
+    end
+
+    private def json_bool(entry : JSON::Any, field : String, default = false) : Bool
+      if value = entry[field]?
+        value.as_bool
+      else
+        default
+      end
+    end
+
+    private def queue_binding_matches?(a : Frame::Method::Queue::Bind, b : Frame::Method::Queue::Bind | Frame::Method::Queue::Unbind) : Bool
+      a.queue_name == b.queue_name &&
+        a.exchange_name == b.exchange_name &&
+        a.routing_key == b.routing_key &&
+        a.arguments == b.arguments
+    end
+
+    private def exchange_binding_matches?(a : Frame::Method::Exchange::Bind, b : Frame::Method::Exchange::Bind | Frame::Method::Exchange::Unbind) : Bool
+      a.destination == b.destination &&
+        a.source == b.source &&
+        a.routing_key == b.routing_key &&
+        a.arguments == b.arguments
     end
   end
 end

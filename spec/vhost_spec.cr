@@ -1,5 +1,50 @@
 require "./spec_helper"
 
+class LavinMQ::DefinitionsStore
+  def request_idle_compaction_for_spec
+    @definitions_lock.synchronize do
+      @last_definition_change = RoughTime.instant - WAL_COMPACT_IDLE - 1.second
+    end
+    @compact_requested.try_send nil
+  end
+
+  def compact_at_scheduled_with_wal_closed_for_spec : String | Exception
+    result = Channel(String | Exception).new(1)
+    @definitions_lock.synchronize do
+      @last_definition_change = RoughTime.instant - WAL_COMPACT_IDLE - 1.second
+      @definitions_file.close
+      begin
+        spawn do
+          begin
+            next_compact_at
+            result.send "ok"
+          rescue ex
+            result.send ex
+          end
+        end
+        100.times { Fiber.yield }
+        if early_result = result.try_receive?
+          return early_result
+        end
+      ensure
+        @definitions_file = File.open(@definitions_file_path, "a+")
+      end
+    end
+    result.receive
+  end
+end
+
+def with_crash_restarted_server(data_dir : String, &)
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  server = LavinMQ::Server.new(config)
+  begin
+    yield server
+  ensure
+    server.close
+  end
+end
+
 describe LavinMQ::VHost do
   it "should be able to create vhosts" do
     with_amqp_server do |s|
@@ -35,7 +80,6 @@ describe LavinMQ::VHost do
   end
 
   it "should be able to persist durable delayed exchanges when type = x-delayed-message" do
-    config = LavinMQ::Config.new
     with_amqp_server do |s|
       # This spec is to verify a fix where a server couldn't start again after a crash if
       # an delayed exchange had been declared by specifiying the type as "x-delayed-message".
@@ -44,13 +88,10 @@ describe LavinMQ::VHost do
       arguments = AMQ::Protocol::Table.new({"x-delayed-type": "direct"})
       v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
 
-      # Start a new server with the same data dir as `Server` without stopping
-      # `Server` first, because stopping would compact definitions and therefore "rewrite"
-      config.data_dir = s.data_dir
+      # Start a second server with the same data dir before closing `s`, because
+      # graceful close compacts definitions and removes the WAL records.
+      with_crash_restarted_server(s.data_dir) { }
     end
-    # the definitions file. This is to simulate a start after a "crash".
-    # If this succeeds we assume it worked...?
-    LavinMQ::Server.new(config)
   end
 
   it "should be able to persist durable queues" do
@@ -72,6 +113,209 @@ describe LavinMQ::VHost do
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
       s.vhosts["test"].exchange("e").bindings_details.first.destination.name.should eq "q"
+    end
+  end
+
+  it "should replay definition wal records after json snapshots" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "q")
+
+      File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
+      File.exists?(File.join(v.data_dir, "queues.json")).should be_true
+      File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
+      File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
+
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        v = restarted.vhosts["test"]
+        v.exchange("e").should_not be_nil
+        v.queue("q").should_not be_nil
+        v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      end
+    end
+  end
+
+  it "tolerates a torn final definition wal record after a crash" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "q")
+      File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
+
+      # Simulate a crash that left a half-written final record on disk.
+      File.open(File.join(v.data_dir, "definitions.wal"), "a") do |f|
+        f.print %({"op":"queue.declare","name":"tor)
+      end
+
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        v = restarted.vhosts["test"]
+        v.queue("q").should_not be_nil
+        v.queue?("tor").should be_nil
+        v.exchange("e").bindings_details.first.destination.name.should eq "q"
+      end
+    end
+  end
+
+  it "round-trips binary and timestamp argument values losslessly" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      ts = Time.unix(1_700_000_000)
+      bin = Bytes[0_u8, 1_u8, 2_u8, 255_u8]
+      args = AMQ::Protocol::Table.new({
+        "x-bin" => bin,
+        "x-ts"  => ts,
+        "x-int" => 123,
+      } of String => AMQ::Protocol::Field)
+      v.declare_queue("q", true, false, arguments: args)
+
+      # WAL replay path
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        reloaded = restarted.vhosts["test"].queue("q").arguments
+        reloaded["x-bin"].should eq bin
+        reloaded["x-ts"].should eq ts
+        reloaded["x-int"].should eq 123
+      end
+
+      # Snapshot (compaction) path
+      definitions = v.@definitions.not_nil!
+      definitions.request_idle_compaction_for_spec
+      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      with_crash_restarted_server(s.data_dir) do |restarted|
+        reloaded = restarted.vhosts["test"].queue("q").arguments
+        reloaded["x-bin"].should eq bin
+        reloaded["x-ts"].should eq ts
+        reloaded["x-int"].should eq 123
+      end
+    end
+  end
+
+  it "writes compact definition wal records" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "q")
+      v.declare_queue("ttl", true, true, arguments: AMQ::Protocol::Table.new({"x-message-ttl" => 123}))
+
+      records = [] of JSON::Any
+      File.each_line(File.join(v.data_dir, "definitions.wal")) do |line|
+        line = line.strip
+        records << JSON.parse(line) unless line.empty?
+      end
+
+      exchange = records.find! { |r| r["op"].as_s == "exchange.declare" && r["name"].as_s == "e" }
+      exchange.as_h.has_key?("durable").should be_false
+      exchange.as_h.has_key?("auto_delete").should be_false
+      exchange.as_h.has_key?("internal").should be_false
+      exchange.as_h.has_key?("arguments").should be_false
+
+      queue = records.find! { |r| r["op"].as_s == "queue.declare" && r["name"].as_s == "q" }
+      queue.as_h.has_key?("durable").should be_false
+      queue.as_h.has_key?("exclusive").should be_false
+      queue.as_h.has_key?("auto_delete").should be_false
+      queue.as_h.has_key?("arguments").should be_false
+
+      binding = records.find! { |r| r["op"].as_s == "queue.bind" && r["queue"].as_s == "q" }
+      binding.as_h.has_key?("arguments").should be_false
+
+      auto_delete_queue = records.find! { |r| r["op"].as_s == "queue.declare" && r["name"].as_s == "ttl" }
+      auto_delete_queue["auto_delete"].as_bool.should be_true
+      auto_delete_queue["arguments"].as_h.has_key?("x-message-ttl").should be_true
+    end
+  end
+
+  it "writes compact definition snapshots" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("plain", "direct", true, false)
+      v.declare_exchange("internal", "direct", true, false, internal: true)
+      v.declare_exchange("fanout", "fanout", true, false)
+      v.declare_exchange("destination", "direct", true, false)
+      v.declare_queue("plain", true, false)
+      v.declare_queue("ttl", true, true, arguments: AMQ::Protocol::Table.new({"x-message-ttl" => 123}))
+      v.declare_queue("empty_rk", true, false)
+      v.bind_queue("plain", "plain", "plain")
+      v.bind_queue("ttl", "internal", "rk", arguments: AMQ::Protocol::Table.new({"x-match" => "any"}))
+      v.bind_queue("empty_rk", "fanout", "")
+      v.bind_exchange("destination", "plain", "")
+
+      definitions = v.@definitions.not_nil!
+      definitions.request_idle_compaction_for_spec
+      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+
+      exchanges = JSON.parse(File.read(File.join(v.data_dir, "exchanges.json"))).as_a
+      plain_exchange = exchanges.find! { |e| e["name"].as_s == "plain" }
+      plain_exchange.as_h.has_key?("durable").should be_false
+      plain_exchange.as_h.has_key?("auto_delete").should be_false
+      plain_exchange.as_h.has_key?("internal").should be_false
+      plain_exchange.as_h.has_key?("arguments").should be_false
+
+      internal_exchange = exchanges.find! { |e| e["name"].as_s == "internal" }
+      internal_exchange["internal"].as_bool.should be_true
+
+      queues = JSON.parse(File.read(File.join(v.data_dir, "queues.json"))).as_a
+      plain_queue = queues.find! { |q| q["name"].as_s == "plain" }
+      plain_queue.as_h.has_key?("durable").should be_false
+      plain_queue.as_h.has_key?("exclusive").should be_false
+      plain_queue.as_h.has_key?("auto_delete").should be_false
+      plain_queue.as_h.has_key?("arguments").should be_false
+
+      ttl_queue = queues.find! { |q| q["name"].as_s == "ttl" }
+      ttl_queue["auto_delete"].as_bool.should be_true
+      ttl_queue["arguments"].as_h.has_key?("x-message-ttl").should be_true
+
+      bindings_json = File.read(File.join(v.data_dir, "bindings.json"))
+      bindings_json.should contain("\n  {")
+      bindings = JSON.parse(bindings_json).as_a
+      plain_binding = bindings.find! { |b| b["destination"].as_s == "plain" }
+      plain_binding.as_h.has_key?("destination_type").should be_false
+      plain_binding["routing_key"].as_s.should eq "plain"
+      plain_binding.as_h.has_key?("arguments").should be_false
+
+      implicit_binding = bindings.find! { |b| b["destination"].as_s == "empty_rk" }
+      implicit_binding.as_h.has_key?("destination_type").should be_false
+      implicit_binding.as_h.has_key?("routing_key").should be_false
+
+      exchange_binding = bindings.find! { |b| b["destination"].as_s == "destination" }
+      exchange_binding["destination_type"].as_s.should eq "exchange"
+      exchange_binding.as_h.has_key?("routing_key").should be_false
+
+      binding_with_args = bindings.find! { |b| b["destination"].as_s == "ttl" }
+      binding_with_args.as_h.has_key?("destination_type").should be_false
+      binding_with_args["routing_key"].as_s.should eq "rk"
+      binding_with_args["arguments"].as_h.has_key?("x-match").should be_true
+
+      s.restart
+      v = s.vhosts["test"]
+      v.exchange("plain").durable?.should be_true
+      v.exchange("internal").internal?.should be_true
+      v.exchange("destination").durable?.should be_true
+      v.queue("plain").durable?.should be_true
+      v.queue("ttl").auto_delete?.should be_true
+      v.queue("empty_rk").durable?.should be_true
+      v.queue("ttl").arguments.has_key?("x-message-ttl").should be_true
+      v.exchange("internal").bindings_details.first.destination.name.should eq "ttl"
+      v.exchange("fanout").bindings_details.find! { |b| b.destination.name == "empty_rk" }.routing_key.should eq ""
+      v.exchange("plain").bindings_details.find! { |b| b.destination.name == "destination" }.routing_key.should eq ""
+    end
+  end
+
+  it "should not restore stale queue bindings after queue delete and recreate" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_exchange("e", "direct", true, false)
+      v.declare_queue("q", true, false)
+      v.bind_queue("q", "e", "q")
+      v.delete_queue("q")
+      v.declare_queue("q", true, false)
+
+      s.restart
+      v = s.vhosts["test"]
+      v.queue("q").should_not be_nil
+      v.exchange("e").bindings_details.should be_empty
     end
   end
 
@@ -104,18 +348,48 @@ describe LavinMQ::VHost do
 
   it "should compact definitions during runtime" do
     with_amqp_server do |s|
-      LavinMQ::Config.instance.max_deleted_definitions = 8
       v = s.vhosts.create("test")
-      (LavinMQ::Config.instance.max_deleted_definitions - 1).times do
-        v.declare_queue("q", true, false)
-        v.delete_queue("q")
-      end
-      file_size = v.@definitions.not_nil!.@definitions_file.size
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      v.@definitions.not_nil!.@definitions_file.size.should be < file_size
+      definitions = v.@definitions.not_nil!
+      file_size = definitions.@definitions_file.size
+
+      definitions.request_idle_compaction_for_spec
+      wait_for { definitions.@definitions_file.size < file_size }
+
+      File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
+      File.exists?(File.join(v.data_dir, "queues.json")).should be_true
+      File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
+      File.size(File.join(v.data_dir, "definitions.wal")).should eq 0
     end
   end
+
+  it "compacts definitions on vhost close" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      v.declare_queue("q", true, false)
+      v.delete_queue("q")
+      wal_path = File.join(v.data_dir, "definitions.wal")
+      File.size(wal_path).should be > 0
+
+      v.close
+
+      File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
+      File.exists?(File.join(v.data_dir, "queues.json")).should be_true
+      File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
+      File.size(wal_path).should eq 0
+    end
+  end
+
+  it "snapshots definition WAL compaction scheduling state under the lock" do
+    with_amqp_server do |s|
+      v = s.vhosts.create("test")
+      definitions = v.@definitions.not_nil!
+
+      definitions.compact_at_scheduled_with_wal_closed_for_spec.should eq "ok"
+    end
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       with_amqp_server do |s|
