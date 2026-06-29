@@ -105,6 +105,25 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
 The TUI poll interval is specified in seconds and must be positive. It defaults to `1.0`.
+The dashboard pages are selected with number keys:
+
+| Key | Page |
+|-----|------|
+| `1` | Overview |
+| `2` | Queues |
+| `3` | Connections |
+| `4` | Channels |
+| `5` | Exchanges |
+| `6` | Consumers |
+| `7` | Vhosts |
+| `8` | Nodes |
+| `9` | Parameters |
+| `0` | Policies |
+| `s` | Shovels |
+| `f` | Federation |
+| `u` | Users |
+
+For local TUI inspection without a broker, run `extras/tui_inspect.sh`. It starts a mock management API, runs the TUI in `tmux`, captures each page to text files, and exits.
 
 ## Global Options
 
