@@ -104,6 +104,8 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
+The TUI poll interval is specified in seconds and must be positive. It defaults to `1.0`.
+
 ## Global Options
 
 | Flag | Description |

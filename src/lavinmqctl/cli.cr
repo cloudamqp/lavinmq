@@ -95,7 +95,7 @@ class LavinMQCtl
     parse_cmd
   end
 
-  def self.tui_launcher=(launcher : Proc(HTTP::Client, Float64, Nil))
+  def self.tui_launcher=(launcher : Proc(HTTP::Client, Float64, Nil)?)
     @@tui_launcher = launcher
   end
 
@@ -1019,10 +1019,21 @@ class LavinMQCtl
   end
 
   private def start_tui
-    interval = @options["interval"]?.try(&.to_f) || 1.0
+    interval = tui_interval
     unless launcher = @@tui_launcher
       abort "TUI support is not available"
     end
     launcher.call(http, interval)
+  end
+
+  private def tui_interval
+    value = @options["interval"]?
+    return 1.0 unless value
+
+    interval = value.to_f?
+    unless interval && interval.finite? && interval > 0.0
+      abort "Invalid interval: #{value}"
+    end
+    interval
   end
 end
