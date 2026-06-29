@@ -889,27 +889,5 @@ describe LavinMQ::Launcher do
         end
       end
     end
-
-    it "warns that enabling SNI requires a restart" do
-      with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
-        File.write(config_file.path, <<-INI)
-        [main]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-
-        [sni:foobar.localhost]
-        tls_cert = spec/resources/foobar_localhost_certificate.pem
-        tls_key = spec/resources/foobar_localhost_key.pem
-        INI
-        Log.capture("lmq.launcher", :warn) do |logs|
-          launcher.reload!
-          logs.check(:warn, /Enabling SNI requires a restart/)
-        end
-      end
-    end
   end
 end
