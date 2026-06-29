@@ -63,10 +63,11 @@ module LavinMQ
         tag = msg.delivery_tag
         case @ack_mode
         in AckMode::OnConfirm
-          # The confirm callback's Bool is the broker's ack/nack — a nack (e.g.
-          # reject-publish overflow) becomes a Rejected outcome, not a silent ack.
+          # The confirm callback's Bool is the broker's ack/nack. A nack (e.g.
+          # reject-publish overflow) is transient — the queue may drain — so it
+          # becomes Retry, never a silent ack.
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do |confirmed|
-            @on_outcome.call(tag, confirmed ? Outcome::Confirmed : Outcome::Rejected)
+            @on_outcome.call(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
           end
         in AckMode::OnPublish
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
