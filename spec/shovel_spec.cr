@@ -1006,6 +1006,34 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "errors-out the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 404
+          context.response.print "not found"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "ab_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ab_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("ab_q1")
+          x.publish_confirm "no route", "ab_q1"
+          spawn shovel.run
+          # 404 = endpoint unusable: after a threshold of consecutive Aborts the
+          # shovel errors out for an operator to resolve, rather than looping.
+          should_eventually(be_true) { shovel.state.error? }
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server

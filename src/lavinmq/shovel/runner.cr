@@ -15,7 +15,11 @@ module LavinMQ
       # Consecutive transient (Retry) delivery failures, written by the outcome
       # handler (confirm fiber) and read by the consuming loop for backoff.
       @delivery_failures = Atomic(Int32).new(0)
+      # Consecutive Abort outcomes; past ABORT_THRESHOLD the shovel errors out.
+      @delivery_aborts = Atomic(Int32).new(0)
+      @aborted = false
       RETRY_THRESHOLD =  10
+      ABORT_THRESHOLD =  10
       MAX_DELAY       = 300
 
       getter name, vhost
@@ -49,28 +53,18 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
+            check_abort_threshold
             backoff_if_failing
             @destination.push(msg)
           end
           break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
-        rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          break if should_stop_loop?(run_generation)
-          @state = State::Error
-          # Shoveled queue was deleted
-          if ex.message.to_s.starts_with?("404")
-            break
-          end
-          Log.warn { ex.message }
-          @error = ex.message
-          exponential_reconnect_delay
+        rescue ex : ShovelAborted
+          error_out(ex)
+          break
         rescue ex
-          break if should_stop_loop?(run_generation)
-          @state = State::Error
-          Log.warn { ex.message }
-          @error = ex.message
-          exponential_reconnect_delay
+          break if handle_run_error(ex, run_generation)
         end
       ensure
         terminate_if_needed(run_generation)
@@ -85,6 +79,7 @@ module LavinMQ
           case outcome
           in Outcome::Confirmed
             @delivery_failures.set(0)
+            @delivery_aborts.set(0)
             source.ack(delivery_tag)
           in Outcome::Retry
             @delivery_failures.add(1)
@@ -95,6 +90,9 @@ module LavinMQ
             @delivery_failures.set(0)
             source.reject(delivery_tag, requeue: false)
           in Outcome::Abort
+            # Keep the message; the consuming loop errors-out the shovel once
+            # consecutive Aborts cross ABORT_THRESHOLD.
+            @delivery_aborts.add(1)
             source.reject(delivery_tag, requeue: true)
           end
           nil
@@ -111,7 +109,39 @@ module LavinMQ
         sleep secs.seconds
       end
 
+      # Errors-out the shovel once a destination has been classified unusable
+      # (Abort) too many times in a row. Raised inside the consuming loop.
+      private def check_abort_threshold
+        return if @delivery_aborts.get < ABORT_THRESHOLD
+        raise ShovelAborted.new("destination unusable after #{ABORT_THRESHOLD} attempts")
+      end
+
+      # Terminal: the destination is unusable. Stay in Error for the operator
+      # rather than reconnecting.
+      private def error_out(ex)
+        @aborted = true
+        @state = State::Error
+        @error = ex.message
+        Log.warn { "Aborted: #{ex.message}" }
+        @source.stop
+        @destination.stop
+      end
+
+      # Handles a connection/runtime error during a run. Returns true if the run
+      # loop should break (stopped, or the shoveled queue was deleted), false to
+      # reconnect with backoff.
+      private def handle_run_error(ex, run_generation) : Bool
+        return true if should_stop_loop?(run_generation)
+        @state = State::Error
+        return true if ex.message.to_s.starts_with?("404") # shoveled queue was deleted
+        Log.warn { ex.message }
+        @error = ex.message
+        exponential_reconnect_delay
+        false
+      end
+
       private def terminate_if_needed(run_generation)
+        return if @aborted # keep the Error state for the operator
         return if stopped_by_newer_generation?(run_generation)
         terminate if !paused?
       end
