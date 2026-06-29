@@ -58,7 +58,9 @@ module LavinMQ
       def stop
         # If we have any outstanding messages when closing, ack them first.
         @ch.try &.basic_cancel(@tag, no_wait: true)
-        @last_unacked.try { |delivery_tag| ack(delivery_tag, batch: false) }
+        @settle.synchronize do
+          @last_unacked.try { |delivery_tag| ack_locked(delivery_tag, batch: false) }
+        end
         @conn.try &.close(no_wait: false)
         @q = nil
         @ch = nil
@@ -73,20 +75,29 @@ module LavinMQ
       end
 
       @done = WaitGroup.new(1)
+      # Serializes settlement (ack/reject/timeout-flush/stop). @last_unacked is
+      # written from the confirm fiber and the ack-timeout fiber, which run on
+      # separate threads under -Dpreview_mt; the read-decide-emit-update must be
+      # indivisible, or a flush could double-settle a tag.
+      @settle = Mutex.new
 
       def ack(delivery_tag, batch = true)
-        if ch = @ch
-          return if ch.closed?
+        @settle.synchronize { ack_locked(delivery_tag, batch) }
+      end
 
-          # We batch ack for faster shovel
-          batch_full = delivery_tag % ack_batch_size == 0
-          if !batch || batch_full || at_end?(delivery_tag)
-            @last_unacked = nil
-            ch.basic_ack(delivery_tag, multiple: true)
-            @done.done if at_end?(delivery_tag)
-          else
-            @last_unacked = delivery_tag
-          end
+      private def ack_locked(delivery_tag, batch)
+        ch = @ch
+        return unless ch
+        return if ch.closed?
+
+        # We batch ack for faster shovel
+        batch_full = delivery_tag % ack_batch_size == 0
+        if !batch || batch_full || at_end?(delivery_tag)
+          @last_unacked = nil
+          ch.basic_ack(delivery_tag, multiple: true)
+          @done.done if at_end?(delivery_tag)
+        else
+          @last_unacked = delivery_tag
         end
       end
 
@@ -94,16 +105,20 @@ module LavinMQ
       # throughput, so before rejecting tag T we must flush any pending batched
       # ack of earlier tags — otherwise a later multiple-ack would settle T too.
       def reject(delivery_tag, requeue)
-        if ch = @ch
-          return if ch.closed?
-          if last = @last_unacked
-            if last < delivery_tag
-              @last_unacked = nil
-              ch.basic_ack(last, multiple: true)
-            end
+        @settle.synchronize { reject_locked(delivery_tag, requeue) }
+      end
+
+      private def reject_locked(delivery_tag, requeue)
+        ch = @ch
+        return unless ch
+        return if ch.closed?
+        if last = @last_unacked
+          if last < delivery_tag
+            @last_unacked = nil
+            ch.basic_ack(last, multiple: true)
           end
-          ch.basic_reject(delivery_tag, requeue: requeue)
         end
+        ch.basic_reject(delivery_tag, requeue: requeue)
       end
 
       def started? : Bool
@@ -152,14 +167,11 @@ module LavinMQ
           # We have nothing in memory
           next if last_unacked.nil?
 
-          # @last_unacked is nil after an ack has been sent, i.e if nil
-          # there is nothing to ack
-          next if @last_unacked.nil?
-
-          # Our memory is the same as the current @last_unacked which means
-          # that nothing has happend, lets ack!
-          if last_unacked == @last_unacked
-            ack(last_unacked, batch: false)
+          # Re-check and ack under the settlement lock so a concurrent ack/reject
+          # can't change @last_unacked between the check and the flush. If it has
+          # moved on (or been settled), there's nothing for us to do.
+          @settle.synchronize do
+            ack_locked(last_unacked, batch: false) if last_unacked == @last_unacked
           end
         end
         Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
