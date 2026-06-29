@@ -836,7 +836,8 @@ describe LavinMQ::Shovel do
         )
         dest = LavinMQ::Shovel::HTTPDestination.new(
           "spec",
-          URI.parse("http://a:b@#{addr}/pp")
+          URI.parse("http://a:b@#{addr}/pp"),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse("{}"))
         )
 
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -886,7 +887,8 @@ describe LavinMQ::Shovel do
         )
         dest = LavinMQ::Shovel::HTTPDestination.new(
           "spec",
-          URI.parse("http://a:b@#{addr}")
+          URI.parse("http://a:b@#{addr}"),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse("{}"))
         )
 
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -902,6 +904,261 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should not retry in no_ack mode" do
+      prefix = "ql_"
+      queue_name = "#{prefix}q1"
+      http_server = FailServer.new
+      http_server.start
+      target_path = "/path-for-api"
+      target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
+
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          queue_name,
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse(target_api),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
+            "dest-timeout": 0.1,
+            "dest-backoff": 0.1,
+            "dest-max-retries": 3.0,
+            "dest-jitter": 0.1
+          }))),
+          LavinMQ::Shovel::AckMode::NoAck
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "no_ack_shovel", vhost)
+
+        with_channel(s) do |ch|
+          exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
+          spawn shovel.run
+          should_eventually(eq 1) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload]
+        end
+      end
+    end
+
+    it "should retry in on_confirm mode" do
+      prefix = "ql_"
+      queue_name = "#{prefix}q1"
+      target_path = "/path-for-api"
+      http_server = FailServer.new({target_path => 2})
+      http_server.start
+      target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
+
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          queue_name,
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse(target_api),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
+            "dest-timeout": 0.1,
+            "dest-backoff": 0.1,
+            "dest-max-retries": 3,
+            "dest-jitter": 0.1
+          }))),
+          LavinMQ::Shovel::AckMode::OnConfirm
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "on_confirm_shovel", vhost)
+
+        with_channel(s) do |ch|
+          exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
+          spawn shovel.run
+          should_eventually(eq 3) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload, payload, payload]
+          should_eventually(eq 0) { s.vhosts["/"].queue(queue_name).message_count }
+        end
+      end
+    end
+
+    it "should retry in on_publish" do
+      prefix = "ql_"
+      queue_name = "#{prefix}q1"
+      target_path = "/path-for-api"
+      http_server = FailServer.new({target_path => 2})
+      http_server.start
+      target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
+
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          queue_name,
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse(target_api),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
+            "dest-timeout": 0.1,
+            "dest-backoff": 0.1,
+            "dest-max-retries": 3,
+            "dest-jitter": 0.1
+          }))),
+          LavinMQ::Shovel::AckMode::OnPublish
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "on_publish_shovel", vhost)
+
+        with_channel(s) do |ch|
+          exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
+          payload = %({"fail": true})
+          exchange.publish_confirm payload, queue_name
+          spawn shovel.run
+          should_eventually(eq 3) { http_server.get_fail_count(target_path) }
+          http_server.received_bodies(target_path).should eq [payload, payload, payload]
+          should_eventually(eq 0) { s.vhosts["/"].queue(queue_name).message_count }
+        end
+      end
+    end
+
+    it "should retry on request timeout" do
+      prefix = "ql_"
+      queue_name = "#{prefix}q1"
+      target_path = "/slow"
+      # Time out (sleep past dest-timeout) on requests in the first 600ms, then
+      # respond 200. fail_until 0 disables 500s so only timeouts drive retries.
+      http_server = FailServer.new({target_path => 0}, slow_window: 600.milliseconds)
+      http_server.start
+      target_api = "http://127.0.0.1:#{http_server.addr}#{target_path}"
+
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          queue_name,
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse(target_api),
+          LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
+            "dest-timeout": 0.2,
+            "dest-backoff": 0.1,
+            "dest-max-retries": 10,
+            "dest-jitter": 0.1
+          }))),
+          LavinMQ::Shovel::AckMode::OnConfirm
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "timeout_shovel", vhost)
+
+        with_channel(s) do |ch|
+          exchange, _ = ShovelSpecHelpers.setup_qs ch, prefix
+          exchange.publish_confirm %({"hello": true}), queue_name
+          q = s.vhosts["/"].queue(queue_name)
+          spawn shovel.run
+          # Timeouts must be retried in place until the post-window 200, then the
+          # source message is acked (message_count and unacked_count both zero).
+          # If timeouts bubbled to the runner's reconnect path instead, it would
+          # requeue the message and sleep 5s, missing this 3s window.
+          should_eventually(be_true, 3.seconds) { q.message_count.zero? && q.unacked_count.zero? }
+          http_server.received_bodies(target_path).empty?.should be_false
+        end
+      end
+    end
+
+    describe LavinMQ::Shovel::HTTPDestinationParameters do
+      it "accepts both integer and float JSON for numeric parameters" do
+        params = LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
+          "dest-max-retries": 3.0,
+          "dest-backoff": 2,
+          "dest-timeout": 10,
+          "dest-jitter": 0.5
+        })))
+        params.max_retries.should eq 3
+        params.backoff.should eq 2.0
+        params.timeout.should eq 10.0
+        params.jitter.should eq 0.5
+      end
+
+      it "falls back to defaults when parameters are absent" do
+        params = LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse("{}"))
+        params.max_retries.should eq 0
+        params.backoff.should eq 2.0
+        params.timeout.should eq 30.0
+        params.jitter.should eq 1.0
+      end
+    end
+  end
+end
+
+class FailServer
+  @state : Hash(String, Int32) = Hash(String, Int32).new
+  @received_bodies : Hash(String, Array(String)) = Hash(String, Array(String)).new
+  @server : HTTP::Server
+  @slow_start : Time::Instant?
+  getter addr : Int32
+
+  # @fail_until: respond 500 for the first N requests per path, 200 after.
+  # @slow_window: sleep (past the client timeout) on every request received
+  #   within this wall-clock window of the first request, responding normally
+  #   afterwards. Used to exercise request-timeout retries.
+  def initialize(@fail_until : Hash(String, Int32) = Hash(String, Int32).new,
+                 @slow_window : Time::Span = 0.seconds)
+    @server = create_fail_server()
+    @addr = @server.bind_unused_port.port
+  end
+
+  def start
+    spawn @server.listen
+    Fiber.yield
+    @server
+  end
+
+  def get_fail_count(path : String)
+    @state[path]? || 0
+  end
+
+  def received_bodies(path : String) : Array(String)
+    @received_bodies[path]? || [] of String
+  end
+
+  def state
+    @state
+  end
+
+  private def create_fail_server
+    server = HTTP::Server.new do |context|
+      path = context.request.path
+
+      body = context.request.body.try(&.gets_to_end) || ""
+      (@received_bodies[path] ||= [] of String) << body
+
+      count = (@state[path]? || 0) + 1
+      @state[path] = count
+
+      if @slow_window > 0.seconds
+        start = (@slow_start ||= Time.instant)
+        sleep @slow_window if Time.instant - start < @slow_window
+      end
+
+      fail_until = @fail_until[path]? || Int32::MAX
+      context.response.status_code = 500 if count <= fail_until
+      context.response.content_type = "text/plain"
+      context.response.print "ok"
+      context
+    end
+    server
   end
 
   describe "Store.validate_config!" do
