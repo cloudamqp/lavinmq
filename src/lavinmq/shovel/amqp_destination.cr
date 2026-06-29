@@ -56,18 +56,21 @@ module LavinMQ
         !@ch.nil? && !@conn.try &.closed?
       end
 
-      def push(msg, source)
+      def push(msg)
         ch = @ch || raise "Not started"
         ex = @exchange || msg.exchange
         rk = @exchange_key || msg.routing_key
+        tag = msg.delivery_tag
         case @ack_mode
         in AckMode::OnConfirm
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do
-            source.ack(msg.delivery_tag)
+          # The confirm callback's Bool is the broker's ack/nack — a nack (e.g.
+          # reject-publish overflow) becomes a Rejected outcome, not a silent ack.
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do |confirmed|
+            @on_outcome.call(tag, confirmed ? Outcome::Confirmed : Outcome::Rejected)
           end
         in AckMode::OnPublish
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
-          source.ack(msg.delivery_tag)
+          @on_outcome.call(tag, Outcome::Confirmed)
         in AckMode::NoAck
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
         end
