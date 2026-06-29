@@ -32,8 +32,8 @@ module LavinMQ
         @filters.any? { |f| TopicFilterSet.filters_overlap?(filter, f) }
       end
 
-      def self.expand(pattern : String, username : String, client_id : String) : String
-        pattern.gsub("{username}", username).gsub("{client_id}", client_id)
+      def self.expand(pattern : String, username : String) : String
+        pattern.gsub("{username}", username)
       end
 
       # True if MQTT filters a and b can both match at least one concrete topic.

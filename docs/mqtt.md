@@ -116,14 +116,12 @@ Permission groups are global objects managed via `/api/permission-groups`. A gro
   "apply_to_all": false,
   "members": ["alice"],
   "rules": [
-    { "pattern": "chat/{client_id}/#", "read": true, "write": true }
+    { "pattern": "chat/{username}/#", "read": true, "write": true }
   ]
 }
 ```
 
-Patterns use MQTT wildcards (`+`, `#`) and support the substitution variables `{username}` and `{client_id}`, expanded per connection.
-
-`{client_id}` only provides isolation when client ids are trustworthy. Set `client_id_validation = username` (see below) so a client cannot claim another client's id; otherwise `{client_id}` rules give no real isolation.
+Patterns use MQTT wildcards (`+`, `#`) and support the `{username}` substitution variable, expanded per connection to the authenticated user name.
 
 A SUBSCRIBE to a filter that overlaps no read rule is rejected with a SUBACK failure. A broad subscription such as `#` is accepted and then filtered at delivery, so a client receives only messages it is allowed to read.
 

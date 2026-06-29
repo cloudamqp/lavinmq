@@ -11,13 +11,12 @@ module LavinMQ
       end
 
       def self.build(groups : Array(Auth::PermissionGroup),
-                     username : String,
-                     client_id : String) : TopicPermissions
+                     username : String) : TopicPermissions
         read = TopicFilterSet.new
         write = TopicFilterSet.new
         groups.each do |group|
           group.rules.each do |rule|
-            pattern = TopicFilterSet.expand(rule.pattern, username, client_id)
+            pattern = TopicFilterSet.expand(rule.pattern, username)
             read.add(pattern) if rule.read?
             write.add(pattern) if rule.write?
           end

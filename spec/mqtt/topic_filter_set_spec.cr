@@ -3,12 +3,9 @@ require "../../src/lavinmq/mqtt/topic_filter_set"
 
 describe LavinMQ::MQTT::TopicFilterSet do
   describe ".expand" do
-    it "substitutes username and client_id" do
+    it "substitutes the username" do
       LavinMQ::MQTT::TopicFilterSet
-        .expand("chat/{client_id}/#", "alice", "dev42")
-        .should eq "chat/dev42/#"
-      LavinMQ::MQTT::TopicFilterSet
-        .expand("u/{username}/+", "alice", "dev42")
+        .expand("u/{username}/+", "alice")
         .should eq "u/alice/+"
     end
   end

@@ -82,7 +82,7 @@ module LavinMQ
         tp = @topic_permissions
         if tp.nil? || rev != @topic_permissions_revision
           groups = store.for_mqtt_user(@user.name)
-          tp = TopicPermissions.build(groups, @user.name, @client_id)
+          tp = TopicPermissions.build(groups, @user.name)
           @topic_permissions = tp
           @topic_permissions_revision = rev
         end
