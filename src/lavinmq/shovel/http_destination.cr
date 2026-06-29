@@ -26,7 +26,7 @@ module LavinMQ
         !@client.nil?
       end
 
-      def push(msg, source)
+      def push(msg)
         c = @client || raise "Not started"
         headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
         headers["X-Shovel"] = @name
@@ -48,8 +48,9 @@ module LavinMQ
         response = c.post(path, headers: headers, body: msg.body_io)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
-          raise FailedDeliveryError.new unless response.success?
-          source.ack(msg.delivery_tag)
+          # A non-2xx response means the message was not delivered — report it
+          # as Rejected so the Runner requeues it, rather than dropping it.
+          @on_outcome.call(msg.delivery_tag, response.success? ? Outcome::Confirmed : Outcome::Rejected)
         in AckMode::NoAck
         end
       end
