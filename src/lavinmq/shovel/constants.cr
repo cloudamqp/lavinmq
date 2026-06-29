@@ -40,5 +40,9 @@ module LavinMQ
       Reject
       Abort
     end
+
+    # Raised by the Runner to error-out a shovel permanently (no reconnect)
+    # after a destination is classified unusable past the Abort threshold.
+    class ShovelAborted < Exception; end
   end
 end
