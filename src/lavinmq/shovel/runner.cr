@@ -33,6 +33,7 @@ module LavinMQ
       def run
         Log.context.set(name: @name, vhost: @vhost.name)
         run_generation = @stop_generation.get(:acquire)
+        register_outcome_handler
         loop do
           break if should_stop_loop?(run_generation)
           @state = State::Starting
@@ -45,7 +46,7 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
-            @destination.push(msg, @source)
+            @destination.push(msg)
           end
           break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
@@ -69,6 +70,20 @@ module LavinMQ
         end
       ensure
         terminate_if_needed(run_generation)
+      end
+
+      # The single place a delivery Outcome becomes a source action: a confirmed
+      # delivery acks; a rejection (broker nack or HTTP error) requeues so
+      # queue-based retry/DLX policies still apply. Registered once per run.
+      private def register_outcome_handler
+        source = @source
+        @destination.on_outcome = ->(delivery_tag : UInt64, outcome : Outcome) do
+          case outcome
+          in Outcome::Confirmed then source.ack(delivery_tag)
+          in Outcome::Rejected  then source.reject(delivery_tag, requeue: true)
+          end
+          nil
+        end
       end
 
       private def terminate_if_needed(run_generation)

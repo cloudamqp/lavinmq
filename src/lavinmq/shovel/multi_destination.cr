@@ -12,6 +12,7 @@ module LavinMQ
         return if started?
         next_dest = @destinations.sample
         return unless next_dest
+        next_dest.on_outcome = @on_outcome
         next_dest.start
         @current_dest = next_dest
       end
@@ -21,8 +22,8 @@ module LavinMQ
         @current_dest = nil
       end
 
-      def push(msg, source)
-        @current_dest.try &.push(msg, source)
+      def push(msg)
+        @current_dest.try &.push(msg)
       end
 
       def started? : Bool
