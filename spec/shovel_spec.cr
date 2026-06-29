@@ -276,6 +276,36 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "does not deadlock when the final message of a queue-length shovel fails delivery" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 503 # Retry -> reject(requeue: true), never Confirmed
+          context.response.print "busy"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "qf_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qf_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("qf_q1")
+          x.publish_confirm "only msg", "qf_q1"
+          finished = false
+          spawn { shovel.run; finished = true }
+          # The final (only) message fails; the shovel must still finish instead
+          # of blocking forever on @done.wait waiting for an ack that never comes.
+          should_eventually(be_true, 5.seconds) { finished }
+        end
+      end
+    end
+
     it "should shovel large messages" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")

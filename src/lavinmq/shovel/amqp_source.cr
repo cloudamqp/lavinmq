@@ -119,6 +119,10 @@ module LavinMQ
           end
         end
         ch.basic_reject(delivery_tag, requeue: requeue)
+        # A queue-length shovel's `each` blocks on @done.wait after the final
+        # message; signal it here too so a failed (non-Confirmed) final delivery
+        # doesn't hang the run fiber forever.
+        @done.done if at_end?(delivery_tag)
       end
 
       def started? : Bool
