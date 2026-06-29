@@ -53,6 +53,9 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
+            # Paused/terminated: start no new delivery. An already in-flight push
+            # can't be interrupted, but we don't begin another one.
+            next if should_stop_loop?(run_generation)
             check_abort_threshold
             backoff_if_failing
             @destination.push(msg)
