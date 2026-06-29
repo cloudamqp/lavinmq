@@ -179,12 +179,12 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
+          store_definition(f, fsync: fsync) if !loading && src.persistent? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
+          store_definition(f, dirty: true) if !loading && src.persistent? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
           q = QueueFactory.make(@vhost, f)
@@ -353,15 +353,22 @@ module LavinMQ
             s.auto_delete?, false, s.arguments)
           io.write_bytes f
         end
-        @exchanges.each_value.select(&.durable?).each do |e|
+        @exchanges.each_value.select(&.persistent?).each do |e|
           e.bindings_details.each do |binding|
+            dest = binding.destination
+            # A persistent-but-not-durable exchange (the MQTT exchange) only
+            # persists its exchange-to-exchange bindings to durable
+            # destinations; its session subscriptions stay transient (#1136).
+            unless e.durable?
+              next unless dest.is_a?(Exchange) && dest.durable?
+            end
             args = binding.arguments || AMQP::Table.new
-            frame = case binding.destination
+            frame = case dest
                     when Queue
-                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
+                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, dest.name, e.name,
                         binding.routing_key, false, args)
                     when Exchange
-                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
+                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, dest.name, e.name,
                         binding.routing_key, false, args)
                     end
             if f = frame

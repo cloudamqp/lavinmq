@@ -16,17 +16,20 @@ module LavinMQ
       # Non wildcards may be an unnecessary "optimization". We store all subscriptions without
       # wildcard in the first level. No need to make a tree out of them.
       @non_wildcards = Hash(String, Hash(T, UInt8)).new do |h, k|
-        h[k] = Hash(T, UInt8).new.compare_by_identity
+        h[k] = Hash(T, UInt8).new
       end
       # Keyed by owned Bytes copies of each level. Bytes hash and compare by
       # content, so matching can look up with zero-allocation views into the
       # published topic.
       @sublevels = Hash(Bytes, SubscriptionTree(T)).new
 
-      def initialize
-        @wildcard_rest.compare_by_identity
-        @leafs.compare_by_identity
-      end
+      # NOTE: the T-keyed hashes (@leafs, @wildcard_rest, @non_wildcards) do not
+      # use compare_by_identity. Sessions fall back to Reference identity
+      # equality (unchanged behaviour), while wrapper entries like
+      # MQTT::AMQPDestination can define value equality so bind/unbind may
+      # create fresh, interchangeable wrappers (#1136). These hashes are only
+      # mutated on (un)subscribe (cold path); the publish hot path iterates via
+      # #each_entry and never hashes by T.
 
       def subscribe(filter : String, session : T, qos : UInt8)
         if filter.index('#').nil? && filter.index('+').nil?

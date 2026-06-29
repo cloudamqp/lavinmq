@@ -4,6 +4,11 @@ module MqttSpecs
   extend MqttHelpers
 
   describe LavinMQ::MQTT::Exchange do
+    it "does not inherit from AMQP::Exchange (protocol decoupling, #1136)" do
+      {{ LavinMQ::MQTT::Exchange.ancestors.includes?(LavinMQ::Exchange) }}.should be_true
+      {{ LavinMQ::MQTT::Exchange.ancestors.includes?(LavinMQ::AMQP::Exchange) }}.should be_false
+    end
+
     it "removes all subscriptions from the subscription tree when a session is removed" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

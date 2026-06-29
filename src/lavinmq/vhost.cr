@@ -16,6 +16,8 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/exchange"
+require "./mqtt/retain_store"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
@@ -206,6 +208,15 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
+    # The MQTT routing exchange and its retain store are owned by the VHost (not
+    # the per-vhost MQTT::Broker) so they exist before definitions are replayed.
+    # This lets persisted cross-protocol bindings whose source is the MQTT
+    # exchange be re-applied during load! (#1136). The Broker attaches to these.
+    # Declared nilable to satisfy initialization ordering (assigned in
+    # #initialize before any use), exposed via non-nil accessors below.
+    @mqtt_exchange : MQTT::Exchange?
+    @mqtt_retain_store : MQTT::RetainStore?
+
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
@@ -220,6 +231,13 @@ module LavinMQ
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
+      # Register the MQTT exchange before load! so persisted cross-protocol
+      # bindings (source = the MQTT exchange) can be re-applied during replay.
+      retain_store = MQTT::RetainStore.new(File.join(@data_dir, "mqtt_retained_store"), @replicator)
+      @mqtt_retain_store = retain_store
+      mqtt_exchange = MQTT::Exchange.new(self, MQTT::EXCHANGE, retain_store)
+      @mqtt_exchange = mqtt_exchange
+      register_exchange(mqtt_exchange)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -530,6 +548,7 @@ module LavinMQ
       each_queue &.close
       each_session &.close
       each_exchange &.close
+      @mqtt_retain_store.try &.close
       Fiber.yield
       definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -644,6 +663,14 @@ module LavinMQ
 
     private def definitions : DefinitionsStore
       @definitions.not_nil!
+    end
+
+    def mqtt_exchange : MQTT::Exchange
+      @mqtt_exchange.not_nil!
+    end
+
+    def mqtt_retain_store : MQTT::RetainStore
+      @mqtt_retain_store.not_nil!
     end
   end
 end

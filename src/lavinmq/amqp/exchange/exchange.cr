@@ -131,6 +131,10 @@ module LavinMQ
           @arguments == frame_args
       end
 
+      def persistent? : Bool
+        durable?
+      end
+
       def in_use?
         return true unless bindings_details.empty?
         @vhost.exchanges_any? do |_, x|

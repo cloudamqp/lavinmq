@@ -25,9 +25,10 @@ module LavinMQ
       def initialize(@vhost : VHost, @replicator : Clustering::Replicator?)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
-        @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
-        @vhost.register_exchange(@exchange)
+        # The exchange and retain store are owned by the VHost (created before
+        # definitions replay); the broker attaches to them. (#1136)
+        @retain_store = @vhost.mqtt_retain_store
+        @exchange = @vhost.mqtt_exchange
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -102,7 +103,7 @@ module LavinMQ
       end
 
       def close
-        @retain_store.close
+        # The retain store is owned and closed by the VHost.
       end
     end
   end

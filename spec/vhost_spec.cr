@@ -34,6 +34,43 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "persists an MQTT exchange to AMQP exchange binding across restart (#1136)" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      v.declare_exchange("amq.dest", "topic", true, false)
+      v.bind_exchange("amq.dest", LavinMQ::MQTT::EXCHANGE, "sensors/+/temp")
+      v.exchange(LavinMQ::MQTT::EXCHANGE).bindings_details
+        .map(&.destination.name).should contain("amq.dest")
+      s.restart
+      v = s.vhosts["/"]
+      v.exchange(LavinMQ::MQTT::EXCHANGE).bindings_details
+        .map(&.destination.name).should contain("amq.dest")
+    end
+  end
+
+  it "does not persist a cross-protocol binding to a non-durable AMQP exchange (#1136)" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      v.declare_exchange("amq.transient", "topic", false, false)
+      v.bind_exchange("amq.transient", LavinMQ::MQTT::EXCHANGE, "a/b")
+      s.restart
+      v = s.vhosts["/"]
+      v.exchange(LavinMQ::MQTT::EXCHANGE).bindings_details.should be_empty
+    end
+  end
+
+  it "removes the cross-protocol binding when the downstream exchange is deleted (#1136)" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      v.declare_exchange("amq.dest", "topic", true, false)
+      v.bind_exchange("amq.dest", LavinMQ::MQTT::EXCHANGE, "a/b")
+      mqtt_ex = v.exchange(LavinMQ::MQTT::EXCHANGE)
+      mqtt_ex.bindings_details.size.should eq 1
+      v.delete_exchange("amq.dest")
+      mqtt_ex.bindings_details.should be_empty
+    end
+  end
+
   it "should be able to persist durable delayed exchanges when type = x-delayed-message" do
     config = LavinMQ::Config.new
     with_amqp_server do |s|
