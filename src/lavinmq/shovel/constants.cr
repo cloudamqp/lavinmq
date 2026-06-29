@@ -26,11 +26,19 @@ module LavinMQ
       NoAck
     end
 
-    # The result a Destination reports back for a single delivery attempt.
-    # The Runner interprets it: Confirmed acks the source, Rejected requeues it.
+    # The per-message disposition a Destination reports for a delivery attempt.
+    # The Destination classifies its native result (HTTP status, AMQP confirm)
+    # into one of these; the Runner decides what each one does:
+    #   Confirmed - delivered; ack the source.
+    #   Retry     - transient failure; requeue and retry with backoff.
+    #   Reject    - the message is unacceptable; reject without requeue (DLX).
+    #   Abort     - the destination is unusable; keep the message and, past a
+    #               threshold of consecutive Aborts, error-out the shovel.
     enum Outcome
       Confirmed
-      Rejected
+      Retry
+      Reject
+      Abort
     end
   end
 end
