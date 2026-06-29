@@ -859,6 +859,30 @@ describe LavinMQ::Launcher do
       end
     end
 
+    it "serves a per-host certificate for an SNI host added on reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+      [main]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
+
+        # Add an SNI host and reload, as a SIGHUP would.
+        File.write(config_file.path, <<-INI)
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+        launcher.reload!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+      end
+    end
+
     it "warns that enabling TLS requires a restart" do
       with_launcher("[main]\nstats_interval = 5000\n") do |launcher, _config, config_file|
         launcher.@amqp_tls_context.should be_nil
