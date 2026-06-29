@@ -12,6 +12,9 @@ module LavinMQ
       @message_count : UInt64 = 0
       @retries : Int64 = 0
       @stop_generation = Atomic(UInt64).new(0_u64)
+      # Consecutive transient (Retry) delivery failures, written by the outcome
+      # handler (confirm fiber) and read by the consuming loop for backoff.
+      @delivery_failures = Atomic(Int32).new(0)
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
 
@@ -46,6 +49,7 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
+            backoff_if_failing
             @destination.push(msg)
           end
           break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated
@@ -79,13 +83,32 @@ module LavinMQ
         source = @source
         @destination.on_outcome = ->(delivery_tag : UInt64, outcome : Outcome) do
           case outcome
-          in Outcome::Confirmed then source.ack(delivery_tag)
-          in Outcome::Retry     then source.reject(delivery_tag, requeue: true)
-          in Outcome::Reject    then source.reject(delivery_tag, requeue: false)
-          in Outcome::Abort     then source.reject(delivery_tag, requeue: true)
+          in Outcome::Confirmed
+            @delivery_failures.set(0)
+            source.ack(delivery_tag)
+          in Outcome::Retry
+            @delivery_failures.add(1)
+            source.reject(delivery_tag, requeue: true)
+          in Outcome::Reject
+            # The endpoint responded (it just refused this message), so it is
+            # healthy — clear the backoff.
+            @delivery_failures.set(0)
+            source.reject(delivery_tag, requeue: false)
+          in Outcome::Abort
+            source.reject(delivery_tag, requeue: true)
           end
           nil
         end
+      end
+
+      # Sleep before the next delivery in proportion to recent transient
+      # failures, so a persistently-rejecting destination is retried with
+      # capped exponential backoff rather than in a tight loop.
+      private def backoff_if_failing
+        failures = @delivery_failures.get
+        return if failures.zero?
+        secs = Math.min(MAX_DELAY.to_f, 2.0 ** Math.min(failures, 8))
+        sleep secs.seconds
       end
 
       private def terminate_if_needed(run_generation)
