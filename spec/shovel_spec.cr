@@ -1070,6 +1070,47 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "fails over to the next destination when the active one is unusable (#4)" do
+      with_amqp_server do |s|
+        bad_received = Atomic(Int32).new(0)
+        bad = HTTP::Server.new do |context|
+          bad_received.add(1)
+          context.response.status_code = 404
+          context.response.print "no route"
+          context
+        end
+        bad_addr = bad.bind_unused_port
+        spawn bad.listen
+
+        good_received = Atomic(Int32).new(0)
+        good = HTTP::Server.new do |context|
+          good_received.add(1)
+          context.response.print "ok"
+          context
+        end
+        good_addr = good.bind_unused_port
+        spawn good.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "fo_q1", direct_user: s.users.direct_user)
+        dest_a = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{bad_addr}/"))
+        dest_b = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{good_addr}/"))
+        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest_a, dest_b] of LavinMQ::Shovel::Destination)
+        shovel = LavinMQ::Shovel::Runner.new(source, multi, "fo_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("fo_q1")
+          x.publish_confirm "deliver me", "fo_q1"
+          spawn shovel.run
+          # A (404) is tried first and is unusable, so the shovel fails over to B
+          should_eventually(eq 1) { good_received.get }
+          bad_received.get.should be >= 1
+          shovel.terminate
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server
