@@ -10,6 +10,7 @@ class LavinMQCtl
       @width = 0
       @height = 0
       @page = :overview
+      @last_error = nil.as(String?)
     end
 
     def start
@@ -58,25 +59,19 @@ class LavinMQCtl
     end
 
     private def fetch_overview
-      response = @client.get("/api/overview")
-      if response.status_code == 200
-        JSON.parse(response.body)
-      else
-        nil
-      end
-    rescue
-      nil
+      fetch_json("/api/overview", "overview")
     end
 
     private def fetch_queues
-      response = @client.get("/api/queues?page=1&page_size=20&sort=message_stats.publish_details.rate&sort_reverse=true")
-      if response.status_code == 200
-        JSON.parse(response.body)["items"].as_a
-      else
-        [] of JSON::Any
+      data = fetch_json("/api/queues?page=1&page_size=20&sort=message_stats.publish_details.rate&sort_reverse=true", "queues")
+      return [] of JSON::Any unless data
+
+      items = child(data, "items")
+      unless queues = items.try(&.as_a?)
+        record_error("queues: missing items")
+        return [] of JSON::Any
       end
-    rescue
-      [] of JSON::Any
+      queues
     end
 
     private def render
@@ -84,6 +79,7 @@ class LavinMQCtl
 
       # Ensure size is up to date (though resize event handles it mostly)
       @width, @height = @termisu.size
+      @last_error = nil
 
       overview = fetch_overview
 
@@ -102,6 +98,25 @@ class LavinMQCtl
       @termisu.render
     end
 
+    private def fetch_json(path : String, label : String) : JSON::Any?
+      response = @client.get(path)
+      unless response.status_code == 200
+        record_error("#{label}: HTTP #{response.status_code} #{response.status}")
+        return nil
+      end
+      JSON.parse(response.body)
+    rescue ex : JSON::ParseException
+      record_error("#{label}: invalid JSON (#{ex.message})")
+      nil
+    rescue ex
+      record_error("#{label}: #{ex.message || ex.class.name}")
+      nil
+    end
+
+    private def record_error(message : String)
+      @last_error = message
+    end
+
     private def print_at(x, y, text, fg = Termisu::Color.default, bg = Termisu::Color.default, attr = Termisu::Attribute::None)
       text.each_char_with_index do |char, i|
         next if x + i >= @width
@@ -109,9 +124,9 @@ class LavinMQCtl
       end
     end
 
-    private def render_header(overview)
-      version = overview.try { |o| o["lavinmq_version"]? } || "?"
-      node = overview.try { |o| o["node"]? } || "Unknown"
+    private def render_header(overview : JSON::Any?)
+      version = json_text(child(overview, "lavinmq_version"), "?")
+      node = json_text(child(overview, "node"), "Unknown")
 
       header_bg = Termisu::Color.blue
       header_fg = Termisu::Color.white
@@ -134,20 +149,23 @@ class LavinMQCtl
         @termisu.set_cell(i, y, ' ', Termisu::Color.black, Termisu::Color.white)
       end
       print_at(0, y, footer_text, Termisu::Color.black, Termisu::Color.white)
+      if error = @last_error
+        print_at(footer_text.size, y, "| #{error} ", Termisu::Color.red, Termisu::Color.white)
+      end
     end
 
-    private def render_overview_page(overview)
+    private def render_overview_page(overview : JSON::Any?)
       return unless overview
 
       y = 2
-      if totals = overview["object_totals"]?
+      if totals = child(overview, "object_totals")
         print_at(2, y, "Totals:", Termisu::Color.yellow, Termisu::Color.default, Termisu::Attribute::Bold)
         y += 2
 
-        conns = totals["connections"]?
-        chans = totals["channels"]?
-        queues = totals["queues"]?
-        consumers = totals["consumers"]?
+        conns = json_text(child(totals, "connections"))
+        chans = json_text(child(totals, "channels"))
+        queues = json_text(child(totals, "queues"))
+        consumers = json_text(child(totals, "consumers"))
 
         print_at(4, y, "Connections: #{conns}")
         print_at(30, y, "Channels:    #{chans}")
@@ -157,16 +175,16 @@ class LavinMQCtl
       end
 
       y += 3
-      if queue_totals = overview["queue_totals"]?
+      if queue_totals = child(overview, "queue_totals")
         print_at(2, y, "Messages:", Termisu::Color.yellow, Termisu::Color.default, Termisu::Attribute::Bold)
         y += 2
 
-        msgs = queue_totals["messages"]?
-        ready = queue_totals["messages_ready"]?
-        unacked = queue_totals["messages_unacknowledged"]?
+        msgs = json_text(child(queue_totals, "messages"))
+        ready = json_text(child(queue_totals, "messages_ready"))
+        unacked = json_text(child(queue_totals, "messages_unacknowledged"))
 
         # Rate is global publish rate
-        rate = overview.dig?("message_stats", "publish_details", "rate").try(&.as_f?) || 0.0
+        rate = json_float(child(child(child(overview, "message_stats"), "publish_details"), "rate"))
 
         print_at(4, y, "Total:       #{msgs}")
         print_at(30, y, "Rate:        #{rate}/s")
@@ -177,7 +195,7 @@ class LavinMQCtl
       end
     end
 
-    private def render_queues_page(queues)
+    private def render_queues_page(queues : Array(JSON::Any))
       y = 2
       print_at(2, y, "Top Queues:", Termisu::Color.yellow, Termisu::Color.default, Termisu::Attribute::Bold)
       y += 2
@@ -194,10 +212,10 @@ class LavinMQCtl
       queues.each do |q|
         break if y >= @height - 2
 
-        name = q["name"].as_s
-        msgs = q["messages"].as_i
-        ready = q["messages_ready"].as_i
-        rate = q.dig?("message_stats", "publish_details", "rate").try(&.as_f?) || 0.0
+        name = json_text(child(q, "name"))
+        msgs = json_text(child(q, "messages"))
+        ready = json_text(child(q, "messages_ready"))
+        rate = json_float(child(child(child(q, "message_stats"), "publish_details"), "rate"))
 
         name = name[0..27] + ".." if name.size > 29
 
@@ -212,6 +230,27 @@ class LavinMQCtl
 
         y += 1
       end
+    end
+
+    private def child(value : JSON::Any?, key : String) : JSON::Any?
+      return unless value
+
+      if object = value.as_h?
+        object[key]?
+      end
+    end
+
+    private def json_text(value : JSON::Any?, default = "-") : String
+      return default unless value
+
+      raw = value.raw
+      raw.nil? ? default : raw.to_s
+    end
+
+    private def json_float(value : JSON::Any?) : Float64
+      return 0.0 unless value
+
+      value.as_f? || value.as_i?.try(&.to_f) || 0.0
     end
   end
 end
