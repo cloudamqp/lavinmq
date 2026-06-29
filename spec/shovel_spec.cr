@@ -941,6 +941,38 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "dead-letters via the source DLX when the HTTP destination returns 400 (#5 Reject)" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 400
+          context.response.print "bad request"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "rej_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rej_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          dlq = ch.queue("rej_dlq")
+          dlq.bind("amq.fanout", "")
+          args = AMQP::Client::Arguments.new
+          args["x-dead-letter-exchange"] = "amq.fanout"
+          q1 = ch.queue("rej_q1", args: args)
+          x.publish_confirm "bad msg", "rej_q1"
+          spawn shovel.run
+          # 400 = bad message: rejected without requeue, so the source DLX takes it
+          should_eventually(eq 1) { dlq.message_count }
+          q1.message_count.should eq 0
+          shovel.terminate
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server

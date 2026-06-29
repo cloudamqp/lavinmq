@@ -80,7 +80,9 @@ module LavinMQ
         @destination.on_outcome = ->(delivery_tag : UInt64, outcome : Outcome) do
           case outcome
           in Outcome::Confirmed then source.ack(delivery_tag)
-          in Outcome::Rejected  then source.reject(delivery_tag, requeue: true)
+          in Outcome::Retry     then source.reject(delivery_tag, requeue: true)
+          in Outcome::Reject    then source.reject(delivery_tag, requeue: false)
+          in Outcome::Abort     then source.reject(delivery_tag, requeue: true)
           end
           nil
         end
