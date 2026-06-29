@@ -1034,6 +1034,42 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "stops delivering once the shovel is paused, mid-stream (#1612 part 2 / #5.4)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          sleep 0.3.seconds
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "pf_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pf_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("pf_q1")
+          6.times { |i| x.publish_confirm "m#{i}", "pf_q1" }
+          spawn shovel.run
+          wait_for { received.get >= 1 } # first delivery in-flight
+          shovel.pause
+          shovel.state.paused?.should be_true
+          # Delivery must halt promptly: at most an in-flight/buffered straggler
+          # drains, then it stops. The bug let retries continue after pause.
+          sleep 1.second
+          settled = received.get
+          sleep 1.second
+          received.get.should eq settled # no ongoing retries after pause
+          settled.should be < 6          # halted mid-stream, didn't drain
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server
