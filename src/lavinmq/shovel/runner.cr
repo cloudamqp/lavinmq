@@ -85,12 +85,16 @@ module LavinMQ
             @delivery_aborts.set(0)
             source.ack(delivery_tag)
           in Outcome::Retry
+            # A non-abort outcome breaks any consecutive-abort streak: the
+            # destination is reachable, just not accepting this message yet.
+            @delivery_aborts.set(0)
             @delivery_failures.add(1)
             source.reject(delivery_tag, requeue: true)
           in Outcome::Reject
             # The endpoint responded (it just refused this message), so it is
-            # healthy — clear the backoff.
+            # healthy — clear the backoff and the abort streak.
             @delivery_failures.set(0)
+            @delivery_aborts.set(0)
             source.reject(delivery_tag, requeue: false)
           in Outcome::Abort
             # Keep the message; the consuming loop errors-out the shovel once
