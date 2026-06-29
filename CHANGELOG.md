@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
+- Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
+- `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
+
+### Changed
+
+- Persist follower checksums incrementally during full sync, so interrupted syncs can reuse already-computed hashes after restart [#2065](https://github.com/cloudamqp/lavinmq/pull/2065)
+- Deprecated config handling is now consistent between INI and CLI options [#2059](https://github.com/cloudamqp/lavinmq/pull/2059)
+- MQTT sessions are decoupled from AMQP queues as part of separating protocol-specific queue/session handling [#1920](https://github.com/cloudamqp/lavinmq/pull/1920)
+- IPv4-mapped peer addresses are normalized in connection metadata, logs and API fields [#2122](https://github.com/cloudamqp/lavinmq/pull/2122)
+
+### Fixed
+
+- Document that OAuth/OIDC JWTs must include a `kid` header matching a JWKS key [#2107](https://github.com/cloudamqp/lavinmq/pull/2107)
+- Heartbeat frames on non-zero channels now close the connection with `UNEXPECTED_FRAME` [#1999](https://github.com/cloudamqp/lavinmq/pull/1999)
+- Clustered localhost listener bind failures during startup [#2114](https://github.com/cloudamqp/lavinmq/pull/2114)
+- Stream `cleanup_consumer_offsets` overflow when the `consumer_offsets` file is near full [#1995](https://github.com/cloudamqp/lavinmq/pull/1995)
+
 ## [2.9.0] - 2026-06-25
 
 This release makes local publish confirms wait until messages are flushed to disk with `syncfs` (with a `--no-sync` opt-out), reworks clustered durability so confirms and durable definition changes are acknowledged only once every in-sync replica holds the data, and adds OAuth2/OIDC SSO login to the management UI. It also adds PROXY protocol trusted sources, `load_definitions`, per-queue-type policy `apply-to` targets and a configurable control socket, alongside a wide range of bugfixes and performance optimizations across the broker.
