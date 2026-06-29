@@ -1,5 +1,14 @@
 require "./spec_helper"
 require "../src/stdlib/openssl_on_server_name"
+require "../src/lavinmq/launcher"
+
+class LavinMQ::Launcher
+  getter amqp_tls_context
+
+  def reload_for_spec
+    reload_config
+  end
+end
 
 describe LavinMQ::SNIHost do
   it "creates TLS contexts with default settings" do
@@ -453,5 +462,72 @@ describe "SNI end-to-end" do
 
     tcp_server.close
     server_done.receive
+  end
+end
+
+describe LavinMQ::Launcher do
+  it "serves a per-host certificate for an SNI host added on config reload" do
+    with_datadir do |data_dir|
+      config_file = File.join(data_dir, "lavinmq.ini")
+      File.write config_file, <<-INI
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
+
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.data_dir_lock = false
+      config.config_file = config_file
+      config.reload # initial parse, no SNI hosts configured yet
+
+      launcher = LavinMQ::Launcher.new(config)
+      amqp_ctx = launcher.amqp_tls_context.not_nil!
+
+      # Add an SNI host to the config file and reload, as a SIGHUP would.
+      File.write config_file, <<-INI
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+
+        [sni:foobar.localhost]
+        tls_cert = spec/resources/foobar_localhost_certificate.pem
+        tls_key = spec/resources/foobar_localhost_key.pem
+        INI
+      launcher.reload_for_spec
+
+      tcp_server = TCPServer.new("127.0.0.1", 0)
+      port = tcp_server.local_address.port
+      server_done = Channel(Nil).new
+
+      spawn do
+        if client = tcp_server.accept?
+          begin
+            ssl_socket = OpenSSL::SSL::Socket::Server.new(client, amqp_ctx)
+            ssl_socket.close
+          rescue
+          ensure
+            client.close
+          end
+        end
+        server_done.send(nil)
+      end
+
+      tcp_client = TCPSocket.new("127.0.0.1", port)
+      client_ctx = OpenSSL::SSL::Context::Client.new
+      client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      client_ctx.ca_certificates = "spec/resources/foobar_localhost_certificate.pem"
+      begin
+        # Verification against foobar's cert only succeeds if the reload-added
+        # SNI host's certificate is served, not the default [main] cert.
+        ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "foobar.localhost")
+        ssl_client.close
+      ensure
+        tcp_client.close
+      end
+
+      tcp_server.close
+      server_done.receive
+    end
   end
 end
