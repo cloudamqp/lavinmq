@@ -1183,5 +1183,25 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "allows an HTTP destination without a dest queue or exchange" do
+      config = JSON.parse({
+        "src-uri":   "amqp:///test",
+        "src-queue": "q1",
+        "dest-uri":  "http://example.com/hook",
+      }.to_json)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
+    end
+
+    it "still requires a dest queue or exchange for an AMQP destination" do
+      config = JSON.parse({
+        "src-uri":   "amqp:///test",
+        "src-queue": "q1",
+        "dest-uri":  "amqp:///test",
+      }.to_json)
+      expect_raises(LavinMQ::Shovel::ConfigError, "destination requires") do
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
+      end
+    end
   end
 end
