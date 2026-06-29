@@ -1216,6 +1216,69 @@ describe LavinMQ::Shovel do
     end
   end
 
+  describe "runtime counters" do
+    it "counts confirmed deliveries and exposes degraded fields" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "rc_ok_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rc_ok_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rc_ok_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "rc_ok_q1" }
+          shovel.run
+          d = shovel.details_tuple
+          d[:confirmed].should eq 3
+          d[:dead_lettered].should eq 0
+          d[:aborted].should eq 0
+          d[:consecutive_failures].should eq 0
+          d[:consecutive_aborts].should eq 0
+          d[:abort_threshold].should eq 10
+        end
+      end
+    end
+
+    it "counts dead-lettered (Reject) deliveries" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 400
+          context.response.print "bad"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "rc_rej_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rc_rej_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rc_rej_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "rc_rej_q1" }
+          shovel.run
+          d = shovel.details_tuple
+          d[:dead_lettered].should eq 3
+          d[:confirmed].should eq 0
+        end
+      end
+    end
+  end
+
   describe "Store.validate_config!" do
     it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
       with_amqp_server do |s|

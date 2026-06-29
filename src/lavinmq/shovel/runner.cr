@@ -18,6 +18,11 @@ module LavinMQ
       # Consecutive Abort outcomes; past ABORT_THRESHOLD the shovel errors out.
       @delivery_aborts = Atomic(Int32).new(0)
       @aborted = false
+      # Cumulative per-disposition counters, for the runtime view.
+      @confirmed_total = Atomic(UInt64).new(0_u64)
+      @retried_total = Atomic(UInt64).new(0_u64)
+      @rejected_total = Atomic(UInt64).new(0_u64)
+      @aborted_total = Atomic(UInt64).new(0_u64)
       RETRY_THRESHOLD =  10
       ABORT_THRESHOLD =  10
       MAX_DELAY       = 300
@@ -81,24 +86,28 @@ module LavinMQ
         @destination.on_outcome = ->(delivery_tag : UInt64, outcome : Outcome) do
           case outcome
           in Outcome::Confirmed
+            @confirmed_total.add(1)
             @delivery_failures.set(0)
             @delivery_aborts.set(0)
             source.ack(delivery_tag)
           in Outcome::Retry
             # A non-abort outcome breaks any consecutive-abort streak: the
             # destination is reachable, just not accepting this message yet.
+            @retried_total.add(1)
             @delivery_aborts.set(0)
             @delivery_failures.add(1)
             source.reject(delivery_tag, requeue: true)
           in Outcome::Reject
             # The endpoint responded (it just refused this message), so it is
             # healthy — clear the backoff and the abort streak.
+            @rejected_total.add(1)
             @delivery_failures.set(0)
             @delivery_aborts.set(0)
             source.reject(delivery_tag, requeue: false)
           in Outcome::Abort
             # Keep the message; the consuming loop errors-out the shovel once
             # consecutive Aborts cross ABORT_THRESHOLD.
+            @aborted_total.add(1)
             @delivery_aborts.add(1)
             source.reject(delivery_tag, requeue: true)
           end
@@ -164,11 +173,18 @@ module LavinMQ
 
       def details_tuple
         {
-          name:          @name,
-          vhost:         @vhost.name,
-          state:         @state.to_s,
-          error:         @error,
-          message_count: @message_count,
+          name:                 @name,
+          vhost:                @vhost.name,
+          state:                @state.to_s,
+          error:                @error,
+          message_count:        @message_count,
+          confirmed:            @confirmed_total.get,
+          retried:              @retried_total.get,
+          dead_lettered:        @rejected_total.get,
+          aborted:              @aborted_total.get,
+          consecutive_failures: @delivery_failures.get,
+          consecutive_aborts:   @delivery_aborts.get,
+          abort_threshold:      ABORT_THRESHOLD,
         }
       end
 
