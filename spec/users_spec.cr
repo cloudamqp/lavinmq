@@ -215,7 +215,7 @@ describe LavinMQ::Server do
         response = http.put("/api/users/alan", body: %({"password_hash": ""}))
         response.status_code.should eq 201
 
-        s.restart
+        restart_server(s)
 
         response = http.get("/api/users/alan")
         response.status_code.should eq 200

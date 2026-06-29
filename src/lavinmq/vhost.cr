@@ -31,7 +31,7 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?

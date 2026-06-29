@@ -5,7 +5,7 @@ module MqttSpecs
   describe LavinMQ::MQTT do
     describe "multi-vhost" do
       it "should create mqtt exchange when vhost is created" do
-        with_amqp_server do |server|
+        with_server do |server|
           server.vhosts.create("new")
           server.vhosts["new"].exchange?(LavinMQ::MQTT::EXCHANGE).should_not be_nil
         end

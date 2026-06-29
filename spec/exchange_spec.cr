@@ -276,7 +276,7 @@ describe LavinMQ::Exchange do
         it "stop existing link" do
           with_amqp_server do |s|
             downstream_vhost = s.vhosts.create("downstream")
-            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
             downstream_vhost.upstreams.create_upstream("upstream", config)
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
@@ -293,7 +293,7 @@ describe LavinMQ::Exchange do
       it "will start link" do
         with_amqp_server do |s|
           downstream_vhost = s.vhosts.create("downstream")
-          config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+          config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
           downstream_vhost.upstreams.create_upstream("upstream", config)
           definition = {"federation-upstream" => JSON::Any.new("upstream")}
           downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
@@ -305,7 +305,7 @@ describe LavinMQ::Exchange do
         it "won't start link" do
           with_amqp_server do |s|
             downstream_vhost = s.vhosts.create("downstream")
-            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
             downstream_vhost.upstreams.create_upstream("upstream", config)
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)

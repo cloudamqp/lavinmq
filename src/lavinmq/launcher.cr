@@ -2,9 +2,10 @@ require "log"
 require "file"
 require "systemd"
 require "./server"
+require "./amqp/server"
+require "./mqtt/server"
 require "./http/http_server"
 require "./http/metrics_server"
-require "./in_memory_backend"
 require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
@@ -24,6 +25,9 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @server : LavinMQ::Server?
+    @amqp_server : LavinMQ::AMQP::Server?
+    @mqtt_server : LavinMQ::MQTT::Server?
 
     def initialize(@config : Config)
       print_environment_info
@@ -62,12 +66,14 @@ module LavinMQ
     private def start : self
       started_at = Time.instant
       @data_dir_lock.try &.acquire
-      @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
-      load_definitions(amqp_server)
-      setup_log_exchange(amqp_server)
-      start_listeners(amqp_server, http_server)
-      start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
+      @server = server = LavinMQ::Server.new(@config, @replicator)
+      load_definitions(server)
+      server.start_log_exchange
+      @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
+      @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+      start_listeners(amqp_server, mqtt_server, http_server)
+      start_metrics_server(server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -92,6 +98,8 @@ module LavinMQ
       SystemD.notify_stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
+      @mqtt_server.try &.close rescue nil
+      @server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
     end
@@ -143,100 +151,56 @@ module LavinMQ
       exit 1
     end
 
-    private def setup_log_exchange(amqp_server)
-      return unless @config.log_exchange?
-      exchange_name = "amq.lavinmq.log"
-      unless vhost = amqp_server.vhosts["/"]?
-        Log.warn { "log_exchange enabled but default vhost \"/\" is missing, skipping" }
-        return
-      end
-      vhost.declare_exchange(exchange_name, "topic", true, false, true)
-      spawn(name: "Log Exchange") do
-        log_channel = ::Log::InMemoryBackend.instance.add_channel
-        while entry = log_channel.receive
-          vhost.publish(msg: Message.new(
-            exchange_name,
-            entry.severity.to_s,
-            "#{entry.source} - #{entry.message}",
-            AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
-          ))
-        end
-      end
-    end
-
-    private def start_metrics_server(amqp_server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server)
+    private def start_metrics_server(server)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
-    private def start_listeners(amqp_server, http_server)
-      if @config.amqp_port > 0
-        amqp_listener = TCPServer.new(@config.amqp_bind, @config.amqp_port)
-        spawn amqp_server.listen(amqp_listener, Server::Protocol::AMQP),
-          name: "AMQP listening on #{@config.amqp_port}"
-      end
-
-      if @config.amqps_port > 0
-        if ctx = @amqp_tls_context
-          amqps_listener = TCPServer.new(@config.amqp_bind, @config.amqps_port)
-          spawn amqp_server.listen_tls(amqps_listener, ctx, Server::Protocol::AMQP),
-            name: "AMQPS listening on #{@config.amqps_port}"
-        end
-      end
-
-      if clustering_bind = @config.clustering_bind
-        clustering_listener = TCPServer.new(clustering_bind, @config.clustering_port)
-        spawn amqp_server.listen_clustering(clustering_listener), name: "Clustering listener"
-      end
-
-      unless @config.unix_path.empty?
-        amqp_unix_listener = bind_unix(@config.unix_path)
-        spawn amqp_server.listen(amqp_unix_listener, Server::Protocol::AMQP), name: "AMQP listening at #{@config.unix_path}"
-      end
-
-      if @config.http_port > 0
-        http_server.bind_tcp(@config.http_bind, @config.http_port)
-      end
-      if @config.https_port > 0
-        if ctx = @http_tls_context
-          http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
-        end
-      end
-      unless @config.http_unix_path.empty?
-        http_server.bind_unix(@config.http_unix_path)
-      end
-
+    private def start_listeners(amqp_server, mqtt_server, http_server)
+      bind_listeners(amqp_server, @config.amqp_bind, @config.amqp_port, @config.amqps_port, @amqp_tls_context, @config.unix_path)
+      bind_listeners(mqtt_server, @config.mqtt_bind, @config.mqtt_port, @config.mqtts_port, @mqtt_tls_context, @config.mqtt_unix_path)
+      bind_listeners(http_server, @config.http_bind, @config.http_port, @config.https_port, @http_tls_context, @config.http_unix_path)
       http_server.bind_internal_unix
+
+      unless amqp_server.listeners.empty?
+        spawn(name: "AMQP listener") do
+          amqp_server.listen
+        end
+      end
+      unless mqtt_server.listeners.empty?
+        spawn(name: "MQTT listener") do
+          mqtt_server.listen
+        end
+      end
+      if clustering_bind = @config.clustering_bind
+        if replicator = @replicator
+          clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
+          spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
+        end
+      end
       spawn(name: "HTTP listener") do
         http_server.listen
       end
-
-      if @config.mqtt_port > 0
-        mqtt_listener = TCPServer.new(@config.mqtt_bind, @config.mqtt_port)
-        spawn amqp_server.listen(mqtt_listener, Server::Protocol::MQTT),
-          name: "MQTT listening on #{@config.mqtt_port}"
-      end
-
-      if @config.mqtts_port > 0
-        if ctx = @mqtt_tls_context
-          mqtts_listener = TCPServer.new(@config.mqtt_bind, @config.mqtts_port)
-          spawn amqp_server.listen_tls(mqtts_listener, ctx, Server::Protocol::MQTT),
-            name: "MQTTS listening on #{@config.mqtts_port}"
-        end
-      end
-      unless @config.mqtt_unix_path.empty?
-        mqtt_unix_listener = bind_unix(@config.mqtt_unix_path)
-        spawn amqp_server.listen(mqtt_unix_listener, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
-      end
     end
 
-    private def bind_unix(path : String) : UNIXServer
-      File.delete?(path)
-      UNIXServer.new(path).tap { File.chmod(path, 0o666) }
+    private def bind_clustering_listener(bind, port)
+      TCPServer.new(bind, port)
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
+    end
+
+    # Binds the plain TCP, TLS and unix listeners a server is configured for.
+    # Works for any server exposing bind_tcp/bind_tls/bind_unix (the protocol
+    # servers and the HTTP server).
+    private def bind_listeners(server, bind, port, tls_port, tls_context, unix_path)
+      server.bind_tcp(bind, port) if port > 0
+      if tls_port > 0 && (ctx = tls_context)
+        server.bind_tls(bind, tls_port, ctx)
+      end
+      server.bind_unix(unix_path) unless unix_path.empty?
     end
 
     private def dump_debug_info
