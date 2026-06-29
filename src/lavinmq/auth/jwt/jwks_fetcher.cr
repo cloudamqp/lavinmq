@@ -164,7 +164,7 @@ module LavinMQ
             # Skip keys not intended for signatures (RFC 7517 Section 4.2)
             next if key.use != "sig"
             # skip keys with unsupported algorithms, but allow keys with no alg (RFC 7517 Section 4.4)
-            next if (alg = key.alg) && alg != "RS256"
+            next if key.alg.try { |alg| alg != "RS256" }
             next unless (n = key.n) && (e = key.e)
             kid = key.kid || "unknown-#{idx}"
             public_keys[kid] = to_pem(n, e)
