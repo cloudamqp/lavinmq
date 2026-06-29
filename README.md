@@ -102,6 +102,16 @@ make
 sudo make install # optional
 ```
 
+Development helpers:
+
+```sh
+crystal run extras/amqp_seed.cr -- --messages 200
+crystal run extras/amqp_seed.cr -- --live
+extras/tui_inspect.sh
+```
+
+`amqp_seed.cr` creates management API and AMQP data for local inspection. Use `--live` to keep sample connections, channels and consumers visible. `tui_inspect.sh` captures the `lavinmqctl tui` pages in `tmux`, using a mock API when no `--uri` is provided.
+
 ## Using LavinMQ
 
 ### Getting Started
