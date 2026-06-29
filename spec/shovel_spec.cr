@@ -973,6 +973,39 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "backs off instead of busy-retrying when the HTTP destination returns 503 (#5 Retry)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.status_code = 503
+          context.response.print "unavailable"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "rt_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rt_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("rt_q1")
+          x.publish_confirm "retry me", "rt_q1"
+          spawn shovel.run
+          sleep 1.second
+          shovel.terminate
+          # 503 is transient: the message is retried with backoff, not in a tight
+          # loop. Without backoff this endpoint would see hundreds of hits/sec.
+          received.get.should be <= 3
+          # and the message is never lost
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server
