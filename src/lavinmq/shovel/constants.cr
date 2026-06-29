@@ -26,6 +26,11 @@ module LavinMQ
       NoAck
     end
 
-    class FailedDeliveryError < Exception; end
+    # The result a Destination reports back for a single delivery attempt.
+    # The Runner interprets it: Confirmed acks the source, Rejected requeues it.
+    enum Outcome
+      Confirmed
+      Rejected
+    end
   end
 end

@@ -32,6 +32,9 @@ module ShovelSpecHelpers
     def ack(delivery_tag, batch = true)
     end
 
+    def reject(delivery_tag, requeue)
+    end
+
     def each(&_blk : ::AMQP::Client::DeliverMessage -> Nil)
       case @each_count.add(1_u32, :relaxed)
       when 0
@@ -51,7 +54,7 @@ module ShovelSpecHelpers
     def stop
     end
 
-    def push(msg, source)
+    def push(msg)
     end
 
     def started? : Bool
@@ -230,6 +233,45 @@ describe LavinMQ::Shovel do
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
           q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
           s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "respects reject-publish overflow on the destination without losing source messages (#1357)" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "rp_q1",
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          "rp_q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rp_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("rp_q1")
+          args = AMQP::Client::Arguments.new
+          args["x-max-length"] = 2_i64
+          args["x-overflow"] = "reject-publish"
+          q2 = ch.queue("rp_q2", args: args)
+          5.times { |i| x.publish_confirm "shovel me #{i}", "rp_q1" }
+          spawn shovel.run
+          # destination fills to its max-length and stops accepting
+          wait_for { q2.message_count == 2 }
+          shovel.terminate
+          # The bug (#1357) drained the source on overflow, losing messages. The
+          # destination must stay capped and the rest must remain on the source —
+          # not be acked-and-discarded. (The shovel is at-least-once, so we assert
+          # "nothing lost / source not drained", not an exact surviving count.)
+          should_eventually(be_true) do
+            q2.message_count == 2 && q1.message_count >= 3
+          end
         end
       end
     end
@@ -858,6 +900,43 @@ describe LavinMQ::Shovel do
           body.should eq "shovel me"
 
           s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "requeues the message to the source when the HTTP destination returns an error (#1612)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.status_code = 404
+          context.response.print "not found"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "err_q1",
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/")
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "err_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("err_q1")
+          x.publish_confirm "shovel me", "err_q1"
+          spawn shovel.run
+          wait_for { received.get >= 1 }
+          shovel.terminate
+          # a failed HTTP delivery must not drop the message; it stays in the source
+          should_eventually(eq 1) { q1.message_count }
         end
       end
     end

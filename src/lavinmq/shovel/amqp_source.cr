@@ -90,6 +90,22 @@ module LavinMQ
         end
       end
 
+      # Return a single message to the source. We ack with multiple: true for
+      # throughput, so before rejecting tag T we must flush any pending batched
+      # ack of earlier tags — otherwise a later multiple-ack would settle T too.
+      def reject(delivery_tag, requeue)
+        if ch = @ch
+          return if ch.closed?
+          if last = @last_unacked
+            if last < delivery_tag
+              @last_unacked = nil
+              ch.basic_ack(last, multiple: true)
+            end
+          end
+          ch.basic_reject(delivery_tag, requeue: requeue)
+        end
+      end
+
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
       end
@@ -165,8 +181,6 @@ module LavinMQ
             ch.basic_cancel(@tag, no_wait: true)
             @done.wait # wait for last ack before returning, which will close connection
           end
-        rescue e : FailedDeliveryError
-          msg.reject
         end
       rescue e
         Log.warn { "name=#{@name} #{e.message}" }
