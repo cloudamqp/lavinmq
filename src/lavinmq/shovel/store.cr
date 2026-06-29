@@ -58,7 +58,7 @@ module LavinMQ
           dst = "" # default exchange
         end
 
-        # HTTP destinations POST the body to the endpoint, there is no exchange or queue to name
+        # HTTP(S) destinations POST to a URL and have no queue/exchange.
         http_dest = !dest_uris.empty? && dest_uris.all?(&.scheme.in?("http", "https"))
 
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
