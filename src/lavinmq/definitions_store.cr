@@ -23,12 +23,12 @@ module LavinMQ
       @queues = Hash(String, Queue).new
       @definitions_lock = Mutex.new(:reentrant)
       @legacy_definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      @definitions_file_path = File.join(@data_dir, "definitions.wal")
+      @definitions_file_path = File.join(@data_dir, "definitions.jsonl")
       @exchanges_file_path = File.join(@data_dir, "exchanges.json")
       @queues_file_path = File.join(@data_dir, "queues.json")
       @bindings_file_path = File.join(@data_dir, "bindings.json")
       @legacy_definitions_file = open_legacy_definitions_file
-      # Buffered writes are flushed before replication so the WAL record is
+      # Buffered writes are flushed before replication so the JSONL record is
       # visible through separate fds used by follower full sync.
       @definitions_file = File.open(@definitions_file_path, "a+")
       @replicator.try &.register_file(@definitions_file)
@@ -304,7 +304,7 @@ module LavinMQ
     private def replay_wal(exchanges, queues, queue_bindings, exchange_bindings)
       return if @definitions_file.size.zero?
 
-      @log.info { "Replaying definition WAL" }
+      @log.info { "Replaying definition JSONL" }
       @definitions_file.rewind
       @definitions_file.each_line do |line|
         line = line.strip
@@ -316,8 +316,8 @@ module LavinMQ
           # appear from bit-rot or a partial non-tail write. The legacy binary
           # reader tolerated a truncated tail via IO::EOFError, so skip the bad
           # record rather than aborting the whole vhost load — the next
-          # compaction rewrites the snapshots and clears the WAL.
-          @log.warn { "Skipping unreadable definition WAL record: #{ex.message}" }
+          # compaction rewrites the snapshots and clears the JSONL log.
+          @log.warn { "Skipping unreadable definition JSONL record: #{ex.message}" }
           next
         end
         apply_to_definition_maps(frame, exchanges, queues, queue_bindings, exchange_bindings)
@@ -403,7 +403,7 @@ module LavinMQ
         AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
           entry["routing_key"].as_s, arguments_from_json(entry))
       else
-        raise "Unknown definition WAL operation #{op} in vhost #{@vhost.name}"
+        raise "Unknown definition JSONL operation #{op} in vhost #{@vhost.name}"
       end
     end
 
@@ -507,11 +507,11 @@ module LavinMQ
       write_queues_snapshot if all || @dirty_queues
       write_bindings_snapshot if all || @dirty_bindings
       write_legacy_definitions_snapshot
-      # The snapshot renames must be durable before the WAL is truncated:
+      # The snapshot renames must be durable before the definition log is truncated:
       # write_json_snapshot fsyncs each file's content but not the directory
       # entry created by the rename. Without this barrier a crash could leave
       # the old (pre-compaction) snapshots on disk together with an already
-      # emptied WAL, permanently losing every change since the last compaction.
+      # emptied definition log, permanently losing every change since the last compaction.
       fsync_data_dir
       clear_wal
       @dirty_exchanges = false
@@ -558,7 +558,7 @@ module LavinMQ
     private def persisted_queue?(queue : Queue) : Bool
       return false if !queue.durable? || queue.exclusive?
       # Internal delayed-exchange queues are recreated by their exchange on load
-      # (register_queue), so the per-frame WAL path never persists them; keep
+      # (register_queue), so the per-frame JSONL path never persists them; keep
       # snapshots consistent and out of exported defs.
       return false if queue.is_a?(AMQP::DelayedExchangeQueue)
 
@@ -871,9 +871,9 @@ module LavinMQ
     private def compact_delay(size : Int) : Time::Span
       return Time::Span.zero if size >= WAL_COMPACT_SIZE
 
-      # Wait the full idle window when the WAL is small so bursts of declares
-      # batch into one compaction, and shrink the delay toward zero as the WAL
-      # approaches the size cap so a fast-growing WAL is compacted promptly.
+      # Wait the full idle window when the definition log is small so bursts of declares
+      # batch into one compaction, and shrink the delay toward zero as the log
+      # approaches the size cap so a fast-growing log is compacted promptly.
       WAL_COMPACT_IDLE * (1.0 - size.to_f64 / WAL_COMPACT_SIZE)
     end
 

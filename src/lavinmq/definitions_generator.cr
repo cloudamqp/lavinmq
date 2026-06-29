@@ -234,9 +234,9 @@ class LavinMQCtl
       load_json_array(File.join(vhost_dir, "bindings.json")) do |entry|
         apply_definition_frame(state, binding_from_json(entry))
       end
-      wal_path = File.join(vhost_dir, "definitions.wal")
-      return unless File.exists?(wal_path)
-      File.each_line(wal_path) do |line|
+      jsonl_path = File.join(vhost_dir, "definitions.jsonl")
+      return unless File.exists?(jsonl_path)
+      File.each_line(jsonl_path) do |line|
         line = line.strip
         next if line.empty?
         begin
@@ -338,7 +338,7 @@ class LavinMQCtl
         Frame::Method::Queue::Unbind.new(0_u16, 0_u16, entry["queue"].as_s, entry["exchange"].as_s,
           entry["routing_key"].as_s, arguments_from_json(entry))
       else
-        raise "Unknown definition WAL operation #{op}"
+        raise "Unknown definition JSONL operation #{op}"
       end
     end
 

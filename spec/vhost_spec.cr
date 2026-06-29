@@ -103,7 +103,7 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
 
       # Start a second server with the same data dir before closing `s`, because
-      # graceful close compacts definitions and removes the WAL records.
+      # graceful close compacts definitions and removes the JSONL records.
       with_crash_restarted_server(s.data_dir) { }
     end
   end
@@ -130,7 +130,7 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "should replay definition wal records after json snapshots" do
+  it "should replay definition JSONL records after json snapshots" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")
       v.declare_exchange("e", "direct", true, false)
@@ -140,7 +140,7 @@ describe LavinMQ::VHost do
       File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
       File.exists?(File.join(v.data_dir, "queues.json")).should be_true
       File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
-      File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
+      File.size(File.join(v.data_dir, "definitions.jsonl")).should be > 0
 
       with_crash_restarted_server(s.data_dir) do |restarted|
         v = restarted.vhosts["test"]
@@ -151,16 +151,16 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "tolerates a torn final definition wal record after a crash" do
+  it "tolerates a torn final definition JSONL record after a crash" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       v.bind_queue("q", "e", "q")
-      File.size(File.join(v.data_dir, "definitions.wal")).should be > 0
+      File.size(File.join(v.data_dir, "definitions.jsonl")).should be > 0
 
       # Simulate a crash that left a half-written final record on disk.
-      File.open(File.join(v.data_dir, "definitions.wal"), "a") do |f|
+      File.open(File.join(v.data_dir, "definitions.jsonl"), "a") do |f|
         f.print %({"op":"queue.declare","name":"tor)
       end
 
@@ -185,7 +185,7 @@ describe LavinMQ::VHost do
       } of String => AMQ::Protocol::Field)
       v.declare_queue("q", true, false, arguments: args)
 
-      # WAL replay path
+      # JSONL replay path
       with_crash_restarted_server(s.data_dir) do |restarted|
         reloaded = restarted.vhosts["test"].queue("q").arguments
         reloaded["x-bin"].should eq bin
@@ -196,7 +196,7 @@ describe LavinMQ::VHost do
       # Snapshot (compaction) path
       definitions = v.@definitions.not_nil!
       definitions.request_idle_compaction_for_spec
-      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      wait_for { File.size(File.join(v.data_dir, "definitions.jsonl")) == 0 }
       with_crash_restarted_server(s.data_dir) do |restarted|
         reloaded = restarted.vhosts["test"].queue("q").arguments
         reloaded["x-bin"].should eq bin
@@ -206,7 +206,7 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "writes compact definition wal records" do
+  it "writes compact definition JSONL records" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")
       v.declare_exchange("e", "direct", true, false)
@@ -215,7 +215,7 @@ describe LavinMQ::VHost do
       v.declare_queue("ttl", true, true, arguments: AMQ::Protocol::Table.new({"x-message-ttl" => 123}))
 
       records = [] of JSON::Any
-      File.each_line(File.join(v.data_dir, "definitions.wal")) do |line|
+      File.each_line(File.join(v.data_dir, "definitions.jsonl")) do |line|
         line = line.strip
         records << JSON.parse(line) unless line.empty?
       end
@@ -258,7 +258,7 @@ describe LavinMQ::VHost do
 
       definitions = v.@definitions.not_nil!
       definitions.request_idle_compaction_for_spec
-      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      wait_for { File.size(File.join(v.data_dir, "definitions.jsonl")) == 0 }
 
       exchanges = JSON.parse(File.read(File.join(v.data_dir, "exchanges.json"))).as_a
       plain_exchange = exchanges.find! { |e| e["name"].as_s == "plain" }
@@ -343,7 +343,7 @@ describe LavinMQ::VHost do
       v.delete_queue("removed-before-compact")
       definitions = v.@definitions.not_nil!
       definitions.request_idle_compaction_for_spec
-      wait_for { File.size(File.join(v.data_dir, "definitions.wal")) == 0 }
+      wait_for { File.size(File.join(v.data_dir, "definitions.jsonl")) == 0 }
       compacted_frames = read_legacy_definition_frames(legacy_path)
       compacted_frames.any? do |frame|
         frame.is_a?(AMQ::Protocol::Frame::Queue::Declare) && frame.queue_name == "downgrade-q"
@@ -427,7 +427,7 @@ describe LavinMQ::VHost do
       File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
       File.exists?(File.join(v.data_dir, "queues.json")).should be_true
       File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
-      File.size(File.join(v.data_dir, "definitions.wal")).should eq 0
+      File.size(File.join(v.data_dir, "definitions.jsonl")).should eq 0
     end
   end
 
@@ -436,19 +436,19 @@ describe LavinMQ::VHost do
       v = s.vhosts.create("test")
       v.declare_queue("q", true, false)
       v.delete_queue("q")
-      wal_path = File.join(v.data_dir, "definitions.wal")
-      File.size(wal_path).should be > 0
+      jsonl_path = File.join(v.data_dir, "definitions.jsonl")
+      File.size(jsonl_path).should be > 0
 
       v.close
 
       File.exists?(File.join(v.data_dir, "exchanges.json")).should be_true
       File.exists?(File.join(v.data_dir, "queues.json")).should be_true
       File.exists?(File.join(v.data_dir, "bindings.json")).should be_true
-      File.size(wal_path).should eq 0
+      File.size(jsonl_path).should eq 0
     end
   end
 
-  it "snapshots definition WAL compaction scheduling state under the lock" do
+  it "snapshots definition log compaction scheduling state under the lock" do
     with_amqp_server do |s|
       v = s.vhosts.create("test")
       definitions = v.@definitions.not_nil!

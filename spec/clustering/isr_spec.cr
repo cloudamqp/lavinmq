@@ -178,11 +178,11 @@ describe LavinMQ::Clustering::Server do
       coordinator.last_isr.not_nil!.includes?(follower_id).should be_true
 
       # Durable operations that don't go through the Persister (queue/exchange
-      # declares appending to definitions.wal, users.json replaces, segment
+      # declares appending to definitions.jsonl, users.json replaces, segment
       # deletes) must commit the shrunken ISR before they return — and thus
       # before they are acknowledged to any client — otherwise a leader crash
       # could elect the disconnected follower without the acknowledged change.
-      server.append_bytes(File.join(data_dir, "definitions.wal"), "frame".to_slice, 0i64)
+      server.append_bytes(File.join(data_dir, "definitions.jsonl"), "frame".to_slice, 0i64)
       coordinator.last_isr.not_nil!.includes?(follower_id).should be_false
     ensure
       client_io.try &.close

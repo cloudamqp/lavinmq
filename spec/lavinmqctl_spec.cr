@@ -73,7 +73,7 @@ describe "LavinMQCtl" do
           %([{"name":"queue_rk"},{"name":"queue_empty"},{"name":"queue_wal"}]))
         File.write(File.join(vhost_dir, "bindings.json"),
           %([{"source":"direct","destination":"queue_rk","routing_key":"rk"},{"source":"fanout","destination":"queue_empty"}]))
-        File.write(File.join(vhost_dir, "definitions.wal"),
+        File.write(File.join(vhost_dir, "definitions.jsonl"),
           %({"op":"queue.bind","queue":"queue_wal","exchange":"fanout","routing_key":""}\n))
 
         snapshot_bindings = JSON.parse(File.read(File.join(vhost_dir, "bindings.json"))).as_a
