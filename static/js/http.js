@@ -32,7 +32,13 @@ function updateVersionFromResponse (response) {
   if (!version) return
   window.sessionStorage.setItem('lavinmq_version', version)
   const el = document.getElementById('version')
-  if (el) el.textContent = version
+  if (el) {
+    if (el.textContent === "") {
+      el.textContent = version
+    } else if (el.textContent !== version) {
+      window.location.reload() // if new version then html/js might have changed too
+    }
+  }
 }
 
 function alertErrorHandler (e) {
