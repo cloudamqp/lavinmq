@@ -36,6 +36,11 @@ describe LavinMQ::Config do
       config = LavinMQ::Config.new
       config.oauth_resource_server_id.should be_nil
     end
+
+    it "sets default oauth_mgmt_scopes to \"openid profile\"" do
+      config = LavinMQ::Config.new
+      config.oauth_mgmt_scopes.should eq("openid profile")
+    end
   end
 
   describe "OAuth configuration parsing" do
@@ -120,6 +125,20 @@ describe LavinMQ::Config do
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
       config.oauth_scope_prefix.should eq("mq.")
+    end
+
+    it "parses mgmt_scopes" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [oauth]
+        issuer = https://auth.example.com
+        mgmt_scopes = openid email offline_access
+        CONFIG
+      end
+
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.oauth_mgmt_scopes.should eq("openid email offline_access")
     end
 
     it "parses verify_aud as boolean" do
