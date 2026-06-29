@@ -1141,6 +1141,39 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "does not error-out when aborts are interleaved with other outcomes (#review)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          old = received.add(1)
+          # alternate 404 (Abort) and 400 (Reject) — never persistently unusable
+          context.response.status_code = old.even? ? 404 : 400
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_url)], "ir_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ir_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("ir_q1")
+          30.times { |i| x.publish_confirm "m#{i}", "ir_q1" }
+          spawn shovel.run
+          # Each abort is interrupted by a non-abort outcome, so the consecutive
+          # abort counter never reaches the threshold; the shovel keeps running
+          # instead of erroring out as if the destination were unusable.
+          should_eventually(be_true) { received.get >= 30 }
+          shovel.state.error?.should be_false
+          shovel.terminate
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server
