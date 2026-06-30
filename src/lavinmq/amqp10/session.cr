@@ -529,7 +529,7 @@ module LavinMQ::AMQP10
     @next_incoming_id = Atomic(UInt32).new(0_u32)
     @incoming_window_remaining = Atomic(UInt32).new(DEFAULT_WINDOW)
     @visited = Set(Exchange).new
-    @found_queues = Set(Queue).new
+    @found_queues = Set(AMQP::Queue).new
 
     rate_stats({"ack", "publish", "deliver", "redeliver", "reject"})
 
