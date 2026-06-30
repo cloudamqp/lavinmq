@@ -24,8 +24,17 @@ module LavinMQ
       end
 
       def handle_connection(socket, connection_info)
-        client = @connection_factory.start(socket, connection_info)
-        socket.close if client.nil?
+        if client = @connection_factory.create(socket, connection_info)
+          vhost = client.vhost
+          vhost.add_connection(client)
+          begin
+            client.run
+          ensure
+            vhost.rm_connection(client)
+          end
+        else
+          socket.close
+        end
       end
     end
   end

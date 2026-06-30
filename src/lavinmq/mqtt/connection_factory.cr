@@ -28,7 +28,7 @@ module LavinMQ
             validate_client_id!(packet.client_id, user.name)
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
             connack io, session_present, Protocol::Connack::ReturnCode::Accepted
-            return broker.add_client(io, connection_info, user, packet)
+            return broker.run_client(io, connection_info, user, packet)
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
