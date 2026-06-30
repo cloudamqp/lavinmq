@@ -82,6 +82,15 @@ class DataSource {
         this.reload({ updateState: false })
       })
     }
+    // Pause auto-reloading while the page is hidden (Page Visibility API) and
+    // reload immediately when it becomes visible again.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clearTimeout(this._reloadTimer)
+      } else {
+        this.reload()
+      }
+    })
   }
 
   _setStateFromHash () {
@@ -164,7 +173,9 @@ class DataSource {
   }
 
   _enqueueReload () {
-    if (this._opts.autoReloadTimeout > 0) {
+    // Don't schedule another reload while the page is hidden; the
+    // visibilitychange handler reloads as soon as it becomes visible again.
+    if (this._opts.autoReloadTimeout > 0 && !document.hidden) {
       clearTimeout(this._reloadTimer)
       this._reloadTimer = setTimeout(this.reload.bind(this), this._opts.autoReloadTimeout)
     }
