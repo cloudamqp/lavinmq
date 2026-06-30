@@ -111,6 +111,8 @@ Topic permissions give MQTT clients fine-grained, per-topic authorization. Inste
 
 Enable with `topic_permissions = true` in the `[mqtt]` config section. When enabled, topic permissions replace the per-operation ACL check for MQTT publish and receive: authorization is decided entirely by the permission groups below, and the feature is default-deny, so a connection may only publish to or receive on topics granted by a matched rule. A user still needs a permission entry on the vhost to establish the connection in the first place.
 
+Because it is default-deny, define the permission groups before enabling the flag. Otherwise every MQTT publish and subscribe is denied until at least one matching group exists, and there is no administrator bypass. The broker logs a warning at startup when the flag is on but no permission groups are defined.
+
 Permission groups are global objects managed via `/api/permission-groups`. A group has a member list and a set of rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
 
 ```json
@@ -128,7 +130,7 @@ Permission groups are global objects managed via `/api/permission-groups`. A gro
 - `apply_to_all`, when `true`, applies the group's rules to every MQTT user and the `members` list is ignored.
 - `protocol` is `mqtt`.
 
-Patterns use MQTT wildcards (`+`, `#`) and support the `{username}` substitution variable, expanded per connection to the authenticated user name.
+Patterns use MQTT wildcards (`+`, `#`) and support the `{username}` substitution variable, expanded per connection to the authenticated user name. The substituted username must be a single topic level; if it contains `/`, `+`, or `#`, the affected `{username}` rules are skipped for that connection so they cannot widen into another user's subtree.
 
 A SUBSCRIBE to a filter that overlaps no read rule is rejected with a SUBACK failure. A broad subscription such as `#` is accepted and then filtered at delivery, so a client receives only messages it is allowed to read.
 

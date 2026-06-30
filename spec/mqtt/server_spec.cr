@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 
 private def connect_mqtt(port : Int32, client_id = "mqtt-server-spec")
   socket = TCPSocket.new("127.0.0.1", port, connect_timeout: 5)
@@ -59,6 +60,22 @@ describe LavinMQ::MQTT::Server do
       mqtt_socket.try &.close
       mqtt_server.close
       server.close unless server.closed?
+    end
+  end
+
+  it "warns at startup when topic permissions are enabled but no permission groups exist" do
+    cfg = LavinMQ::Config.instance
+    cfg.mqtt_topic_permissions_enabled = true
+    server = LavinMQ::Server.new(cfg)
+    begin
+      Log.capture("lmq.mqtt.server") do |logs|
+        mqtt_server = LavinMQ::MQTT::Server.new(server)
+        logs.check(:warn, /topic permissions.*no permission groups/i)
+        mqtt_server.close
+      end
+    ensure
+      server.close unless server.closed?
+      cfg.mqtt_topic_permissions_enabled = false
     end
   end
 end
