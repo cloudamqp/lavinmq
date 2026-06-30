@@ -7,19 +7,78 @@ import { UrlDataSource } from './datasource.js'
 
 Helpers.addVhostOptions('createShovel')
 
+const STATE_BADGE_MODIFIER = {
+  Running: 'badge-state--running',
+  Starting: 'badge-state--starting',
+  Paused: 'badge-state--paused',
+  Stopped: 'badge-state--stopped',
+  Terminated: 'badge-state--terminated',
+  Error: 'badge-state--error'
+}
+
+// State as a colored badge, with the error promoted inline (not just on hover)
+// and a degraded sub-line for shovels that are alive but backing off or
+// progressing toward an error-out.
 function renderState (item) {
-  if (item.error) {
-    const state = document.createElement('a')
-    state.classList.add('arg-tooltip')
-    state.appendChild(document.createTextNode(item.state))
-    const tooltip = document.createElement('span')
-    tooltip.classList.add('tooltiptext')
-    tooltip.textContent = item.error
-    state.appendChild(tooltip)
-    return state
-  } else {
-    return item.state
+  const container = document.createElement('div')
+  container.classList.add('state-cell-inner')
+
+  const badge = document.createElement('span')
+  badge.classList.add('badge-state')
+  const modifier = STATE_BADGE_MODIFIER[item.state]
+  if (modifier) badge.classList.add(modifier)
+  badge.textContent = item.state
+  container.appendChild(badge)
+
+  if (item.state === 'Error' && item.error) {
+    const error = document.createElement('small')
+    error.classList.add('state-error')
+    error.textContent = item.error
+    container.appendChild(error)
   }
+
+  if (item.consecutive_failures > 0) {
+    const degraded = document.createElement('small')
+    degraded.classList.add('state-degraded')
+    degraded.textContent = 'retrying (backoff)'
+    container.appendChild(degraded)
+  }
+
+  if (item.consecutive_aborts > 0) {
+    const degraded = document.createElement('small')
+    degraded.classList.add('state-degraded')
+    degraded.textContent = `aborts ${item.consecutive_aborts}/${item.abort_threshold}`
+    container.appendChild(degraded)
+  }
+
+  return container
+}
+
+// message_count is cumulative; derive a per-shovel msgs/s rate from the delta
+// between successive /api/shovels polls. Cache lives outside the row objects
+// (the datasource rebuilds them every reload), keyed by vhost+name.
+const rateCache = new Map()
+
+function messageRate (item) {
+  const key = `${item.vhost} ${item.name}`
+  const now = Date.now()
+  const prev = rateCache.get(key)
+  if (!prev) {
+    rateCache.set(key, { count: item.message_count, ts: now, rate: null })
+    return null
+  }
+  if (now > prev.ts) {
+    const rate = (item.message_count - prev.count) / ((now - prev.ts) / 1000)
+    rateCache.set(key, { count: item.message_count, ts: now, rate })
+    return rate
+  }
+  return prev.rate // re-render within the same tick: keep the last computed rate
+}
+
+function formatRate (rate) {
+  if (rate === null) return '–'
+  const fixed = rate.toFixed(1)
+  return `${fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed} msg/s`
 }
 
 const vhost = window.sessionStorage.getItem('vhost')
@@ -40,12 +99,16 @@ class ShovelsDataSource extends UrlDataSource {
     const p1 = super._reload()
     const p2 = HTTP.request('GET', this.statusUrl)
 
+    const runtimeFields = [
+      'state', 'error', 'message_count',
+      'consecutive_failures', 'consecutive_aborts', 'abort_threshold'
+    ]
     return Promise.all([p1, p2]).then(values => {
       let shovels = values[0].items ?? values[0]
       const status = values[1]
       shovels = shovels.map(item => {
-        item.state = status.find(s => s.name === item.name && s.vhost === item.vhost).state
-        item.error = status.find(s => s.name === item.name && s.vhost === item.vhost).error
+        const s = status.find(s => s.name === item.name && s.vhost === item.vhost)
+        if (s) runtimeFields.forEach(field => { item[field] = s[field] })
         return item
       })
       return shovels
@@ -101,7 +164,8 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 7, item.value['reconnect-delay'])
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
-  Table.renderCell(tr, 10, renderState(item))
+  Table.renderCell(tr, 10, renderState(item), 'state-cell')
+  Table.renderCell(tr, 11, formatRate(messageRate(item)), 'rate-cell')
   const btns = document.createElement('div')
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
@@ -151,7 +215,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
     text: pauseLabel
   })
   btns.append(editBtn, pauseBtn, deleteBtn)
-  Table.renderCell(tr, 11, btns, 'right')
+  Table.renderCell(tr, 12, btns, 'right')
 })
 
 document.querySelector('[name=src-type]').addEventListener('change', function () {

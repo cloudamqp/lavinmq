@@ -633,6 +633,38 @@ button {
   margin-left: 0.5rem;
 }
 
+.state-cell-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.badge-state {
+  display: inline-block;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+  color: var(--color-text-inverse);
+  background: var(--color-text-muted);
+}
+
+.badge-state--running { background: var(--color-success); color: #141414; }
+.badge-state--starting { background: var(--color-warning); color: #141414; }
+.badge-state--error { background: var(--color-danger); }
+
+.badge-state--paused,
+.badge-state--stopped,
+.badge-state--terminated {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.state-error { color: var(--color-danger); }
+.state-degraded { color: var(--color-warning-hover); }
+
 .card h3 {
   color: var(--color-text-primary);
   font-size: 1.125rem;
