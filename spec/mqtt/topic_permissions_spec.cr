@@ -18,4 +18,28 @@ describe LavinMQ::MQTT::TopicPermissions do
     tp.read.matches?("broadcast/news").should be_true
     tp.read.matches?("u/bob/x").should be_false
   end
+
+  it "drops {username} rules when the username has a wildcard or separator, instead of over-granting" do
+    # A username of "+" would expand "data/{username}/#" to "data/+/#",
+    # matching every user's subtree. Fail closed: drop the rule.
+    g = LavinMQ::Auth::PermissionGroup.new("g", "mqtt", false, ["+"], [
+      LavinMQ::Auth::PermissionGroup::Rule.new("data/{username}/#", read: true, write: true),
+    ])
+
+    tp = LavinMQ::MQTT::TopicPermissions.build([g], "+")
+
+    tp.read.matches?("data/bob/x").should be_false
+    tp.write.matches?("data/bob/x").should be_false
+  end
+
+  it "still applies static rules for a username that can't be substituted" do
+    g = LavinMQ::Auth::PermissionGroup.new("g", "mqtt", false, ["a/b"], [
+      LavinMQ::Auth::PermissionGroup::Rule.new("data/{username}/#", read: true, write: false),
+      LavinMQ::Auth::PermissionGroup::Rule.new("public/#", read: true, write: false),
+    ])
+
+    tp = LavinMQ::MQTT::TopicPermissions.build([g], "a/b")
+
+    tp.read.matches?("public/news").should be_true # static rule unaffected
+  end
 end

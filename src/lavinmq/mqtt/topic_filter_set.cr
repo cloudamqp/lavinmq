@@ -36,6 +36,13 @@ module LavinMQ
         pattern.gsub("{username}", username)
       end
 
+      # A `{username}` value must be one plain topic level. A `/`, `+` or `#` in
+      # it could widen the filter (e.g. `+` makes `data/{username}/#` match all).
+      def self.valid_substitution?(value : String) : Bool
+        return false if value.empty?
+        !(value.includes?('/') || value.includes?('+') || value.includes?('#'))
+      end
+
       # MQTT length-prefixes topics with two bytes, so they never exceed 65535 bytes.
       MAX_FILTER_BYTESIZE = 65_535
       # The matcher recurses once per level, so cap how deep a filter can be.

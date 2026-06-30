@@ -16,6 +16,10 @@ module LavinMQ
         write = TopicFilterSet.new
         groups.each do |group|
           group.rules.each do |rule|
+            if rule.pattern.includes?("{username}")
+              # Fail closed: skip the rule rather than expand it into an over-broad filter.
+              next unless TopicFilterSet.valid_substitution?(username)
+            end
             pattern = TopicFilterSet.expand(rule.pattern, username)
             read.add(pattern) if rule.read?
             write.add(pattern) if rule.write?

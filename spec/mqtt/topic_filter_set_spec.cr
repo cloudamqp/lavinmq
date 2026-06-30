@@ -49,6 +49,19 @@ describe LavinMQ::MQTT::TopicFilterSet do
     end
   end
 
+  describe ".valid_substitution?" do
+    it "accepts a plain single-level value" do
+      LavinMQ::MQTT::TopicFilterSet.valid_substitution?("alice").should be_true
+    end
+
+    it "rejects empty values or values with a separator or wildcard" do
+      LavinMQ::MQTT::TopicFilterSet.valid_substitution?("").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_substitution?("a/b").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_substitution?("+").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_substitution?("#").should be_false
+    end
+  end
+
   describe ".filters_overlap?" do
     it "is true when two filters share a concrete topic" do
       LavinMQ::MQTT::TopicFilterSet.filters_overlap?("chat/alice/#", "chat/alice/room1").should be_true
