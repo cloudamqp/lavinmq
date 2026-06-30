@@ -18,18 +18,14 @@ describe "control socket" do
     config.control_unix_path = socket_path
     begin
       with_amqp_server do |s|
-        h = LavinMQ::HTTP::Server.new(s)
+        h = s.http_server
         h.bind_internal_unix
         spawn(name: "control socket listen") { h.listen }
         Fiber.yield
-        begin
-          client = HTTP::Client.new(UNIXSocket.new(socket_path))
-          response = client.get("/api/whoami")
-          response.status_code.should eq 200
-          response.body.should contain "__direct"
-        ensure
-          h.close
-        end
+        client = HTTP::Client.new(UNIXSocket.new(socket_path))
+        response = client.get("/api/whoami")
+        response.status_code.should eq 200
+        response.body.should contain "__direct"
       end
     ensure
       config.control_unix_path = original_path
@@ -44,20 +40,16 @@ describe "control socket" do
     config.control_unix_path = socket_path
     begin
       with_amqp_server do |s|
-        h = LavinMQ::HTTP::Server.new(s) # captures socket_path
+        h = s.http_server # captures socket_path
         h.bind_internal_unix
         spawn(name: "control socket listen") { h.listen }
         Fiber.yield
         # Simulate a SIGHUP reload that changes the configured path
         config.control_unix_path = File.tempname("lavinmqctl-reloaded", ".sock")
-        begin
-          client = HTTP::Client.new(UNIXSocket.new(socket_path))
-          response = client.get("/api/whoami")
-          response.status_code.should eq 200
-          response.body.should contain "__direct"
-        ensure
-          h.close
-        end
+        client = HTTP::Client.new(UNIXSocket.new(socket_path))
+        response = client.get("/api/whoami")
+        response.status_code.should eq 200
+        response.body.should contain "__direct"
       end
     ensure
       config.control_unix_path = original_path

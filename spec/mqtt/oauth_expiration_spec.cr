@@ -17,7 +17,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 50.milliseconds, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-expiry-test",
           clean_session: true,
@@ -27,7 +27,8 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
+        Fiber.yield
 
         # Client should be connected
         reader.closed?.should be_false
@@ -49,7 +50,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-valid-test",
           clean_session: true,
@@ -59,7 +60,7 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
 
         sleep 50.milliseconds
 

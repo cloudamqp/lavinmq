@@ -16,7 +16,7 @@ module MqttSpecs
         permissions = {"*" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-wildcard-test",
           clean_session: true,
@@ -26,7 +26,7 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
 
         sleep 100.milliseconds
 
@@ -47,7 +47,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-exact-test",
           clean_session: true,
@@ -57,7 +57,7 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
 
         sleep 100.milliseconds
 
@@ -77,7 +77,7 @@ module MqttSpecs
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
         user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
-        broker = server.@mqtt_brokers.@brokers["/"]
+        broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
           client_id: "oauth-cleanup-test",
           clean_session: true,
@@ -87,7 +87,7 @@ module MqttSpecs
           will: nil,
         )
 
-        broker.add_client(mqtt_io, conn_info, user, packet)
+        spawn { broker.run_client(mqtt_io, conn_info, user, packet) }
 
         # Close the socket to trigger disconnect and cleanup
         reader.close

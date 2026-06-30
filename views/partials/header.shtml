@@ -13,7 +13,13 @@
       <img alt="LavinMQ logo" class="dark" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24">
       <img alt="LavinMQ logo" class="light" id="logo-light" src="img/logo-lavinmq-all-dark.svg" width="120" height="24">
     </a>
-    <span class="version-tab" id="version"><!--#echo var="VERSION" --></span>
+    <span class="version-tab" id="version"></span>
+    <script>
+      try {
+        const v = window.sessionStorage.getItem('lavinmq_version')
+        if (v) document.getElementById('version').textContent = v
+      } catch (e) {}
+    </script>
   </div>
   <button id="usermenu-button"></button>
   <nav id="user-menu">

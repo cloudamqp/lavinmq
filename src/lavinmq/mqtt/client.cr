@@ -60,14 +60,17 @@ module LavinMQ
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
+      end
+
+      def run : Nil
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
             close("token expired")
           end
         end
+        read_loop
       end
 
       def client_name
@@ -123,7 +126,6 @@ module LavinMQ
         @log.error(exception: ex) { "Read Loop error" }
         publish_will
       ensure
-        @broker.remove_client(self)
         case user = @user
         when Auth::OAuthUser
           user.cleanup

@@ -19,7 +19,7 @@ describe LavinMQ::VHost do
   it "should be able to persist vhosts" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      s.restart
+      restart_server(s)
       s.vhosts["test"]?.should_not be_nil
     end
   end
@@ -29,7 +29,7 @@ describe LavinMQ::VHost do
       s.vhosts.create("test")
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
-      s.restart
+      restart_server(s)
       s.vhosts["test"].exchange("e").should_not be_nil
     end
   end
@@ -58,7 +58,7 @@ describe LavinMQ::VHost do
       s.vhosts.create("test")
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
-      s.restart
+      restart_server(s)
       s.vhosts["test"].queue("q").should_not be_nil
     end
   end
@@ -70,7 +70,7 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      s.restart
+      restart_server(s)
       s.vhosts["test"].exchange("e").bindings_details.first.destination.name.should eq "q"
     end
   end
@@ -126,7 +126,7 @@ describe LavinMQ::VHost do
         v.declare_queue("q", true, false)
         v.delete_queue("q")
       end
-      s.restart
+      restart_server(s)
       session = s.vhosts["/"].session?("mqtt.persist")
       session.should_not be_nil
       s.vhosts["/"].queue?("mqtt.persist").should be_nil

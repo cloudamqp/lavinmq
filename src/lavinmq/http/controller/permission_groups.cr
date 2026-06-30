@@ -9,14 +9,14 @@ module LavinMQ
       private def register_routes
         get "/api/permission-groups" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          @amqp_server.permission_groups.values.to_json(context.response)
+          @server.permission_groups.values.to_json(context.response)
           context
         end
 
         get "/api/permission-groups/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           name = params["name"]
-          group = @amqp_server.permission_groups[name]?
+          group = @server.permission_groups[name]?
           not_found(context) unless group
           group.to_json(context.response)
           context
@@ -41,16 +41,16 @@ module LavinMQ
               r["write"]?.try(&.as_bool?) || false,
             )
           end
-          is_update = @amqp_server.permission_groups[name]?
+          is_update = @server.permission_groups[name]?
           group = Auth::PermissionGroup.new(name, protocol, apply_to_all, members, rules)
-          @amqp_server.permission_groups.put(group)
+          @server.permission_groups.put(group)
           context.response.status_code = is_update ? 204 : 201
           context
         end
 
         delete "/api/permission-groups/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          @amqp_server.permission_groups.delete(params["name"])
+          @server.permission_groups.delete(params["name"])
           context.response.status_code = 204
           context
         end

@@ -12,7 +12,7 @@ module LavinMQ
         Log = LavinMQ::Log.for "http.{{ @type.name.split("::").last.downcase.gsub(/controller$/, "").id }}"
       end
 
-      def initialize(@amqp_server : LavinMQ::Server)
+      def initialize(@server : LavinMQ::Server)
         register_routes
       end
 
@@ -202,7 +202,7 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, *, vhost_key = "vhost", &)
-        if (name = params[vhost_key]?) && (vhost = @amqp_server.vhosts[name]?)
+        if (name = params[vhost_key]?) && (vhost = @server.vhosts[name]?)
           refuse_unless_vhost_access(context, user(context), vhost)
           yield vhost
         else
@@ -220,7 +220,7 @@ module LavinMQ
       end
 
       def vhosts(user : Auth::BaseUser) : Array(VHost)
-        @amqp_server.vhosts.values.select do |v|
+        @server.vhosts.values.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
           full_view_vhosts_access || (amqp_access && !user.tags.empty?)

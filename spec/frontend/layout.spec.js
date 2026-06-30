@@ -76,6 +76,38 @@ test.describe('theme switcher', _ => {
   })
 })
 
+test.describe('version', _ => {
+  // The version is advertised via the `LavinMQ-Version` header on API responses
+  // and picked up by http.js. The queues page is used because the nodes page
+  // deliberately overwrites #version from /api/nodes (nodes.js). /api/queues is
+  // read (not /api/vhosts, which the loadVhosts fixture mocks without the header).
+  test('is shown from the LavinMQ-Version header', async ({ page }) => {
+    const apiResponse = page.waitForResponse(r => r.url().includes('/api/queues'))
+    await page.goto('/queues')
+    const expected = (await apiResponse).headers()['lavinmq-version']
+    expect(expected).toBeTruthy()
+    await expect(page.locator('#version')).toHaveText(expected)
+  })
+
+  test('is cached in sessionStorage', async ({ page }) => {
+    await page.goto('/queues')
+    await expect(page.locator('#version')).not.toBeEmpty()
+    const shown = await page.locator('#version').textContent()
+    const stored = await page.evaluate(() => window.sessionStorage.getItem('lavinmq_version'))
+    expect(stored).toBe(shown)
+  })
+
+  // The header partial has an inline script that paints the cached version
+  // during parsing (before first paint) to avoid flicker. With all API calls
+  // aborted, http.js never updates #version, so only the inline paint is seen.
+  test('paints the cached version without any API response', async ({ page }) => {
+    await page.addInitScript(() => window.sessionStorage.setItem('lavinmq_version', '1.2.3-cached'))
+    await page.route(url => url.pathname.startsWith('/api/'), route => route.abort())
+    await page.goto('/queues')
+    await expect(page.locator('#version')).toHaveText('1.2.3-cached')
+  })
+})
+
 test.describe('vhosts', _ => {
   test('are loaded', async ({ page, vhosts }) => {
     await page.goto('/')
