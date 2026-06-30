@@ -60,16 +60,21 @@ module LavinMQ
 
       def bindings_details : Array(BindingDetails)
         @bindings.shared do |b|
-          b.values.flat_map do |binding|
-            binding.destinations.map do |d, binding_key|
-              BindingDetails.new(name, vhost.name, binding_key, d)
+          count = b.each_value.sum(&.destinations.size)
+          bds = Array(BindingDetails).new(count)
+          b.each_value do |binding|
+            binding.destinations.each do |d, binding_key|
+              bds << BindingDetails.new(name, vhost.name, binding_key, d)
             end
           end
+          bds
         end
       end
 
       def binding_count : Int32
-        @bindings.unsafe_get.each_value.sum(&.destinations.size)
+        @bindings.shared do |bindings|
+          bindings.each_value.sum(&.destinations.size)
+        end
       end
 
       def bind(destination : Destination, routing_key, arguments)

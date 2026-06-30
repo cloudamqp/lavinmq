@@ -119,17 +119,22 @@ module LavinMQ
       end
 
       def bindings_details : Array(BindingDetails)
-        @bindings.shared do |b|
-          b.flat_map do |_rk, ds|
-            ds.map do |d, binding_key|
-              BindingDetails.new(name, vhost.name, binding_key, d)
+        @bindings.shared do |bindings|
+          count = bindings.each_value.sum(&.size)
+          bds = Array(BindingDetails).new(count)
+          bindings.each_value do |ds|
+            ds.each do |destination, binding_key|
+              bds << BindingDetails.new(name, vhost.name, binding_key, destination)
             end
           end
+          bds
         end
       end
 
       def binding_count : Int32
-        @bindings.unsafe_get.each_value.sum(&.size)
+        @bindings.shared do |bindings|
+          bindings.each_value.sum(&.size)
+        end
       end
 
       def bind(destination : AMQP::Destination, routing_key, arguments = nil)
