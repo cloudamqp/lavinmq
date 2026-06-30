@@ -1279,6 +1279,20 @@ describe LavinMQ::Shovel do
     end
   end
 
+  describe "delivery backoff" do
+    it "ramps 0.5s, doubling, capped at 30s" do
+      LavinMQ::Shovel::Runner.delivery_backoff(0).should eq 0.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(1).should eq 0.5.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(2).should eq 1.second
+      LavinMQ::Shovel::Runner.delivery_backoff(3).should eq 2.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(4).should eq 4.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(5).should eq 8.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(6).should eq 16.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(7).should eq 30.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(50).should eq 30.seconds
+    end
+  end
+
   describe "Store.validate_config!" do
     it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
       with_amqp_server do |s|
