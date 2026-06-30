@@ -41,8 +41,6 @@ A non-durable, non-exclusive queue is called a transient queue. Its messages are
 | `x-single-active-consumer` | Bool | Only one consumer receives messages at a time |
 | `x-max-priority` | Int (0-255) | Enable priority queue with this many priority levels |
 | `x-message-deduplication` | Bool | Enable message deduplication. See [Deduplication](deduplication.md). |
-| `x-cache-size` | Int (>= 0) | Deduplication cache size |
-| `x-cache-ttl` | Int (>= 0) | Deduplication cache TTL in milliseconds |
 | `x-deduplication-header` | String | Header to use for deduplication key |
 
 ## Overflow Behavior

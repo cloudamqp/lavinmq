@@ -206,6 +206,10 @@ module LavinMQ::AMQP
     Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
+    # The dedup index mirrors the messages currently in the queue. Kept as a
+    # direct reference (separate from @deduper) so removal sites can drop a
+    # leaving message's key without going through the Deduper interface.
+    @dedup_cache : Deduplication::SetCache(AMQ::Protocol::Field)?
 
     protected def initialize(@vhost : VHost, @name : String,
                              @exclusive : Bool = false, @auto_delete : Bool = false,
@@ -236,10 +240,40 @@ module LavinMQ::AMQP
           @paused.set(true)
         end
         handle_arguments
+        start_dedup_index_rebuild
         spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
         start_message_expire_loop if should_start_expire_fiber?
         true
       end
+    end
+
+    # Reset the dedup index to mirror the (re)loaded message store. Runs on both
+    # initial boot and restart!; the clear matters for restart! where @deduper
+    # (and its stale set) survives the reset. The rebuild scan runs in a fiber so
+    # the broker keeps starting fast and only this queue pays for the scan;
+    # duplicates published during the scan may briefly slip through, and Cheap-A
+    # iteration means a message consumed mid-scan can leave a transient phantom
+    # key (cleared on the next restart). See the deduplication docs.
+    private def start_dedup_index_rebuild : Nil
+      return unless c = @dedup_cache
+      c.clear
+      return if @msg_store.empty?
+      spawn rebuild_dedup_index, name: "Queue#rebuild_dedup_index #{@vhost.name}/#{@name}"
+    end
+
+    private def rebuild_dedup_index : Nil
+      d = @deduper || return
+      c = @dedup_cache || return
+      @msg_store_lock.synchronize do
+        @msg_store.each do |msg|
+          if key = d.dedup_key(msg)
+            c.insert(key)
+          end
+        end
+      end
+      @log.debug { "Rebuilt deduplication index" }
+    rescue ex
+      @log.error(exception: ex) { "Failed to rebuild deduplication index" }
     end
 
     def restart! : Bool
@@ -453,15 +487,15 @@ module LavinMQ::AMQP
       @effective_args << "x-consumer-timeout" if @consumer_timeout
       if parse_header("x-message-deduplication", Bool)
         @effective_args << "x-message-deduplication"
-        size = parse_header("x-cache-size", Int).try(&.to_u32)
-        @effective_args << "x-cache-size" if size
-        ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
-        @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
         @effective_args << "x-deduplication-header" if header_key
         @deduper ||= begin
-          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-          Deduplication::Deduper.new(cache, ttl, header_key)
+          # Queue dedup checks against the messages currently in the queue, so
+          # the cache is an unbounded set with no TTL (x-cache-size/x-cache-ttl
+          # no longer apply; use x-message-ttl for time-bounded dedup).
+          cache = Deduplication::SetCache(AMQ::Protocol::Field).new
+          @dedup_cache = cache
+          Deduplication::Deduper.new(cache, nil, header_key)
         end
       end
     end
@@ -607,17 +641,19 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
-      if d = @deduper
-        if d.duplicate?(msg)
-          @dedup_count.add(1, :relaxed)
-          return PublishResult::Dropped
-        end
-        d.add(msg)
-      end
+      # The dedup key (if any) is computed up front, but the duplicate check and
+      # insert happen together under @msg_store_lock so the index stays in
+      # lockstep with the queue's contents (see #delete_message for removal).
+      dedup_key = @deduper.try &.dedup_key(msg)
+      return drop_duplicate if dedup_duplicate?(dedup_key)
       return PublishResult::Overflow if reject_on_overflow?(msg)
       was_empty = false
       pushed = false
       @msg_store_lock.synchronize do
+        # Atomic gate: register_dedup? returns false if another publish inserted
+        # the same key first. Done before push so an overflow-rejected message
+        # (above) never leaves a phantom key behind.
+        return drop_duplicate unless register_dedup?(dedup_key)
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
@@ -641,6 +677,27 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    # True if a message with this dedup key is already in the queue. A nil key
+    # (no dedup header, or dedup disabled) is never a duplicate.
+    private def dedup_duplicate?(key : AMQ::Protocol::Field?) : Bool
+      return false unless key
+      @dedup_cache.try(&.contains?(key)) || false
+    end
+
+    # Atomically record the key, returning true if it was newly added (publish
+    # should proceed) and false if it was already present (a duplicate). A nil
+    # key or disabled dedup is treated as newly added.
+    private def register_dedup?(key : AMQ::Protocol::Field?) : Bool
+      return true unless key
+      c = @dedup_cache || return true
+      c.insert?(key)
+    end
+
+    private def drop_duplicate : PublishResult
+      @dedup_count.add(1, :relaxed)
+      PublishResult::Dropped
     end
 
     private def reject_on_overflow?(msg) : Bool
@@ -800,7 +857,7 @@ module LavinMQ::AMQP
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
       @dead_letter.route(msg, reason, dlx_tasks) do
-        delete_message sp
+        delete_message(sp, msg)
       end
     end
 
@@ -862,7 +919,7 @@ module LavinMQ::AMQP
             @msg_store_lock.synchronize { @msg_store.requeue(sp) }
             raise ex
           end
-          delete_message(sp)
+          delete_message(sp, env.message)
         else
           @unacked_count.add(1, :relaxed)
           @unacked_bytesize.add(sp.bytesize, :relaxed)
@@ -913,7 +970,7 @@ module LavinMQ::AMQP
       delete_message(sp)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    protected def delete_message(sp : SegmentPosition, msg : BytesMessage? = nil) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -924,6 +981,17 @@ module LavinMQ::AMQP
       {% end %}
       @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
+        # The message is leaving the queue, so drop its dedup key from the index
+        # (a no-op when dedup is disabled or the message carries no key). Done
+        # under the same lock as the store mutation so index and queue contents
+        # change together. Callers that already hold the Envelope pass msg to
+        # avoid re-reading it from the store.
+        if (d = @deduper) && (c = @dedup_cache)
+          m = msg || @msg_store[sp]
+          if key = d.dedup_key(m)
+            c.delete(key)
+          end
+        end
         @msg_store.delete(sp)
       end
     end
@@ -1023,9 +1091,22 @@ module LavinMQ::AMQP
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
+        @msg_store_lock.synchronize do
+          @msg_store.purge_all
+          # No unacked and everything purged, so the dedup index must be empty.
+          @dedup_cache.try(&.clear)
+        end
       else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        delete_count = @msg_store_lock.synchronize do
+          purged = @msg_store.purge(max_count)
+          # Purge removes ready messages in bulk without going through
+          # #delete_message, so their keys can't be dropped individually. Clear
+          # the whole index instead: any surviving unacked keys are re-checked on
+          # ack and re-added on requeue, so the worst case is a transient missed
+          # dedup (never a permanent phantom). See dedup docs.
+          @dedup_cache.try(&.clear)
+          purged
+        end
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and

@@ -59,6 +59,7 @@ This release makes local publish confirms wait until messages are flushed to dis
 - Replace periodic GC.collect with on-demand GC [#2016](https://github.com/cloudamqp/lavinmq/pull/2016)
 - Batch persistence during definitions import [#2014](https://github.com/cloudamqp/lavinmq/pull/2014)
 - `tcp_proxy_protocol` now accepts boolean values (`true`/`false`/`yes`/`no`); legacy `1`/`2` are treated as enabled, `0` disables. Protocol version is auto-detected [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- Queue-level deduplication now checks against the messages currently in the queue instead of a separate cache: an identifier is deduplicated only while a message bearing it is in the queue, and is released when that message leaves (ack/expire/dead-letter/overflow/purge). The index is rebuilt from persisted messages on queue start
 
 ### Deprecated
 
@@ -67,6 +68,7 @@ This release makes local publish confirms wait until messages are flushed to dis
 ### Removed
 
 - `unix_proxy_protocol` config option; Unix sockets always auto-detect PROXY protocol headers [#1601](https://github.com/cloudamqp/lavinmq/pull/1601)
+- `x-cache-size` and `x-cache-ttl` queue arguments no longer have any effect (they applied to the removed queue dedup cache); they remain valid on exchanges. Use `x-message-ttl` for time-bounded queue deduplication
 
 ### Fixed
 
