@@ -8,7 +8,7 @@ Each shovel runs as an independent fiber owned by its vhost. When started, it op
 
 1. **Source setup.** If `src-queue` is set, the shovel consumes directly from that queue. If only `src-exchange` (and optionally `src-exchange-key`) is set, the shovel declares an anonymous, exclusive queue, binds it to that exchange, and consumes from the anonymous queue. The source channel uses `src-prefetch-count` for backpressure.
 2. **Pull loop.** Messages from the source consumer are pushed one by one to the destination's `push` method. For AMQP destinations this becomes `basic.publish` to `dest-exchange` with `dest-exchange-key` (or to the default exchange when `dest-queue` is set). For HTTP destinations, the message body is POSTed to `dest-uri`.
-3. **Acknowledgment.** Source acks are gated by the configured `ack-mode` (see [Acknowledgment Modes](#acknowledgment-modes)).
+3. **Acknowledgment.** The destination classifies each delivery into an [outcome](#delivery-outcomes), and the shovel acks, retries, dead-letters, or aborts the source message accordingly. The configured `ack-mode` controls *when* the outcome is reported (see [Acknowledgment Modes](#acknowledgment-modes)).
 4. **Lifecycle.** A state machine moves the shovel between `starting`, `running`, `paused`, `error`, `stopped`, and `terminated` (see [Shovel States](#shovel-states)). Errors trigger an exponential-backoff reconnect; pause is persisted to disk so a paused shovel stays paused across server restarts.
 5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once the source queue has been drained.
 
@@ -60,11 +60,20 @@ The AMQP message is mapped to the HTTP request as follows:
 | `X-<header>` | One header per AMQP header on the message |
 | `User-Agent` | `LavinMQ` |
 
-For `on-confirm` and `on-publish` ack modes, the source delivery is acked only when the destination returns a 2xx response; any other status triggers the shovel's reconnect/retry path. `no-ack` skips the check.
+For `on-confirm` and `on-publish` ack modes, the HTTP response status is classified into a [delivery outcome](#delivery-outcomes) rather than triggering a uniform retry:
+
+- `2xx` acks the message.
+- `408`, `429`, and `5xx` (and transport-level failures such as connection refused or read timeout) requeue the message and retry it with backoff.
+- `400` and `422` reject the message without requeue, so the source queue's dead-letter exchange handles it.
+- Any other status (e.g. `401`, `403`, `404`, `405`, `410`) is treated as an unusable endpoint; after repeated consecutive failures the shovel errors out for an operator to resolve.
+
+`no-ack` skips the check. See [Shovel delivery outcomes](shovel-delivery-outcomes.md) for the full status-to-outcome mapping.
 
 ## Multi-Destination
 
-A shovel can have multiple destinations configured. One destination is randomly selected when the shovel starts, and all consumed messages are forwarded to that single destination until the shovel restarts (e.g., on reconnection).
+A shovel can have multiple destinations configured. They form an **ordered failover list**, not a load-balanced or round-robin pool: one destination is active at a time, starting with the first one that can be reached. All consumed messages go to the active destination.
+
+When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A successful — or otherwise non-abort — delivery resets the failover cycle. Only once *every* destination has failed in a row, with no successful delivery in between, does the shovel error out.
 
 ## Acknowledgment Modes
 
@@ -73,6 +82,19 @@ A shovel can have multiple destinations configured. One destination is randomly 
 | `on-confirm` (default) | Ack source after destination confirms receipt |
 | `on-publish` | Ack source after publishing to destination (before confirm) |
 | `no-ack` | No acknowledgment (fastest, may lose messages) |
+
+## Delivery Outcomes
+
+For every message, the destination classifies the delivery attempt into one **outcome**, and the shovel turns that outcome into an action on the source. This is what decides whether a message is acked, retried, dead-lettered, or treated as a fatal destination problem.
+
+| Outcome | Source action | Meaning |
+|---------|---------------|---------|
+| `Confirmed` | ack | Delivered. Resets the failure and abort counters. |
+| `Retry` | reject (requeue) | Transient failure. Retried on the source with capped exponential backoff; retries are unbounded. |
+| `Reject` | reject (no requeue) | The message itself is unacceptable. Dead-lettered via the source queue's DLX (dropped if none configured); the shovel continues. |
+| `Abort` | reject (requeue) | The destination is unusable. The message is kept; after 10 consecutive aborts the shovel errors out for an operator to resolve. |
+
+How each destination type maps its native result (HTTP status, AMQP publisher confirm) to these outcomes, and how `ack-mode` affects *when* an outcome is reported, is documented in [Shovel delivery outcomes](shovel-delivery-outcomes.md).
 
 ## Shovel States
 
