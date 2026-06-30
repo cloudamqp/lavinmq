@@ -23,9 +23,10 @@ module LavinMQ
       @retried_total = Atomic(UInt64).new(0_u64)
       @rejected_total = Atomic(UInt64).new(0_u64)
       @aborted_total = Atomic(UInt64).new(0_u64)
-      RETRY_THRESHOLD =  10
-      ABORT_THRESHOLD =  10
-      MAX_DELAY       = 300
+      RETRY_THRESHOLD    =  10
+      ABORT_THRESHOLD    =  10
+      MAX_DELAY          = 300
+      MAX_DELIVERY_DELAY =  30
 
       getter name, vhost
 
@@ -121,8 +122,16 @@ module LavinMQ
       private def backoff_if_failing
         failures = @delivery_failures.get
         return if failures.zero?
-        secs = Math.min(MAX_DELAY.to_f, 2.0 ** Math.min(failures, 8))
-        sleep secs.seconds
+        sleep self.class.delivery_backoff(failures)
+      end
+
+      # Backoff before the next delivery attempt after `failures` consecutive
+      # transient failures: 0.5s, 1s, 2s, 4s, … doubling, capped at
+      # MAX_DELIVERY_DELAY, then holding there.
+      def self.delivery_backoff(failures : Int32) : Time::Span
+        return 0.seconds if failures <= 0
+        secs = Math.min(MAX_DELIVERY_DELAY.to_f, 0.5 * 2.0 ** Math.min(failures - 1, 6))
+        secs.seconds
       end
 
       # Errors-out the shovel once a destination has been classified unusable
