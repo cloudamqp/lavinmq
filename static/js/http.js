@@ -33,7 +33,7 @@ function updateVersionFromResponse (response) {
   window.sessionStorage.setItem('lavinmq_version', version)
   const el = document.getElementById('version')
   if (el) {
-    if (el.textContent === "") {
+    if (el.textContent === '') {
       el.textContent = version
     } else if (el.textContent !== version) {
       window.location.reload() // if new version then html/js might have changed too
