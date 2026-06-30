@@ -93,6 +93,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | `[mqtt]` | `false` | Enable ACL checks on MQTT publish/subscribe |
+| `topic_permissions` | `[mqtt]` | `false` | Enable per-topic MQTT authorization via permission groups (replaces the ACL checks when on) |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
 
 ## Permissions
@@ -106,9 +107,11 @@ When disabled, any authenticated MQTT client can publish and subscribe to any to
 
 ## Topic permissions
 
-Enable with `topic_permissions = true` in the `[mqtt]` config section. When enabled, MQTT publish and receive are authorized per topic using permission groups, and the feature is default-deny: a connection may only publish to or receive on topics granted by a matched rule.
+Topic permissions give MQTT clients fine-grained, per-topic authorization. Instead of a single read/write grant on the whole MQTT exchange (the standard ACL described above), each client is authorized against a set of MQTT topic filters, so a user can be allowed to publish and subscribe only within their own topic subtree.
 
-Permission groups are global objects managed via `/api/permission-groups`. A group has a protocol (`mqtt`), an optional `apply_to_all` flag, a member list, and rules. Each rule is an MQTT topic filter with `read` and `write` booleans:
+Enable with `topic_permissions = true` in the `[mqtt]` config section. When enabled, topic permissions replace the per-operation ACL check for MQTT publish and receive: authorization is decided entirely by the permission groups below, and the feature is default-deny, so a connection may only publish to or receive on topics granted by a matched rule. A user still needs a permission entry on the vhost to establish the connection in the first place.
+
+Permission groups are global objects managed via `/api/permission-groups`. A group has a member list and a set of rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
 
 ```json
 {
@@ -120,6 +123,10 @@ Permission groups are global objects managed via `/api/permission-groups`. A gro
   ]
 }
 ```
+
+- `members` is a list of usernames (not client ids) the group applies to.
+- `apply_to_all`, when `true`, applies the group's rules to every MQTT user and the `members` list is ignored.
+- `protocol` is `mqtt`.
 
 Patterns use MQTT wildcards (`+`, `#`) and support the `{username}` substitution variable, expanded per connection to the authenticated user name.
 
