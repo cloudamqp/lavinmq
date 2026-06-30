@@ -242,13 +242,13 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "rp_q1",
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "rp_q2",
           direct_user: s.users.direct_user
         )
@@ -288,7 +288,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "qf_q1",
+          "spec", [URI.parse(s.amqp_server.url)], "qf_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
@@ -958,7 +958,7 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "err_q1",
           direct_user: s.users.direct_user
         )
@@ -992,7 +992,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "rej_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "rej_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "rej_shovel", vhost)
         with_channel(s) do |ch|
@@ -1026,7 +1026,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "rt_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "rt_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "rt_shovel", vhost)
         with_channel(s) do |ch|
@@ -1057,7 +1057,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "ab_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "ab_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ab_shovel", vhost)
         with_channel(s) do |ch|
@@ -1087,7 +1087,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "pf_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "pf_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "pf_shovel", vhost)
         with_channel(s) do |ch|
@@ -1132,7 +1132,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "fo_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "fo_q1", direct_user: s.users.direct_user)
         dest_a = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{bad_addr}/"))
         dest_b = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{good_addr}/"))
         multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest_a, dest_b] of LavinMQ::Shovel::Destination)
@@ -1165,7 +1165,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "ir_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "ir_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ir_shovel", vhost)
         with_channel(s) do |ch|
@@ -1237,7 +1237,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "rc_ok_q1",
+          "spec", [URI.parse(s.amqp_server.url)], "rc_ok_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
@@ -1270,7 +1270,7 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_url)], "rc_rej_q1",
+          "spec", [URI.parse(s.amqp_server.url)], "rc_rej_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
