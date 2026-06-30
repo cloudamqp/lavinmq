@@ -82,7 +82,7 @@ module LavinMQ
           p.add "client_id", client_id
           p.add "redirect_uri", build_redirect_uri
           p.add "response_type", "code"
-          p.add "scope", "openid profile"
+          p.add "scope", config.oauth_mgmt_scopes
           p.add "code_challenge", challenge
           p.add "code_challenge_method", "S256"
           p.add "state", state

@@ -68,6 +68,7 @@ jwks_cache_ttl = 3600
 | `issuer` | (required) | OIDC issuer URL. Used to discover JWKS endpoint. |
 | `client_id` | (none) | OAuth2 client ID. Required to enable management UI SSO (see below) |
 | `mgmt_base_url` | (none) | Public base URL of the management UI. Enables SSO login when set together with `issuer` and `client_id` |
+| `mgmt_scopes` | `openid profile` | Space-separated scopes requested in the management UI SSO authorization request. Override to match the requirements of your identity provider |
 | `resource_server_id` | (none) | Resource server identifier |
 | `preferred_username_claims` | `sub,client_id` | JWT claims to extract the username from (tried in order) |
 | `additional_scopes_keys` | `[]` | Additional JWT claims to check for scope strings |
