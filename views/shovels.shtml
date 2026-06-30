@@ -31,6 +31,7 @@
                 <th rowspan="2">Ack mode</th>
                 <th rowspan="2">Delete after</th>
                 <th rowspan="2">State</th>
+                <th rowspan="2">Msg rate</th>
                 <th rowspan="2"></th>
               </tr>
               <tr>

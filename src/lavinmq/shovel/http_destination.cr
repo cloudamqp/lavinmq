@@ -26,7 +26,7 @@ module LavinMQ
         !@client.nil?
       end
 
-      def push(msg, source)
+      def push(msg)
         c = @client || raise "Not started"
         headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
         headers["X-Shovel"] = @name
@@ -45,12 +45,33 @@ module LavinMQ
                else
                  "/"
                end
-        response = c.post(path, headers: headers, body: msg.body_io)
+        outcome = begin
+          classify c.post(path, headers: headers, body: msg.body_io)
+        rescue IO::Error | Socket::Error
+          # Transport-level failure (connection refused, timeout, reset): the
+          # endpoint may recover, so treat it as transient.
+          Outcome::Retry
+        end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
-          raise FailedDeliveryError.new unless response.success?
-          source.ack(msg.delivery_tag)
+          @on_outcome.call(msg.delivery_tag, outcome)
         in AckMode::NoAck
+        end
+      end
+
+      # Maps an HTTP response to a delivery disposition. Pure and broker-free.
+      #   2xx                          -> Confirmed
+      #   408, 429, 5xx                -> Retry   (transient, retry with backoff)
+      #   400, 422                     -> Reject  (bad message, dead-letter it)
+      #   any other non-2xx (e.g. 401, -> Abort   (endpoint unusable; error-out
+      #     403, 404, 405, 410, …)                 the shovel past a threshold)
+      def classify(response : ::HTTP::Client::Response) : Outcome
+        code = response.status_code
+        case
+        when 200 <= code < 300                               then Outcome::Confirmed
+        when code == 408 || code == 429 || 500 <= code < 600 then Outcome::Retry
+        when code == 400 || code == 422                      then Outcome::Reject
+        else                                                      Outcome::Abort
         end
       end
     end

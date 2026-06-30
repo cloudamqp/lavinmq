@@ -32,6 +32,9 @@ module ShovelSpecHelpers
     def ack(delivery_tag, batch = true)
     end
 
+    def reject(delivery_tag, requeue)
+    end
+
     def each(&_blk : ::AMQP::Client::DeliverMessage -> Nil)
       case @each_count.add(1_u32, :relaxed)
       when 0
@@ -51,7 +54,7 @@ module ShovelSpecHelpers
     def stop
     end
 
-    def push(msg, source)
+    def push(msg)
     end
 
     def started? : Bool
@@ -230,6 +233,75 @@ describe LavinMQ::Shovel do
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
           q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
           s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "respects reject-publish overflow on the destination without losing source messages (#1357)" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_server.url)],
+          "rp_q1",
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_server.url),
+          "rp_q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rp_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("rp_q1")
+          args = AMQP::Client::Arguments.new
+          args["x-max-length"] = 2_i64
+          args["x-overflow"] = "reject-publish"
+          q2 = ch.queue("rp_q2", args: args)
+          5.times { |i| x.publish_confirm "shovel me #{i}", "rp_q1" }
+          spawn shovel.run
+          # destination fills to its max-length and stops accepting
+          wait_for { q2.message_count == 2 }
+          shovel.terminate
+          # The bug (#1357) drained the source on overflow, losing messages. The
+          # destination must stay capped and the rest must remain on the source —
+          # not be acked-and-discarded. (The shovel is at-least-once, so we assert
+          # "nothing lost / source not drained", not an exact surviving count.)
+          should_eventually(be_true) do
+            q2.message_count == 2 && q1.message_count >= 3
+          end
+        end
+      end
+    end
+
+    it "does not deadlock when the final message of a queue-length shovel fails delivery" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 503 # Retry -> reject(requeue: true), never Confirmed
+          context.response.print "busy"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "qf_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qf_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("qf_q1")
+          x.publish_confirm "only msg", "qf_q1"
+          finished = false
+          spawn { shovel.run; finished = true }
+          # The final (only) message fails; the shovel must still finish instead
+          # of blocking forever on @done.wait waiting for an ack that never comes.
+          should_eventually(be_true, 5.seconds) { finished }
         end
       end
     end
@@ -862,6 +934,246 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "requeues the message to the source when the HTTP destination returns an error (#1612)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.status_code = 404
+          context.response.print "not found"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_server.url)],
+          "err_q1",
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/")
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "err_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("err_q1")
+          x.publish_confirm "shovel me", "err_q1"
+          spawn shovel.run
+          wait_for { received.get >= 1 }
+          shovel.terminate
+          # a failed HTTP delivery must not drop the message; it stays in the source
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "dead-letters via the source DLX when the HTTP destination returns 400 (#5 Reject)" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 400
+          context.response.print "bad request"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rej_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rej_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          dlq = ch.queue("rej_dlq")
+          dlq.bind("amq.fanout", "")
+          args = AMQP::Client::Arguments.new
+          args["x-dead-letter-exchange"] = "amq.fanout"
+          q1 = ch.queue("rej_q1", args: args)
+          x.publish_confirm "bad msg", "rej_q1"
+          spawn shovel.run
+          # 400 = bad message: rejected without requeue, so the source DLX takes it
+          should_eventually(eq 1) { dlq.message_count }
+          q1.message_count.should eq 0
+          shovel.terminate
+        end
+      end
+    end
+
+    it "backs off instead of busy-retrying when the HTTP destination returns 503 (#5 Retry)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.status_code = 503
+          context.response.print "unavailable"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rt_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rt_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("rt_q1")
+          x.publish_confirm "retry me", "rt_q1"
+          spawn shovel.run
+          sleep 1.second
+          shovel.terminate
+          # 503 is transient: the message is retried with backoff, not in a tight
+          # loop. Without backoff this endpoint would see hundreds of hits/sec.
+          received.get.should be <= 3
+          # and the message is never lost
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "errors-out the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 404
+          context.response.print "not found"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "ab_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ab_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("ab_q1")
+          x.publish_confirm "no route", "ab_q1"
+          spawn shovel.run
+          # 404 = endpoint unusable: after a threshold of consecutive Aborts the
+          # shovel errors out for an operator to resolve, rather than looping.
+          should_eventually(be_true) { shovel.state.error? }
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "stops delivering once the shovel is paused, mid-stream (#1612 part 2 / #5.4)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          sleep 0.3.seconds
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "pf_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pf_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("pf_q1")
+          6.times { |i| x.publish_confirm "m#{i}", "pf_q1" }
+          spawn shovel.run
+          wait_for { received.get >= 1 } # first delivery in-flight
+          shovel.pause
+          shovel.state.paused?.should be_true
+          # Delivery must halt promptly: at most an in-flight/buffered straggler
+          # drains, then it stops. The bug let retries continue after pause.
+          sleep 1.second
+          settled = received.get
+          sleep 1.second
+          received.get.should eq settled # no ongoing retries after pause
+          settled.should be < 6          # halted mid-stream, didn't drain
+        end
+      end
+    end
+
+    it "fails over to the next destination when the active one is unusable (#4)" do
+      with_amqp_server do |s|
+        bad_received = Atomic(Int32).new(0)
+        bad = HTTP::Server.new do |context|
+          bad_received.add(1)
+          context.response.status_code = 404
+          context.response.print "no route"
+          context
+        end
+        bad_addr = bad.bind_unused_port
+        spawn bad.listen
+
+        good_received = Atomic(Int32).new(0)
+        good = HTTP::Server.new do |context|
+          good_received.add(1)
+          context.response.print "ok"
+          context
+        end
+        good_addr = good.bind_unused_port
+        spawn good.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "fo_q1", direct_user: s.users.direct_user)
+        dest_a = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{bad_addr}/"))
+        dest_b = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{good_addr}/"))
+        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest_a, dest_b] of LavinMQ::Shovel::Destination)
+        shovel = LavinMQ::Shovel::Runner.new(source, multi, "fo_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("fo_q1")
+          x.publish_confirm "deliver me", "fo_q1"
+          spawn shovel.run
+          # A (404) is tried first and is unusable, so the shovel fails over to B
+          should_eventually(eq 1) { good_received.get }
+          bad_received.get.should be >= 1
+          shovel.terminate
+        end
+      end
+    end
+
+    it "does not error-out when aborts are interleaved with other outcomes (#review)" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          old = received.add(1)
+          # alternate 404 (Abort) and 400 (Reject) — never persistently unusable
+          context.response.status_code = old.even? ? 404 : 400
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "ir_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ir_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("ir_q1")
+          30.times { |i| x.publish_confirm "m#{i}", "ir_q1" }
+          spawn shovel.run
+          # Each abort is interrupted by a non-abort outcome, so the consecutive
+          # abort counter never reaches the threshold; the shovel keeps running
+          # instead of erroring out as if the destination were unusable.
+          should_eventually(be_true) { received.get >= 30 }
+          shovel.state.error?.should be_false
+          shovel.terminate
+        end
+      end
+    end
+
     it "should set path for URI from headers" do
       with_amqp_server do |s|
         # # Setup HTTP server
@@ -904,6 +1216,83 @@ describe LavinMQ::Shovel do
     end
   end
 
+  describe "runtime counters" do
+    it "counts confirmed deliveries and exposes degraded fields" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rc_ok_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rc_ok_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rc_ok_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "rc_ok_q1" }
+          shovel.run
+          d = shovel.details_tuple
+          d[:confirmed].should eq 3
+          d[:dead_lettered].should eq 0
+          d[:aborted].should eq 0
+          d[:consecutive_failures].should eq 0
+          d[:consecutive_aborts].should eq 0
+          d[:abort_threshold].should eq 10
+        end
+      end
+    end
+
+    it "counts dead-lettered (Reject) deliveries" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.response.status_code = 400
+          context.response.print "bad"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rc_rej_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rc_rej_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rc_rej_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "rc_rej_q1" }
+          shovel.run
+          d = shovel.details_tuple
+          d[:dead_lettered].should eq 3
+          d[:confirmed].should eq 0
+        end
+      end
+    end
+  end
+
+  describe "delivery backoff" do
+    it "ramps 0.5s, doubling, capped at 30s" do
+      LavinMQ::Shovel::Runner.delivery_backoff(0).should eq 0.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(1).should eq 0.5.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(2).should eq 1.second
+      LavinMQ::Shovel::Runner.delivery_backoff(3).should eq 2.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(4).should eq 4.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(5).should eq 8.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(6).should eq 16.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(7).should eq 30.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff(50).should eq 30.seconds
+    end
+  end
+
   describe "Store.validate_config!" do
     it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
       with_amqp_server do |s|
@@ -932,6 +1321,26 @@ describe LavinMQ::Shovel do
         expect_raises(LavinMQ::Shovel::ConfigError) do
           LavinMQ::Shovel::Store.validate_config!(config, user)
         end
+      end
+    end
+
+    it "allows an HTTP destination without a dest queue or exchange" do
+      config = JSON.parse({
+        "src-uri":   "amqp:///test",
+        "src-queue": "q1",
+        "dest-uri":  "http://example.com/hook",
+      }.to_json)
+      LavinMQ::Shovel::Store.validate_config!(config, nil)
+    end
+
+    it "still requires a dest queue or exchange for an AMQP destination" do
+      config = JSON.parse({
+        "src-uri":   "amqp:///test",
+        "src-queue": "q1",
+        "dest-uri":  "amqp:///test",
+      }.to_json)
+      expect_raises(LavinMQ::Shovel::ConfigError, "destination requires") do
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
       end
     end
   end

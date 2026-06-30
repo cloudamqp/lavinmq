@@ -26,6 +26,23 @@ module LavinMQ
       NoAck
     end
 
-    class FailedDeliveryError < Exception; end
+    # The per-message disposition a Destination reports for a delivery attempt.
+    # The Destination classifies its native result (HTTP status, AMQP confirm)
+    # into one of these; the Runner decides what each one does:
+    #   Confirmed - delivered; ack the source.
+    #   Retry     - transient failure; requeue and retry with backoff.
+    #   Reject    - the message is unacceptable; reject without requeue (DLX).
+    #   Abort     - the destination is unusable; keep the message and, past a
+    #               threshold of consecutive Aborts, error-out the shovel.
+    enum Outcome
+      Confirmed
+      Retry
+      Reject
+      Abort
+    end
+
+    # Raised by the Runner to error-out a shovel permanently (no reconnect)
+    # after a destination is classified unusable past the Abort threshold.
+    class ShovelAborted < Exception; end
   end
 end
