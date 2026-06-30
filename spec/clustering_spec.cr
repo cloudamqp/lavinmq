@@ -807,13 +807,13 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         end
 
         store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::AMQP::StreamMessageStore)
-        offsets_path = store.@consumer_offsets.path
+        offsets_path = store.@consumer_offsets.@mfile.path
         follower_offsets_path = File.join(cluster.follower_config.data_dir, offsets_path[(s.data_dir.size + 1)..])
 
         # Fill consumer_offsets past its capacity to trigger compaction. Before
         # #2068's fix the first compaction raised ArgumentError because the
         # rebuilt .tmp MFile was never replication-registered.
-        cap = store.@consumer_offsets.capacity
+        cap = store.@consumer_offsets.@mfile.capacity
         entry = 1 + ctag.bytesize + 8
         ((cap // entry) + 10).times do |i|
           store.store_consumer_offset(ctag, i.to_i64 + 1)
@@ -826,7 +826,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         store.last_offset_by_consumer_tag(ctag).should eq 9999_i64
 
         wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
-        expected = store.@consumer_offsets.to_slice.dup
+        expected = store.@consumer_offsets.@mfile.to_slice.dup
       end
 
       # The follower received the compacted file verbatim — its real data

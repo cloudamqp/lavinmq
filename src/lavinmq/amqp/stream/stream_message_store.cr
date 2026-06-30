@@ -4,10 +4,6 @@ require "./consumer_offsets"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
-    # Size bounds for the compacted consumer_offsets file.
-    MAX_CONSUMER_OFFSETS_FILE_SIZE = 64_i64 * 1024 * 1024 # 64 MiB
-    MIN_CONSUMER_OFFSETS_FILE_SIZE = 8_i64 * 1024         # 8 KiB
-
     getter new_messages = ::Channel(Bool).new
     property max_length : Int64?
     property max_length_bytes : Int64?
@@ -16,15 +12,12 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
-    @consumer_offsets : MFile
-    @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
+    @consumer_offsets : ConsumerOffsets
 
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
-      @consumer_offsets = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
-      @replicator.try &.register_file @consumer_offsets
-      @consumer_offset_positions = restore_consumer_offset_positions
+      @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow
     end
 
@@ -35,7 +28,7 @@ module LavinMQ::AMQP
 
     def delete
       super
-      delete_file(@consumer_offsets)
+      @consumer_offsets.delete
     end
 
     private def get_last_offset : Int64
@@ -163,86 +156,22 @@ module LavinMQ::AMQP
     end
 
     def last_offset_by_consumer_tag(consumer_tag)
-      if pos = @consumer_offset_positions[consumer_tag]?
-        tx = @consumer_offsets.to_slice(pos, 8)
-        return IO::ByteFormat::LittleEndian.decode(Int64, tx)
-      end
-    end
-
-    private def restore_consumer_offset_positions : Hash(String, Int64)
-      positions = Hash(String, Int64).new
-      return positions if @consumer_offsets.size.zero?
-
-      loop do
-        ctag = AMQ::Protocol::ShortString.from_io(@consumer_offsets)
-        break if ctag.empty?
-        positions[ctag] = @consumer_offsets.pos
-        @consumer_offsets.skip(8)
-      rescue IO::EOFError
-        break
-      end
-      @consumer_offsets.pos = 0 if @consumer_offsets.pos == 1
-      @consumer_offsets.resize(@consumer_offsets.pos)
-      positions
+      @consumer_offsets.last_offset_by_tag(consumer_tag)
     end
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
       raise ClosedError.new if @closed
-      cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
-      write_consumer_offset(consumer_tag, new_offset)
-    end
-
-    private def write_consumer_offset(consumer_tag : String, new_offset : Int64)
-      start_pos = @consumer_offsets.size
-      @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
-      @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
-      @consumer_offsets.write_bytes new_offset
-      @replicator.try &.append(@consumer_offsets.path, start_pos, ConsumerOffsets.entry_size(consumer_tag))
-    end
-
-    def consumer_offset_file_full?(consumer_tag)
-      (@consumer_offsets.size + ConsumerOffsets.entry_size(consumer_tag)) >= @consumer_offsets.capacity
+      @consumer_offsets.store(consumer_tag, new_offset) { lowest_offset_in_stream }
     end
 
     def cleanup_consumer_offsets
-      return if @consumer_offsets.size.zero?
-
-      lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
-
-      # Offsets still within the stream (higher position == more recently committed).
-      tracked_offsets = Array(Tuple(String, Int64, Int64)).new
-      @consumer_offset_positions.each do |ctag, pos|
-        if (offset = last_offset_by_consumer_tag(ctag)) && offset >= lowest_offset_in_stream
-          tracked_offsets << {ctag, offset, pos}
-        end
-      end
-
-      # Reserve room for one max-length entry so the append that triggered
-      # cleanup always fits in the rewritten file.
-      budget = MAX_CONSUMER_OFFSETS_FILE_SIZE - ConsumerOffsets::MAX_ENTRY_SIZE
-      offsets_to_save = ConsumerOffsets.trim_to_size(tracked_offsets, budget)
-      if (dropped = tracked_offsets.size - offsets_to_save.size) > 0
-        Log.warn { "Consumer offsets file for #{@msg_dir} is full, dropped #{dropped} oldest consumer offset(s)" }
-      end
-      used_bytes = offsets_to_save.sum { |ctag, _offset, _pos| ConsumerOffsets.entry_size(ctag) }
-      # Allocate 1000x the used size as headroom for future appends, bounded by the min/max file size.
-      new_capacity = (used_bytes * 1000).clamp(MIN_CONSUMER_OFFSETS_FILE_SIZE, MAX_CONSUMER_OFFSETS_FILE_SIZE)
-      replace_offsets_file(new_capacity, offsets_to_save)
+      @consumer_offsets.cleanup { lowest_offset_in_stream }
     end
 
-    private def replace_offsets_file(capacity : Int, offsets_to_save : Array(Tuple(String, Int64, Int64)))
-      old_consumer_offsets = @consumer_offsets
-      @consumer_offset_positions = Hash(String, Int64).new
-      @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
-      offsets_to_save.each do |consumer_tag, offset, _pos|
-        @consumer_offsets.write_byte consumer_tag.bytesize.to_u8
-        @consumer_offsets.write consumer_tag.to_slice
-        @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
-        @consumer_offsets.write_bytes offset
-      end
-      @consumer_offsets.rename(old_consumer_offsets.path)
-      @replicator.try &.replace_file(@consumer_offsets)
-      old_consumer_offsets.close(truncate_to_size: false)
+    # Lowest offset still retained in the stream, used to discard consumer
+    # offsets that have fallen out of the stream during cleanup.
+    private def lowest_offset_in_stream : Int64
+      offset_at(@segments.first_key, 4u32).first
     end
 
     def read(segment : UInt32, position : UInt32) : Envelope?
