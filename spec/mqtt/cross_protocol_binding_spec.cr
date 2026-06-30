@@ -113,6 +113,27 @@ module MqttSpecs
       end
     end
 
+    it "persists only durable cross-protocol bindings, not sessions or transient destinations" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("amq.durable-dest", "topic", true, false)
+        vhost.declare_exchange("amq.transient-dest", "topic", false, false)
+        vhost.bind_exchange("amq.durable-dest", LavinMQ::MQTT::EXCHANGE, "a/b")
+        vhost.bind_exchange("amq.transient-dest", LavinMQ::MQTT::EXCHANGE, "c/d")
+        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: true)
+          subscribe(io, topic_filters: [subtopic("x/y", 0u8), subtopic("z/#", 0u8)])
+          # tree: 2 cross-protocol bindings + 2 session subscriptions
+          exchange.bindings_details.size.should eq 4
+          # only the durable cross-protocol destination is persisted
+          exchange.bindings_to_persist.map(&.destination.name).should eq ["amq.durable-dest"]
+          disconnect(io)
+        end
+      end
+    end
+
     it "removes the binding when unbound" do
       with_server do |server|
         vhost = server.vhosts["/"]

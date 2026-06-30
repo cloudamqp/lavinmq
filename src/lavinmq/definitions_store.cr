@@ -354,14 +354,10 @@ module LavinMQ
           io.write_bytes f
         end
         @exchanges.each_value.select(&.persistent?).each do |e|
-          e.bindings_details.each do |binding|
+          # Each exchange decides which of its bindings survive a restart; the
+          # MQTT exchange yields only its durable cross-protocol bindings (#1136).
+          e.bindings_to_persist.each do |binding|
             dest = binding.destination
-            # A persistent-but-not-durable exchange (the MQTT exchange) only
-            # persists its exchange-to-exchange bindings to durable
-            # destinations; its session subscriptions stay transient (#1136).
-            unless e.durable?
-              next unless dest.is_a?(Exchange) && dest.durable?
-            end
             args = binding.arguments || AMQP::Table.new
             frame = case dest
                     when Queue

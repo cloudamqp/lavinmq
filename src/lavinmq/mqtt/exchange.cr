@@ -134,6 +134,21 @@ module LavinMQ
         @tree.size
       end
 
+      # Only the cross-protocol exchange-to-exchange bindings (to durable
+      # destinations) are persisted; session subscriptions stay transient.
+      # Built lazily so compaction never materializes a BindingDetails per MQTT
+      # session subscription (#1136).
+      def bindings_to_persist : Array(BindingDetails)
+        result = Array(BindingDetails).new
+        @tree.each_entry do |entry, _qos, filter|
+          next unless entry.is_a?(MQTT::AMQPDestination)
+          dest = entry.exchange
+          next unless dest.durable?
+          result << BindingDetails.new(name, vhost.name, LavinMQ::BindingKey.new(filter, entry.arguments), dest)
+        end
+        result
+      end
+
       # The internal MQTT exchange is never (re)declarable by an AMQP client, so
       # it never matches a declare frame.
       def match?(frame : AMQP::Frame) : Bool

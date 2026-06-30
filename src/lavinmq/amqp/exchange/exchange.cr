@@ -135,6 +135,13 @@ module LavinMQ
         durable?
       end
 
+      # Bindings that definitions compaction should write to the dump. AMQP
+      # exchanges persist all of their bindings (as the live bind path does for
+      # durable sources); see MQTT::Exchange for the cross-protocol override.
+      def bindings_to_persist : Array(BindingDetails)
+        bindings_details
+      end
+
       def in_use?
         return true unless bindings_details.empty?
         @vhost.exchanges_any? do |_, x|
