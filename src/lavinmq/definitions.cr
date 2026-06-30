@@ -1,4 +1,5 @@
 require "./vhost"
+require "./mqtt/topic_filter_set"
 
 module LavinMQ
   abstract class DefinitionsImporter
@@ -155,6 +156,12 @@ module LavinMQ
       if groups = body["permission_groups"]?
         groups.as_a.each do |g|
           group = LavinMQ::Auth::PermissionGroup.from_json(g.to_json)
+          group.rules.each do |rule|
+            unless MQTT::TopicFilterSet.valid_filter?(rule.pattern)
+              raise ArgumentError.new(
+                "Invalid MQTT topic filter #{rule.pattern.inspect} in permission group '#{group.name}'")
+            end
+          end
           next if skip_existing && @amqp_server.permission_groups[group.name]?
           @amqp_server.permission_groups.put(group, save: false)
         end

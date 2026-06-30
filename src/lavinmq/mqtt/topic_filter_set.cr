@@ -36,6 +36,30 @@ module LavinMQ
         pattern.gsub("{username}", username)
       end
 
+      # MQTT length-prefixes topics with two bytes, so they never exceed 65535 bytes.
+      MAX_FILTER_BYTESIZE = 65_535
+      # The matcher recurses once per level, so cap how deep a filter can be.
+      MAX_FILTER_SEPARATORS = 200
+
+      # Validates a topic filter: `#` only as the last level, `+` only as a whole
+      # level, not empty. A malformed filter would otherwise silently widen in the
+      # matcher (e.g. `secret/#/x` becomes `secret/#`).
+      def self.valid_filter?(filter : String) : Bool
+        return false if filter.empty?
+        return false if filter.bytesize > MAX_FILTER_BYTESIZE
+        levels = filter.split('/')
+        return false if levels.size - 1 > MAX_FILTER_SEPARATORS
+        last = levels.size - 1
+        levels.each_with_index do |level, i|
+          if level.includes?('#')
+            return false unless level == "#" && i == last
+          elsif level.includes?('+')
+            return false unless level == "+"
+          end
+        end
+        true
+      end
+
       # True if MQTT filters a and b can both match at least one concrete topic.
       def self.filters_overlap?(a : String, b : String) : Bool
         overlap?(a.split('/'), b.split('/'), 0, 0)

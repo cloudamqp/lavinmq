@@ -1,5 +1,6 @@
 require "../controller"
 require "./users"
+require "../../mqtt/topic_filter_set"
 
 module LavinMQ
   module HTTP
@@ -35,6 +36,9 @@ module LavinMQ
           rules = (body["rules"]?.try(&.as_a?) || [] of JSON::Any).map do |r|
             pattern = r["pattern"]?.try(&.as_s)
             bad_request(context, "Each rule requires a 'pattern'") unless pattern
+            unless MQTT::TopicFilterSet.valid_filter?(pattern)
+              bad_request(context, "Invalid MQTT topic filter pattern: #{pattern.inspect}")
+            end
             Auth::PermissionGroup::Rule.new(
               pattern,
               r["read"]?.try(&.as_bool?) || false,

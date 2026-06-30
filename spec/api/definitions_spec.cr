@@ -167,6 +167,27 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "raises on an invalid topic filter in a permission group" do
+      defs = {
+        "permission_groups" => [
+          {"name" => "bad", "protocol" => "mqtt", "apply_to_all" => false,
+           "members" => [] of String,
+           "rules" => [{"pattern" => "secret/#/temp", "read" => true, "write" => false}]},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "raises on invalid JSON" do
       tmpfile = File.tempname("lavinmq-defs", ".json")
       File.write(tmpfile, "not valid json")

@@ -103,4 +103,19 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       response.status_code.should eq 400
     end
   end
+
+  it "returns 400 for a malformed topic-filter pattern and does not create the group" do
+    with_http_server do |http, _|
+      body = {
+        protocol:     "mqtt",
+        apply_to_all: false,
+        members:      ["alice"],
+        rules:        [{pattern: "secret/#/temp", read: true, write: false}],
+      }.to_json
+      response = http.put("/api/permission-groups/bad-pattern", body: body)
+      response.status_code.should eq 400
+
+      http.get("/api/permission-groups/bad-pattern").status_code.should eq 404
+    end
+  end
 end

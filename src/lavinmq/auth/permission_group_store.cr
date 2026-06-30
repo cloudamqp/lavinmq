@@ -45,7 +45,7 @@ module LavinMQ
         end
       end
 
-      # Groups an MQTT-connected user resolves: mqtt protocol and member (or apply_to_all).
+      # The mqtt groups that apply to a user: ones they are a member of, or apply_to_all.
       def for_mqtt_user(username : String) : Array(PermissionGroup)
         @groups.values.select { |g| g.protocol == "mqtt" && g.member?(username) }
       end

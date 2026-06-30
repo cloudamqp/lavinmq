@@ -10,6 +10,45 @@ describe LavinMQ::MQTT::TopicFilterSet do
     end
   end
 
+  describe ".valid_filter?" do
+    it "accepts well-formed MQTT topic filters" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("chat/alice/room1").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("chat/{username}/#").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a/+/c").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("#").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("+").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("+/tennis/#").should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a//b").should be_true # empty levels are legal
+    end
+
+    it "rejects a '#' that is not the last and sole token of its level" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("secret/#/temp").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a#").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("sport/tennis#").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("#/a").should be_false
+    end
+
+    it "rejects a '+' that is not the sole token of its level" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a/b+").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("+a").should be_false
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("sport+/tennis").should be_false
+    end
+
+    it "rejects an empty filter" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("").should be_false
+    end
+
+    it "rejects a filter longer than the MQTT wire maximum (65535 bytes)" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a" * 65_535).should be_true
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?("a" * 65_536).should be_false
+    end
+
+    it "rejects a filter with too many levels" do
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?(Array.new(201, "a").join('/')).should be_true  # 200 separators
+      LavinMQ::MQTT::TopicFilterSet.valid_filter?(Array.new(202, "a").join('/')).should be_false # 201 separators
+    end
+  end
+
   describe ".filters_overlap?" do
     it "is true when two filters share a concrete topic" do
       LavinMQ::MQTT::TopicFilterSet.filters_overlap?("chat/alice/#", "chat/alice/room1").should be_true
