@@ -22,10 +22,10 @@ module LavinMQ
       # - Handling the retain store
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
-      def initialize(@vhost : VHost, @replicator : Clustering::Replicator?)
+      def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.register_exchange(@exchange)
       end
@@ -37,9 +37,12 @@ module LavinMQ
         true
       end
 
-      def add_client(io, connection_info, user, packet)
+      def add_client(io, connection_info, user, packet) : Client
         if prev_client = @clients[packet.client_id]?
-          prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
+          prev_client.close(
+            "New client #{connection_info.remote_address} " \
+            "(username=#{packet.username}) connected as #{packet.client_id}")
+          remove_client(prev_client)
         end
         client = MQTT::Client.new(io,
           connection_info,
@@ -49,15 +52,26 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will)
-        if session = sessions[client.client_id]?
-          if client.clean_session?
-            sessions.delete session
-          else
-            session.client = client
-          end
+        if client.clean_session?
+          sessions[client.client_id]?.try &.delete
+        else
+          # If an existing session exists, reuse it. If no session exists
+          # it will be created on first subscribe
+          sessions[client.client_id]?.try &.client = client
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
+        client
+      end
+
+      def run_client(io, connection_info, user, packet) : Client
+        client = add_client(io, connection_info, user, packet)
+        begin
+          client.run
+        ensure
+          remove_client(client)
+        end
+        client
       end
 
       def remove_client(client)
@@ -65,14 +79,14 @@ module LavinMQ
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
-            sessions.delete(client_id) if session.clean_session?
+            session.delete if session.clean_session?
           end
         end
-        @clients.delete client_id
+        @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : MQTT::Publish)
+      def publish(packet : Protocol::Publish)
         @exchange.publish(packet)
       end
 
@@ -87,7 +101,7 @@ module LavinMQ
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          MQTT::SubAck::ReturnCode.from_int(tf.qos)
+          Protocol::SubAck::ReturnCode.from_int(tf.qos)
         end
       end
 

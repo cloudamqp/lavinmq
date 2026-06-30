@@ -14,13 +14,45 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
+    # Bound how long a pre-auth connection may keep the accept fiber (and its FD)
+    # parked while we wait for the first bytes. Without this the initial peek
+    # blocks forever on a peer that completes the handshake but sends nothing.
+    HANDSHAKE_TIMEOUT = 15.seconds
+
+    def self.parse(io : IO, timeout : Time::Span = HANDSHAKE_TIMEOUT) : ConnectionInfo?
+      io.read_timeout = timeout
+      # A single peek can return fewer bytes than the full signature on a TCP
+      # segment split (issue 2082), so we only need the bytes we have to match
+      # the *start* of a signature. No supported protocol (AMQP "AMQP\0\0\9\1",
+      # MQTT, HTTP) begins with "PROXY" or the V2 signature, so a prefix match
+      # is unambiguous; the V1/V2 parsers then read the rest of the header.
+      peeked = io.peek
+      if header_prefix?(peeked, "PROXY".to_slice)
+        ProxyProtocol::V1.parse(io)
+      elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
+        ProxyProtocol::V2.parse(io)
+      else
+        nil
+      end
+    ensure
+      io.read_timeout = nil
+    end
+
+    # True if the bytes seen so far match the start of *signature* (comparing
+    # only the bytes we have, since a segment split may give us a partial peek).
+    private def self.header_prefix?(peeked : Bytes, signature : Bytes) : Bool
+      n = Math.min(peeked.size, signature.size)
+      return false if n.zero?
+      peeked[0, n] == signature[0, n]
+    end
+
     struct V1
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        io.read_timeout = HANDSHAKE_TIMEOUT
         header = io.gets('\n', 107) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
@@ -94,9 +126,10 @@ module LavinMQ
       end
 
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        io.read_timeout = HANDSHAKE_TIMEOUT
         buffer = uninitialized UInt8[16]
-        io.read(buffer.to_slice)
+        # read_fully so a 16-byte header split across TCP segments isn't short-read (issue 2082)
+        io.read_fully(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
         unless signature == Signature.to_slice
           raise InvalidSignature.new(signature.to_s)

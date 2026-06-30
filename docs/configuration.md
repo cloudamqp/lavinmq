@@ -17,6 +17,12 @@ lavinmq --config /etc/lavinmq/lavinmq.ini
 
 Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (or the systemd-standard `CONFIGURATION_DIRECTORY`) to a directory; LavinMQ will load `lavinmq.ini` from that directory. Defaults to `/etc/lavinmq`.
 
+## Reloading
+
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+
+Not every setting takes effect on reload. The log level and TLS certificates are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+
 ## [main] Section
 
 | INI Key | CLI Flag | Env Var | Type | Default | Description |
@@ -25,6 +31,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `log_level` | `-l`, `--log-level` | — | String | `info` | Log level: `trace`, `debug`, `info`, `notice`, `warn`, `error`, `fatal`, `none` |
 | `log_file` | — | — | String | (none) | Log file path |
 | `pidfile` | `--pidfile` | — | String | (empty) | PID file path |
+| `control_unix_path` | `--control-unix-path` | `LAVINMQ_CONTROL_UNIX_PATH` | String | `/tmp/lavinmqctl.sock` | UNIX socket that `lavinmqctl` connects to. Use a unique path per instance to run multiple servers on one host. |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
 | `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
@@ -65,8 +72,8 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `port` | `-p`, `--amqp-port` | `LAVINMQ_AMQP_PORT` | Int | `5672` | AMQP port |
 | `tls_port` | `--amqps-port` | `LAVINMQ_AMQPS_PORT` | Int | `5671` | AMQPS port |
 | `unix_path` | `--amqp-unix-path` | — | String | (empty) | AMQP Unix socket path |
-| `unix_proxy_protocol` | — | — | UInt8 | `1` | PROXY protocol version on Unix sockets |
-| `tcp_proxy_protocol` | — | — | UInt8 | `0` | PROXY protocol version on TCP |
+| `tcp_proxy_protocol` | — | — | Bool | `false` | Enable PROXY protocol on TCP (auto-detects v1/v2) |
+| `proxy_protocol_trusted_sources` | — | — | String | (empty) | Comma-separated IPs/CIDR blocks allowed to send PROXY headers |
 | `heartbeat` | — | — | UInt16 | `300` | Heartbeat interval (seconds) |
 | `frame_max` | — | — | UInt32 | `131072` | Maximum frame size (bytes) |
 | `channel_max` | — | — | UInt16 | `2048` | Maximum channels per connection |
@@ -86,6 +93,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `max_packet_size` | — | — | UInt32 | `268435455` | Max MQTT packet size (bytes) |
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
 | `permission_check_enabled` | — | — | Bool | `false` | Enable MQTT permission checks |
+| `client_id_validation` | — | — | String | `none` | Validate client_id against the username: `none` or `username` |
 
 ## [mgmt] Section
 
@@ -107,7 +115,7 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
-| `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | Max unsynced actions before sync |
+| `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |
 
@@ -116,12 +124,15 @@ Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (o
 | INI Key | Type | Default | Description |
 |---------|------|---------|-------------|
 | `issuer` | URI | (none) | OAuth2/OIDC issuer URL |
+| `client_id` | String | (none) | OAuth2 client ID. Required to enable management UI SSO login |
+| `mgmt_base_url` | URI | (none) | Public base URL of the management UI. Setting it together with `issuer` and `client_id` enables the SSO login button. Must use `https://`, or `http://` with a `localhost`, `127.0.0.1`, or `[::1]` host. When `verify_aud` is true, SSO tokens must match `audience` or `resource_server_id` |
+| `mgmt_scopes` | String | `openid profile` | Space-separated scopes requested in the management UI SSO authorization request. Override to match the requirements of your identity provider |
 | `resource_server_id` | String | (none) | Resource server identifier |
 | `preferred_username_claims` | Array | `["sub", "client_id"]` | JWT claims for username extraction |
 | `additional_scopes_keys` | Array | `[]` | Additional JWT claims to check for scopes |
 | `scope_prefix` | String | (none) | Prefix to strip from scope strings |
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
-| `audience` | String | (none) | Expected JWT audience |
+| `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
 ## [experimental] Section

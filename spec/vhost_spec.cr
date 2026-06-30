@@ -19,7 +19,7 @@ describe LavinMQ::VHost do
   it "should be able to persist vhosts" do
     with_amqp_server do |s|
       s.vhosts.create("test")
-      s.restart
+      restart_server(s)
       s.vhosts["test"]?.should_not be_nil
     end
   end
@@ -29,7 +29,7 @@ describe LavinMQ::VHost do
       s.vhosts.create("test")
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
-      s.restart
+      restart_server(s)
       s.vhosts["test"].exchange("e").should_not be_nil
     end
   end
@@ -58,7 +58,7 @@ describe LavinMQ::VHost do
       s.vhosts.create("test")
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
-      s.restart
+      restart_server(s)
       s.vhosts["test"].queue("q").should_not be_nil
     end
   end
@@ -70,7 +70,7 @@ describe LavinMQ::VHost do
       v.declare_exchange("e", "direct", true, false)
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
-      s.restart
+      restart_server(s)
       s.vhosts["test"].exchange("e").bindings_details.first.destination.name.should eq "q"
     end
   end
@@ -114,6 +114,22 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       v.delete_queue("q")
       v.@definitions.not_nil!.@definitions_file.size.should be < file_size
+    end
+  end
+
+  it "should keep durable mqtt sessions after compaction and restart" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.max_deleted_definitions = 8
+      v = s.vhosts["/"]
+      v.declare_queue("mqtt.persist", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+      LavinMQ::Config.instance.max_deleted_definitions.times do
+        v.declare_queue("q", true, false)
+        v.delete_queue("q")
+      end
+      restart_server(s)
+      session = s.vhosts["/"].session?("mqtt.persist")
+      session.should_not be_nil
+      s.vhosts["/"].queue?("mqtt.persist").should be_nil
     end
   end
   describe "auto add permissions" do
@@ -173,6 +189,26 @@ describe LavinMQ::VHost do
         with_channel(s) do |_ch3|
         end
       end
+    end
+  end
+
+  it "serializes concurrent saves so they don't race on the tmp file" do
+    with_amqp_server do |s|
+      store = s.vhosts
+      # Concurrent vhost create/delete (e.g. under churn) all call save!, which
+      # shares one vhosts.json.tmp path. Without serialization two saves race
+      # and one's rename finds the tmp already moved by the other.
+      failures = Atomic(Int32).new(0)
+      WaitGroup.wait do |wg|
+        40.times do
+          wg.spawn do
+            store.save!
+          rescue
+            failures.add(1)
+          end
+        end
+      end
+      failures.get.should eq 0
     end
   end
 end

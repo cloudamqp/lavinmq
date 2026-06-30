@@ -1,7 +1,69 @@
 require "./spec_helper"
 require "benchmark"
+require "log/spec"
 
 describe LavinMQ::Server do
+  it "closes idempotently" do
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    server.close
+    server.close
+    server.closed?.should be_true
+  end
+
+  it "replaces server stores on restart" do
+    server = LavinMQ::Server.new(LavinMQ::Config.instance)
+    users = server.users
+    vhosts = server.vhosts
+    parameters = server.parameters
+    authenticator = server.authenticator
+
+    begin
+      restart_server(server)
+
+      server.users.same?(users).should be_false
+      server.vhosts.same?(vhosts).should be_false
+      server.parameters.same?(parameters).should be_false
+      server.authenticator.same?(authenticator).should be_false
+      server.vhosts["/"]?.should_not be_nil
+      server.users["guest"]?.should_not be_nil
+    ensure
+      server.close unless server.closed?
+    end
+  end
+
+  it "removes the log exchange channel when closed" do
+    config = LavinMQ::Config.instance
+    config.log_exchange = true
+    server = LavinMQ::Server.new(config)
+
+    begin
+      server.start_log_exchange
+      log_channel = server.@log_exchange_channel.not_nil!
+      ::Log::InMemoryBackend.instance.channels.includes?(log_channel).should be_true
+
+      server.close
+
+      ::Log::InMemoryBackend.instance.channels.includes?(log_channel).should be_false
+      log_channel.closed?.should be_true
+    ensure
+      server.close unless server.closed?
+      config.log_exchange = false
+    end
+  end
+
+  it "logs kTLS=off for TLS connections without kernel offload" do
+    with_amqp_server(tls: true) do |s|
+      uri = URI.parse(s.amqp_server.url)
+      Log.capture("lmq.server", :info) do |logs|
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        conn = AMQP::Client.new(host: uri.hostname.not_nil!, port: uri.port.not_nil!, tls: client_ctx).connect
+        conn.close
+        logs.check(:info, /connected with .* kTLS=off/)
+      end
+    end
+  end
+
   it "accepts connections" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -513,7 +575,7 @@ describe LavinMQ::Server do
         headers_x = ch.exchange("headers_exchange", "headers", passive: false)
         topic_x.bind(exchange: headers_x.name, routing_key: "", args: hdrs)
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue
         q.bind("topic_exchange", "#")
@@ -733,7 +795,7 @@ describe LavinMQ::Server do
         end
         ch.wait_for_confirms
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue("durable_queue", durable: true)
         deleted_msgs = q.delete
@@ -758,7 +820,7 @@ describe LavinMQ::Server do
         end
         q.message_count.should eq 0
       end
-      s.restart
+      restart_server(s)
       with_channel(s) do |ch|
         q = ch.queue("q")
         q.message_count.should eq 0
@@ -1269,7 +1331,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "supports consumer timeouts" do
+  it "supports consumer timeouts", tags: "slow" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("", exclusive: true, args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))
@@ -1281,7 +1343,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "restarts fast even with large messages" do
+  it "restarts fast even with large messages", tags: "slow" do
     with_amqp_server do |s|
       data = Bytes.new 128 * 1024**2
       with_channel(s) do |ch|
@@ -1292,7 +1354,7 @@ describe LavinMQ::Server do
       end
       restart_time = Benchmark.realtime do
         restart_memory = Benchmark.memory do
-          s.restart
+          restart_server(s)
         end
         restart_memory.should be < 1 * 1024**2
       end

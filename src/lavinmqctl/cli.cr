@@ -78,12 +78,16 @@ class LavinMQCtl
   SERVER_CMDS = {
     {"stop_app", "Stop the AMQP broker", ""},
     {"start_app", "Starts the AMQP broker", ""},
+    {"gc_collect", "Trigger a garbage collection cycle and print GC stats", ""},
   }
 
   def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
+    end
+    if path = ENV["LAVINMQCTL_CONTROL_UNIX_PATH"]?
+      @options["control_unix_path"] = path
     end
     global_options
     parse_cmd
@@ -324,6 +328,7 @@ class LavinMQCtl
     when "delete_exchange"       then delete_exchange
     when "status"                then status
     when "cluster_status"        then cluster_status
+    when "gc_collect"            then gc_collect
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
@@ -361,14 +366,15 @@ class LavinMQCtl
       uri = URI.new(scheme, hostname, port)
       client_from_uri(uri)
     else
+      path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
       begin
-        unless File.exists? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
-          abort "#{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET} not found. Is LavinMQ running?"
+        unless File.exists? path
+          abort "#{path} not found. Is LavinMQ running?"
         end
-        unless File::Info.writable? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
+        unless File::Info.writable? path
           abort "Please run lavinmqctl as root or as the same user as LavinMQ."
         end
-        socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
+        socket = UNIXSocket.new(path)
         HTTP::Client.new(socket)
       rescue ex : Socket::ConnectError
         abort "Can't connect to LavinMQ: #{ex.message}"
@@ -427,6 +433,9 @@ class LavinMQCtl
     end
     @parser.on("--scheme=scheme", "Specify scheme (http)") do |v|
       @options["scheme"] = v
+    end
+    @parser.on("--control-unix-path=PATH", "Path to the LavinMQ control socket (default: #{LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH})") do |v|
+      @options["control_unix_path"] = v
     end
     @parser.on("-n node", "--node=node", "Specify node") do |v|
       # Only used by tests in cloudamqp/rabbitmq-java-client
@@ -841,6 +850,7 @@ class LavinMQCtl
       Consumers:        body.dig("object_totals", "consumers"),
       Exchanges:        body.dig("object_totals", "exchanges"),
       Queues:           body.dig("object_totals", "queues"),
+      Bindings:         body.dig("object_totals", "bindings"),
       Messages:         body.dig("queue_totals", "messages"),
       Messages_ready:   body.dig("queue_totals", "messages_ready"),
       Messages_unacked: body.dig("queue_totals", "messages_unacknowledged"),
@@ -860,6 +870,14 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
+  end
+
+  private def gc_collect
+    resp = http.post "/api/nodes/gc_collect", @headers
+    handle_response(resp, 204)
+    resp = http.get "/api/nodes/gc_stats"
+    handle_response(resp, 200)
+    output JSON.parse(resp.body).as_h
   end
 
   private def set_vhost_limits

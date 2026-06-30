@@ -25,13 +25,27 @@ module LavinMQ
         @uri = URI.parse(raw_uri)
       end
 
+      # Copy the upstream's configuration but give the copy its own, empty link
+      # tables. Used by upstream sets that override settings per entry; a plain
+      # shallow dup would share @q_links/@ex_links with the original.
+      def dup
+        copy = super
+        copy.clear_links
+        copy
+      end
+
+      protected def clear_links
+        @q_links = Hash(String, QueueLink).new
+        @ex_links = Hash(String, ExchangeLink).new
+      end
+
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
         @ex_links.delete(federated_exchange.name).try(&.delete)
       end
 
-      def stop_link(federated_q : Queue)
+      def stop_link(federated_q : AMQP::Queue)
         @q_links.delete(federated_q.name).try(&.delete)
       end
 
@@ -65,7 +79,7 @@ module LavinMQ
       # When federated_q has a consumer the connections are estabished.
       # If all consumers disconnect, the connections are closed.
       # When the policy or the upstream is removed the link is also removed.
-      def link(federated_q : Queue) : QueueLink
+      def link(federated_q : AMQP::Queue) : QueueLink
         if link = @q_links[federated_q.name]?
           return link
         end

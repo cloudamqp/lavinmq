@@ -52,27 +52,6 @@ describe LavinMQ::SNIHost do
     # HTTP should NOT have peer verification
     http_ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
   end
-
-  it "reloads all contexts" do
-    host = LavinMQ::SNIHost.new("example.com")
-    host.tls_cert = "spec/resources/server_certificate.pem"
-    host.tls_key = "spec/resources/server_key.pem"
-
-    amqp_ctx1 = host.amqp_tls_context
-    mqtt_ctx1 = host.mqtt_tls_context
-    http_ctx1 = host.http_tls_context
-
-    host.reload
-
-    amqp_ctx2 = host.amqp_tls_context
-    mqtt_ctx2 = host.mqtt_tls_context
-    http_ctx2 = host.http_tls_context
-
-    # After reload, new contexts should be created
-    amqp_ctx1.should_not eq(amqp_ctx2)
-    mqtt_ctx1.should_not eq(mqtt_ctx2)
-    http_ctx1.should_not eq(http_ctx2)
-  end
 end
 
 describe LavinMQ::SNIManager do

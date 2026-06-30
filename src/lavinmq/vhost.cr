@@ -7,6 +7,7 @@ require "./parameter"
 require "./shovel/store"
 require "./federation/upstream_store"
 require "./sortable_json"
+require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
 require "digest/sha1"
 require "./amqp/queue"
@@ -30,7 +31,7 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -90,11 +91,11 @@ module LavinMQ
 
     # Queue accessors
 
-    def queue?(name : String) : Queue?
+    def queue?(name : String) : AMQP::Queue?
       definitions.queue?(name)
     end
 
-    def queue(name : String) : Queue
+    def queue(name : String) : AMQP::Queue
       definitions.queue(name)
     end
 
@@ -102,8 +103,8 @@ module LavinMQ
       definitions.queue_exists?(name)
     end
 
-    def each_queue(& : Queue ->) : Nil
-      definitions.each_queue { |v| yield v }
+    def each_queue(& : LavinMQ::Queue ->)
+      definitions.each_queue { |q| yield q }
     end
 
     # ONLY for SIGUSR1 debug dumps; see VHostStore#unsafe_each.
@@ -111,7 +112,15 @@ module LavinMQ
       definitions.unsafe_each_queue { |v| yield v }
     end
 
-    def queues : Array(Queue)
+    private def each_policy_target(& : Queue | Exchange ->)
+      resources = Array(Queue | Exchange).new(queues_size + exchanges_size + sessions_size)
+      resources.concat(queues).concat(sessions).concat(exchanges)
+      resources.each do |r|
+        yield r
+      end
+    end
+
+    def queues : Array(AMQP::Queue)
       definitions.queues
     end
 
@@ -119,12 +128,42 @@ module LavinMQ
       definitions.queues_size
     end
 
-    def register_queue(queue : Queue) : Nil
+    def register_queue(queue : AMQP::Queue) : Nil
       definitions.register_queue(queue)
     end
 
     def queues_clear : Nil
       definitions.queues_clear
+    end
+
+    # Session accessors
+
+    def session?(name : String) : MQTT::Session?
+      definitions.session?(name)
+    end
+
+    def session(name : String) : MQTT::Session
+      definitions.session(name)
+    end
+
+    def session_exists?(name : String) : Bool
+      definitions.session_exists?(name)
+    end
+
+    def each_session(& : MQTT::Session ->) : Nil
+      definitions.each_session { |v| yield v }
+    end
+
+    def sessions : Array(MQTT::Session)
+      definitions.sessions
+    end
+
+    def sessions_size : Int32
+      definitions.sessions_size
+    end
+
+    def sessions_clear : Nil
+      definitions.sessions_clear
     end
 
     # Connection accessors
@@ -225,6 +264,10 @@ module LavinMQ
       store_limits
     end
 
+    def queue_limit_reached? : Bool
+      @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+    end
+
     private def load_limits
       File.open(File.join(@data_dir, "limits.json")) do |f|
         limits = JSON.parse(f)
@@ -261,7 +304,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else
@@ -300,6 +343,20 @@ module LavinMQ
         redeliver += q.redeliver_count
         return_unroutable += q.return_unroutable_count
       end
+      each_session do |s|
+        ready += s.message_count
+        unacked += s.unacked_count
+        ack += s.ack_count
+        confirm += s.confirm_count
+        deliver += s.deliver_count
+        deliver_no_ack += s.deliver_no_ack_count
+        deliver_get += s.deliver_get_count
+        get += s.get_count
+        get_no_ack += s.get_no_ack_count
+        publish += s.publish_count
+        redeliver += s.redeliver_count
+      end
+
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
@@ -319,9 +376,9 @@ module LavinMQ
       }
     end
 
-    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
+    def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
-        auto_delete, false, arguments)
+        auto_delete, false, arguments), fsync: fsync
       @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -331,9 +388,9 @@ module LavinMQ
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
-                         arguments = AMQP::Table.new)
+                         arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
-        auto_delete, internal, false, arguments)
+        auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
@@ -342,14 +399,14 @@ module LavinMQ
       @log.info { "Deleted exchange: #{name}" }
     end
 
-    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
-    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
+    def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
       apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
-        routing_key, false, arguments)
+        routing_key, false, arguments), fsync: fsync
     end
 
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -362,8 +419,13 @@ module LavinMQ
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false) : Bool
-      definitions.apply(f, loading)
+    def apply(f, loading = false, fsync = true) : Bool
+      definitions.apply(f, loading, fsync)
+    end
+
+    # Flush definitions written with fsync: false (e.g. during bulk import).
+    def fsync_definitions
+      definitions.fsync
     end
 
     def queue_bindings(queue : Queue) : Array(BindingDetails)
@@ -371,23 +433,37 @@ module LavinMQ
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
-                            definition : Hash(String, JSON::Any), priority : Int8) : OperatorPolicy
+                            definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : OperatorPolicy
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
-      @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @operator_policies.create(op, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}" if apply
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
 
     def add_policy(name : String, pattern : String, apply_to : String,
-                   definition : Hash(String, JSON::Any), priority : Int8) : Policy
+                   definition : Hash(String, JSON::Any), priority : Int8, save = true, apply = true) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
-      @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @policies.create(p, save: save)
+      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}" if apply
       @log.info { "Policy=#{name} Created" }
       p
+    end
+
+    # Persist the policy/operator-policy/parameter stores; used to flush after a
+    # bulk import that created entries with save: false.
+    def save_policies!
+      @policies.save!
+    end
+
+    def save_operator_policies!
+      @operator_policies.save!
+    end
+
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_operator_policy(name)
@@ -406,11 +482,11 @@ module LavinMQ
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
-    def add_parameter(p : Parameter)
+    def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
-      @parameters.create(p)
+      @parameters.create(p, save: save)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -463,6 +539,8 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       @log.debug { "Closing queues" }
       queues.each &.close
+      @log.debug { "Closing sessions" }
+      sessions.each &.close
       @log.debug { "Closing exchanges" }
       exchanges.each &.close
       Fiber.yield
@@ -478,13 +556,20 @@ module LavinMQ
     end
 
     def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources ||= (queues.map(&.as(Queue | Exchange)) + exchanges.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
-      resources.each do |resource|
-        policy = policies.find &.match?(resource)
-        operator_policy = operator_policies.find &.match?(resource)
-        resource.apply_policy(policy, operator_policy)
+      if r = resources
+        r.each do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
+      else
+        each_policy_target do |resource|
+          policy = policies.find &.match?(resource)
+          operator_policy = operator_policies.find &.match?(resource)
+          resource.apply_policy(policy, operator_policy)
+        end
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }

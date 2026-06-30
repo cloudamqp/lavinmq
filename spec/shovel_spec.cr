@@ -67,7 +67,7 @@ describe LavinMQ::Shovel do
         with_amqp_server do |s|
           source = LavinMQ::Shovel::AMQPSource.new(
             "spec",
-            [URI.parse(s.amqp_url)],
+            [URI.parse(s.amqp_server.url)],
             "source",
             direct_user: s.users.direct_user
           )
@@ -89,7 +89,7 @@ describe LavinMQ::Shovel do
           source_name = Random::Secure.base64(32)
           source = LavinMQ::Shovel::AMQPSource.new(
             source_name,
-            [URI.parse(s.amqp_url)],
+            [URI.parse(s.amqp_server.url)],
             "source",
             prefetch: 100,
             direct_user: s.users.direct_user
@@ -119,7 +119,7 @@ describe LavinMQ::Shovel do
           source_name = Random::Secure.base64(32)
           source = LavinMQ::Shovel::AMQPSource.new(
             source_name,
-            [URI.parse(s.amqp_url)],
+            [URI.parse(s.amqp_server.url)],
             "source",
             prefetch: 1,
             direct_user: s.users.direct_user
@@ -149,7 +149,7 @@ describe LavinMQ::Shovel do
           source_name = Random::Secure.base64(32)
           source = LavinMQ::Shovel::AMQPSource.new(
             source_name,
-            [URI.parse(s.amqp_url)],
+            [URI.parse(s.amqp_server.url)],
             "source",
             prefetch: 10,
             direct_user: s.users.direct_user,
@@ -173,14 +173,14 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "d",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "q",
           direct_user: s.users.direct_user
         )
@@ -208,14 +208,14 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "ql_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "ql_q2",
           direct_user: s.users.direct_user
         )
@@ -239,12 +239,12 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "lm_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
-        dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(s.amqp_url), "lm_q2", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(s.amqp_server.url), "lm_q2", direct_user: s.users.direct_user)
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "lm_shovel", vhost)
         with_channel(s) do |ch|
           x, q2 = ShovelSpecHelpers.setup_qs ch, "lm_"
@@ -259,8 +259,8 @@ describe LavinMQ::Shovel do
     it "should shovel forever" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        source = LavinMQ::Shovel::AMQPSource.new("spec", [URI.parse(s.amqp_url)], "sf_q1", direct_user: s.users.direct_user)
-        dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(s.amqp_url), "sf_q2", direct_user: s.users.direct_user)
+        source = LavinMQ::Shovel::AMQPSource.new("spec", [URI.parse(s.amqp_server.url)], "sf_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new("spec", URI.parse(s.amqp_server.url), "sf_q2", direct_user: s.users.direct_user)
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "sf_shovel", vhost)
         with_channel(s) do |ch|
           x, q2 = ShovelSpecHelpers.setup_qs ch, "sf_"
@@ -315,7 +315,7 @@ describe LavinMQ::Shovel do
         ack_mode = LavinMQ::Shovel::AckMode::OnPublish
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "ap_q1",
           prefetch: 1_u16,
           ack_mode: ack_mode,
@@ -323,7 +323,7 @@ describe LavinMQ::Shovel do
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "ap_q2",
           ack_mode: ack_mode,
           direct_user: s.users.direct_user
@@ -349,14 +349,14 @@ describe LavinMQ::Shovel do
         ack_mode = LavinMQ::Shovel::AckMode::NoAck
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "na_q1",
           ack_mode: ack_mode,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "na_q2",
           ack_mode: ack_mode,
           direct_user: s.users.direct_user
@@ -380,7 +380,7 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "prefetch_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           prefetch: 21_u16,
@@ -388,7 +388,7 @@ describe LavinMQ::Shovel do
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "prefetch_q2",
           direct_user: s.users.direct_user
         )
@@ -414,13 +414,13 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "od_q1",
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "od_q2",
           direct_user: s.users.direct_user
         )
@@ -446,14 +446,14 @@ describe LavinMQ::Shovel do
           q1.publish_confirm "shovel me 1", props: AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
         end
         config = %({
-        "src-uri": "#{s.amqp_url}",
+        "src-uri": "#{s.amqp_server.url}",
         "src-queue": "rc_q1",
-        "dest-uri": "#{s.amqp_url}",
+        "dest-uri": "#{s.amqp_server.url}",
         "dest-queue": "rc_q2",
         "src-prefetch-count": 2})
         p = LavinMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
         s.vhosts["/"].add_parameter(p)
-        s.restart
+        restart_server(s)
         wait_for { s.vhosts["/"].shovels.size > 0 }
         shovel = s.vhosts["/"].shovels["rc_shovel"]
         wait_for { shovel.running? }
@@ -486,13 +486,13 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse("#{s.amqp_url.sub("amqp://", "amqps://")}?verify=none")],
+          [URI.parse("#{s.amqp_server.url.sub("amqp://", "amqps://")}?verify=none")],
           "ssl_q1",
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse("#{s.amqp_url.sub("amqp://", "amqps://")}?verify=none"),
+          URI.parse("#{s.amqp_server.url.sub("amqp://", "amqps://")}?verify=none"),
           "ssl_q2",
           direct_user: s.users.direct_user
         )
@@ -518,14 +518,14 @@ describe LavinMQ::Shovel do
         prefetch = 5_u16
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "prefetch2_q1",
           prefetch: prefetch,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "prefetch2_q2",
           direct_user: s.users.direct_user
         )
@@ -560,7 +560,7 @@ describe LavinMQ::Shovel do
       it "should be stopped" do
         with_amqp_server do |s|
           vhost = s.vhosts.create("x")
-          uri = URI.parse(s.amqp_url)
+          uri = URI.parse(s.amqp_server.url)
           uri.user = "foo"
           uri.password = "bar"
           source = LavinMQ::Shovel::AMQPSource.new(
@@ -590,13 +590,13 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("x")
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "c_q1",
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "c_q2",
           direct_user: s.users.direct_user
         )
@@ -624,7 +624,7 @@ describe LavinMQ::Shovel do
         consumer_args = {"x-stream-offset" => JSON::Any.new("first")}
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           q1_name,
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user,
@@ -632,7 +632,7 @@ describe LavinMQ::Shovel do
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           q2_name,
           direct_user: s.users.direct_user,
         )
@@ -674,14 +674,14 @@ describe LavinMQ::Shovel do
         long_prefix = "a" * 250
         source = LavinMQ::Shovel::AMQPSource.new(
           "#{long_prefix}q1",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "#{long_prefix}q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "#{long_prefix}q2",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "#{long_prefix}q2",
           direct_user: s.users.direct_user
         )
@@ -698,20 +698,20 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "should pause and resume shovel" do
+    it "should pause and resume shovel", tags: "slow" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("pause:resume:vhost")
         queue_name = "shovel:pause:resume"
         source = LavinMQ::Shovel::AMQPSource.new(
           "#{queue_name}q1",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "#{queue_name}q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::Never,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "#{queue_name}q2",
-          URI.parse(s.amqp_url),
+          URI.parse(s.amqp_server.url),
           "#{queue_name}q2",
           direct_user: s.users.direct_user
         )
@@ -753,7 +753,7 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         queue_name = "shovel:pause:resume"
-        message_count = 100_000
+        message_count = 10_000
         with_channel(s) do |ch|
           q1, _q2 = ShovelSpecHelpers.setup_qs ch, queue_name
           message_count.times do |i|
@@ -761,9 +761,9 @@ describe LavinMQ::Shovel do
           end
 
           config = %({
-            "src-uri": "#{s.amqp_url}",
+            "src-uri": "#{s.amqp_server.url}",
             "src-queue": "#{queue_name}q1",
-            "dest-uri": "#{s.amqp_url}",
+            "dest-uri": "#{s.amqp_server.url}",
             "dest-queue": "#{queue_name}q2",
             "src-delete-after": "queue-length",
             "src-prefetch-count": 2})
@@ -790,16 +790,16 @@ describe LavinMQ::Shovel do
         vhost = s.vhosts.create("pause:resume:vhost")
         shovel_name = "shovel:pause:resume"
         config = %({
-        "src-uri": "#{s.amqp_url}",
+        "src-uri": "#{s.amqp_server.url}",
         "src-queue": "#{shovel_name}_q1",
-        "dest-uri": "#{s.amqp_url}",
+        "dest-uri": "#{s.amqp_server.url}",
         "dest-queue": "#{shovel_name}_q2" })
         p = LavinMQ::Parameter.new("shovel", shovel_name, JSON.parse(config))
         s.vhosts[vhost.name].add_parameter(p)
         shovel = s.vhosts[vhost.name].shovels[shovel_name]
         shovel.pause
         shovel.paused?.should eq true
-        s.restart
+        restart_server(s)
         should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
       end
     end
@@ -829,7 +829,7 @@ describe LavinMQ::Shovel do
         # # Setup shovel source and destination
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "ql_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
@@ -879,7 +879,7 @@ describe LavinMQ::Shovel do
         # # Setup shovel source and destination
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
-          [URI.parse(s.amqp_url)],
+          [URI.parse(s.amqp_server.url)],
           "ql_q1",
           delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user

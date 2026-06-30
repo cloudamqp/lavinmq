@@ -19,10 +19,14 @@ module LavinMQ
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
 
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+        register_routes
+      end
+
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
@@ -47,11 +51,19 @@ module LavinMQ
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size
+            queues += vhost.sessions_size
+            vhost.each_exchange { |e| bindings += e.binding_count }
             vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
               add_logs!(unacked_log, q.unacked_count_log)
+            end
+            vhost.each_session do |s|
+              ready += s.message_count
+              unacked += s.unacked_count
+              add_logs!(ready_log, s.message_count_log)
+              add_logs!(unacked_log, s.unacked_count_log)
             end
             vhost_stats_details = vhost.stats_details
             recv_rate += vhost_stats_details[:recv_oct_details][:rate]
@@ -72,13 +84,14 @@ module LavinMQ
             lavinmq_version: LavinMQ::VERSION,
             product_name:    "LavinMQ",
             node:            System.hostname,
-            uptime:          @amqp_server.uptime.to_i,
+            uptime:          @server.uptime.to_i,
             object_totals:   {
               channels:    channels,
               connections: connections,
               consumers:   consumers,
               exchanges:   exchanges,
               queues:      queues,
+              bindings:    bindings,
             },
             queue_totals: {
               messages:                    ready + unacked,
@@ -111,7 +124,7 @@ module LavinMQ
                 rate: {{ name.id }}_rate
               },
             {% end %} } {% end %},
-            listeners:      @amqp_server.listeners,
+            listeners:      @amqp_server.listeners + @mqtt_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context

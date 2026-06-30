@@ -234,6 +234,87 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "returns 400 when importing a user with an unsupported hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"bogus","password_hash":"abc","hashing_algorithm":"bogus","tags":[]}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        s.users["bogus"]?.should be_nil
+      end
+    end
+
+    it "imports passwordless user (password_hash empty string)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":"","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports passwordless user (password_hash null)" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"nopass","password_hash":null,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "imports user with valid MD5 hash and null hashing_algorithm" do
+      with_http_server do |http, s|
+        body = %({"users":[{"name":"legacy","password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        u = s.users["legacy"]?
+        u.should_not be_nil
+        u.not_nil!.password.should_not be_nil
+        u.not_nil!.password.not_nil!.verify("hej").should be_true
+      end
+    end
+
+    it "round-trips passwordless user through export and import" do
+      with_http_server do |http, s|
+        http.put("/api/users/nopass", body: %({"password_hash": ""}))
+        export = http.get("/api/definitions")
+        export.status_code.should eq 200
+
+        s.users.delete("nopass")
+        s.users["nopass"]?.should be_nil
+
+        response = http.post("/api/definitions", body: export.body)
+        response.status_code.should eq 200
+        s.users["nopass"]?.should_not be_nil
+        s.users["nopass"].password.should be_nil
+      end
+    end
+
+    it "returns 400 when importing a user with missing password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"nopass","hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string password_hash" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":123,"hashing_algorithm":null,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "returns 400 when importing a user with non-string hashing_algorithm" do
+      with_http_server do |http, _|
+        body = %({"users":[{"name":"badtype","password_hash":"","hashing_algorithm":42,"tags":""}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
     it "imports vhosts" do
       with_http_server do |http, s|
         s.vhosts.delete("def")
@@ -305,17 +386,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
-        res = Set(LavinMQ::Queue).new
+        res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
@@ -367,9 +448,9 @@ describe LavinMQ::HTTP::Server do
             "component": "shovel",
             "vhost": "/",
             "value": {
-              "src-uri": "#{s.amqp_url}",
+              "src-uri": "#{s.amqp_server.url}",
               "src-queue": "shovel_will_declare_q1",
-              "dest-uri": "#{s.amqp_url}",
+              "dest-uri": "#{s.amqp_server.url}",
               "dest-queue": "shovel_will_declare_q1"
             }
           }
@@ -385,6 +466,77 @@ describe LavinMQ::HTTP::Server do
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true
+      end
+    end
+
+    it "applies no parameters when one entry is malformed (issue #2073)" do
+      with_http_server do |http, s|
+        # A valid shovel followed by an operator_policy with priority > 127, which
+        # overflows Int8 and raises while parsing. Entries are validated up front,
+        # so a malformed entry makes the whole import a clean no-op: the shovel
+        # before it is neither applied in memory nor written to disk.
+        body = %({ "parameters": [
+          {
+            "name": "regression_shovel_2073",
+            "component": "shovel",
+            "vhost": "/",
+            "value": {
+              "src-uri": "#{s.amqp_server.url}",
+              "src-queue": "regression_q_2073",
+              "dest-uri": "#{s.amqp_server.url}",
+              "dest-queue": "regression_q_2073"
+            }
+          },
+          {
+            "name": "regression_op_2073",
+            "component": "operator_policy",
+            "vhost": "/",
+            "value": {
+              "pattern": "^.*",
+              "apply-to": "queues",
+              "priority": 999,
+              "definition": { "max-length": 10 }
+            }
+          }
+        ]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should_not eq 200
+        vhost = s.vhosts["/"]
+        vhost.parameters.any? { |_, p| p.parameter_name == "regression_shovel_2073" }.should be_false
+        params_file = File.join(vhost.data_dir, "parameters.json")
+        File.read(params_file).should_not contain("regression_shovel_2073") if File.exists?(params_file)
+      end
+    end
+
+    it "applies no policies when one entry is malformed (issue #2073)" do
+      with_http_server do |http, s|
+        # A valid policy followed by one with priority > 127, which overflows Int8
+        # while parsing. The whole import is a clean no-op: the first policy is
+        # neither applied in memory nor written to disk.
+        body = %({ "policies": [
+          {
+            "name": "regression_policy_2073",
+            "vhost": "/",
+            "pattern": "^.*",
+            "apply-to": "queues",
+            "priority": 1,
+            "definition": { "max-length": 10 }
+          },
+          {
+            "name": "regression_bad_policy_2073",
+            "vhost": "/",
+            "pattern": "^.*",
+            "apply-to": "queues",
+            "priority": 999,
+            "definition": { "max-length": 10 }
+          }
+        ]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should_not eq 200
+        vhost = s.vhosts["/"]
+        vhost.policies.has_key?("regression_policy_2073").should be_false
+        policies_file = File.join(vhost.data_dir, "policies.json")
+        File.read(policies_file).should_not contain("regression_policy_2073") if File.exists?(policies_file)
       end
     end
 
@@ -492,6 +644,40 @@ describe LavinMQ::HTTP::Server do
         body["queues"].as_a.empty?.should be_false
         keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
         body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
+    end
+
+    it "exports durable mqtt sessions but not transient ones" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.durable", true, false, mqtt_args)
+        s.vhosts["/"].declare_queue("mqtt.transient", false, true, mqtt_args)
+        s.vhosts["/"].session("mqtt.durable").durable?.should be_true
+        s.vhosts["/"].session("mqtt.transient").durable?.should be_false
+
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        queues = body["queues"].as_a
+        durable = queues.find { |v| v["name"] == "mqtt.durable" }
+        durable.should_not be_nil
+        durable.not_nil!["arguments"]["x-queue-type"].should eq "mqtt"
+        queues.find { |v| v["name"] == "mqtt.transient" }.should be_nil
+      end
+    end
+
+    it "re-imports an exported durable mqtt session as a session" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.roundtrip", true, false, mqtt_args)
+        body = http.get("/api/definitions").body
+        s.vhosts["/"].delete_queue("mqtt.roundtrip")
+        s.vhosts["/"].session?("mqtt.roundtrip").should be_nil
+
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].session?("mqtt.roundtrip").should_not be_nil
+        s.vhosts["/"].queue?("mqtt.roundtrip").should be_nil
       end
     end
 
@@ -711,17 +897,17 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
-        qs = Set(LavinMQ::Queue).new
+        qs = Set(LavinMQ::AMQP::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
-        res = Set(LavinMQ::Queue).new
+        res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end

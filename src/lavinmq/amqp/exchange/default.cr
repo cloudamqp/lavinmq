@@ -17,6 +17,10 @@ module LavinMQ
         nil
       end
 
+      def binding_count : Int32
+        0
+      end
+
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         if q = @vhost.queue?(routing_key)
           yield q

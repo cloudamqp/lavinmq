@@ -27,13 +27,17 @@ class SpyReplicator
     @replaced_files << path
   end
 
+  def replace_file(mfile : MFile)
+    @replaced_files << mfile.path
+  end
+
   def append(path : String, pos : Int, length : Int)
   end
 
-  def append(path : String, value : UInt32 | Int32)
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
   end
 
-  def append(path : String, bytes : Bytes)
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
   end
 
   def delete_file(path : String)
@@ -50,6 +54,16 @@ class SpyReplicator
 
   def all_followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
   end
 
   def close
@@ -344,7 +358,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when segment has corrupt schema version with replicator" do
+  it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
@@ -358,7 +372,7 @@ describe LavinMQ::MessageStore do
 
         # With a replicator (no followers), close spawns a fiber that races
         # with the constructor — this should close gracefully, not crash
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
           store.closed.should be_true
@@ -369,7 +383,7 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "closes gracefully when a middle segment is corrupt with replicator" do
+  it "closes gracefully when a middle segment is corrupt with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
@@ -386,7 +400,7 @@ describe LavinMQ::MessageStore do
 
         # With a replicator (no followers), this should close gracefully
         # even though valid segments before the corrupt one were already loaded
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
           store = LavinMQ::MessageStore.new(dir, replicator)
           store.closed.should be_true

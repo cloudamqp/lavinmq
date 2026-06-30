@@ -10,12 +10,11 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    listener = server.listeners.find(&.[:protocol].mqtt?)
-    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: LavinMQ::Server::Protocol, port: Int32))
+    tcp_listener = server.mqtt_server.@listeners.unsafe_get.select(TCPServer).first.local_address
 
     socket = TCPSocket.new(
-      tcp_listener[:ip_address],
-      tcp_listener[:port],
+      tcp_listener.address,
+      tcp_listener.port,
       connect_timeout: 30)
     socket.keepalive = true
     socket.tcp_nodelay = false
@@ -25,7 +24,7 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = false
     socket.buffer_size = 16384
-    socket.read_timeout = 1.seconds
+    socket.read_timeout = 300.milliseconds
     socket
   end
 
@@ -40,13 +39,17 @@ module MqttHelpers
     mqtt_server = TCPServer.new("localhost", 0)
     amqp_server = TCPServer.new("localhost", 0)
     s = LavinMQ::Server.new(LavinMQ::Config.instance, nil)
+    amqp = s.amqp_server
+    mqtt = s.mqtt_server
     begin
-      spawn(name: "amqp tcp listen") { s.listen(amqp_server, LavinMQ::Server::Protocol::AMQP) }
-      spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, LavinMQ::Server::Protocol::MQTT) }
-      wait_for { s.listeners_size >= 2 }
+      amqp.bind_tcp(amqp_server)
+      mqtt.bind_tcp(mqtt_server)
+      spawn(name: "amqp listener") { amqp.listen }
+      spawn(name: "mqtt listener") { mqtt.listen }
+      Fiber.yield
       yield s
     ensure
-      s.close
+      s.close # also closes the protocol servers held by `s`
       FileUtils.rm_rf(LavinMQ::Config.instance.data_dir) if clean_dir
     end
   end

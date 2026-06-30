@@ -12,7 +12,7 @@ A policy consists of:
 |-------|-------------|
 | `name` | Unique policy name (within a vhost) |
 | `pattern` | Regex pattern matched against queue/exchange names |
-| `apply-to` | `queues`, `exchanges`, or `all` |
+| `apply-to` | `queues`, `exchanges`, `all`, `classic_queues`, `quorum_queues`, or `streams`. `streams` matches stream queues only; `classic_queues` and `quorum_queues` both match non-stream queues (LavinMQ has no quorum queues but supports the policies RabbitMQ allows under that target). |
 | `priority` | Integer priority. Higher priority wins when multiple policies match. |
 | `definition` | Key-value pairs of policy settings to apply |
 

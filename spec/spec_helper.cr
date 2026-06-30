@@ -21,6 +21,8 @@ require "spec"
 require "file_utils"
 require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
+require "../src/lavinmq/amqp/server"
+require "../src/lavinmq/mqtt/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
 require "http/client"
@@ -53,6 +55,92 @@ module LavinMQ
   end
 end
 
+class LavinMQ::Server
+  # Spec-only protocol/HTTP servers, lazily built on first access. The block
+  # helpers below only yield the `Server`, so specs can resolve (and create on
+  # demand) them from just the server without a global registry. The references
+  # are collected with the (fresh per-spec) server, so no cleanup is needed.
+  getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self, @config) }
+  getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self, @config) }
+  getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
+
+  def amqp_url
+    addr = amqp_server.@listeners.unsafe_get.select(TCPServer).first.local_address
+    "amqp://#{addr}"
+  end
+
+  # Close the spec-built servers (if any) before tearing down the stores, so
+  # specs only have to close the server they were handed. HTTP first, since it
+  # holds references to the protocol servers (matches Launcher#stop order).
+  def close
+    @http_server.try &.close
+    @amqp_server.try &.close
+    @mqtt_server.try &.close
+    previous_def
+  end
+
+  # Tear down the protocol servers so the next `#amqp_server`/`#mqtt_server`
+  # access lazily builds a fresh one (used across a spec restart).
+  def reset_protocol_servers_for_specs
+    @amqp_server.try &.close
+    @mqtt_server.try &.close
+    @amqp_server = nil
+    @mqtt_server = nil
+  end
+
+  def restart_stores_for_specs
+    stop
+    Dir.mkdir_p @data_dir
+    LavinMQ::Schema.migrate(@data_dir, @replicator)
+    @persister = LavinMQ::Persister.new(@data_dir)
+    @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
+    @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
+    @vhosts = LavinMQ::VHostStore.new(@data_dir, @users, @replicator, @persister)
+    @parameters = LavinMQ::ParameterStore(LavinMQ::Parameter).new(@data_dir, "parameters.json", @replicator)
+    apply_parameter
+    start_log_exchange
+    @closed.set(false)
+    Fiber.yield
+  end
+end
+
+private def protocol_server_state(server : LavinMQ::ProtocolServer)
+  tcp_listener = server.@listeners.unsafe_get.select(TCPServer).first?
+  {
+    config:      server.@config,
+    address:     tcp_listener.try(&.local_address.address),
+    port:        tcp_listener.try(&.local_address.port),
+    tls_context: tcp_listener.try { |listener| server.@tls_contexts[listener]? },
+    listening:   server.listening?,
+  }
+end
+
+private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, name : String) : Nil
+  address = state[:address] || return
+  port = state[:port] || return
+
+  if tls_context = state[:tls_context]
+    server.bind_tls(address, port, tls_context)
+  else
+    server.bind_tcp(address, port)
+  end
+  spawn(name: name) { server.listen } if state[:listening]
+end
+
+def restart_server(server : LavinMQ::Server)
+  # Read the raw ivars (not the lazy getters) so we don't build a frontend a
+  # spec never had just to capture its state.
+  amqp_state = server.@amqp_server.try { |amqp| protocol_server_state(amqp) }
+  mqtt_state = server.@mqtt_server.try { |mqtt| protocol_server_state(mqtt) }
+
+  server.reset_protocol_servers_for_specs
+  server.restart_stores_for_specs
+
+  restore_protocol_listener(server.amqp_server, amqp_state, "amqp listener") if amqp_state
+  restore_protocol_listener(server.mqtt_server, mqtt_state, "mqtt listener") if mqtt_state
+  Fiber.yield
+end
+
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
@@ -72,7 +160,7 @@ ensure
 end
 
 def amqp_port(s)
-  wait_for { s.@listeners.shared(&.keys.select(TCPServer).first?) }.local_address.port
+  s.amqp_server.@listeners.unsafe_get.select(TCPServer).first.local_address.port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep
@@ -121,20 +209,23 @@ end
 
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     authenticator : LavinMQ::Auth::Authenticator? = nil,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
-  s = LavinMQ::Server.new(config, replicator)
+  s = LavinMQ::Server.new(config, replicator, authenticator)
+  amqp_server = s.amqp_server
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
+      amqp_server.bind_tls(tcp_server, ctx)
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
+      amqp_server.bind_tcp(tcp_server)
     end
-    wait_for { !s.listeners_empty? }
+    spawn(name: "amqp listener") { amqp_server.listen }
+    Fiber.yield
     yield s
   ensure
     # A closed queue indicates that something failed that shouldn't. However, the error may be
@@ -155,21 +246,19 @@ def with_amqp_server(tls = false, replicator = nil,
             "If they should be closed, please delete them in the end of the spec."
       raise Spec::AssertionFailed.new(msg, file, line)
     end
-    s.close
+    s.close # also closes the protocol servers held by `s`
   end
 end
 
-def with_http_server(file = __FILE__, line = __LINE__, &)
-  with_amqp_server(file: file, line: line) do |s|
-    h = LavinMQ::HTTP::Server.new(s)
-    begin
-      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
-      spawn(name: "http listen") { h.listen }
-      Fiber.yield
-      yield({HTTPSpecHelper.new(addr), s})
-    ensure
-      h.close
-    end
+def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     file = __FILE__, line = __LINE__, &)
+  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
+    h = s.http_server
+    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+    spawn(name: "http listen") { h.listen }
+    Fiber.yield
+    yield({HTTPSpecHelper.new(addr), s})
+    # the HTTP and protocol servers are closed when the outer `with_amqp_server` closes `s`
   end
 end
 

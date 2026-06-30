@@ -46,7 +46,7 @@ module LavinMQ
 
       private def general_stats
         {
-          uptime:       @amqp_server.uptime.total_milliseconds.to_i64,
+          uptime:       @server.uptime.total_milliseconds.to_i64,
           running:      true,
           name:         System.hostname,
           applications: APPLICATIONS,
@@ -59,27 +59,45 @@ module LavinMQ
           fd_total:           System.file_descriptor_limit[0],
           fd_used:            System.file_descriptor_count,
           processors:         System.cpu_count,
-          mem_limit:          @amqp_server.mem_limit,
-          mem_used:           @amqp_server.rss,
-          mem_used_details:   {log: @amqp_server.rss_log},
-          io_write_count:     @amqp_server.blocks_out,
-          io_write_details:   {log: @amqp_server.blocks_out_log},
-          io_read_count:      @amqp_server.blocks_in,
-          io_read_details:    {log: @amqp_server.blocks_in_log},
-          cpu_user_time:      @amqp_server.user_time,
-          cpu_user_details:   {log: @amqp_server.user_time_log},
-          cpu_sys_time:       @amqp_server.sys_time,
-          cpu_sys_details:    {log: @amqp_server.sys_time_log},
-          db_dir:             @amqp_server.data_dir,
-          disk_total:         @amqp_server.disk_total,
-          disk_total_details: {log: @amqp_server.disk_total_log},
-          disk_free:          @amqp_server.disk_free,
-          disk_free_details:  {log: @amqp_server.disk_free_log},
+          mem_limit:          @server.mem_limit,
+          mem_used:           @server.rss,
+          mem_used_details:   {log: @server.rss_log},
+          io_write_count:     @server.blocks_out,
+          io_write_details:   {log: @server.blocks_out_log},
+          io_read_count:      @server.blocks_in,
+          io_read_details:    {log: @server.blocks_in_log},
+          cpu_user_time:      @server.user_time,
+          cpu_user_details:   {log: @server.user_time_log},
+          cpu_sys_time:       @server.sys_time,
+          cpu_sys_details:    {log: @server.sys_time_log},
+          db_dir:             @server.data_dir,
+          disk_total:         @server.disk_total,
+          disk_total_details: {log: @server.disk_total_log},
+          disk_free:          @server.disk_free,
+          disk_free_details:  {log: @server.disk_free_log},
           partitions:         Tuple.new,
           proc_used:          Fiber.count,
           run_queue:          0,
-          sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections_size },
-          followers:          @amqp_server.followers,
+          sockets_used:       @server.vhosts.sum { |_, v| v.connections_size },
+          followers:          @server.followers,
+        }
+      end
+
+      private def gc_stats
+        ps = GC.prof_stats
+        {
+          gc_no:                     ps.gc_no,
+          heap_size:                 ps.heap_size,
+          free_bytes:                ps.free_bytes,
+          unmapped_bytes:            ps.unmapped_bytes,
+          bytes_since_gc:            ps.bytes_since_gc,
+          bytes_before_gc:           ps.bytes_before_gc,
+          non_gc_bytes:              ps.non_gc_bytes,
+          markers_m1:                ps.markers_m1,
+          bytes_reclaimed_since_gc:  ps.bytes_reclaimed_since_gc,
+          reclaimed_bytes_before_gc: ps.reclaimed_bytes_before_gc,
+          expl_freed_bytes_since_gc: ps.expl_freed_bytes_since_gc,
+          obtained_from_os_bytes:    ps.obtained_from_os_bytes,
         }
       end
 
@@ -101,9 +119,36 @@ module LavinMQ
           context
         end
 
+        # Garbage collector profiling stats for the current node.
+        # Registered before the :name route so it isn't matched as a node name.
+        get "/api/nodes/gc_stats" do |context, _params|
+          refuse_unless_administrator(context, user(context))
+          gc_stats.to_json(context.response)
+          context
+        end
+
         get "/api/nodes/:name" do |context, params|
           if params["name"] == System.hostname
             stats(context).to_json(context.response)
+          else
+            context.response.status_code = 404
+          end
+          context
+        end
+
+        # Run GC on the current node, without having to know its name
+        post "/api/nodes/gc_collect" do |context, _params|
+          refuse_unless_administrator(context, user(context))
+          GC.collect
+          context.response.status_code = 204
+          context
+        end
+
+        post "/api/nodes/:name/gc_collect" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          if params["name"] == System.hostname
+            GC.collect
+            context.response.status_code = 204
           else
             context.response.status_code = 404
           end

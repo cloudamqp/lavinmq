@@ -1,5 +1,6 @@
 require "spec"
 require "../src/lavinmq/etcd"
+require "../src/lavinmq/clustering/etcd_coordinator"
 require "file_utils"
 require "http/client"
 require "./spec_helper"
@@ -17,7 +18,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
   end
 
   describe "#put_or_get" do
-    it "should set and return value if key is non-existent" do
+    it "should set and return value if key is non-existent", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -27,7 +28,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       end
     end
 
-    it "should get existing value if key exists" do
+    it "should get existing value if key exists", tags: "slow" do
       cluster = EtcdCluster.new(1)
       cluster.run do
         etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -38,7 +39,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can watch" do
+  it "can watch", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -63,7 +64,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "can elect leader" do
+  it "can elect leader", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -143,7 +144,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "will not lose leadership when only one etcd node is lost" do
+  it "will not lose leadership when only one etcd node is lost", tags: "slow" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -155,12 +156,70 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "raises LeaseNotFound when using an invalid lease" do
+  it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       expect_raises(LavinMQ::Etcd::LeaseNotFound) do
         etcd.election_campaign("test/leader", "node1", lease: 999999i64)
+      end
+    end
+  end
+
+  it "rejects ISR updates from a stale election holder" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      prefix = "lavinmq/#{rand}"
+      isr_key = "#{prefix}/isr"
+      stale_etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      current_etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      stale_lease = nil
+      current_lease = nil
+
+      begin
+        config = LavinMQ::Config.new
+        config.clustering = true
+        config.clustering_etcd_prefix = prefix
+
+        # The stale node wins first and arms its coordinator via campaign.
+        stale_lease = sl = stale_etcd.lease_grant(10)
+        stale_coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, stale_etcd)
+        stale_coordinator.campaign("node-a", sl.id)
+        stale_coordinator.update_isr(Set{1, 2})
+        stale_etcd.get(isr_key).should eq "1,2"
+
+        # The current node campaigns on the same election; it blocks until the
+        # stale lease is released, then wins and arms its own coordinator.
+        current_coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, current_etcd)
+        current_lease = cl = current_etcd.lease_grant(10)
+        elected = Channel(Nil).new(1)
+        spawn(name: "stale ISR election spec") do
+          current_coordinator.campaign("node-b", cl.id)
+          elected.send nil
+        rescue
+          elected.close
+        end
+        sl.release
+        stale_lease = nil
+
+        select
+        when elected.receive
+        when timeout(5.seconds)
+          fail "new election holder did not win after stale lease was released"
+        end
+
+        # The stale coordinator's election key is gone, so its fenced ISR write
+        # is rejected and the ISR the current node will write is left intact.
+        expect_raises(LavinMQ::Etcd::StaleLeadership) do
+          stale_coordinator.update_isr(Set{1})
+        end
+        stale_etcd.get(isr_key).should eq "1,2"
+
+        current_coordinator.update_isr(Set{2})
+        stale_etcd.get(isr_key).should eq "2"
+      ensure
+        stale_lease.try { |lease| lease.release rescue nil }
+        current_lease.try { |lease| lease.release rescue nil }
       end
     end
   end
@@ -237,6 +296,7 @@ class EtcdCluster
   end
 
   def start : Array(Process)
+    ensure_etcd_in_path!
     @ports.map_with_index do |p, i|
       start_process(p, i)
     end

@@ -20,8 +20,11 @@ module LavinMQ
 
           property issuer : String
           property jwks_uri : String
+          property authorization_endpoint : String?
+          property token_endpoint : String?
 
-          def initialize(*, @issuer : String, @jwks_uri : String)
+          def initialize(*, @issuer : String, @jwks_uri : String,
+                         @authorization_endpoint : String? = nil, @token_endpoint : String? = nil)
           end
         end
 
@@ -48,8 +51,15 @@ module LavinMQ
           end
         end
 
+        # Minimum time between failed on-demand fetch attempts, so an
+        # unreachable provider doesn't delay every authentication.
+        ON_DEMAND_FETCH_COOLDOWN = 30.seconds
+
         getter public_keys : PublicKeys
+        getter oidc_config : OIDCConfiguration?
         @stopped = BoolChannel.new(false)
+        @fetch_lock = Mutex.new
+        @last_failed_fetch : Time?
 
         def initialize(issuer_url : URI, @default_cache_ttl : Time::Span)
           @issuer_url = issuer_url.to_s.chomp("/")
@@ -60,15 +70,32 @@ module LavinMQ
           @stopped.set(true)
         end
 
+        # Fetches the JWKS when no fetch has succeeded yet (e.g. verification
+        # racing the initial background fetch), blocking until keys are
+        # available. No-op once keys exist; never raises. Failed attempts are
+        # retried at most every ON_DEMAND_FETCH_COOLDOWN.
+        def ensure_keys : Nil
+          return unless @public_keys.empty?
+          @fetch_lock.synchronize do
+            next unless @public_keys.empty?
+            if failed_at = @last_failed_fetch
+              next if RoughTime.utc - failed_at < ON_DEMAND_FETCH_COOLDOWN
+            end
+            begin
+              update_keys
+            rescue ex
+              Log.warn { "On-demand JWKS fetch failed: #{ex.message}" }
+            end
+          end
+        end
+
         def start_refresh_loop
           retry_delay = 5.seconds
           max_retry_delay = 5.minutes
           spawn do
             loop do
               begin
-                result = fetch_jwks
-                @public_keys.update(result.keys, result.ttl)
-                Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
+                @fetch_lock.synchronize { update_keys }
                 retry_delay = 5.seconds
                 wait_time = calculate_wait_time
                 select
@@ -85,6 +112,16 @@ module LavinMQ
           end
         end
 
+        private def update_keys : Nil
+          result = fetch_jwks
+          @public_keys.update(result.keys, result.ttl)
+          @last_failed_fetch = nil
+          Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
+        rescue ex
+          @last_failed_fetch = RoughTime.utc
+          raise ex
+        end
+
         private def calculate_wait_time : Time::Span
           if expires_at = @public_keys.expires_at
             remaining = expires_at - RoughTime.utc
@@ -93,8 +130,7 @@ module LavinMQ
           1.hour
         end
 
-        def fetch_jwks : JWKSResult
-          # Discover jwks_uri from OIDC configuration
+        def fetch_oidc_config : OIDCConfiguration
           body, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
           oidc_config = OIDCConfiguration.from_json(body)
 
@@ -104,9 +140,14 @@ module LavinMQ
             raise "OIDC issuer mismatch: expected #{@issuer_url}, got #{oidc_issuer}"
           end
 
-          jwks_uri = oidc_config.jwks_uri
+          @oidc_config = oidc_config
+          oidc_config
+        end
 
-          body, headers = fetch_url(jwks_uri)
+        def fetch_jwks : JWKSResult
+          oidc_config = fetch_oidc_config
+
+          body, headers = fetch_url(oidc_config.jwks_uri)
           jwks = JWKSResponse.from_json(body)
           public_keys = extract_public_keys_from_jwks(jwks)
           ttl = extract_jwks_ttl(headers)
@@ -122,8 +163,8 @@ module LavinMQ
             next unless key.kty == "RSA"
             # Skip keys not intended for signatures (RFC 7517 Section 4.2)
             next if key.use != "sig"
-            # Skip keys for other algorithms (RFC 7517 Section 4.4)
-            next if key.alg != "RS256"
+            # skip keys with unsupported algorithms, but allow keys with no alg (RFC 7517 Section 4.4)
+            next if key.alg.try { |alg| alg != "RS256" }
             next unless (n = key.n) && (e = key.e)
             kid = key.kid || "unknown-#{idx}"
             public_keys[kid] = to_pem(n, e)

@@ -1,10 +1,18 @@
 import { stateClasses } from './helpers.js'
 
+const oauthAuthPrefix = '|oauth:'
+
 function getUsername () {
-  return window.atob(getAuth()).split(':')[0]
+  if (!getCookie('m')) return
+  const auth = window.atob(getAuth())
+  // The OAuth identity is "name:" with no password; the name may contain colons
+  if (isOAuthSession()) return auth.slice(0, auth.lastIndexOf(':'))
+  return auth.split(':')[0]
 }
 
 function getPassword () {
+  if (!getCookie('m')) return null
+  if (isOAuthSession()) return null
   return window.atob(getAuth()).split(':')[1]
 }
 
@@ -22,6 +30,10 @@ function getCookie (key) {
     ?.split('=')[1]
 }
 
+function isOAuthSession () {
+  return getCookie('m')?.startsWith(oauthAuthPrefix) || false
+}
+
 async function login (username, password) {
   const auth = window.btoa(`${username}:${password}`)
   document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
@@ -35,9 +47,16 @@ const whoAmICacheKey = 'lmq.whoami'
 
 function logout () {
   window.localStorage.removeItem(whoAmICacheKey)
-  document.cookie = 'm=; max-age=0'
   stateClasses.remove(/^user-is-/)
-  window.location.assign('login')
+  const oauthSession = isOAuthSession()
+  document.cookie = 'm=; max-age=0'
+  // oauth_token is HttpOnly and can't be cleared from JS, so OAuth sessions
+  // redirect to the server endpoint which clears oauth_token.
+  if (oauthSession) {
+    window.location.assign('oauth/logout')
+  } else {
+    window.location.assign('login')
+  }
 }
 
 async function fetchWhoAmI () {

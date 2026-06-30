@@ -36,6 +36,11 @@ describe LavinMQ::Config do
       config = LavinMQ::Config.new
       config.oauth_resource_server_id.should be_nil
     end
+
+    it "sets default oauth_mgmt_scopes to \"openid profile\"" do
+      config = LavinMQ::Config.new
+      config.oauth_mgmt_scopes.should eq("openid profile")
+    end
   end
 
   describe "OAuth configuration parsing" do
@@ -122,6 +127,20 @@ describe LavinMQ::Config do
       config.oauth_scope_prefix.should eq("mq.")
     end
 
+    it "parses mgmt_scopes" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [oauth]
+        issuer = https://auth.example.com
+        mgmt_scopes = openid email offline_access
+        CONFIG
+      end
+
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.oauth_mgmt_scopes.should eq("openid email offline_access")
+    end
+
     it "parses verify_aud as boolean" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
@@ -162,6 +181,43 @@ describe LavinMQ::Config do
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
       config.oauth_jwks_cache_ttl.should eq(7200.seconds)
+    end
+  end
+
+  describe "#oauth_mgmt_ui_enabled?" do
+    cases = {
+      "https://mq.example.com"     => true,
+      "http://localhost:15672"     => true,
+      "http://127.0.0.1:15672"     => true,
+      "http://[::1]:15672"         => true,
+      "http://localhost.evil.com/" => false,
+      "http://127.0.0.1.evil.com/" => false,
+      "http://example.com"         => false,
+      "http://localhostfoo"        => false,
+    }
+
+    cases.each do |base_url, expected|
+      it "returns #{expected} for #{base_url}" do
+        config = LavinMQ::Config.new
+        config.oauth_client_id = "test-client"
+        config.oauth_issuer_url = URI.parse("https://idp.example.com")
+        config.oauth_mgmt_base_url = URI.parse(base_url)
+        config.oauth_mgmt_ui_enabled?.should eq(expected)
+      end
+    end
+
+    it "returns false when oauth_client_id is missing" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = URI.parse("https://idp.example.com")
+      config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
+      config.oauth_mgmt_ui_enabled?.should be_false
+    end
+
+    it "returns false when oauth_issuer_url is missing" do
+      config = LavinMQ::Config.new
+      config.oauth_client_id = "test-client"
+      config.oauth_mgmt_base_url = URI.parse("https://mq.example.com")
+      config.oauth_mgmt_ui_enabled?.should be_false
     end
   end
 end

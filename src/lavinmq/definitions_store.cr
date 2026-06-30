@@ -11,20 +11,40 @@ module LavinMQ
     Log = LavinMQ::Log.for "definitions_store"
 
     @exchanges : Sync::Shared(Hash(String, Exchange))
-    @queues : Sync::Shared(Hash(String, Queue))
+    @queues : Sync::Shared(Hash(String, AMQP::Queue))
+    @sessions : Sync::Shared(Hash(String, MQTT::Session))
+    @definitions_file : File
 
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
       @exchanges = Sync::Shared.new(Hash(String, Exchange).new, :checked)
-      @queues = Sync::Shared.new(Hash(String, Queue).new, :checked)
+      @queues = Sync::Shared.new(Hash(String, AMQP::Queue).new, :checked)
+      @sessions = Sync::Shared.new(Hash(String, MQTT::Session).new, :checked)
       # Serializes multi-step `apply` flows and all definitions-file I/O
       # (`store_definition`, `compact!`). Sync::Shared on the hashes only
       # guards individual reads/writes, not the file or check-then-set logic.
       # Reentrant because `store_definition` may call `compact!`.
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
-      @definitions_file = File.open(@definitions_file_path, "a+")
+      # Unbuffered (sync) writes: replication offsets (store_definition) and a
+      # joining follower's cut + full_sync (Clustering::Server#snapshot_sizes,
+      # #files_with_hash) read this file's size and content through separate
+      # fds, so a frame must never sit in a user-space write buffer where they
+      # can't see it — a follower joining in that window would be marked
+      # synced while permanently missing the frame.
+      @definitions_file = File.open(@definitions_file_path, "a+").tap &.sync = true
       @replicator.try &.register_file(@definitions_file)
       @definitions_deletes = 0
+    end
+
+    # Flush buffered definition writes to disk. Used after a bulk operation
+    # (e.g. import) that stored its definitions with fsync: false; the whole
+    # batch is acknowledged after this, so it waits for follower acks like
+    # the per-frame path does.
+    def fsync
+      @definitions_lock.synchronize do
+        @definitions_file.fsync
+        @replicator.try &.wait_for_followers
+      end
     end
 
     # Exchange accessors
@@ -85,11 +105,11 @@ module LavinMQ
 
     # Queue accessors
 
-    def queue?(name : String) : Queue?
+    def queue?(name : String) : AMQP::Queue?
       @queues.shared { |q| q[name]? }
     end
 
-    def queue(name : String) : Queue
+    def queue(name : String) : AMQP::Queue
       @queues.shared { |q| q[name] }
     end
 
@@ -97,13 +117,13 @@ module LavinMQ
       @queues.shared(&.has_key?(name))
     end
 
-    def each_queue(& : Queue ->) : Nil
+    def each_queue(& : AMQP::Queue ->) : Nil
       @queues.shared do |queues|
         queues.each_value { |v| yield v }
       end
     end
 
-    def queues : Array(Queue)
+    def queues : Array(AMQP::Queue)
       @queues.shared(&.values)
     end
 
@@ -118,13 +138,13 @@ module LavinMQ
     # replayed from frames. Holds @definitions_lock so concurrent `apply` flows
     # can't slip an insert between their existence-check and `register_queue`
     # and silently overwrite this entry.
-    def register_queue(queue : Queue) : Queue
+    def register_queue(queue : AMQP::Queue) : Nil
       @definitions_lock.synchronize do
         @queues.lock { |q| q[queue.name] = queue }
       end
     end
 
-    private def delete_queue(name : String) : Queue?
+    private def delete_queue(name : String) : AMQP::Queue?
       @queues.lock(&.delete(name))
     end
 
@@ -132,8 +152,53 @@ module LavinMQ
       @queues.lock(&.clear)
     end
 
+    # Session accessors
+
+    def session?(name : String) : MQTT::Session?
+      @sessions.shared { |s| s[name]? }
+    end
+
+    def session(name : String) : MQTT::Session
+      @sessions.shared { |s| s[name] }
+    end
+
+    def session_exists?(name : String) : Bool
+      @sessions.shared(&.has_key?(name))
+    end
+
+    def each_session(& : MQTT::Session ->) : Nil
+      @sessions.shared do |sessions|
+        sessions.each_value { |v| yield v }
+      end
+    end
+
+    def sessions : Array(MQTT::Session)
+      @sessions.shared(&.values)
+    end
+
+    def sessions_size : Int32
+      @sessions.unsafe_get.size
+    end
+
+    def sessions_clear : Nil
+      @sessions.lock(&.clear)
+    end
+
+    # Insert a pre-built MQTT session. Locked under @definitions_lock for the
+    # same reason as register_queue. Skips persistence and event ticks since
+    # these aren't replayed from frames.
+    def register_session(session : MQTT::Session) : Nil
+      @definitions_lock.synchronize do
+        @sessions.lock { |s| s[session.name] = session }
+      end
+    end
+
+    private def delete_session(name : String) : MQTT::Session?
+      @sessions.lock(&.delete(name))
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
-    def apply(f, loading = false) : Bool
+    def apply(f, loading = false, fsync = true) : Bool
       @definitions_lock.synchronize do
         case f
         when AMQP::Frame::Exchange::Declare
@@ -141,7 +206,7 @@ module LavinMQ
           e = make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           register_exchange(e)
           @vhost.apply_policies([e] of Exchange) unless loading
-          store_definition(f) if !loading && f.durable
+          store_definition(f, fsync: fsync) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
           if x = delete_exchange(f.exchange_name)
             unless @vhost.closed?
@@ -161,21 +226,25 @@ module LavinMQ
           src = exchange?(f.source) || return false
           dst = exchange?(f.destination) || return false
           return false unless src.bind(dst, f.routing_key, f.arguments)
-          store_definition(f) if !loading && src.durable? && dst.durable?
+          store_definition(f, fsync: fsync) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = exchange?(f.source) || return false
           dst = exchange?(f.destination) || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
-          return false if queue_exists?(f.queue_name)
+          return false if queue_exists?(f.queue_name) || session_exists?(f.queue_name)
           q = QueueFactory.make(@vhost, f)
-          register_queue(q)
+          if q.is_a?(MQTT::Session)
+            register_session(q)
+          else
+            register_queue(q.as(AMQP::Queue))
+          end
           @vhost.apply_policies([q] of Queue) unless loading
-          store_definition(f) if !loading && f.durable && !f.exclusive
+          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
           @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = delete_queue(f.queue_name)
+          if q = (delete_queue(f.queue_name) || delete_session(f.queue_name))
             unless @vhost.closed?
               exchanges.each do |ex|
                 ex.bindings_details.each do |binding|
@@ -192,12 +261,12 @@ module LavinMQ
           end
         when AMQP::Frame::Queue::Bind
           x = exchange?(f.exchange_name) || return false
-          q = queue?(f.queue_name) || return false
+          q = queue?(f.queue_name) || session?(f.queue_name) || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, fsync: fsync) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = exchange?(f.exchange_name) || return false
-          q = queue?(f.queue_name) || return false
+          q = queue?(f.queue_name) || session?(f.queue_name) || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
@@ -313,7 +382,10 @@ module LavinMQ
         @log.info { "Compacting definitions" }
         durable_exchanges = @exchanges.shared(&.values).select(&.durable?)
         durable_queues = @queues.shared(&.values).select(&.durable?)
-        io = File.open("#{@definitions_file_path}.tmp", "a+")
+        durable_sessions = @sessions.shared(&.values).select(&.durable?)
+        # sync = true for the same reason as in #initialize: this file becomes
+        # @definitions_file after the rename.
+        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
         durable_exchanges.each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
@@ -324,6 +396,11 @@ module LavinMQ
         durable_queues.each do |q|
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
+          io.write_bytes f
+        end
+        durable_sessions.each do |s|
+          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
+            s.auto_delete?, false, s.arguments)
           io.write_bytes f
         end
         durable_exchanges.each do |e|
@@ -350,16 +427,30 @@ module LavinMQ
       end
     end
 
-    private def store_definition(frame, dirty = false)
+    private def store_definition(frame, dirty = false, fsync = true)
       @definitions_lock.synchronize do
         @log.debug { "Storing definition: #{frame.inspect}" }
         bytes = frame.to_slice
+        offset = @definitions_file.size.to_i64
+        # The write goes straight to the file (sync = true), so by dispatch time
+        # the frame is readable at `offset` through any fd: a follower joining
+        # between write and dispatch gets it via its full_sync cut, and
+        # already_synced then skips (or tail-slices) this append against the
+        # baseline instead of duplicating it.
         @definitions_file.write bytes
-        @replicator.try &.append @definitions_file_path, bytes
-        @definitions_file.fsync
+        @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+        if fsync
+          @definitions_file.fsync
+          # The caller acknowledges the change to the client right after this
+          # returns (Declare-Ok etc.), so like a publish confirm it must be
+          # durable on every in-sync follower first — otherwise a leader crash
+          # could elect a follower lacking the acknowledged change. A follower
+          # that doesn't ack within its deadline is disconnected and its ISR
+          # removal committed before this returns.
+          @replicator.try &.wait_for_followers
+        end
         if dirty
-          @definitions_deletes += 1
-          if @definitions_deletes >= Config.instance.max_deleted_definitions
+          if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
             compact!
             @definitions_deletes = 0
           end

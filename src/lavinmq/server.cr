@@ -1,9 +1,4 @@
-require "socket"
-require "sync/shared"
-require "openssl"
-require "systemd"
 require "./amqp"
-require "./mqtt/protocol"
 require "./rough_time"
 require "../stdlib/*"
 require "./persister"
@@ -13,27 +8,19 @@ require "./exchange"
 require "./amqp/queue"
 require "./parameter"
 require "./config"
-require "./connection_info"
-require "./proxy_protocol"
 require "./client/client"
-require "./client/connection_factory"
-require "./amqp/connection_factory"
-require "./mqtt/connection_factory"
 require "./stats"
+require "./in_memory_backend"
 require "./auth/chain"
 require "./auth/jwt/jwks_fetcher"
 
 module LavinMQ
   class Server
-    enum Protocol
-      AMQP
-      MQTT
-    end
+    PROCESS_START = Time.instant
 
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 
-    @start = Time.instant
     @closed = BoolChannel.new(false)
     @flow = Atomic(Bool).new(true)
 
@@ -45,26 +32,29 @@ module LavinMQ
       @flow.get(:acquire)
     end
 
-    @listeners : Sync::Shared(Hash(Socket::Server, Protocol)) = Sync::Shared.new(Hash(Socket::Server, Protocol).new) # Socket => protocol
-    @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
+    @log_exchange_channel : Channel(::Log::Entry)?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = nil)
+    def initialize(@config : Config, @replicator = nil, authenticator : Auth::Authenticator? = nil)
+      # Seed from rusage so counters survive Server re-creation on leader transitions.
+      rusage = System.resource_usage
+      @user_time = rusage.user_time.total_milliseconds.to_i64
+      @sys_time = rusage.sys_time.total_milliseconds.to_i64
+      @blocks_in = rusage.blocks_in.to_i64
+      @blocks_out = rusage.blocks_out.to_i64
+
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
+      @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
-      @vhosts.load!
-      @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @authenticator = Auth::Chain.create(@config, @users)
-      @connection_factories = {
-        Protocol::AMQP => AMQP::ConnectionFactory.new(@authenticator, @vhosts),
-        Protocol::MQTT => MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config),
-      }
+      @authenticator = authenticator || Auth::Chain.create(@config, @users)
+      if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
+        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
+      end
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -83,27 +73,9 @@ module LavinMQ
       @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
-    def amqp_url
-      addr = @listeners.shared do |h|
-        h.select { |_, v| v.amqp? }
-          .keys
-          .select(TCPServer)
-          .first
-          .local_address
-      end
-      "amqp://#{addr}"
-    end
-
-    def listeners_empty? : Bool
-      @listeners.unsafe_get.empty?
-    end
-
-    def listeners_size : Int32
-      @listeners.unsafe_get.size
-    end
-
     def stop
       return if @closed.swap(true)
+      close_log_exchange
       @persister.close
       @vhosts.close
       @replicator.try &.clear
@@ -111,211 +83,66 @@ module LavinMQ
       Fiber.yield
     end
 
-    def restart
-      stop
-      Dir.mkdir_p @data_dir
-      Schema.migrate(@data_dir, @replicator)
-      @persister = Persister.new(@data_dir)
-      @users = Auth::UserStore.new(@data_dir, @replicator)
-      @authenticator = Auth::Chain.create(@config, @users)
-      @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
-      @vhosts.load!
-      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
-      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
-      @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      apply_parameter
-      @closed.set(false)
-      Fiber.yield
-    end
-
     def connections : Array(Client)
       @vhosts.values.flat_map(&.connections)
     end
 
-    def listen(s : TCPServer, protocol : Protocol)
-      @listeners.lock { |h| h[s] = protocol }
-      Log.info { "Listening for #{protocol} on #{s.local_address}" }
-      loop do
-        client = s.accept? || break
-        next client.close if closed?
-        accept_tcp(client, protocol)
-      end
-    rescue ex : IO::Error
-      abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
-    ensure
-      @listeners.lock(&.delete(s))
-    end
+    def start_log_exchange
+      return unless @config.log_exchange?
+      return if @log_exchange_channel
 
-    private def accept_tcp(client, protocol)
-      spawn(name: "Accept TCP socket") do
-        remote_address = client.remote_address
-        set_socket_options(client)
-        set_buffer_size(client)
-        conn_info = extract_conn_info(client)
-        handle_connection(client, conn_info, protocol)
-      rescue ex
-        Log.warn { "Error accepting connection from #{remote_address}: #{ex.message}" }
-        client.close rescue nil
+      exchange_name = "amq.lavinmq.log"
+      unless vhost = @vhosts["/"]?
+        Log.warn { "log_exchange enabled but default vhost \"/\" is missing, skipping" }
+        return
       end
-    end
-
-    private def extract_conn_info(client) : ConnectionInfo
-      remote_address = client.remote_address
-      case @config.tcp_proxy_protocol
-      when 1 then ProxyProtocol::V1.parse(client)
-      when 2 then ProxyProtocol::V2.parse(client)
-      else
-        # Allow proxy connection from followers
-        if @config.clustering? &&
-           client.peek[0, 5]? == "PROXY".to_slice &&
-           all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V1.parse(client)
-        elsif @config.clustering? &&
-              client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V2.parse(client)
-        else
-          ConnectionInfo.new(remote_address, client.local_address)
+      vhost.declare_exchange(exchange_name, "topic", true, false, true)
+      @log_exchange_channel = log_channel = ::Log::InMemoryBackend.instance.add_channel
+      spawn(name: "Log Exchange") do
+        while entry = log_channel.receive?
+          vhost.publish(msg: Message.new(
+            exchange_name,
+            entry.severity.to_s,
+            "#{entry.source} - #{entry.message}",
+            AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
+          ))
         end
       end
     end
 
-    def listen(s : UNIXServer, protocol : Protocol)
-      @listeners.lock { |h| h[s] = protocol }
-      Log.info { "Listening for #{protocol} on #{s.local_address}" }
-      loop do # do not try to use while
-        client = s.accept? || break
-        next client.close if closed?
-        accept_unix(client, protocol)
-      end
-    rescue ex : IO::Error
-      abort "Unrecoverable error in unix listener: #{ex.inspect_with_backtrace}"
-    ensure
-      @listeners.lock(&.delete(s))
-    end
-
-    private def accept_unix(client, protocol)
-      spawn(name: "Accept UNIX socket") do
-        remote_address = client.remote_address
-        set_buffer_size(client)
-        conn_info =
-          case @config.unix_proxy_protocol
-          when 1 then ProxyProtocol::V1.parse(client)
-          when 2 then ProxyProtocol::V2.parse(client)
-          else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
-          end
-        handle_connection(client, conn_info, protocol)
-      rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
-        client.close rescue nil
-      end
-    end
-
-    def listen(bind = "::", port = 5672, protocol : Protocol = :amqp)
-      listen(bind_tcp(bind, port), protocol)
-    end
-
-    # Bind a TCP server, aborting with a clean message (no stacktrace) if the address is unavailable
-    private def bind_tcp(bind, port) : TCPServer
-      TCPServer.new(bind, port)
-    rescue ex : Socket::BindError
-      abort "Error: #{ex.message}"
-    end
-
-    def listen_tls(s : TCPServer, context, protocol : Protocol)
-      @listeners.lock { |h| h[s] = protocol }
-      Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
-      loop do # do not try to use while
-        client = s.accept? || break
-        next client.close if closed?
-        accept_tls(client, context, protocol)
-      end
-    rescue ex : IO::Error | OpenSSL::Error
-      abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
-    ensure
-      @listeners.lock(&.delete(s))
-    end
-
-    private def accept_tls(client, context, protocol)
-      spawn(name: "Accept TLS socket") do
-        remote_addr = client.remote_address
-        set_socket_options(client)
-        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
-        handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
-      rescue ex
-        Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
-        client.close rescue nil
-      end
-    end
-
-    private def handle_tls_connection(ssl_client, local_addr, remote_addr, protocol)
-      set_buffer_size(ssl_client)
-      conn_info = ConnectionInfo.new(remote_addr, local_addr)
-      conn_info.ssl = true
-      conn_info.ssl_version = ssl_client.tls_version
-      conn_info.ssl_cipher = ssl_client.cipher
-      handle_connection(ssl_client, conn_info, protocol)
-    end
-
-    def listen_tls(bind, port, context, protocol : Protocol = :amqp)
-      listen_tls(bind_tcp(bind, port), context, protocol)
-    end
-
-    def listen_unix(path : String, protocol : Protocol)
-      File.delete?(path)
-      s = UNIXServer.new(path)
-      File.chmod(path, 0o666)
-      listen(s, protocol)
-    rescue ex : Socket::BindError
-      abort "Error: #{ex.message}"
-    end
-
-    def listen_clustering(bind, port)
-      @replicator.try &.listen(bind_tcp(bind, port))
+    def listen_clustering(server : TCPServer)
+      @replicator.try &.listen(server)
     end
 
     def close
-      @closed.set(true)
-      Log.debug { "Closing listeners" }
-      @listeners.shared(&.each_key(&.close))
+      return if @closed.swap(true)
+      close_log_exchange
       @persister.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
     end
 
-    def add_parameter(parameter : Parameter)
-      @parameters.create parameter
+    private def close_log_exchange
+      if log_channel = @log_exchange_channel
+        @log_exchange_channel = nil
+        ::Log::InMemoryBackend.instance.remove_channel(log_channel)
+        log_channel.close
+      end
+    end
+
+    def add_parameter(parameter : Parameter, save = true)
+      @parameters.create parameter, save: save
       apply_parameter(parameter)
+    end
+
+    # Persist the global parameter store; used to flush after a bulk import that
+    # created parameters with save: false.
+    def save_parameters!
+      @parameters.save!
     end
 
     def delete_parameter(component_name, parameter_name)
       @parameters.delete({component_name, parameter_name})
-    end
-
-    def listeners
-      @listeners.shared do |h|
-        h.map do |l, protocol|
-          case l
-          when UNIXServer
-            addr = l.local_address
-            {
-              "path":     addr.path,
-              "protocol": protocol,
-            }
-          when TCPServer
-            addr = l.local_address
-            {
-              "ip_address": addr.address,
-              "protocol":   protocol,
-              "port":       addr.port,
-            }
-          else raise "Unexpected listener '#{l.class}'"
-          end
-        end
-      end
     end
 
     private def apply_parameter(parameter : Parameter? = nil)
@@ -324,41 +151,11 @@ module LavinMQ
       end
     end
 
-    def handle_connection(socket, connection_info, protocol : Protocol)
-      client = @connection_factories[protocol].start(socket, connection_info)
-    ensure
-      socket.close if client.nil?
-    end
-
-    private def set_socket_options(socket)
-      unless socket.remote_address.loopback?
-        if keepalive = @config.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
-      end
-      socket.tcp_nodelay = true if @config.tcp_nodelay?
-      @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
-      @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
-    end
-
-    private def set_buffer_size(socket)
-      if @config.socket_buffer_size.positive?
-        socket.buffer_size = @config.socket_buffer_size
-        socket.sync = false
-        socket.read_buffering = true
-      else
-        socket.sync = true
-        socket.read_buffering = false
-      end
-    end
-
     def update_stats_rates
       @vhosts.each_value do |vhost|
         vhost.each_queue(&.update_rates)
         vhost.each_exchange(&.update_rates)
+        vhost.each_session(&.update_rates)
         vhost.each_connection do |connection|
           connection.update_rates
           connection.each_channel(&.update_rates)
@@ -368,7 +165,7 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval.milliseconds.to_i
+      interval = @config.stats_interval / 1000.0
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 
@@ -487,7 +284,7 @@ module LavinMQ
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
-      getter {{ m.id }} = 0_i64
+      getter {{ m.id }} : Int64
       getter {{ m.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
     getter mem_limit = 0_i64
@@ -536,7 +333,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.instant - @start
+      Time.instant - PROCESS_START
     end
   end
 end

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to check'
+        description: "PR number to check"
         required: true
         type: string
 
@@ -42,13 +42,22 @@ jobs:
             echo "$DELIM"
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
-      - uses: anthropics/claude-code-action@v1
+      - name: Run docs check
+        uses: anthropics/claude-code-action@v1
         id: claude
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: '*'
           prompt: |
             REPO: ${{ github.repository }}
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+
+            Keep this check small and finish within the 15-turn budget:
+            1. Inspect the PR diff with `gh pr diff`.
+            2. Decide whether the changed user-facing behavior needs a docs update.
+            3. Return only the JSON object matching the schema.
+
+            Do not review unrelated code quality or run tests.
 
             ${{ steps.config.outputs.criteria }}
           claude_args: |
@@ -57,10 +66,15 @@ jobs:
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
       - name: Apply verdict
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          out='${{ steps.claude.outputs.structured_output }}'
-          verdict=$(jq -r .verdict <<< "$out")
-          reason=$(jq -r .reason <<< "$out")
+          if [[ -z "$STRUCTURED_OUTPUT" ]]; then
+            echo "::error::Docs check did not return structured output"
+            exit 1
+          fi
+          verdict=$(jq -er .verdict <<< "$STRUCTURED_OUTPUT")
+          reason=$(jq -er .reason <<< "$STRUCTURED_OUTPUT")
           case "$verdict" in
             pass)
               echo "Docs check passed: $reason"

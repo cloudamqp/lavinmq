@@ -23,6 +23,7 @@ module LavinMQ
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Sync::Shared.new(Hash(String, VHost).new, :checked)
+      load!
     end
 
     def []?(name : String) : VHost?
@@ -77,8 +78,12 @@ module LavinMQ
         end
         new_vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
         Log.info { "Created vhost #{name}" }
-        unless @users[user.name]?.try &.permissions[name]?
-          @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: false)
+        # Grant the creating user full permissions on the new vhost. Only local
+        # users have stored permissions; OAuth users get theirs from token scopes.
+        if local_user = @users[user.name]?
+          unless local_user.permissions[name]?
+            @users.add_permission(user.name, name, /.*/, /.*/, /.*/, save: false)
+          end
         end
         @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: false)
         vh[name] = new_vhost
@@ -86,8 +91,10 @@ module LavinMQ
         new_vhost
       end
       if created
-        @users.save!
-        save! if save
+        if save
+          @users.save!
+          save!
+        end
         notify_observers(Event::Added, name)
       end
       vhost
@@ -106,6 +113,20 @@ module LavinMQ
     end
 
     def close
+      # Stop outbound links (federation upstreams and shovels) on every vhost
+      # before tearing any vhost down. A link holds an AMQP client connection to
+      # another vhost, so force-closing one vhost's connections while another
+      # vhost's link is still live would close that link's socket from under it —
+      # which the amqp-client read loop logs as "connection closed unexpectedly".
+      # Stopping them first lets each link close cleanly against a live peer.
+      WaitGroup.wait do |wg|
+        @vhosts.shared(&.values).each do |vhost|
+          wg.spawn do
+            vhost.stop_shovels
+            vhost.stop_upstream_links
+          end
+        end
+      end
       WaitGroup.wait do |wg|
         @vhosts.shared(&.values).each do |vhost|
           wg.spawn do
@@ -124,7 +145,7 @@ module LavinMQ
       end
     end
 
-    def load!
+    private def load!
       path = File.join(@data_dir, "vhosts.json")
       begin
         File.open(path) do |f|
@@ -154,7 +175,7 @@ module LavinMQ
       raise ex
     end
 
-    private def save!
+    def save!
       @save_lock.synchronize do
         Log.debug { "Saving vhosts to file" }
         path = File.join(@data_dir, "vhosts.json")

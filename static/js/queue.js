@@ -1,3 +1,4 @@
+/* global MutationObserver */
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
@@ -5,6 +6,7 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import './tabs.js'
 
 Helpers.disableUserMenuVhost()
 
@@ -109,13 +111,19 @@ function updateQueue (all) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
-      item.consumer_details.filtered_count = item.consumers
-      consumersDataSource.setConsumers(item.consumer_details)
-      const hasMoreConsumers = item.consumer_details.length < item.consumers
-      loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
-      if (hasMoreConsumers) {
-        loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
+      // MQTT sessions are rendered through this page too but don't expose a
+      // consumer_details array; guard so the rest of the page (policy, args, …)
+      // still renders instead of aborting on a TypeError.
+      if (item.consumer_details) {
+        item.consumer_details.filtered_count = item.consumers
+        consumersDataSource.setConsumers(item.consumer_details)
+        const hasMoreConsumers = item.consumer_details.length < item.consumers
+        loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
+        if (hasMoreConsumers) {
+          loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
+        }
       }
       if (all) {
         const features = []
@@ -164,6 +172,11 @@ const tableOptions = {
   keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
+const bindingsTabBadge = document.querySelector('[data-tab="bindings"] .badge')
+new MutationObserver(() => {
+  bindingsTabBadge.textContent = document.getElementById('bindings-count').textContent
+}).observe(document.getElementById('bindings-count'), { childList: true, subtree: true })
+
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
   if (item.source === '') {
@@ -278,12 +291,20 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
+const moveMessagesForm = document.querySelector('#moveMessages')
+if (Auth.getPassword() === null) {
+  moveMessagesForm.classList.add('hide')
+}
+moveMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const username = Auth.getUsername()
   const password = Auth.getPassword()
   const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
+  if (dest === '') {
+    DOM.toast.error('Please select a destination queue')
+    return
+  }
   const name = 'Move ' + queue + ' to ' + dest
   const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {

@@ -94,12 +94,12 @@ module LavinMQ
       end
     end
 
-    private def save!
+    def save!
       @save_lock.synchronize do
         @log.debug { "Saving #{@file_name}" }
         path = File.join(@data_dir, @file_name)
         tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") { |f| to_pretty_json(f) }
+        File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
         File.rename tmpfile, path
         @replicator.try &.replace_file path
       end

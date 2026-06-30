@@ -1,6 +1,22 @@
 require "../spec_helper"
 
 describe LavinMQ::HTTP::Server do
+  describe "LavinMQ-Version header" do
+    it "advertises the server version on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Version"].should eq LavinMQ::VERSION
+      end
+    end
+
+    it "is not set on static/HTML responses" do
+      with_http_server do |http, _|
+        response = ::HTTP::Client.get("#{http.addr}/login")
+        response.headers["LavinMQ-Version"]?.should be_nil
+      end
+    end
+  end
+
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
@@ -83,6 +99,25 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "publish")
         count.should eq(before_count.as_i + 5)
+      end
+    end
+
+    it "should return the number of bindings in object_totals" do
+      with_http_server do |http, s|
+        response = http.get("/api/overview")
+        before_count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+
+        with_channel(s) do |ch|
+          x = ch.fanout_exchange
+          q1 = ch.queue("bindings_q1", exclusive: true)
+          q2 = ch.queue("bindings_q2", exclusive: true)
+          ch.queue_bind(q1.name, x.name, "#")
+          ch.queue_bind(q2.name, x.name, "#")
+
+          response = http.get("/api/overview")
+          count = JSON.parse(response.body).dig("object_totals", "bindings").as_i
+          count.should eq(before_count + 2)
+        end
       end
     end
 
@@ -281,7 +316,7 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
-    it "should sort results by nested keys" do
+    it "should sort results by nested keys", tags: "slow" do
       stats_interval = LavinMQ::Config.instance.stats_interval
       LavinMQ::Config.instance.stats_interval = 1000
       with_http_server do |http, s|

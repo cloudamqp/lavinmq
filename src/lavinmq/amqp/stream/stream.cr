@@ -116,6 +116,14 @@ module LavinMQ::AMQP
       # Streams doesn't handle queue expiration
     end
 
+    # Streams never expire individual messages (message_expire_loop is a no-op),
+    # so the expire fiber must never start. Skipping the check also avoids the
+    # inherited MessageStore#first?, which dereferences the legacy @rfile that
+    # streams don't maintain and crashes once retention has closed that segment.
+    private def should_start_expire_fiber? : Bool
+      false
+    end
+
     private def start : Bool
       if @msg_store.closed
         !close
@@ -127,7 +135,7 @@ module LavinMQ::AMQP
     end
 
     private def init_msg_store(data_dir)
-      replicator = @vhost.@replicator
+      replicator = @vhost.replicator
       @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
@@ -149,6 +157,11 @@ module LavinMQ::AMQP
       # Notify all waiting stream consumers about new messages
       notify_all_stream_consumers
       PublishResult::Ok
+    rescue MessageStore::ClosedError
+      # Closed/deleted concurrently after the @state.closed? check; treat as
+      # dropped instead of surfacing the race as an error (see Queue#publish_internal).
+      # push is the only call here that can raise it, so nothing was stored.
+      PublishResult::Dropped
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

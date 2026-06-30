@@ -44,8 +44,12 @@ module LavinMQ
         @consumers.shared { |cs| cs.find { |c| yield c } }
       end
 
-      def delete_consumer(consumer : Consumer) : Consumer?
-        @consumers.lock(&.delete(consumer))
+      def cancel_consumer(consumer : AMQP::Consumer) : Nil
+        send AMQP::Frame::Basic::Cancel.new(@id, consumer.tag, no_wait: true)
+        if @consumers.lock(&.delete(consumer))
+          consumer.close
+          consumer.queue.rm_consumer(consumer)
+        end
       end
 
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
@@ -83,7 +87,7 @@ module LavinMQ
         tag : UInt64,
         queue : Queue,
         sp : SegmentPosition,
-        consumer : Consumer?,
+        consumer : AMQP::Consumer?,
         delivered_at : Time::Instant
 
       def details_tuple
@@ -100,8 +104,15 @@ module LavinMQ
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
-          message_stats:           stats_details,
+          message_stats:           current_stats_details,
         }
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge({
+          message_stats:    stats_details,
+          consumer_details: consumers,
+        }).to_json(json)
       end
 
       def flow(active : Bool)
@@ -712,11 +723,12 @@ module LavinMQ
         end
       end
 
-      def close
-        return unless @running.swap(false, :acquire_release)
+      def close : Bool
+        return false unless @running.swap(false, :acquire_release)
         @confirm_ack_mailbox.try &.close
         @consumers.shared(&.dup).each_with_index(1) do |consumer, i|
           consumer.close
+          consumer.queue.rm_consumer(consumer)
           Fiber.yield if (i % 128) == 0
         end
         @consumers.lock(&.clear)
@@ -733,8 +745,8 @@ module LavinMQ
         end
         @has_capacity.close
         @next_msg_body_file.try &.close
-        @client.vhost.event_tick(EventType::ChannelClosed)
         @log.debug { "Closed" }
+        true
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
@@ -796,6 +808,7 @@ module LavinMQ
         end
         if c
           c.close
+          c.queue.rm_consumer(c)
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)

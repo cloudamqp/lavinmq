@@ -26,6 +26,10 @@ module LavinMQ
         end
       end
 
+      def binding_count : Int32
+        @bindings.unsafe_get.each_value.sum(&.size)
+      end
+
       def bind(destination : Destination, routing_key, arguments = nil) : Bool
         validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
@@ -55,6 +59,8 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+        # Use []? to not allocate (and keep forever) an empty set in the
+        # bindings hash for every unbound routing key published to
         @bindings.shared do |b|
           b[routing_key]?.try &.each do |destination, _arguments|
             yield destination

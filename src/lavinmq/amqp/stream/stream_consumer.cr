@@ -107,6 +107,8 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+      ensure
+        @deliver_loop_running.set(false, :release)
       end
 
       private def wait_for_queue_ready
@@ -124,6 +126,7 @@ module LavinMQ
       end
 
       def notify_new_message
+        ensure_deliver_loop
         @new_message_available.set(true)
       end
 
@@ -136,7 +139,12 @@ module LavinMQ
       end
 
       def ack(sp)
-        stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+        begin
+          stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+        rescue MessageStore::ClosedError
+          # The queue was closed/deleted while this ack was in flight. Storing the
+          # offset is now a no-op; don't let it tear down the connection read_loop.
+        end
         super
       end
 
@@ -152,6 +160,7 @@ module LavinMQ
       end
 
       def close
+        return if closed?
         @new_message_available.close
         super
       end

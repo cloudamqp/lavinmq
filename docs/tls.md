@@ -81,13 +81,25 @@ The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `t
 
 ## Reloading certificates
 
-Send `SIGHUP` to the LavinMQ process to reload the configuration file and rebuild every TLS context (main and all SNI sections) without dropping existing connections. New connections pick up the renewed certificates immediately; connections already established keep using the certificate that was active when they handshook. This is the supported path for certificate rotation in production.
+Send `SIGHUP` to the LavinMQ process to reload the configuration file without dropping existing connections. On a systemd unit, `systemctl reload lavinmq` issues the same signal.
 
 ```sh
 kill -HUP $(pidof lavinmq)
 ```
 
-On a systemd unit, `systemctl reload lavinmq` issues the same signal.
+The reload is atomic: if the new configuration file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had.
+
+A reload applies these TLS changes live:
+
+- Renewed certificates for `[main]` and for SNI hosts that were already configured at boot. New connections pick up the renewed certificates immediately; connections already established keep using the certificate that was active when they handshook. This is the supported path for certificate rotation in production.
+- Updated ciphers, minimum version, and mTLS settings on those existing contexts.
+- Adding, changing, or removing SNI hosts, as long as at least one `[sni:...]` section existed at boot.
+
+The following changes cannot be applied to a running broker and require a full restart. A reload logs a warning and keeps the previous TLS setup in place:
+
+- Enabling TLS on a port that had no `tls_cert` at boot.
+- Disabling TLS on a port that had one.
+- Adding the first `[sni:...]` section when none existed at boot.
 
 ## kTLS (Kernel TLS)
 

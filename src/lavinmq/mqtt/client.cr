@@ -7,6 +7,7 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "../stats"
 
 module LavinMQ
   module MQTT
@@ -48,27 +49,30 @@ module LavinMQ
         nil
       end
 
-      def initialize(@io : MQTT::IO,
+      def initialize(@io : Protocol::IO,
                      @connection_info : ConnectionInfo,
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
-                     @will : MQTT::Will? = nil)
+                     @will : Protocol::Will? = nil)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
+      end
+
+      def run : Nil
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
         case user = @user
         when Auth::OAuthUser
           user.on_expiration do
             close("token expired")
           end
         end
+        read_loop
       end
 
       def client_name
@@ -91,12 +95,12 @@ module LavinMQ
           end
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
-          if packet.is_a?(MQTT::Disconnect)
+          if packet.is_a?(Protocol::Disconnect)
             @log.debug { "Received disconnect" }
             break
           end
         end
-      rescue ex : ::MQTT::Protocol::Error::PacketDecode
+      rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
       rescue ex : ::IO::TimeoutError
@@ -109,7 +113,6 @@ module LavinMQ
         @log.error(exception: ex) { "Read Loop error" }
         publish_will
       ensure
-        @broker.remove_client(self)
         case user = @user
         when Auth::OAuthUser
           user.cleanup
@@ -132,13 +135,13 @@ module LavinMQ
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
-        when MQTT::Publish     then recieve_publish(packet)
-        when MQTT::PubAck      then recieve_puback(packet)
-        when MQTT::Subscribe   then recieve_subscribe(packet)
-        when MQTT::Unsubscribe then recieve_unsubscribe(packet)
-        when MQTT::PingReq     then receive_pingreq(packet)
-        when MQTT::Disconnect  then return packet
-        else                        raise "received unexpected packet: #{packet}"
+        when Protocol::Publish     then recieve_publish(packet)
+        when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::Subscribe   then recieve_subscribe(packet)
+        when Protocol::Unsubscribe then recieve_unsubscribe(packet)
+        when Protocol::PingReq     then receive_pingreq(packet)
+        when Protocol::Disconnect  then return packet
+        else                            raise "received unexpected packet: #{packet}"
         end
         packet
       end
@@ -151,23 +154,23 @@ module LavinMQ
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet
-        when MQTT::Publish
+        when Protocol::Publish
           if packet.dup?
             vhost.event_tick(EventType::ClientRedeliver)
           else
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when MQTT::PubAck
+        when Protocol::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
 
-      def receive_pingreq(packet : MQTT::PingReq)
-        send MQTT::PingResp.new
+      def receive_pingreq(packet : Protocol::PingReq)
+        send Protocol::PingResp.new
       end
 
-      def recieve_publish(packet : MQTT::Publish)
+      def recieve_publish(packet : Protocol::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
@@ -177,16 +180,16 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(MQTT::PubAck.new(packet_id))
+          send(Protocol::PubAck.new(packet_id))
         end
       end
 
-      def recieve_puback(packet : MQTT::PubAck)
+      def recieve_puback(packet : Protocol::PubAck)
         @broker.sessions[@client_id].ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
-      def recieve_subscribe(packet : MQTT::Subscribe)
+      def recieve_subscribe(packet : Protocol::Subscribe)
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
@@ -195,12 +198,12 @@ module LavinMQ
           end
         end
         qos = @broker.subscribe(self, packet.topic_filters)
-        send(MQTT::SubAck.new(qos, packet.packet_id))
+        send(Protocol::SubAck.new(qos, packet.packet_id))
       end
 
-      def recieve_unsubscribe(packet : MQTT::Unsubscribe)
+      def recieve_unsubscribe(packet : Protocol::Unsubscribe)
         @broker.unsubscribe(client_id, packet.topics)
-        send(MQTT::UnsubAck.new(packet.packet_id))
+        send(Protocol::UnsubAck.new(packet.packet_id))
       end
 
       def details_tuple
@@ -217,7 +220,11 @@ module LavinMQ
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
           client_properties: NamedTuple.new,
-        }.merge(stats_details)
+        }.merge(current_stats_details)
+      end
+
+      def to_json(json : JSON::Builder)
+        details_tuple.merge(stats_details).to_json(json)
       end
 
       def search_match?(value : String) : Bool
@@ -236,7 +243,7 @@ module LavinMQ
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
-          @broker.publish(MQTT::Publish.new(
+          @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -272,96 +279,6 @@ module LavinMQ
         end
         socket.close
       rescue ::IO::Error
-      end
-    end
-
-    class Consumer < LavinMQ::Client::Channel::Consumer
-      # `MQTT::Consumer` only has the `has_capacity` method to satisfy the interface.
-      # Since it's never used a shared object can be used. It's also closed immediately
-      # to not have a fiber running.
-      class_getter(dummy_has_capacity : BoolChannel) { BoolChannel.new(true).tap &.close }
-
-      getter unacked = 0_u32
-      getter tag : String
-
-      def has_capacity : BoolChannel
-        self.class.dummy_has_capacity
-      end
-
-      property prefetch_count = 0_u16
-
-      def initialize(@client : Client, @session : MQTT::Session)
-        @tag = "mqtt.#{@client.client_id}"
-      end
-
-      def details_tuple
-        {
-          queue: {
-            name:  "mqtt.#{@client.client_id}",
-            vhost: @client.vhost.name,
-          },
-          consumer_tag:    @tag,
-          exclusive:       exclusive?,
-          ack_required:    !no_ack?,
-          prefetch_count:  @prefetch_count,
-          priority:        priority,
-          channel_details: {
-            peer_host:       @client.connection_info.remote_address.address,
-            peer_port:       @client.connection_info.remote_address.port,
-            connection_name: @client.name,
-            user:            @client.user.name,
-            number:          0_u16,
-            name:            "#{@client.connection_info.remote_address}[0]",
-          },
-        }
-      end
-
-      def no_ack?
-        true
-      end
-
-      def accepts? : Bool
-        true
-      end
-
-      def deliver(msg : MQTT::Publish)
-        @client.send(msg)
-      end
-
-      def deliver(msg, sp, redelivered = false, recover = false)
-        raise NotImplementedError.new("MQTT Consumer can't deliver AMQP messages")
-      end
-
-      def exclusive?
-        true
-      end
-
-      def cancel
-        @client.close("Server force closed client")
-      end
-
-      def close
-        @client.close("Server force closed client")
-      end
-
-      def closed?
-        false
-      end
-
-      def flow(active : Bool)
-        raise NotImplementedError.new("MQTT Consumer doesn't support flow")
-      end
-
-      def ack(sp)
-        raise NotImplementedError.new("MQTT Consumer doesn't support ack")
-      end
-
-      def reject(sp, requeue = false)
-        raise NotImplementedError.new("MQTT Consumer doesn't support reject")
-      end
-
-      def priority
-        0
       end
     end
   end

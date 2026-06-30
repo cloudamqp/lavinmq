@@ -44,6 +44,20 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose the number of bindings" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthb")
+        vhost.declare_queue("bq", true, false)
+        vhost.bind_queue("bq", "amq.topic", "rk1")
+        vhost.bind_queue("bq", "amq.topic", "rk2")
+        raw = http.get("/metrics").body
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+        bindings = parsed_metrics.find { |m| m[:key] == "lavinmq_bindings" }
+        bindings.should_not be_nil
+        bindings.try(&.[:value].should eq 2)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -111,6 +125,16 @@ describe LavinMQ::HTTP::PrometheusController do
         mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
         mfile_metric.should_not be_nil
         mfile_metric.not_nil![:value].should be >= 0
+      end
+    end
+
+    it "should report uptime anchored to PROCESS_START, surviving Server re-creation" do
+      uptime1 = uninitialized Time::Span
+      with_metrics_server do |_, server|
+        uptime1 = server.uptime
+      end
+      with_metrics_server do |_, server|
+        server.uptime.should be > uptime1
       end
     end
   end
@@ -219,6 +243,24 @@ describe LavinMQ::HTTP::PrometheusController do
         queues = parsed.find! do |m|
           m[:key] == "lavinmq_detailed_vhost_queues" &&
             m[:attrs]["vhost"] == "vms_test"
+        end
+        queues[:value].should eq 2
+      end
+    end
+
+    it "should count mqtt sessions in detailed_vhost_queues" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("vq_test")
+        s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("mqtt.c1", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+
+        raw = http.get("/metrics/detailed?family=vhost_message_stats").body
+        parsed = PrometheusSpecHelper.parse_prometheus(raw)
+
+        queues = parsed.find! do |m|
+          m[:key] == "lavinmq_detailed_vhost_queues" &&
+            m[:attrs]["vhost"] == "vq_test"
         end
         queues[:value].should eq 2
       end

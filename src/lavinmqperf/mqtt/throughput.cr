@@ -86,7 +86,7 @@ module LavinMQPerf
       @consumes = Atomic(UInt64).new(0_u64)
       @stopped = false
 
-      private def create_client(id : Int32, role : String) : {IO, LavinMQ::MQTT::IO}
+      private def create_client(id : Int32, role : String) : {IO, LavinMQ::MQTT::Protocol::IO}
         if @uri.host == @uri.port == nil
           @uri = URI.parse("mqtt://#{@uri.scheme}:#{@uri.path}")
         end
@@ -98,10 +98,10 @@ module LavinMQPerf
         password = @uri.password || "guest"
 
         socket = connect_socket(host, port, tls)
-        io = LavinMQ::MQTT::IO.new(socket)
+        io = LavinMQ::MQTT::Protocol::IO.new(socket)
 
         client_id = "#{role}-#{id}"
-        connect_packet = LavinMQ::MQTT::Connect.new(
+        connect_packet = LavinMQ::MQTT::Protocol::Connect.new(
           client_id: client_id,
           clean_session: @clean_session,
           keepalive: 0,
@@ -113,9 +113,9 @@ module LavinMQPerf
         connect_packet.to_io(io)
         io.flush
 
-        response = LavinMQ::MQTT::Packet.from_io(io)
-        unless response.is_a?(LavinMQ::MQTT::Connack) &&
-               response.as(LavinMQ::MQTT::Connack).return_code == LavinMQ::MQTT::Connack::ReturnCode::Accepted
+        response = LavinMQ::MQTT::Protocol::Packet.from_io(io)
+        unless response.is_a?(LavinMQ::MQTT::Protocol::Connack) &&
+               response.as(LavinMQ::MQTT::Protocol::Connack).return_code == LavinMQ::MQTT::Protocol::Connack::ReturnCode::Accepted
           socket.try &.close rescue nil
           raise "Failed to connect: #{response.inspect}"
         end
@@ -233,13 +233,13 @@ module LavinMQPerf
 
         start = Time.instant
         pubs_this_second = 0
-        packet_id_generator = (1_u16..).each
+        packet_id_generator = (1_u16..UInt16::MAX).cycle
         wait_until_all_are_connected(connected)
         until @stopped
           @random.random_bytes(data) if @random_bodies
           packet_id = @qos > 0 ? packet_id_generator.next.as(UInt16) : nil
 
-          publish = LavinMQ::MQTT::Publish.new(
+          publish = LavinMQ::MQTT::Protocol::Publish.new(
             topic: @topic,
             payload: data,
             packet_id: packet_id,
@@ -251,8 +251,8 @@ module LavinMQPerf
           io.flush
 
           if @qos > 0
-            ack = LavinMQ::MQTT::Packet.from_io(io)
-            unless ack.is_a?(LavinMQ::MQTT::PubAck)
+            ack = LavinMQ::MQTT::Protocol::Packet.from_io(io)
+            unless ack.is_a?(LavinMQ::MQTT::Protocol::PubAck)
               raise "Expected PUBACK but got #{ack.inspect}"
             end
           end
@@ -272,7 +272,7 @@ module LavinMQPerf
             end
           end
         end
-        LavinMQ::MQTT::Disconnect.new.to_io(io) if socket && !socket.closed?
+        LavinMQ::MQTT::Protocol::Disconnect.new.to_io(io) if socket && !socket.closed?
       ensure
         socket.try &.close rescue nil
       end
@@ -286,21 +286,21 @@ module LavinMQPerf
         start = Time.instant
         consumes_this_second = 0
 
-        topic_filter = LavinMQ::MQTT::Subscribe::TopicFilter.new(@topic, @qos.to_u8)
-        LavinMQ::MQTT::Subscribe.new([topic_filter], packet_id: 1_u16).to_io(io)
+        topic_filter = LavinMQ::MQTT::Protocol::Subscribe::TopicFilter.new(@topic, @qos.to_u8)
+        LavinMQ::MQTT::Protocol::Subscribe.new([topic_filter], packet_id: 1_u16).to_io(io)
         io.flush
 
-        suback = LavinMQ::MQTT::Packet.from_io(io)
-        unless suback.is_a?(LavinMQ::MQTT::SubAck)
+        suback = LavinMQ::MQTT::Protocol::Packet.from_io(io)
+        unless suback.is_a?(LavinMQ::MQTT::Protocol::SubAck)
           raise "Expected SUBACK but got #{suback.inspect}"
         end
         individual_consumes = 0
         wait_until_all_are_connected(connected)
         until @stopped
           begin
-            packet = LavinMQ::MQTT::Packet.from_io(io)
+            packet = LavinMQ::MQTT::Protocol::Packet.from_io(io)
             case packet
-            when LavinMQ::MQTT::Publish
+            when LavinMQ::MQTT::Protocol::Publish
               consumes = @consumes.add(1, :relaxed) + 1
               individual_consumes += 1
 
@@ -309,7 +309,7 @@ module LavinMQPerf
               end
 
               if packet.qos > 0 && (packet_id = packet.packet_id)
-                LavinMQ::MQTT::PubAck.new(packet_id).to_io(io)
+                LavinMQ::MQTT::Protocol::PubAck.new(packet_id).to_io(io)
                 io.flush
               end
 
@@ -330,8 +330,8 @@ module LavinMQPerf
               else
                 Fiber.yield if individual_consumes % (128 * 1024) == 0
               end
-            when LavinMQ::MQTT::PingReq
-              LavinMQ::MQTT::PingResp.new.to_io(io)
+            when LavinMQ::MQTT::Protocol::PingReq
+              LavinMQ::MQTT::Protocol::PingResp.new.to_io(io)
               io.flush
             end
           rescue ex : IO::TimeoutError
@@ -340,7 +340,7 @@ module LavinMQPerf
           end
         end
         if socket && !socket.closed?
-          LavinMQ::MQTT::Disconnect.new.to_io(io)
+          LavinMQ::MQTT::Protocol::Disconnect.new.to_io(io)
           io.flush
         end
       ensure

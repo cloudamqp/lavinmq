@@ -5,7 +5,6 @@ CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.shtml)
 VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
-VERSION := $(patsubst v%,%,$(or $(version),$(shell git describe --tags 2>/dev/null || shards version)))
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
@@ -173,7 +172,7 @@ watch-views:
 	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
 
 static/%.html: views/%.shtml $(VIEW_PARTIALS) views/render.sh
-	views/render.sh $< "$(VERSION)" > $@
+	views/render.sh $< > $@
 
 .PHONY: clean-views
 clean-views:

@@ -59,6 +59,8 @@ overview:
     object_totals:
       type: object
       properties:
+        bindings:
+          type: integer
         channels:
           type: integer
         connections:

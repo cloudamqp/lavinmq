@@ -47,7 +47,8 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      @message_ttl_change.send nil
+      @message_ttl_change.try_send? nil
+      ensure_expire_fiber # restart the release fiber if it died on a transient store error
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -57,7 +58,7 @@ module LavinMQ::AMQP
 
     # Overload to use our own store
     private def init_msg_store(data_dir)
-      replicator = durable? ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.replicator : nil
       DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
@@ -83,9 +84,20 @@ module LavinMQ::AMQP
           end
         end
       end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     rescue ::Channel::ClosedError
     ensure
+      @message_expire_fiber_active.set(false, :release)
+      ensure_expire_fiber # restart if msg arrived during teardown
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Delayed exchange queues always need their expire fiber running
+    private def should_start_expire_fiber? : Bool
+      true
     end
 
     def expire_messages
