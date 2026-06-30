@@ -396,6 +396,14 @@ module LavinMQ
         @sent_bytes.get - @acked_bytes.get
       end
 
+      def sent_bytes : Int64
+        @sent_bytes.get
+      end
+
+      def acked_bytes : Int64
+        @acked_bytes.get
+      end
+
       def syncing?
         @state.syncing?
       end
