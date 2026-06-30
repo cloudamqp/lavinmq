@@ -16,11 +16,7 @@ module LavinMQ
       end
 
       def url
-        addr = @listeners.unsafe_get
-          .select(TCPServer)
-          .first
-          .local_address
-        "amqp://#{addr}"
+        "amqp://#{tcp_address}"
       end
 
       def handle_connection(socket, connection_info)

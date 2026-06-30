@@ -29,6 +29,16 @@ module LavinMQ
       @listening
     end
 
+    # Local address of the first bound TCP listener. Handy for connecting to an
+    # ephemeral (port 0) listener, e.g. in specs and tooling.
+    def tcp_address : Socket::IPAddress
+      @listeners.shared(&.select(TCPServer).first.local_address)
+    end
+
+    def tcp_port : Int32
+      tcp_address.port
+    end
+
     def bind_tcp(s : TCPServer)
       bind(s)
       addr = s.local_address

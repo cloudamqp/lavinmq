@@ -65,8 +65,7 @@ class LavinMQ::Server
   getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
 
   def amqp_url
-    addr = amqp_server.@listeners.unsafe_get.select(TCPServer).first.local_address
-    "amqp://#{addr}"
+    amqp_server.url
   end
 
   # Close the spec-built servers (if any) before tearing down the stores, so
@@ -160,7 +159,7 @@ ensure
 end
 
 def amqp_port(s)
-  s.amqp_server.@listeners.unsafe_get.select(TCPServer).first.local_address.port
+  s.amqp_server.tcp_port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep

@@ -10,7 +10,7 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    tcp_listener = server.mqtt_server.@listeners.unsafe_get.select(TCPServer).first.local_address
+    tcp_listener = server.mqtt_server.tcp_address
 
     socket = TCPSocket.new(
       tcp_listener.address,
