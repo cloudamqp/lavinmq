@@ -1,6 +1,6 @@
 #!/bin/sh
 # Processes SHTML (SSI) directives and outputs HTML.
-# Usage: views/render.sh views/page.shtml "1.2.3" > static/page.html
+# Usage: views/render.sh views/page.shtml > static/page.html
 #
 # Supported directives:
 #   <!--#set var="NAME" value="..." -->   Store a variable
@@ -10,7 +10,6 @@ set -eu
 
 VIEWS_DIR="$(cd "$(dirname "$0")" && pwd)"
 INPUT="$1"
-VERSION="${2:-dev}"
 
 process() {
   local line rest out before directive tag after varname value file
@@ -61,5 +60,4 @@ process() {
   done
 }
 
-VAR_VERSION="$VERSION"
 process < "$INPUT"

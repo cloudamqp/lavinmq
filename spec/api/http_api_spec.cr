@@ -1,6 +1,22 @@
 require "../spec_helper"
 
 describe LavinMQ::HTTP::Server do
+  describe "LavinMQ-Version header" do
+    it "advertises the server version on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Version"].should eq LavinMQ::VERSION
+      end
+    end
+
+    it "is not set on static/HTML responses" do
+      with_http_server do |http, _|
+        response = ::HTTP::Client.get("#{http.addr}/login")
+        response.headers["LavinMQ-Version"]?.should be_nil
+      end
+    end
+  end
+
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
