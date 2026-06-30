@@ -49,9 +49,17 @@ module LavinMQ::AMQP10
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
-      @vhost.add_connection(self)
+    end
+
+    def run : Nil
       @log.info { "AMQP 1.0 connection established for user=#{@user.name}" }
-      spawn read_loop, name: "AMQP10::Client#read_loop #{@connection_info.remote_address}"
+      case user = @user
+      when Auth::OAuthUser
+        user.on_expiration do
+          close("token expired")
+        end
+      end
+      read_loop
     end
 
     def on(event : LavinMQ::QueueEvent, data : Object?)
@@ -413,7 +421,6 @@ module LavinMQ::AMQP10
       @sessions.clear
       @exclusive_queues.dup.each(&.close)
       @exclusive_queues.clear
-      @vhost.rm_connection(self)
     end
 
     private def close_socket
