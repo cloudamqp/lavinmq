@@ -68,5 +68,23 @@ module MqttSpecs
         end
       end
     end
+
+    it "clamps the granted QoS in SUBACK to the server maximum" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+
+          # We only deliver up to QoS 1, so a QoS 2 request is granted QoS 1
+          # [MQTT-3.8.4-7] - the SUBACK must report the granted max, not requested.
+          tf = MQTT::Protocol::Subscribe::TopicFilter.new("test/topic", 2u8)
+          MQTT::Protocol::Subscribe.new([tf], 1u16).to_io(io)
+          io.flush
+
+          suback = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::SubAck)
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS1])
+        end
+      end
+    end
   end
 end

@@ -94,14 +94,17 @@ module LavinMQ
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          session.subscribe(tf.topic, tf.qos)
+          # We only deliver up to MAX_QOS, so grant (and store/deliver at) the
+          # clamped QoS - the SUBACK must report the granted max [MQTT-3.8.4-7].
+          granted = Math.min(tf.qos, MAX_QOS)
+          session.subscribe(tf.topic, granted)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: tf.qos)
+            props = AMQP::Properties.new(headers: headers, delivery_mode: granted)
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          Protocol::SubAck::ReasonCode.from_value(tf.qos)
+          Protocol::SubAck::ReasonCode.from_value(granted)
         end
       end
 
