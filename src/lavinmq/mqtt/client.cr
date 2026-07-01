@@ -204,13 +204,28 @@ module LavinMQ
         send Protocol::PingResp.new
       end
 
-      def recieve_publish(packet : Protocol::Publish)
-        # We advertise maximum_qos=1, so a v5 QoS 2 PUBLISH is a protocol error
-        # [MQTT-3.2.2] -> DISCONNECT 0x9B. v3 has no such contract; its QoS 2 is
-        # accepted and downgraded to QoS 1 on delivery (session.cr).
-        if @io.version.v5? && packet.qos > MAX_QOS
+      # Enforce the v5 limits we advertised in CONNACK. A conformant client
+      # honours them, so a violation is a protocol error -> server DISCONNECT
+      # (raised as ProtocolViolation, handled in read_loop). v3 has no such
+      # contract and is unaffected.
+      private def validate_v5_publish!(packet : Protocol::Publish)
+        return unless @io.version.v5?
+        # maximum_qos=1: QoS 2 is not supported (v3 downgrades on delivery instead).
+        if packet.qos > MAX_QOS
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::QoSNotSupported)
         end
+        # topic_alias_maximum=0: we accept no Topic Aliases.
+        if packet.properties.topic_alias
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
+        end
+        # An empty topic is only resolvable via a Topic Alias, which we don't allow.
+        if packet.topic_bytes.empty?
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+      end
+
+      def recieve_publish(packet : Protocol::Publish)
+        validate_v5_publish!(packet)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
