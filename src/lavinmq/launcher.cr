@@ -9,9 +9,10 @@ require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
 require "./etcd"
-require "./clustering/controller"
-require "./clustering/etcd_coordinator"
-require "./standalone_runner"
+require "./clustering/elector"
+require "./clustering/etcd_backend"
+require "./raft/backend"
+require "./clustering/standalone_backend"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
 
@@ -44,12 +45,19 @@ module LavinMQ
       end
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        case @config.clustering_backend
+        when "etcd"
+          etcd = Etcd.new(@config.clustering_etcd_endpoints)
+          @backend = backend = Clustering::EtcdBackend.new(@config, etcd)
+          @replicator = Clustering::Server.new(@config, backend, backend.node_id)
+        when "raft"
+          @backend = backend = LavinMQ::Raft::Backend.new(@config)
+          @replicator = Clustering::Server.new(@config, backend, backend.node_id)
+        else
+          raise LavinMQ::Error.new("Invalid clustering_backend: #{@config.clustering_backend.inspect}")
+        end
       else
-        @runner = StandaloneRunner.new
+        @backend = Clustering::StandaloneBackend.new
       end
 
       if @config.tls_configured?
@@ -64,14 +72,19 @@ module LavinMQ
     end
 
     private def start : self
+      Log.info { "Starting LavinMQ version #{LavinMQ::VERSION}" }
       started_at = Time.instant
       @data_dir_lock.try &.acquire
+      # Force-init the cluster secret before clustering listener starts. For
+      # the raft backend, this requires being leader (we are — the backend yielded
+      # to us). For etcd, this writes the key so follower watches fire.
+      @replicator.try &.password
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @backend)
       start_listeners(amqp_server, mqtt_server, http_server)
       start_metrics_server(server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
@@ -84,7 +97,7 @@ module LavinMQ
     end
 
     def run
-      @runner.run do
+      @backend.campaign do
         start
       end
       @replicator.try &.close
@@ -101,7 +114,7 @@ module LavinMQ
       @mqtt_server.try &.close rescue nil
       @server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
-      @runner.stop
+      @backend.stop
     end
 
     private def print_environment_info
@@ -152,7 +165,8 @@ module LavinMQ
     end
 
     private def start_metrics_server(server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server)
+      raft_backend = @backend.as?(LavinMQ::Raft::Backend)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server, raft_backend)
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen

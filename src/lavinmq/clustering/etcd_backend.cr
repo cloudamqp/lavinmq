@@ -1,0 +1,260 @@
+require "random/secure"
+require "sync/exclusive"
+require "../etcd"
+require "./elector"
+require "./coordinator"
+require "./client"
+
+class LavinMQ::Clustering::EtcdBackend
+  include LavinMQ::Clustering::Elector
+  include LavinMQ::Clustering::Coordinator
+  Log = LavinMQ::Log.for "clustering.etcd_backend"
+
+  getter node_id : Int32
+
+  @repli_client : Client? = nil
+  # The election win captured as a fencing token: ISR writes are conditioned on
+  # this election key still being held by our lease, so a deposed leader can't
+  # overwrite the ISR. Armed (set) on campaign by the elector fiber, read (get)
+  # by update_isr on the replicator's confirm path — a cross-context access, so
+  # it's guarded. nil until elected.
+  @election_leader = Sync::Exclusive(Etcd::ElectionLeader?).new(nil)
+
+  def self.new(config : Config)
+    etcd = Etcd.new(config.clustering_etcd_endpoints)
+    new(config, etcd)
+  end
+
+  def initialize(@config : Config, @etcd : Etcd)
+    @node_id = clustering_id
+    @advertised_uri = @config.clustering_advertised_uri ||
+                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @is_leader = BoolChannel.new(false)
+  end
+
+  # This method is called by the Launcher#run.
+  # The block will be yielded when the controller's prerequisites for a leader
+  # to start are met, i.e when the current node has been elected leader.
+  # The method is blocking.
+
+  def campaign(& : ->)
+    # Every node ensures the clustering secret exists before campaigning or
+    # following (put_or_get — first writer wins). If only the elected leader
+    # wrote it, a follower could miss the leader's first write:
+    # #follow_leader's get-then-watch loses a put that lands while the watch
+    # stream is being established (Etcd#watch has no start_revision), leaving
+    # the follower waiting for the secret forever.
+    password
+    lease = @lease = @etcd.lease_grant(id: @node_id)
+    spawn(follow_leader, name: "Follower monitor")
+    wait_to_be_insync(lease)
+    win_election # blocks until elected; arms the ISR fence
+    # The election doesn't consult the ISR; a candidacy queued in
+    # wait_to_be_insync can outlive ISR membership (e.g. replication fell behind
+    # after we passed that gate). Serving while missing confirmed data would
+    # lose it cluster-wide, so re-check now and step down if we were dropped.
+    ensure_in_isr!
+    @is_leader.set(true)
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    @repli_client.try &.close
+    yield
+    loop do
+      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
+    end
+  rescue Etcd::Lease::Expired
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    unless @stopped
+      Log.fatal { "Lease expired, lost leadership" }
+      exit 3
+    end
+  rescue Etcd::LeaseAlreadyExists
+    Log.fatal { "Cluster ID #{@node_id.to_s(36)} used by another node" }
+    exit 3
+  rescue Etcd::LeaseNotFound
+    Log.fatal { "Lease not found, etcd may have been reset" }
+    exit 3
+  end
+
+  @stopped = false
+
+  def stop
+    @stopped = true
+    @repli_client.try &.close
+    @lease.try &.release
+  end
+
+  def update_isr(synced_node_ids : Enumerable(Int32)) : Bool
+    leader = @election_leader.get
+    return false unless leader && leader.election == leader_key
+    ids = synced_node_ids.map(&.to_s(36)).join(",")
+    # Fenced on the election key: a deposed leader (election lost — e.g. paused
+    # past its lease TTL while a follower was promoted) can't overwrite the ISR.
+    # put_if_election_leader raises StaleLeadership, so we return false and the
+    # caller stalls/retries rather than confirming against an ISR only this
+    # stale node believes in.
+    @etcd.put_if_election_leader(isr_key, ids, leader)
+    true
+    # Etcd::Error (base) covers StaleLeadership (deposed — caller retries until
+    # the lease expires and the process exits) and transient conditions like
+    # Etcd::NoLeader (etcd mid-election; with_tcp re-raises it without retrying)
+    # and wrapped network errors. Returning false keeps flush_isr's retry loop
+    # alive instead of letting a transient error crash the calling fiber.
+
+
+  rescue ex : Etcd::Error | IO::Error | Socket::Error
+    Log.warn(exception: ex) { "Failed to commit ISR to etcd" }
+    false
+  end
+
+  def password : String
+    key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+    secret = Random::Secure.base64(32)
+    stored = @etcd.put_or_get(key, secret)
+    Log.info { "Generated new clustering secret" } if stored == secret
+    stored
+  end
+
+  # Each node in a cluster has an unique id, for tracking ISR
+  private def clustering_id : Int32
+    id_file_path = File.join(@config.data_dir, ".clustering_id")
+    begin
+      id = File.read(id_file_path).to_i(36)
+    rescue File::NotFoundError
+      id = rand(Int32::MAX)
+      Dir.mkdir_p @config.data_dir
+      File.write(id_file_path, id.to_s(36))
+      Log.info { "Generated new clustering ID" }
+    end
+    id
+  end
+
+  # Replicate from the leader
+  # Listens for leader change events
+  private def follow_leader
+    @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
+      if repli_client = @repli_client # is currently following a leader
+        if repli_client.follows? uri
+          next # if lost connection to etcd we continue follow the leader as is
+        else
+          repli_client.close
+        end
+      end
+      if uri.nil? # no leader yet
+        Log.warn { "No leader available" }
+        next
+      end
+      if uri == @advertised_uri # if this instance has become leader
+        select
+        when @is_leader.when_true.receive
+          Log.debug { "Is leader, don't replicate from self" }
+          @is_leader.close
+          return
+        when timeout(1.second)
+          raise Error.new("Another node in the cluster is advertising the same URI")
+        end
+      end
+      Log.info { "Leader: #{uri}" }
+      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+      secret = @etcd.get(key)
+      until secret # the leader might not have had time to set the secret yet
+        Log.debug { "Clustering secret is missing, watching for it" }
+        @etcd.watch(key) do |value|
+          secret = value
+          break
+        end
+      end
+      @repli_client = r = Clustering::Client.new(@config, @node_id, secret)
+      spawn r.follow(uri), name: "Clustering client #{uri}"
+    end
+  rescue ex : Error
+    Log.fatal { ex.message }
+    exit 36 # 36 for CF (Cluster Follower)
+  rescue ex
+    Log.fatal(exception: ex) { "Unhandled exception while following leader" }
+    exit 36 # 36 for CF (Cluster Follower)
+  end
+
+  # A queued election candidacy can outlive ISR membership (see campaign). Exit
+  # if we won the election while not in the ISR: releasing the lease withdraws
+  # the candidacy so an in-sync node can win instead; on restart
+  # wait_to_be_insync blocks until this node is re-synced.
+  private def ensure_in_isr! : Nil
+    raw = @etcd.get(isr_key)
+    return if raw.nil? # no ISR recorded yet (fresh cluster)
+    return if raw.split(",").map(&.to_i(36)).includes?(@node_id)
+    Log.fatal { "Won the leader election but is not in the in-sync replica set (ISR: #{raw}), stepping down" }
+    begin
+      @lease.try &.release
+    rescue ex
+      Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
+    end
+    exit 3
+  end
+
+  # Win the leader election and arm the ISR fence with the won election token.
+  # Blocks until this node is elected. Split out of the campaign lifecycle (no
+  # follower monitor, no lease-wait loop) so it can be driven directly.
+  def win_election : Etcd::ElectionLeader
+    leader = @etcd.election_campaign(leader_key, @advertised_uri, lease: @node_id)
+    @election_leader.set(leader)
+    leader
+  end
+
+  private def leader_key : String
+    "#{@config.clustering_etcd_prefix}/leader"
+  end
+
+  private def isr_key : String
+    "#{@config.clustering_etcd_prefix}/isr"
+  end
+
+  def wait_to_be_insync(lease)
+    if isr = @etcd.get(isr_key)
+      unless isr.split(",").map(&.to_i(36)).includes?(@node_id)
+        Log.info { "ISR: #{isr}" }
+        Log.info { "Not in sync, waiting for a leader" }
+        in_sync = Channel(Nil).new
+        spawn do
+          @etcd.watch(isr_key) do |value|
+            if value.try &.split(",").map(&.to_i(36)).includes?(@node_id)
+              in_sync.close
+              break
+            end
+          end
+        end
+        select
+        when err = lease.expired.receive?
+          if err
+            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
+          else
+            Log.fatal { "Lease expired while waiting to be in sync" }
+          end
+          exit 3
+        when in_sync.receive?
+          Log.info { "In sync with leader" }
+        end
+      end
+    end
+  end
+
+  private def execute_shell_command(command : String, event : String)
+    return if command.empty?
+
+    Log.info { "Executing #{event} hook in background: #{command}" }
+
+    spawn name: "#{event} hook" do
+      begin
+        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        if status.success?
+          Log.info { "#{event} hook completed successfully" }
+        else
+          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
+        end
+      rescue ex
+        Log.error(exception: ex) { "Failed to execute #{event} hook" }
+      end
+    end
+  end
+
+  class Error < Exception; end
+end

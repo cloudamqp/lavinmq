@@ -1,6 +1,8 @@
+require "systemd"
 require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
+require "../raft/backend"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -43,7 +45,7 @@ module LavinMQ
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true, @raft_backend : ::LavinMQ::Raft::Backend? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -72,7 +74,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft_backend: @raft_backend)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
@@ -112,6 +114,9 @@ module LavinMQ
         if unix_mqtt_proxy = @unix_mqtt_proxy
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
+        # Signal systemd that the follower is set up and the proxies are
+        # forwarding client traffic to the leader.
+        SystemD.notify_ready
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
@@ -291,13 +296,20 @@ module LavinMQ
         Dir.each_child(dir) do |child|
           path = File.join(dir, child)
           if File.directory? path
+            # raft/ and raft-transport/ hold raft.cr's persistent state
+            # (log segments, raft_meta, transport_peers). They live in the
+            # same data_dir as AMQP files but aren't part of the leader's
+            # AMQP file manifest. Without skipping, the follower's
+            # "delete files not on leader" pass deletes them mid-flight,
+            # which crashes the raft tick fiber on the next persist_state.
+            next if child.in?("raft", "raft-transport")
             yield path
             ls_r(path, &blk)
           else
             # checksums.sha1(.tmp) is local-only replication metadata, never
             # sent by the leader; skip it so the "delete files not on leader"
             # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp", ".clustering_password")
             yield path
           end
         end
@@ -526,7 +538,7 @@ module LavinMQ
 
       private def authenticate(socket)
         socket.write Start
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+        socket.write_byte @password.bytesize.to_u8
         socket.write @password.to_slice
         case socket.read_byte
         when 0 # ok

@@ -1,0 +1,202 @@
+require "http/client"
+require "ini"
+require "json"
+require "uri"
+require "file_utils"
+require "../lavinmq/data_dir_lock"
+require "../lavinmq/http/constants"
+
+class LavinMQCtl
+  class CtlExit < Exception
+    getter code : Int32
+
+    def initialize(@code : Int32, message : String = "")
+      super(message)
+    end
+  end
+
+  RAFT_STATE_DIRS = %w[raft raft-transport]
+  # `.clustering_id` is intentionally NOT wiped: it's the container's
+  # stable identity, not part of the membership state. Re-joining a
+  # cluster with the same id avoids polluting Prometheus TSDB with new
+  # series on every reset/rejoin cycle. To get a truly fresh identity,
+  # delete the data volume.
+  RAFT_STATE_FILES = [] of String
+
+  def raft_status
+    response = http.get("/raft/status", @headers)
+    if response.status_code != 200
+      @io.puts "raft_status: HTTP #{response.status_code}"
+      @io.puts response.body
+      raise CtlExit.new(1)
+    end
+    data = JSON.parse(response.body)
+    @io.puts "Role:         #{data["role"]?}"
+    @io.puts "Term:         #{data["term"]?}"
+    @io.puts "Node id:      #{data["id"]?}"
+    @io.puts "Leader id:    #{data["leader_id"]?}"
+    @io.puts "Commit idx:   #{data["commit_index"]?}"
+    @io.puts "Last log:     #{data["last_log_index"]?}"
+    if peers = data["peers"]?
+      @io.puts "Peers:"
+      peers.as_a.each do |p|
+        @io.puts "  id=#{p["id"]?} role=#{p["role"]?}"
+      end
+    end
+  rescue ex : IO::Error | Socket::Error
+    @io.puts "raft_status: cannot reach local node: #{ex.message}"
+    raise CtlExit.new(1)
+  end
+
+  # Resolves data_dir using the same precedence as the lavinmq server:
+  # CLI --data-dir → ENV LAVINMQ_DATADIR → [main] data_dir in the INI →
+  # default /var/lib/lavinmq. Lets `lavinmqctl raft_*` work without
+  # repeating --data-dir when a config file is present.
+  private def resolved_data_dir : String
+    if cli = @options["data_dir"]?
+      return cli unless cli.empty?
+    end
+    if env = ENV["LAVINMQ_DATADIR"]?
+      return env unless env.empty?
+    end
+    config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
+    ini_path = File.join(config_dir, "lavinmq.ini")
+    if File.file?(ini_path)
+      begin
+        ini = INI.parse(File.read(ini_path))
+        if main = ini["main"]?
+          if v = main["data_dir"]?
+            return v unless v.empty?
+          end
+        end
+      rescue ::INI::ParseException
+        # Fall through to the default — surfacing a parse error from a
+        # ctl command would mask the actual user intent.
+      end
+    end
+    "/var/lib/lavinmq"
+  end
+
+  def raft_reset
+    with_wiped_raft_state(resolved_data_dir) { }
+  end
+
+  # Wipes the raft state directories while holding the data dir lock, then
+  # yields (still locked) for any follow-up work while the lock is still
+  # held. A running node is detected through the same flock the server
+  # holds for its whole lifetime; no pidfile configuration needed.
+  private def with_wiped_raft_state(data_dir : String, &) : Nil
+    Dir.mkdir_p(data_dir)
+    # Always gate on safety, whether or not a node is currently running. A
+    # stopped node still holds cluster membership on disk that we can't verify
+    # without /raft/status — so an unreachable node is refused unless --force,
+    # rather than silently wiped (which would drop it from its cluster).
+    ensure_safe_to_stop
+    lock = LavinMQ::DataDirLock.new(data_dir)
+    stop_running_node(lock) unless lock.try_acquire
+    begin
+      deleted = [] of String
+      RAFT_STATE_DIRS.each do |d|
+        path = File.join(data_dir, d)
+        if Dir.exists?(path)
+          FileUtils.rm_rf(path)
+          deleted << "#{d}/"
+        end
+      end
+      RAFT_STATE_FILES.each do |f|
+        path = File.join(data_dir, f)
+        if File.exists?(path)
+          File.delete(path)
+          deleted << f
+        end
+      end
+      @io.puts "raft_reset: removed #{deleted.empty? ? "(nothing to remove)" : deleted.join(", ")} from #{data_dir}"
+      yield
+    ensure
+      lock.release
+    end
+  end
+
+  # The data dir lock is held: a node is running. ensure_safe_to_stop has
+  # already cleared this (or --force was given); stop the node and wait for its
+  # lock to be released. Never wipes under a holder it could not stop.
+  private def stop_running_node(lock : LavinMQ::DataDirLock) : Nil
+    info = lock.holder_info
+    if m = info.match(/PID (\d+) @ (.+)/)
+      pid, host = m[1].to_i64, m[2]
+      unless host == System.hostname
+        @io.puts "raft_reset: data dir is locked by #{info.inspect} on another host; stop that node first"
+        raise CtlExit.new(1)
+      end
+      @io.puts "raft_reset: node is running, sending SIGTERM to pid #{pid}"
+      begin
+        Process.signal(Signal::TERM, pid)
+      rescue
+        @io.puts "raft_reset: could not signal pid #{pid}; stop the node manually"
+        raise CtlExit.new(1)
+      end
+      deadline = Time.instant + 30.seconds
+      until lock.try_acquire
+        if Time.instant > deadline
+          @io.puts "raft_reset: timed out waiting for the node to exit"
+          raise CtlExit.new(1)
+        end
+        sleep 100.milliseconds
+      end
+    else
+      @io.puts "raft_reset: data dir is locked by a running node (#{info.inspect}); stop it first"
+      raise CtlExit.new(1)
+    end
+  end
+
+  # Refuse unless the running node is provably safe to discard: the leader
+  # of a single-node cluster (the bootstrap-then-join formation flow). A
+  # follower's control socket answers 503, an unreachable socket proves
+  # nothing — both require --force.
+  private def ensure_safe_to_stop : Nil
+    return if @options["force"]?
+    # A stopped node exposes no /raft/status, so we can't prove it's a safe
+    # single-node leader. When the default control socket is absent, `connect`
+    # would `exit` with a generic "is LavinMQ running?" before we ever reach the
+    # rescue below — produce the actionable fail-closed message instead. (An
+    # explicit --uri/--host/--hostname is a TCP endpoint whose connection
+    # failure is caught by the rescue.)
+    if local_control_socket_missing?
+      @io.puts "raft_reset: refusing — node is not running (no control socket at " \
+               "#{@options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH}), " \
+               "so its cluster membership can't be verified. Use --force to discard this node's state."
+      raise CtlExit.new(1)
+    end
+    begin
+      response = http.get("/raft/status", @headers)
+      if response.status_code == 200
+        data = JSON.parse(response.body)
+        # Fail closed: a missing or non-array `peers` means we can't establish
+        # the node is a safe single-node leader, so refuse rather than assume 0.
+        if peers = data["peers"]?.try(&.as_a?).try(&.size)
+          return if peers <= 1
+          @io.puts "raft_reset: refusing — node is in a multi-peer cluster (peers=#{peers}). Use --force to override."
+        else
+          @io.puts "raft_reset: refusing — /raft/status did not report a peer list; cannot verify cluster size. Use --force to override."
+        end
+      else
+        @io.puts "raft_reset: refusing — node is running but its role can't be verified " \
+                 "(HTTP #{response.status_code}; a follower answers 503). " \
+                 "Use --force to discard this node's cluster membership."
+      end
+    rescue ex : IO::Error | Socket::Error
+      @io.puts "raft_reset: refusing — node is running but /raft/status is unreachable (#{ex.message}). Use --force to override."
+    end
+    raise CtlExit.new(1)
+  end
+
+  # True when the local control socket the ctl would dial does not exist, i.e.
+  # no node is running locally. Only meaningful for the default unix-socket
+  # path; an explicit --uri/--host/--hostname is a remote TCP endpoint we let
+  # the HTTP call probe (its failure is rescued, not aborted).
+  private def local_control_socket_missing? : Bool
+    return false if @options["host"]? || @options["uri"]? || @options["hostname"]?
+    path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
+    !File.exists?(path)
+  end
+end

@@ -1,6 +1,5 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
 require "lz4"
 
 # Drives the clustering handshake + the two full-sync passes (requesting no

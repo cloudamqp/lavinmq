@@ -30,5 +30,22 @@ module LavinMQ
       @lock.truncate
       @lock.flock_unlock
     end
+
+    # Non-blocking acquire. Returns false when another process (or another
+    # open file description, e.g. a second instance) holds the lock.
+    def try_acquire : Bool
+      @lock.flock_exclusive(blocking: false)
+      @lock.truncate
+      @lock.print "PID #{Process.pid} @ #{System.hostname}"
+      true
+    rescue IO::Error
+      false
+    end
+
+    # What the current holder wrote on acquire: "PID <pid> @ <hostname>".
+    def holder_info : String
+      @lock.rewind
+      @lock.gets_to_end
+    end
   end
 end

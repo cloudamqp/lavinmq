@@ -421,6 +421,24 @@ module LavinMQ
       !@tls_cert_path.empty?
     end
 
+    # Parsed form of clustering_seed_uris. Blank/whitespace entries dropped.
+    # Each entry must be an http(s) management URL with a host; a scheme-less
+    # entry like "node-a:15672" parses with a nil host and would silently vanish
+    # from cluster formation, so reject it up front with a clear message rather
+    # than letting the cluster fail to form for no visible reason.
+    def seed_uris : Array(URI)
+      clustering_seed_uris.split(',').compact_map do |s|
+        s = s.strip
+        next if s.empty?
+        uri = URI.parse(s)
+        scheme = uri.scheme
+        if (scheme != "http" && scheme != "https") || uri.host.to_s.empty?
+          raise "Invalid clustering seed URI #{s.inspect}: expected an http(s) management URL with a host, e.g. http://node1:15672"
+        end
+        uri
+      end
+    end
+
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
       return if false?(str)
       if keepalive = str.try &.split(":")

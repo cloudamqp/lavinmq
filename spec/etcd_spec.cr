@@ -1,6 +1,6 @@
 require "spec"
 require "../src/lavinmq/etcd"
-require "../src/lavinmq/clustering/etcd_coordinator"
+require "../src/lavinmq/clustering/etcd_backend"
 require "file_utils"
 require "http/client"
 require "./spec_helper"
@@ -166,64 +166,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
-  it "rejects ISR updates from a stale election holder" do
-    cluster = EtcdCluster.new(1)
-    cluster.run do
-      prefix = "lavinmq/#{rand}"
-      isr_key = "#{prefix}/isr"
-      stale_etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      current_etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      stale_lease = nil
-      current_lease = nil
-
-      begin
-        config = LavinMQ::Config.new
-        config.clustering = true
-        config.clustering_etcd_prefix = prefix
-
-        # The stale node wins first and arms its coordinator via campaign.
-        stale_lease = sl = stale_etcd.lease_grant(10)
-        stale_coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, stale_etcd)
-        stale_coordinator.campaign("node-a", sl.id)
-        stale_coordinator.update_isr(Set{1, 2})
-        stale_etcd.get(isr_key).should eq "1,2"
-
-        # The current node campaigns on the same election; it blocks until the
-        # stale lease is released, then wins and arms its own coordinator.
-        current_coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, current_etcd)
-        current_lease = cl = current_etcd.lease_grant(10)
-        elected = Channel(Nil).new(1)
-        spawn(name: "stale ISR election spec") do
-          current_coordinator.campaign("node-b", cl.id)
-          elected.send nil
-        rescue
-          elected.close
-        end
-        sl.release
-        stale_lease = nil
-
-        select
-        when elected.receive
-        when timeout(5.seconds)
-          fail "new election holder did not win after stale lease was released"
-        end
-
-        # The stale coordinator's election key is gone, so its fenced ISR write
-        # is rejected and the ISR the current node will write is left intact.
-        expect_raises(LavinMQ::Etcd::StaleLeadership) do
-          stale_coordinator.update_isr(Set{1})
-        end
-        stale_etcd.get(isr_key).should eq "1,2"
-
-        current_coordinator.update_isr(Set{2})
-        stale_etcd.get(isr_key).should eq "2"
-      ensure
-        stale_lease.try { |lease| lease.release rescue nil }
-        current_lease.try { |lease| lease.release rescue nil }
-      end
-    end
-  end
-
   pending "learns new cluster endpoints" do
     cluster = EtcdCluster.new
     cluster.run do
@@ -270,6 +212,107 @@ describe LavinMQ::Etcd, tags: "etcd" do
       etcd = LavinMQ::Etcd.new("https://user:pass@etcd.example.com")
       endpoints = etcd.endpoints
       endpoints.should eq ["etcd.example.com:2379"]
+    end
+  end
+end
+
+private def etcd_backend_config(data_dir, endpoints, prefix, advertised_uri, node_id)
+  File.write(File.join(data_dir, ".clustering_id"), node_id.to_s(36))
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_etcd_endpoints = endpoints
+  config.clustering_etcd_prefix = prefix
+  config.clustering_advertised_uri = advertised_uri
+  config
+end
+
+# Etcd double that wins the election but fails the fenced ISR write with a
+# transient Etcd::NoLeader (etcd mid-election). Used to prove update_isr returns
+# false rather than letting NoLeader escape and crash the caller's retry loop.
+class NoLeaderEtcd < LavinMQ::Etcd
+  def initialize
+    super("localhost:1")
+  end
+
+  def election_campaign(name, value, lease = 0i64) : LavinMQ::Etcd::ElectionLeader
+    LavinMQ::Etcd::ElectionLeader.new(name, "key", lease.to_i64)
+  end
+
+  def put_if_election_leader(key, value, leader : LavinMQ::Etcd::ElectionLeader) : String?
+    raise LavinMQ::Etcd::NoLeader.new("no leader (spec)")
+  end
+end
+
+describe LavinMQ::Clustering::EtcdBackend do
+  it "returns false from update_isr before winning the election (unarmed fence)" do
+    with_datadir do |dir|
+      config = LavinMQ::Config.new
+      config.data_dir = dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      backend = LavinMQ::Clustering::EtcdBackend.new(config)
+      # No election token yet: the fence short-circuits before any etcd write.
+      backend.update_isr(Set{1, 2}).should be_false
+    end
+  end
+
+  it "returns false from update_isr on a transient etcd error (NoLeader), not raising" do
+    with_datadir do |dir|
+      config = etcd_backend_config(dir, "localhost:1", "lavinmq", "tcp://localhost:6001", 1)
+      backend = LavinMQ::Clustering::EtcdBackend.new(config, NoLeaderEtcd.new)
+      backend.win_election # arms the fence via the double
+      # NoLeader is an Etcd::Error, not IO/Socket; must still be caught so the
+      # caller (flush_isr) retries instead of the fiber crashing.
+      backend.update_isr(Set{1}).should be_false
+    end
+  end
+
+  it "fences ISR writes on the election key: a deposed leader's update_isr returns false", tags: "etcd" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      prefix = "lavinmq/#{rand}"
+      isr_key = "#{prefix}/isr"
+      with_datadir do |dir_a|
+        with_datadir do |dir_b|
+          backend_a = LavinMQ::Clustering::EtcdBackend.new(
+            etcd_backend_config(dir_a, cluster.endpoints, prefix, "tcp://localhost:6001", 1))
+          backend_b = LavinMQ::Clustering::EtcdBackend.new(
+            etcd_backend_config(dir_b, cluster.endpoints, prefix, "tcp://localhost:6002", 2))
+
+          test_etcd = LavinMQ::Etcd.new(cluster.endpoints)
+          # Each backend's election binds to a lease keyed by its node id.
+          lease_a = test_etcd.lease_grant(id: backend_a.node_id)
+          lease_b = test_etcd.lease_grant(id: backend_b.node_id)
+          begin
+            # A wins, arms its fence, commits an ISR.
+            backend_a.win_election
+            backend_a.update_isr(Set{1, 2}).should be_true
+            test_etcd.get(isr_key).should eq "1,2"
+
+            # A is deposed: releasing its lease frees the election key. B wins.
+            lease_a.release
+            elected = Channel(Nil).new(1)
+            spawn(name: "fence spec b") do
+              backend_b.win_election
+              elected.send(nil)
+            end
+            select
+            when elected.receive
+            when timeout(5.seconds)
+              fail "B did not win the election after A's lease was released"
+            end
+
+            # A's fenced write is rejected (election key is no longer its lease)
+            # and returns false instead of overwriting; B's write succeeds.
+            backend_a.update_isr(Set{9}).should be_false
+            test_etcd.get(isr_key).should eq "1,2"
+            backend_b.update_isr(Set{2}).should be_true
+            test_etcd.get(isr_key).should eq "2"
+          ensure
+            lease_b.release rescue nil
+          end
+        end
+      end
     end
   end
 end

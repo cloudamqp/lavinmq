@@ -4,24 +4,33 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/prometheus"
+require "../raft/cluster_command"
+require "../raft/backend"
 
 module LavinMQ
   module HTTP
     class MetricsServer
       Log = LavinMQ::Log.for "metrics.server"
 
-      def initialize(amqp_server : LavinMQ::Server? = nil)
+      def initialize(amqp_server : LavinMQ::Server? = nil, raft_backend : LavinMQ::Raft::Backend? = nil)
         @closed = false
         controller = if s = amqp_server
-                       PrometheusController.new(s, require_authentication: false)
+                       PrometheusController.new(s, require_authentication: false, raft_backend: raft_backend)
                      else
-                       FollowerPrometheusController.new
+                       FollowerPrometheusController.new(raft_backend: raft_backend)
                      end
         handlers = [
           ApiErrorHandler.new,
           ApiDefaultsHandler.new,
           controller,
         ] of ::HTTP::Handler
+        if rr = raft_backend
+          # Read-only surface only: every node (leader and follower) gets a
+          # scrape-able /raft/metrics, /raft/status, etc. The mutating
+          # /raft/admin/* routes are mounted solely on the main HTTP server,
+          # behind authentication — this port has none.
+          handlers << rr.status_handler
+        end
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end

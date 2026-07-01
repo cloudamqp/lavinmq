@@ -20,6 +20,10 @@ shards:
     git: https://github.com/84codes/mqtt-protocol.cr.git
     version: 0.3.0
 
+  raft:
+    git: https://github.com/84codes/raft.cr.git
+    version: 0.1.0+git.commit.1c3297f75810001a59702e4017e3b85289d33c2e
+
   systemd:
     git: https://github.com/84codes/systemd.cr.git
     version: 3.0.1

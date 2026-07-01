@@ -1,6 +1,6 @@
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
+require "../../src/lavinmq/clustering/etcd_backend"
 
 class SpecClustering
   getter replicator, config, follower_config, repli

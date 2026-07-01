@@ -606,6 +606,38 @@ describe LavinMQ::Config do
     config.mqtt_bind.should eq "0.0.0.0"
   end
 
+  describe "clustering_seed_uris" do
+    it "defaults to empty" do
+      config = LavinMQ::Config.new
+      config.seed_uris.should be_empty
+    end
+
+    it "parses a comma-separated list into URIs" do
+      config = LavinMQ::Config.new
+      config.clustering_seed_uris = "http://a:15672, http://b:15672"
+      config.seed_uris.map(&.host).should eq ["a", "b"]
+    end
+
+    it "raises on a scheme-less seed entry instead of silently dropping it" do
+      config = LavinMQ::Config.new
+      # No http:// — URI.parse treats "node-a" as the scheme and host is nil, so
+      # the entry would otherwise vanish from the bootstrap decision and the
+      # cluster would never form, with no error pointing at the typo.
+      config.clustering_seed_uris = "node-a:15672,node-b:15672"
+      expect_raises(Exception, /node-a:15672/) do
+        config.seed_uris
+      end
+    end
+
+    it "raises on a seed entry with no host" do
+      config = LavinMQ::Config.new
+      config.clustering_seed_uris = "http://"
+      expect_raises(Exception, /seed URI/i) do
+        config.seed_uris
+      end
+    end
+  end
+
   describe "stats_interval" do
     it "accepts sub-second values" do
       config_file = File.tempfile do |file|

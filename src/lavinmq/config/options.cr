@@ -430,6 +430,20 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      @[CliOpt("", "--clustering-raft-port=PORT", "Listen for Raft on this port (default: 5680)", section: "clustering")]
+      @[IniOpt(ini_name: raft_port, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
+      property clustering_raft_port = 5680
+
+      @[CliOpt("", "--clustering-backend=BACKEND", "Clustering coordination backend (etcd|raft, default: etcd)", section: "clustering")]
+      @[IniOpt(ini_name: backend, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND")]
+      property clustering_backend = "etcd"
+
+      @[CliOpt("", "--clustering-seed-uris=URIs", "Comma-separated HTTP management URIs of cluster members to join on boot", section: "clustering")]
+      @[IniOpt(ini_name: seed_uris, section: "clustering")]
+      property clustering_seed_uris = ""
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

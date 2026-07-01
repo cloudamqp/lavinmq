@@ -1,7 +1,10 @@
 require "../../src/lavinmq/clustering/coordinator"
 
-class NullCoordinator < LavinMQ::Clustering::Coordinator
-  def update_isr(synced_node_ids : Set(Int32)) : Nil
+class NullCoordinator
+  include LavinMQ::Clustering::Coordinator
+
+  def update_isr(synced_node_ids : Enumerable(Int32)) : Bool
+    true
   end
 
   def password : String

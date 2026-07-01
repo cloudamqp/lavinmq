@@ -1,16 +1,21 @@
 # Clustering
 
-LavinMQ supports multi-node clustering with leader-based replication, using etcd for leader election and coordination.
+LavinMQ supports multi-node clustering with leader-based replication. Two coordination backends are available:
+
+- **etcd** (default) — uses an external etcd cluster for leader election and shared state.
+- **raft** — self-contained consensus built into LavinMQ itself; no external service required.
 
 ## Architecture
 
 - **Leader** — accepts all client connections and writes. Replicates data to followers.
 - **Followers** — receive replicated data from the leader. Can be promoted to leader on failover.
-- **etcd** — external coordination service for leader election, ISR tracking, and shared state.
+- **Coordination backend** — tracks leader election, ISR membership, and cluster state (etcd or raft).
 
 Only the leader handles client traffic. Followers maintain a synchronized copy of the data.
 
 ## Enabling Clustering
+
+### etcd backend (default)
 
 ```ini
 [clustering]
@@ -22,7 +27,73 @@ etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
 etcd_prefix = lavinmq
 ```
 
+### Raft backend
+
+The raft backend does not require etcd. Set `backend = raft` and open the raft port (default 5680) between nodes:
+
+```ini
+[clustering]
+enabled = true
+backend = raft
+bind = 0.0.0.0
+port = 5679
+raft_port = 5680
+advertised_uri = tcp://node1.example.com:5679
+```
+
 See [Configuration](configuration.md) for all clustering options.
+
+#### Declarative cluster formation with `seed_uris`
+
+Give every node the same seed list to let them form the cluster automatically, with no manual per-node join step:
+
+```ini
+[clustering]
+enabled = true
+backend = raft
+advertised_uri = tcp://node1.example.com:5679
+seed_uris = http://node1.example.com:15672,http://node2.example.com:15672,http://node3.example.com:15672
+```
+
+The same list goes on every node, including the node itself. Equivalent forms:
+
+| Method | Syntax |
+|--------|--------|
+| INI (`[clustering]`) | `seed_uris = http://node1:15672,http://node2:15672,http://node3:15672` |
+| CLI flag | `--clustering-seed-uris=http://node1:15672,http://node2:15672,http://node3:15672` |
+
+There is no environment variable for `seed_uris`.
+
+**How formation works:** when a node boots with a seed list and no existing cluster state, it compares its advertised host against the seed hosts. The node whose advertised host sorts lexicographically lowest bootstraps a single-node cluster — but only after a short bounded check that no seed is already serving one (see the recovery runbook below); the rest join it. With the shared secret in place (see the prerequisite below), boot all nodes simultaneously and the cluster forms with no manual steps.
+
+**Prerequisite — distribute the replication secret first.** Followers authenticate to the leader with a shared secret. On the raft backend this secret lives in `<data_dir>/.clustering_password` and is **not** replicated between nodes. Generate one secret and place the *identical* `.clustering_password` (mode `0600`) in every node's data directory **before** booting:
+
+```sh
+openssl rand -base64 32 > /var/lib/lavinmq/.clustering_password
+chmod 0600 /var/lib/lavinmq/.clustering_password
+# copy the same file to every node (config management, a mounted secret, etc.)
+```
+
+If you skip this, only the node that bootstraps will have a secret (it auto-generates one), and every other node logs a fatal "Replication secret file missing" error and exits when it tries to follow the leader — until you copy that file to them. A node that already has the file reads it as-is and never generates a new one, so pre-placing the same secret everywhere is safe.
+
+**`clustering_advertised_uri` must match a seed entry.** Each node identifies itself in the seed list by its advertised host. If a node's advertised host does not match any seed host, it will always attempt to join (never bootstrap) — a safe failure, but the cluster won't form if the lowest-host node never identifies itself.
+
+**Initial formation requires the lowest-host node.** If the node with the lexicographically lowest host in the seed list is down at boot time, no node will bootstrap; the others retry joining until it appears. Once the cluster exists, that node is an ordinary member with no special role.
+
+#### Recovery runbook
+
+To rebuild a node that has lost or diverged its raft state:
+
+1. Run `lavinmqctl raft_reset` on the affected node. This wipes raft state from the data directory and, if a node is running, signals it to exit. The command **fails closed**: it proceeds without `--force` only when it can prove the node is safe to discard — a running node whose `/raft/status` reports a single-node cluster (≤1 peer). A node that is **stopped** (no control socket / unreachable), a follower, in a multi-peer cluster, or whose status omits the peer list cannot be verified, so it requires `--force` to override the guard. (Most recovery scenarios involve a stopped or unhealthy node, so expect to pass `--force`.)
+2. Restart lavinmq. If `seed_uris` is configured, the node rejoins automatically — including the lexicographically-lowest-host node: before bootstrapping a new cluster, it briefly probes the seed list, and if any seed is already serving (the normal case when only this one node was reset), it joins that cluster instead. No special-cased command or manual marker is needed for this node; the runbook above is the same for every node in the cluster.
+
+#### Known limitation — recovering the lowest-host node during a full outage
+
+If the lexicographically-lowest-host node is reset (step 1 above) **at the same time** the rest of the cluster has also lost quorum (no leader reachable anywhere), the boot-time probe will get no answer from any seed — an unreachable-everywhere cluster can't be probed by HTTP, the same inherent blind spot described in the ISR limitation below — and the node will bootstrap a fresh single-node cluster instead of waiting to rejoin the original one. This only affects the coincidence of losing this specific node's state *and* the whole cluster's quorum simultaneously; recovering the lowest-host node while the rest of the cluster is healthy (the common case) is fully automatic.
+
+#### Known limitation — ISR commits under quorum loss
+
+On the raft backend, the in-sync replica set (ISR) is committed through raft consensus while the leader holds its replication-dispatch lock. If the raft cluster loses quorum (e.g. two of three nodes down), an ISR commit blocks until leadership is lost (an election timeout), which can stall the data plane for that window — even when leader→follower data replication is otherwise healthy. This is not a regression from the etcd backend, which commits the ISR under the same lock (with a bounded single PUT); it is a worse latency profile specific to raft's blocking consensus. Moving the ISR commit out from under that lock is tracked as a follow-up.
 
 ## Replication
 
@@ -88,4 +159,7 @@ For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leade
 
 ## Security
 
-Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+Followers authenticate to the leader using a shared replication secret. How it is stored depends on the clustering backend:
+
+- **`etcd`** — stored in etcd under `{etcd_prefix}/clustering_secret`, randomly generated on first cluster initialization. Every node reads it from etcd, so no manual distribution is needed.
+- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to follow the leader. Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command.

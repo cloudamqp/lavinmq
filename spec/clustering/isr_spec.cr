@@ -6,15 +6,17 @@ require "lz4"
 # Records the ISR sets the Server writes, so specs can assert ISR membership
 # changes without a real etcd. Can be made to fail (coordinator unreachable)
 # to assert that publish confirms stall until the ISR write succeeds.
-class SpyCoordinator < LavinMQ::Clustering::Coordinator
+class SpyCoordinator
+  include LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
   getter isr_updates = Array(Set(Int32)).new
 
-  def update_isr(synced_node_ids : Set(Int32)) : Nil
+  def update_isr(synced_node_ids : Enumerable(Int32)) : Bool
     @lock.synchronize do
-      raise Error.new("coordinator unavailable (spec)") if @failing
-      @isr_updates << synced_node_ids.dup
+      return false if @failing # coordinator unreachable: caller stalls + retries
+      @isr_updates << synced_node_ids.to_set
+      true
     end
   end
 

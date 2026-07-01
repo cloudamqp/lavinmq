@@ -28,10 +28,13 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
+      # Raised mid-join when the ISR commit fails after mark_synced!, to abort
+      # the join and let handle_socket's ensure drop the follower.
+      class ISRCommitError < Exception; end
+
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
-      @password : String
       @dirty_isr = true
       @id : Int32
       @config : Config
@@ -43,11 +46,17 @@ module LavinMQ
       # disk via fresh File handles; only the append hot path reads the mmap.
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
+      # Lazily fetched from @coordinator on first access. The raft coordinator
+      # can't answer at construction time (the raft node isn't leader yet —
+      # bootstrap happens later, inside the elector). By the time a follower
+      # connects, raft has elected and the leader has written the shared secret
+      # to its .clustering_password file.
+      getter password : String { @coordinator.password }
+
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
-        @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
       end
 
@@ -288,10 +297,6 @@ module LavinMQ
         end
       end
 
-      def password : String
-        @coordinator.password
-      end
-
       @listeners = Array(TCPServer).new(1)
 
       def listen(server : TCPServer)
@@ -310,7 +315,7 @@ module LavinMQ
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
         follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
+        follower.negotiate!(password)
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
@@ -324,6 +329,10 @@ module LavinMQ
           @followers << follower # Starts in Syncing state
         end
         sync_and_serve(follower)
+      rescue ISRCommitError
+        # ISR commit failed mid-join; follower is dropped by the ensure below
+        # and re-syncs on reconnect. Not an error condition for the leader.
+        Log.info { "Aborted follower join: ISR commit failed (will retry on reconnect)" }
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
@@ -356,7 +365,12 @@ module LavinMQ
             follower.full_sync(cut) # sync the last, capped at the cut
             follower.capture_synced_baseline(cut)
             follower.mark_synced! # Change state to Synced
-            update_isr
+            # A failed ISR commit right after mark_synced! must abort the join:
+            # the `ensure` below then drops the follower rather than leaving it
+            # Synced and listed while the coordinator never recorded it. A typed
+            # exception so handle_socket logs it cleanly instead of letting a
+            # bare Exception escape the fiber as an unhandled backtrace.
+            raise ISRCommitError.new unless update_isr
           end
         end
         # Wait for follower to disconnect or be closed
@@ -381,18 +395,14 @@ module LavinMQ
             # ever acknowledged while it remains listed.
             behind = follower.lag_in_bytes > 0
             @dirty_isr = true
-            if behind
-              begin
-                update_isr # @dirty_isr stays set, so the lazy path retries on failure
-              rescue ex
-                Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
-              end
-            end
+            # Returns false on failure; @dirty_isr stays set so the lazy path
+            # (each_follower / Persister) retries before the next ack.
+            update_isr if behind
           end
         end
       end
 
-      private def update_isr
+      private def update_isr : Bool
         ids = Set(Int32).new
         @followers.each do |f|
           # A dead follower may linger in @followers until its handler fiber
@@ -402,8 +412,9 @@ module LavinMQ
         end
         ids.add(@id)
         Log.info { "In-sync replicas: #{ids.to_a}" }
-        @coordinator.update_isr(ids)
-        @dirty_isr = false
+        committed = @coordinator.update_isr(ids)
+        @dirty_isr = false if committed
+        committed
       end
 
       # True when the ISR last written to the coordinator may be stale (a
@@ -424,11 +435,8 @@ module LavinMQ
       # against a stale ISR — if the coordinator stays unreachable the
       # leader's lease eventually expires and the process exits.
       def flush_isr : Nil
-        loop do
-          @lock.synchronize { update_isr }
-          return
-        rescue ex
-          Log.warn(exception: ex) { "Failed to update ISR, retrying" }
+        until @lock.synchronize { update_isr }
+          Log.warn { "Failed to update ISR, retrying" }
           sleep 0.5.seconds
         end
       end

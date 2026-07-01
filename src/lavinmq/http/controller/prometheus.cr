@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../../raft/backend"
 
 module LavinMQ
   module HTTP
@@ -111,6 +112,61 @@ module LavinMQ
                       help:  "Memory used for metrics collections in bytes"})
       end
 
+      # Emits LavinMQ's raft-related gauges (ISR membership, node/peer
+      # identity mappings). Takes the backend as a parameter so it can be
+      # called from both the leader's PrometheusController and the
+      # follower's FollowerPrometheusController.
+      def raft_metrics(writer : PrometheusWriter, backend : LavinMQ::Raft::Backend?) : Nil
+        return if backend.nil?
+        server = backend.server
+        isr = server.isr
+        in_isr = (isr.empty? || isr.includes?(server.node_id)) ? 1_i64 : 0_i64
+        writer.write({name:  "raft_isr_size",
+                      type:  "gauge",
+                      value: isr.size.to_i64,
+                      help:  "Number of nodes in the in-sync replica set"})
+        writer.write({name:  "raft_in_isr",
+                      type:  "gauge",
+                      value: in_isr,
+                      help:  "Whether this node is currently a member of the ISR (1) or not (0)"})
+        writer.write({name:   "raft_node_info",
+                      type:   "gauge",
+                      value:  1_i64,
+                      help:   "Mapping between raft node_id (base-10) and LavinMQ cluster_id (base-36)",
+                      labels: {
+                        "node_id"    => server.node_id.to_s,
+                        "cluster_id" => server.node_id.to_s(36),
+                      }})
+        # Synthesizes the `raft_queue_group_active` marker that the
+        # raft.cr queue-example dashboards filter on, so per-group panels
+        # in raft-overview.json populate for LavinMQ's meta group. Every
+        # node emits it; Grafana queries use `max by (group_id) (...)` to
+        # collapse the per-emitter duplicates.
+        writer.write({name:   "raft_queue_group_active",
+                      type:   "gauge",
+                      value:  1_i64,
+                      help:   "Marker that group_id=0 (the meta group) is active — synthesized for dashboard compatibility",
+                      labels: {
+                        "group_id" => "0",
+                      }})
+        server.peers.each do |peer|
+          # Reuse the tested PeerAddress codec rather than hand-parsing: it
+          # strips IPv6 brackets (rpartition kept them -> "[::1]") and yields ""
+          # for an unparseable address instead of a half-parsed host.
+          host = LavinMQ::Raft::PeerAddress.parse?(peer.address).try(&.raft_endpoint.[0]) || ""
+          writer.write({name:   "raft_peer_info",
+                        type:   "gauge",
+                        value:  1_i64,
+                        help:   "One row per peer in the local node's raft configuration",
+                        labels: {
+                          "peer_id"         => peer.id.to_s,
+                          "peer_cluster_id" => peer.id.to_s(36),
+                          "peer_role"       => peer.role.to_s.downcase,
+                          "peer_host"       => host,
+                        }})
+        end
+      end
+
       def gc_metrics(writer)
         gc_stats = GC.prof_stats
 
@@ -170,7 +226,7 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize
+      def initialize(@raft_backend : LavinMQ::Raft::Backend? = nil)
         register_routes
       end
 
@@ -187,6 +243,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
+            raft_metrics(writer, @raft_backend)
           end
           context
         end
@@ -204,7 +261,11 @@ module LavinMQ
     class PrometheusController < Controller
       include Prometheus
 
-      def initialize(amqp_server : LavinMQ::Server, @require_authentication : Bool)
+      def initialize(
+        amqp_server : LavinMQ::Server,
+        @require_authentication : Bool,
+        @raft_backend : LavinMQ::Raft::Backend? = nil,
+      )
         super(amqp_server)
       end
 
@@ -235,6 +296,7 @@ module LavinMQ
             custom_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
+            raft_metrics(writer, @raft_backend)
           end
           context
         end
