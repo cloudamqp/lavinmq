@@ -184,27 +184,38 @@ module LavinMQ::Raft
     end
 
     private def maybe_bootstrap_or_join : Nil
-      join_target_path = File.join(@config.data_dir, ".join_target")
-      if File.exists?(join_target_path)
-        leader_uri = File.read(join_target_path).strip
-        Log.info { "Found .join_target — joining cluster at #{leader_uri}" }
-        return unless with_join_retry { perform_join(leader_uri) } # interrupted by stop
-        File.delete(join_target_path)
-        return
-      end
-
       case boot_action
       in .resume?
         Log.info { "Existing raft state — resuming as a member" }
       in .bootstrap?
-        Log.info { "Bootstrapping single-node cluster" }
-        unless @server.bootstrap
-          Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
+        if probe_seeds_before_bootstrap
+          Log.info { "A seed answered during the bootstrap probe — joining instead of bootstrapping" }
+        else
+          Log.info { "Bootstrapping single-node cluster" }
+          unless @server.bootstrap
+            Log.warn { "Bootstrap rejected (node already has peers); continuing as follower" }
+          end
         end
       in .join?
         Log.info { "Joining via seed URIs: #{@config.seed_uris.map(&.to_s).join(", ")}" }
         join_with_retry(@config.seed_uris)
       end
+    end
+
+    # Called only from the .bootstrap? branch — i.e. only when this node's
+    # advertised host is the unambiguous lowest in the seed list (or the seed
+    # list is empty). Catches disaster recovery of THAT specific node: if its
+    # raft state was wiped while the rest of the cluster is still up, blindly
+    # bootstrapping would form a second, competing single-node cluster and
+    # split the existing one. A short bounded sweep of the same seeds used
+    # for regular joining catches this without a new discovery mechanism.
+    private def probe_seeds_before_bootstrap : Bool
+      seeds = @config.seed_uris
+      return false if seeds.empty?
+      join_via_seeds(seeds, BOOTSTRAP_PROBE_MAX_ATTEMPTS, BOOTSTRAP_PROBE_RETRY_INTERVAL)
+      true
+    rescue JoinExhausted
+      false
     end
 
     # Our own advertised host, used to find ourselves in the seed list.
@@ -216,17 +227,21 @@ module LavinMQ::Raft
     JOIN_MAX_ATTEMPTS   = 30
     JOIN_RETRY_INTERVAL = 1.second
 
+    # Bounded probe used only at bootstrap time (never at genuine-join time),
+    # deliberately much shorter than JOIN_MAX_ATTEMPTS/JOIN_RETRY_INTERVAL: a
+    # real simultaneous cold start of the whole cluster will never get an
+    # answer here no matter how long we wait (nobody has bootstrapped yet),
+    # so keeping this short avoids delaying that common case, while still
+    # giving an already-serving leader (or a seed mid-election/mid-handshake)
+    # a few chances to answer.
+    BOOTSTRAP_PROBE_MAX_ATTEMPTS   = 3
+    BOOTSTRAP_PROBE_RETRY_INTERVAL = 500.milliseconds
+
     # Every seed was unreachable or still electing after a full sweep. Transient
     # by nature (the lowest-host bootstrapper may not be up yet), so the boot
     # path retries it rather than treating it as fatal. A malformed seed (bad
     # scheme / empty list) is a separate, permanent error and is NOT this type.
     class JoinExhausted < Exception; end
-
-    def perform_join(leader_uri : String) : Nil
-      uri = URI.parse(leader_uri)
-      raise "invalid leader URI scheme: #{uri.scheme.inspect}" unless uri.scheme == "http" || uri.scheme == "https"
-      join_via_seeds([uri])
-    end
 
     # Retry a join sweep until it succeeds or stop() is called. join_via_seeds
     # raises JoinExhausted when every seed is unreachable or still electing; on

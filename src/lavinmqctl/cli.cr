@@ -298,16 +298,6 @@ class LavinMQCtl
         @options["data_dir"] = v
       end
     end
-    @parser.on("raft_join", "Reset raft state and configure this node to join a cluster on restart") do
-      @cmd = "raft_join"
-      self.banner = "Usage: #{PROGRAM_NAME} raft_join <leader-http-uri> [--force] [--data-dir=DIR]"
-      @parser.on("--force", "Allow reset on a multi-node cluster (destructive)") do
-        @options["force"] = "true"
-      end
-      @parser.on("--data-dir=DIR", "Data directory (overrides config)") do |v|
-        @options["data_dir"] = v
-      end
-    end
 
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
@@ -368,7 +358,6 @@ class LavinMQCtl
     when "delete_federation"     then delete_federation
     when "raft_status"           then raft_status
     when "raft_reset"            then raft_reset
-    when "raft_join"             then raft_join
     when "stop_app"
     when "start_app"
     else

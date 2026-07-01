@@ -172,7 +172,7 @@ describe LavinMQ::Raft::Backend do
     end
   end
 
-  it "auto-bootstraps a fresh node with no peers and no .join_target" do
+  it "auto-bootstraps a fresh node with no peers and no seed_uris" do
     dir = tmp_data_dir
     backend = nil
     begin
@@ -192,57 +192,6 @@ describe LavinMQ::Raft::Backend do
       when timeout(3.seconds)
         fail "single-node backend did not auto-bootstrap into leadership"
       end
-    ensure
-      backend.try &.stop rescue nil
-      FileUtils.rm_rf(dir)
-    end
-  end
-
-  it "skips auto-bootstrap when .join_target exists" do
-    dir = tmp_data_dir
-    backend = nil.as(LavinMQ::Raft::Backend?)
-    begin
-      File.write(File.join(dir, ".join_target"), "http://unreachable.invalid:99999")
-      config = LavinMQ::Config.new
-      config.data_dir = dir
-      config.clustering_bind = "127.0.0.1"
-      config.clustering_raft_port = 0
-      config.clustering_port = 0
-      config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      backend = LavinMQ::Raft::Backend.new(config)
-      spawn(name: "backend-skipbootstrap-test") do
-        begin
-          backend.not_nil!.campaign { Fiber.yield }
-        rescue
-          # perform_join will fail to connect; that's fine
-        end
-      end
-      sleep 200.milliseconds
-      backend.not_nil!.server.is_leader.value.should be_false
-      File.exists?(File.join(dir, ".join_target")).should be_true
-    ensure
-      backend.try &.stop rescue nil
-      FileUtils.rm_rf(dir)
-    end
-  end
-
-  it "preserves .join_target when perform_join raises" do
-    dir = tmp_data_dir
-    backend = nil.as(LavinMQ::Raft::Backend?)
-    begin
-      File.write(File.join(dir, ".join_target"), "http://127.0.0.1:1")
-      config = LavinMQ::Config.new
-      config.data_dir = dir
-      config.clustering_bind = "127.0.0.1"
-      config.clustering_raft_port = 0
-      config.clustering_port = 0
-      config.clustering_advertised_uri = "tcp://127.0.0.1:0"
-      backend = LavinMQ::Raft::Backend.new(config)
-      # Use an invalid scheme so perform_join raises IMMEDIATELY without the 30-attempt retry loop.
-      expect_raises(Exception, /invalid leader URI scheme/) do
-        backend.not_nil!.perform_join("garbage://target")
-      end
-      File.exists?(File.join(dir, ".join_target")).should be_true
     ensure
       backend.try &.stop rescue nil
       FileUtils.rm_rf(dir)
@@ -348,7 +297,8 @@ describe LavinMQ::Raft::Backend do
       begin
         a = LavinMQ::Raft::Backend.new(backend_config(a_dir, free_port, free_port))
         backend_a = a
-        b = LavinMQ::Raft::Backend.new(backend_config(b_dir, free_port, free_port))
+        b_cfg = backend_config(b_dir, free_port, free_port)
+        b = LavinMQ::Raft::Backend.new(b_cfg)
         backend_b = b
 
         a.transport.start
@@ -368,7 +318,12 @@ describe LavinMQ::Raft::Backend do
         admin_addr = admin.not_nil!.bind_tcp("127.0.0.1", 0)
         spawn(name: "stub-admin") { admin.not_nil!.listen }
 
-        File.write(File.join(b_dir, ".join_target"), "http://#{admin_addr}")
+        # B has no peers yet and its advertised host matches A's (both
+        # 127.0.0.1), so its own boot decision would resolve to Bootstrap —
+        # but the bootstrap-time seed probe (see backend.cr) catches A
+        # already serving and joins instead, exactly like the disaster-
+        # recovery scenario it exists for.
+        b_cfg.clustering_seed_uris = "http://#{admin_addr}"
         b_served = false
         spawn(name: "backend-b") do
           b.campaign { b_served = true }
@@ -446,38 +401,7 @@ describe LavinMQ::Raft::Backend do
   end
 
   describe "boot decision" do
-    it "joins (not bootstraps) when .join_target is present even if we are the lowest seed" do
-      dir = tmp_data_dir
-      target_hit = false
-      stub = HTTP::Server.new do |ctx|
-        target_hit = true
-        ctx.response.status_code = 200
-        ctx.response.print %({"status":"added"})
-      end
-      addr = stub.bind_tcp("127.0.0.1", 0)
-      spawn { stub.listen }
-      backend = nil.as(LavinMQ::Raft::Backend?)
-      begin
-        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
-        File.write(File.join(dir, ".join_target"), "http://#{addr}")
-        cfg = backend_config(dir, free_port, free_port)
-        # We ARE the lowest seed host, yet .join_target must win -> Join.
-        cfg.clustering_seed_uris = "http://127.0.0.1:0"
-        backend = LavinMQ::Raft::Backend.new(cfg)
-        spawn do
-          backend.not_nil!.campaign { }
-        rescue ::Channel::ClosedError
-        end
-        retry_until(5.seconds) { target_hit }
-        backend.not_nil!.server.is_leader.value.should be_false
-      ensure
-        stub.close
-        backend.try &.stop rescue nil
-        FileUtils.rm_rf(dir)
-      end
-    end
-
-    it "joins via seeds when not the lowest and no join_target" do
+    it "joins via seeds when not the lowest host" do
       dir = tmp_data_dir
       hit = false
       stub = HTTP::Server.new do |ctx|
@@ -503,6 +427,67 @@ describe LavinMQ::Raft::Backend do
         backend.not_nil!.server.is_leader.value.should be_false
       ensure
         stub.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "probes seeds and joins instead of bootstrapping when a seed answers (lowest-host disaster recovery)" do
+      dir = tmp_data_dir
+      target_hit = false
+      stub = HTTP::Server.new do |ctx|
+        target_hit = true
+        ctx.response.status_code = 200
+        ctx.response.print %({"status":"added"})
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn { stub.listen }
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        cfg = backend_config(dir, free_port, free_port)
+        # We ARE the lowest (only) seed host, so boot_action resolves to
+        # Bootstrap — but the stub answering must make us join instead.
+        cfg.clustering_seed_uris = "http://#{addr}"
+        backend = LavinMQ::Raft::Backend.new(cfg)
+        backend.not_nil!.boot_action.bootstrap?.should be_true
+        spawn do
+          backend.not_nil!.campaign { }
+        rescue ::Channel::ClosedError
+        end
+        retry_until(5.seconds) { target_hit }
+        backend.not_nil!.server.is_leader.value.should be_false
+      ensure
+        stub.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "still bootstraps promptly when configured seeds are unreachable (genuine cold start)" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        cfg = backend_config(dir, free_port, free_port)
+        # Unreachable (nothing listening on this port); the bounded probe
+        # must exhaust quickly and fall through to bootstrap, not hang or
+        # retry indefinitely like join_with_retry would for a real Join.
+        cfg.clustering_seed_uris = "http://127.0.0.1:1"
+        backend = LavinMQ::Raft::Backend.new(cfg)
+        backend.not_nil!.boot_action.bootstrap?.should be_true
+        started = Time.instant
+        spawn(name: "backend-cold-start") do
+          backend.not_nil!.campaign { Fiber.yield }
+        end
+        select
+        when backend.not_nil!.server.is_leader.when_true.receive
+          backend.not_nil!.server.is_leader.value.should be_true
+        when timeout(5.seconds)
+          fail "did not bootstrap after seed probe exhausted"
+        end
+        (Time.instant - started).should be < 5.seconds
+      ensure
         backend.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
@@ -668,7 +653,7 @@ describe LavinMQ::Raft::Backend do
     end
   end
 
-  describe "perform_join" do
+  describe "join_via_seeds (single seed)" do
     it "retries on 5xx until success" do
       attempts = 0
       stub = HTTP::Server.new do |context|
@@ -695,7 +680,7 @@ describe LavinMQ::Raft::Backend do
           config.clustering_port = 0
           config.clustering_advertised_uri = "tcp://127.0.0.1:0"
           backend = LavinMQ::Raft::Backend.new(config)
-          backend.not_nil!.perform_join("http://#{addr}")
+          backend.not_nil!.join_via_seeds([URI.parse("http://#{addr}")])
           attempts.should eq 3
         ensure
           FileUtils.rm_rf(dir)
@@ -730,7 +715,7 @@ describe LavinMQ::Raft::Backend do
           config.clustering_port = 0
           config.clustering_advertised_uri = "tcp://127.0.0.1:0"
           backend = LavinMQ::Raft::Backend.new(config)
-          backend.not_nil!.perform_join("http://#{addr}")
+          backend.not_nil!.join_via_seeds([URI.parse("http://#{addr}")])
           received_path.should eq "/raft/admin/add_server/42"
           received_body.should_not be_nil
           parsed = JSON.parse(received_body.not_nil!)

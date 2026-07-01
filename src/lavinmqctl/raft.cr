@@ -82,11 +82,9 @@ class LavinMQCtl
   end
 
   # Wipes the raft state directories while holding the data dir lock, then
-  # yields (still locked) for follow-up work like writing `.join_target` —
-  # so a systemd-restarted server can't race past its bootstrap-or-join
-  # decision before the marker exists. A running node is detected through
-  # the same flock the server holds for its whole lifetime; no pidfile
-  # configuration needed.
+  # yields (still locked) for any follow-up work while the lock is still
+  # held. A running node is detected through the same flock the server
+  # holds for its whole lifetime; no pidfile configuration needed.
   private def with_wiped_raft_state(data_dir : String, &) : Nil
     Dir.mkdir_p(data_dir)
     # Always gate on safety, whether or not a node is currently running. A
@@ -200,26 +198,5 @@ class LavinMQCtl
     return false if @options["host"]? || @options["uri"]? || @options["hostname"]?
     path = @options["control_unix_path"]? || LavinMQ::HTTP::DEFAULT_CONTROL_UNIX_PATH
     !File.exists?(path)
-  end
-
-  def raft_join
-    leader_uri = ARGV.shift? || ""
-    if leader_uri.empty?
-      @io.puts "raft_join: missing <leader-http-uri>"
-      raise CtlExit.new(1)
-    end
-    parsed = URI.parse(leader_uri)
-    unless parsed.scheme == "http" || parsed.scheme == "https"
-      @io.puts "raft_join: invalid URI scheme: #{leader_uri}"
-      raise CtlExit.new(1)
-    end
-    data_dir = resolved_data_dir
-    with_wiped_raft_state(data_dir) do
-      # Written while the data dir lock is still held, so a restarting
-      # server can't observe "wiped but no marker" and auto-bootstrap.
-      marker = File.join(data_dir, ".join_target")
-      File.write(marker, leader_uri)
-      @io.puts "raft_join: wrote #{marker} → #{leader_uri}; restart lavinmq to join the cluster"
-    end
   end
 end

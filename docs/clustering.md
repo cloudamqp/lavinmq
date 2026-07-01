@@ -45,7 +45,7 @@ See [Configuration](configuration.md) for all clustering options.
 
 #### Declarative cluster formation with `seed_uris`
 
-Instead of joining nodes one by one with `lavinmqctl raft_join`, you can let nodes form the cluster automatically by giving every node the same seed list:
+Give every node the same seed list to let them form the cluster automatically, with no manual per-node join step:
 
 ```ini
 [clustering]
@@ -64,7 +64,7 @@ The same list goes on every node, including the node itself. Equivalent forms:
 
 There is no environment variable for `seed_uris`.
 
-**How formation works:** when a node boots with a seed list and no existing cluster state, it compares its advertised host against the seed hosts. The node whose advertised host sorts lexicographically lowest bootstraps a single-node cluster; the rest join it. With the shared secret in place (see the prerequisite below), boot all nodes simultaneously and the cluster forms without per-node `raft_join` commands.
+**How formation works:** when a node boots with a seed list and no existing cluster state, it compares its advertised host against the seed hosts. The node whose advertised host sorts lexicographically lowest bootstraps a single-node cluster — but only after a short bounded check that no seed is already serving one (see the recovery runbook below); the rest join it. With the shared secret in place (see the prerequisite below), boot all nodes simultaneously and the cluster forms with no manual steps.
 
 **Prerequisite — distribute the replication secret first.** Followers authenticate to the leader with a shared secret. On the raft backend this secret lives in `<data_dir>/.clustering_password` and is **not** replicated between nodes. Generate one secret and place the *identical* `.clustering_password` (mode `0600`) in every node's data directory **before** booting:
 
@@ -85,15 +85,11 @@ If you skip this, only the node that bootstraps will have a secret (it auto-gene
 To rebuild a node that has lost or diverged its raft state:
 
 1. Run `lavinmqctl raft_reset` on the affected node. This wipes raft state from the data directory and, if a node is running, signals it to exit. The command **fails closed**: it proceeds without `--force` only when it can prove the node is safe to discard — a running node whose `/raft/status` reports a single-node cluster (≤1 peer). A node that is **stopped** (no control socket / unreachable), a follower, in a multi-peer cluster, or whose status omits the peer list cannot be verified, so it requires `--force` to override the guard. (Most recovery scenarios involve a stopped or unhealthy node, so expect to pass `--force`.)
-2. Restart lavinmq. If `seed_uris` is configured, the node rejoins automatically.
+2. Restart lavinmq. If `seed_uris` is configured, the node rejoins automatically — including the lexicographically-lowest-host node: before bootstrapping a new cluster, it briefly probes the seed list, and if any seed is already serving (the normal case when only this one node was reset), it joins that cluster instead. No special-cased command or manual marker is needed for this node; the runbook above is the same for every node in the cluster.
 
-**Exception — recovering the lowest-host node:** after `raft_reset`, the lowest-host node sees no peers and would bootstrap a new cluster, splitting the existing one. Use `lavinmqctl raft_join <other-member-uri>` instead. This writes a `.join_target` marker that forces the node to join on restart rather than bootstrap:
+#### Known limitation — recovering the lowest-host node during a full outage
 
-```
-lavinmqctl raft_join http://node2.example.com:15672
-```
-
-The imperative `raft_join` path is retained specifically for this recovery scenario.
+If the lexicographically-lowest-host node is reset (step 1 above) **at the same time** the rest of the cluster has also lost quorum (no leader reachable anywhere), the boot-time probe will get no answer from any seed — an unreachable-everywhere cluster can't be probed by HTTP, the same inherent blind spot described in the ISR limitation below — and the node will bootstrap a fresh single-node cluster instead of waiting to rejoin the original one. This only affects the coincidence of losing this specific node's state *and* the whole cluster's quorum simultaneously; recovering the lowest-host node while the rest of the cluster is healthy (the common case) is fully automatic.
 
 #### Known limitation — ISR commits under quorum loss
 
