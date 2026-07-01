@@ -20,11 +20,6 @@ module LavinMQ
     class Session
       class ClosedError < MQTT::Error; end
 
-      # A known packet id acknowledged with the wrong packet type. The client
-      # must be disconnected [MQTT-4.8.0-1]; an unknown id is not this, because
-      # QoS 1 ids, and a clean session's, do not survive a restart.
-      class ProtocolViolation < MQTT::Error; end
-
       # 3.1.1 has no way to refuse one publish, so going over the cap closes
       # the connection; the client re-sends its PUBRELs on reconnect.
       class AwaitingPubrelLimitReached < MQTT::Error; end
@@ -609,7 +604,7 @@ module LavinMQ
         # one is a protocol violation. Checked before the delete, so it cannot
         # drop an obligation the session still owes.
         unless inflight.awaiting.pub_ack? && sp
-          raise ProtocolViolation.new("PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
         end
         @inflight.delete(id)
         begin
@@ -657,7 +652,7 @@ module LavinMQ
           return false
         end
         unless inflight.awaiting.pub_rec?
-          raise ProtocolViolation.new("PUBREC for QoS #{inflight.qos} packet id '#{id}'")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBREC for QoS #{inflight.qos} packet id '#{id}'")
         end
         sp = inflight.sp.as(SegmentPosition)
         # Before the send: a failed write still leaves the correct state, and
@@ -681,7 +676,7 @@ module LavinMQ
           return false
         end
         unless inflight.awaiting.pub_comp?
-          raise ProtocolViolation.new("PUBCOMP for packet id '#{id}' that has not been PUBRECed")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBCOMP for packet id '#{id}' that has not been PUBRECed")
         end
         @inflight.delete(id)
         # No wait: a lost record costs one spare PUBREL, answered with PUBCOMP
