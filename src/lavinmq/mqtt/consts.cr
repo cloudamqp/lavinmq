@@ -5,6 +5,10 @@ module LavinMQ
     EXCHANGE      = "mqtt.default"
     QOS_HEADER    = "mqtt.qos"
     RETAIN_HEADER = "mqtt.retain"
+    # Highest QoS LavinMQ supports, used to clamp granted and delivery QoS. At 2
+    # the v5 CONNACK omits Maximum QoS, which may only be sent as 0 or 1
+    # (3.2.2.3.4).
+    MAX_QOS = 2u8
 
     SESSION_PREFIX = "mqtt."
 
