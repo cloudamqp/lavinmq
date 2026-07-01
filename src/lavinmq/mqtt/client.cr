@@ -244,12 +244,23 @@ module LavinMQ
         vhost.event_tick(EventType::ClientAck)
       end
 
-      def recieve_subscribe(packet : Protocol::Subscribe)
-        # subscription_identifier_available=0: a Subscription Identifier is a
-        # packet-level protocol error [MQTT-3.8.2] -> DISCONNECT 0xA1.
-        if @io.version.v5? && packet.properties.subscription_identifier
+      # Enforce the v5 SUBSCRIBE limits we advertised in CONNACK. Both are
+      # packet-level protocol errors -> server DISCONNECT (spec 3.2.2.3.12 /
+      # 3.2.2.3.13), raised via ProtocolViolation and handled in read_loop.
+      private def validate_v5_subscribe!(packet : Protocol::Subscribe)
+        return unless @io.version.v5?
+        # subscription_identifier_available=0
+        if packet.properties.subscription_identifier
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SubscriptionIdentifiersNotSupported)
         end
+        # shared_subscription_available=0: any $share/ filter fails the whole packet.
+        if packet.topic_filters.any?(&.topic.starts_with?("$share/"))
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SharedSubscriptionsNotSupported)
+        end
+      end
+
+      def recieve_subscribe(packet : Protocol::Subscribe)
+        validate_v5_subscribe!(packet)
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
