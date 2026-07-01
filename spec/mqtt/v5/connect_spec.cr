@@ -34,5 +34,35 @@ module MqttSpecs
         end
       end
     end
+
+    it "echoes a server-assigned client id via assigned_client_identifier [MQTT-3.2.2-16]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          connack = connect(io, version: MQTT::Protocol::Version::V5,
+            client_id: "", clean_session: true).as(MQTT::Protocol::Connack)
+          assigned = connack.properties.assigned_client_identifier
+          assigned.should_not be_nil
+          assigned = assigned.not_nil!
+          assigned.should_not be_empty
+          # The advertised id must be the one the broker actually registered.
+          registered = wait_for do
+            server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first?.try(&.client_id)
+          end
+          registered.should eq(assigned)
+        end
+      end
+    end
+
+    it "does not set assigned_client_identifier when the client supplies a client id" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          connack = connect(io, version: MQTT::Protocol::Version::V5,
+            client_id: "supplied-id").as(MQTT::Protocol::Connack)
+          connack.properties.assigned_client_identifier.should be_nil
+        end
+      end
+    end
   end
 end
