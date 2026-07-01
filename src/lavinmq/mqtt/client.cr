@@ -11,6 +11,18 @@ require "../stats"
 
 module LavinMQ
   module MQTT
+    # Raised by a packet handler when the client violates the protocol in a way
+    # that must tear the connection down with a reason code. Caught centrally in
+    # Client#read_loop, which sends a v5 DISCONNECT carrying the reason (v3 has
+    # no server DISCONNECT, so it just closes).
+    class ProtocolViolation < Exception
+      getter reason : Protocol::Disconnect::ReasonCode
+
+      def initialize(@reason : Protocol::Disconnect::ReasonCode)
+        super(@reason.to_s)
+      end
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
@@ -82,13 +94,16 @@ module LavinMQ
         end
       end
 
+      private def apply_keepalive_timeout
+        socket = @io.io
+        return unless socket.responds_to?(:"read_timeout=")
+        # 50% grace period according to [MQTT-3.1.2-24]
+        socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
+      end
+
       private def read_loop
         received_bytes = 0_u32
-        socket = @io.io
-        if socket.responds_to?(:"read_timeout=")
-          # 50% grace period according to [MQTT-3.1.2-24]
-          socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
-        end
+        apply_keepalive_timeout
         loop do
           @log.trace { "waiting for packet" }
           packet, bytesize = read_and_handle_packet
@@ -103,6 +118,10 @@ module LavinMQ
             break
           end
         end
+      rescue ex : ProtocolViolation
+        @log.warn { "Protocol violation, disconnecting client: #{ex.reason}" }
+        disconnect(ex.reason)
+        publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
@@ -171,11 +190,27 @@ module LavinMQ
         end
       end
 
+      # Server-initiated disconnect. v5 clients get a DISCONNECT carrying the
+      # reason code; v3 has no server DISCONNECT packet, so we just let the
+      # caller's cleanup close the socket. The socket close itself happens in
+      # read_loop's ensure block.
+      private def disconnect(reason : Protocol::Disconnect::ReasonCode)
+        send(Protocol::Disconnect.new(reason)) if @io.version.v5?
+      rescue ::IO::Error
+        # peer may already be gone; read_loop's ensure still closes the socket
+      end
+
       def receive_pingreq(packet : Protocol::PingReq)
         send Protocol::PingResp.new
       end
 
       def recieve_publish(packet : Protocol::Publish)
+        # We advertise maximum_qos=1, so a v5 QoS 2 PUBLISH is a protocol error
+        # [MQTT-3.2.2] -> DISCONNECT 0x9B. v3 has no such contract; its QoS 2 is
+        # accepted and downgraded to QoS 1 on delivery (session.cr).
+        if @io.version.v5? && packet.qos > MAX_QOS
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::QoSNotSupported)
+        end
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
