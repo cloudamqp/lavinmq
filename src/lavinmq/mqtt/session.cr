@@ -18,11 +18,6 @@ module LavinMQ
     class Session
       class ClosedError < MQTT::Error; end
 
-      # A known packet id acknowledged with the wrong packet type. The client
-      # must be disconnected [MQTT-4.8.0-1]; an unknown id is not this, because
-      # the window does not survive a restart.
-      class ProtocolViolation < MQTT::Error; end
-
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
@@ -481,7 +476,7 @@ module LavinMQ
         # one is a protocol violation. Checked before the delete, so it cannot
         # drop an obligation the session still owes.
         if sp.nil? || inflight.qos != 1u8
-          raise ProtocolViolation.new("PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
         end
         @unacked.delete(id)
         begin
@@ -515,7 +510,7 @@ module LavinMQ
           return false
         end
         unless inflight.qos == 2u8
-          raise ProtocolViolation.new("PUBREC for QoS #{inflight.qos} packet id '#{id}'")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBREC for QoS #{inflight.qos} packet id '#{id}'")
         end
         # Before the send: a failed write still leaves the correct state, and
         # `client=` re-sends the PUBREL.
@@ -537,7 +532,7 @@ module LavinMQ
           return false
         end
         unless inflight.sp.nil?
-          raise ProtocolViolation.new("PUBCOMP for packet id '#{id}' that has not been PUBRECed")
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBCOMP for packet id '#{id}' that has not been PUBRECed")
         end
         @unacked.delete(id)
         # Load-bearing: for a window full of ids awaiting PUBCOMP, this is the

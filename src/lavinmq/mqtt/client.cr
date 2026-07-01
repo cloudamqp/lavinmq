@@ -13,6 +13,18 @@ require "sync/exclusive"
 
 module LavinMQ
   module MQTT
+    # Raised by a packet handler when the client violates the protocol in a way
+    # that must tear the connection down with a reason code. Caught centrally in
+    # Client#read_loop, which sends a v5 DISCONNECT carrying the reason (v3 has
+    # no server DISCONNECT, so it just closes).
+    class ProtocolViolation < MQTT::Error
+      getter reason : Protocol::Disconnect::ReasonCode
+
+      def initialize(@reason : Protocol::Disconnect::ReasonCode, message : String = reason.to_s)
+        super(message)
+      end
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
@@ -101,13 +113,16 @@ module LavinMQ
         end
       end
 
+      private def apply_keepalive_timeout
+        socket = @io.io
+        return unless socket.responds_to?(:"read_timeout=")
+        # 50% grace period according to [MQTT-3.1.2-24]
+        socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
+      end
+
       private def read_loop
         received_bytes = 0_u32
-        socket = @io.io
-        if socket.responds_to?(:"read_timeout=")
-          # 50% grace period according to [MQTT-3.1.2-24]
-          socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
-        end
+        apply_keepalive_timeout
         loop do
           @log.trace { "waiting for packet" }
           packet, bytesize = read_and_handle_packet
@@ -122,11 +137,12 @@ module LavinMQ
             break
           end
         end
-      rescue ex : Session::ProtocolViolation
+      rescue ex : ProtocolViolation
         # The Will publishes from here as it does on every other close without a
         # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
         # error as one of those situations.
-        @log.warn { "Protocol violation: #{ex.message}" }
+        @log.warn { "Protocol violation, disconnecting client: #{ex.message}" }
+        disconnect(ex.reason)
         publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
@@ -202,6 +218,16 @@ module LavinMQ
         when Protocol::PubAck, Protocol::PubRec
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
+      end
+
+      # Server-initiated disconnect. v5 clients get a DISCONNECT carrying the
+      # reason code; v3 has no server DISCONNECT packet, so we just let the
+      # caller's cleanup close the socket. The socket close itself happens in
+      # read_loop's ensure block.
+      private def disconnect(reason : Protocol::Disconnect::ReasonCode)
+        send(Protocol::Disconnect.new(reason)) if @io.version.v5?
+      rescue ::IO::Error
+        # peer may already be gone; read_loop's ensure still closes the socket
       end
 
       def receive_pingreq(packet : Protocol::PingReq)
