@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-07-01
+
+This patch release fixes OAuth2/OIDC management UI login for stricter identity providers, adds authorization checks to the shovel management endpoints, and resolves a stream consumer-offset overflow, clustered startup bind failures and several connection-handling issues.
+
+### Fixed
+
+- Management UI OAuth2 login now works with identity providers that require a specific scope (e.g. Entra ID), via the new `mgmt_scopes` config option [#2127](https://github.com/cloudamqp/lavinmq/pull/2127)
+- Accept JWKS keys that omit the `alg` parameter when fetching keys for OAuth/OIDC [#2124](https://github.com/cloudamqp/lavinmq/pull/2124)
+- Document that OAuth/OIDC JWTs must include a `kid` header matching a JWKS key [#2107](https://github.com/cloudamqp/lavinmq/pull/2107)
+- Enforce policymaker role checks on the shovel management endpoints [#2133](https://github.com/cloudamqp/lavinmq/pull/2133)
+- Apply SNI certificate changes on config reload [#2129](https://github.com/cloudamqp/lavinmq/pull/2129)
+- Stream `cleanup_consumer_offsets` overflow when the `consumer_offsets` file is near full [#1995](https://github.com/cloudamqp/lavinmq/pull/1995)
+- Clustered localhost listener bind failures during startup [#2114](https://github.com/cloudamqp/lavinmq/pull/2114)
+- Heartbeat frames on non-zero channels now close the connection with `UNEXPECTED_FRAME` [#1999](https://github.com/cloudamqp/lavinmq/pull/1999)
+- Normalize IPv4-mapped peer addresses in connection metadata, logs and API fields [#2122](https://github.com/cloudamqp/lavinmq/pull/2122)
+
 ## [2.9.0] - 2026-06-25
 
 This release makes local publish confirms wait until messages are flushed to disk with `syncfs` (with a `--no-sync` opt-out), reworks clustered durability so confirms and durable definition changes are acknowledged only once every in-sync replica holds the data, and adds OAuth2/OIDC SSO login to the management UI. It also adds PROXY protocol trusted sources, `load_definitions`, per-queue-type policy `apply-to` targets and a configurable control socket, alongside a wide range of bugfixes and performance optimizations across the broker.
