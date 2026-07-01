@@ -88,7 +88,7 @@ module LavinMQ
       # compliant; each deferred feature is then rejected in its own packet handler.
       private def build_server_capabilities : Protocol::ConnackProperties
         props = Protocol::ConnackProperties.new
-        props.maximum_qos = 1u8       # QoS 2 not implemented
+        props.maximum_qos = MAX_QOS   # QoS 2 not implemented
         props.retain_available = true # LavinMQ has a retain store
         props.wildcard_subscription_available = true
         props.topic_alias_maximum = 0u16                # topic aliases not implemented

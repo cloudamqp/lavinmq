@@ -256,7 +256,7 @@ module LavinMQ
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
-        qos = 1u8 if qos > 1
+        qos = MAX_QOS if qos > MAX_QOS
         dup = qos.zero? ? false : env.redelivered
         Protocol::Publish.new(
           packet_id: packet_id,

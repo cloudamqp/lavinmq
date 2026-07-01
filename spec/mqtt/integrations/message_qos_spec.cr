@@ -19,6 +19,20 @@ module MqttSpecs
       end
     end
 
+    it "accepts a QoS 2 publish on v3 (downgraded, not disconnected)" do
+      # v3.1.1 has no Maximum QoS contract, so a QoS 2 PUBLISH is accepted and
+      # PubAck'd (delivery is clamped to QoS 1). Only v5 rejects it. Guards the
+      # version gate in Client#recieve_publish.
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          ack = publish(io, topic: "a/b", qos: 2u8)
+          ack.should be_a(MQTT::Protocol::PubAck)
+          io.should_not be_closed
+        end
+      end
+    end
+
     it "qos is set according to subscription qos [LavinMQ non-normative]" do
       with_server do |server|
         with_client_io(server) do |io|
