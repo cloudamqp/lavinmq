@@ -914,4 +914,19 @@ describe LavinMQ::Launcher do
       end
     end
   end
+
+  it "parses mqtt topic_permissions" do
+    config = LavinMQ::Config.new
+    ini = File.tempfile do |f|
+      f.print "[mqtt]\ntopic_permissions = true\n"
+    end
+    config.parse(["-c", ini.path])
+    config.mqtt_topic_permissions_enabled?.should be_true
+  ensure
+    ini.delete if ini
+  end
+
+  it "defaults mqtt topic_permissions to false" do
+    LavinMQ::Config.new.mqtt_topic_permissions_enabled?.should be_false
+  end
 end

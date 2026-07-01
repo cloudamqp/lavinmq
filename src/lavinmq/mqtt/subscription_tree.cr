@@ -134,6 +134,28 @@ module LavinMQ
         each_entry(BytesTokenIterator.new(topic.to_slice), &block)
       end
 
+      # Returns whether any stored subscription matches the given concrete topic.
+      def covers?(topic : String) : Bool
+        if subs = @non_wildcards[topic]?
+          return true unless subs.empty?
+        end
+        return false if @wildcard_rest.empty? && @plus.nil? && @sublevels.empty?
+        covers?(BytesTokenIterator.new(topic.to_slice))
+      end
+
+      protected def covers?(topic : BytesTokenIterator) : Bool
+        unless current = topic.next
+          return true unless @wildcard_rest.empty?
+          return !@leafs.empty?
+        end
+        return true unless @wildcard_rest.empty?
+        return true if @plus.try(&.covers?(topic))
+        if sublevel = @sublevels[current]?
+          return true if sublevel.covers?(topic)
+        end
+        false
+      end
+
       protected def each_entry(topic : BytesTokenIterator, &block : (T, UInt8, String) -> _)
         unless current = topic.next
           if f = @leaf_filter

@@ -4,13 +4,19 @@ require "./connection_factory"
 module LavinMQ
   module MQTT
     class Server < ProtocolServer
+      Log = LavinMQ::Log.for "mqtt.server"
+
       @brokers : Brokers
       @connection_factory : ConnectionFactory
 
       def initialize(server : LavinMQ::Server, config : Config = Config.instance)
         super(server, config, LavinMQ::Protocol::MQTT)
-        @brokers = Brokers.new(@server.vhosts)
+        @brokers = Brokers.new(@server.vhosts, @server.permission_groups)
         @connection_factory = ConnectionFactory.new(@server.authenticator, @brokers, @config)
+        if @config.mqtt_topic_permissions_enabled? && @server.permission_groups.values.empty?
+          Log.warn { "MQTT topic permissions are enabled but no permission groups are defined; " \
+                     "all MQTT publish and subscribe will be denied until groups are configured" }
+        end
       end
 
       def bind_tcp(bind : String = "::", port : Int = 1883)

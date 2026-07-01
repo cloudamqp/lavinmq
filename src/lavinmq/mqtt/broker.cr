@@ -6,11 +6,12 @@ require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
+require "../auth/permission_group_store"
 
 module LavinMQ
   module MQTT
     class Broker
-      getter vhost, sessions
+      getter vhost, sessions, permission_groups
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -22,7 +23,7 @@ module LavinMQ
       # - Handling the retain store
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
-      def initialize(@vhost : VHost)
+      def initialize(@vhost : VHost, @permission_groups : Auth::PermissionGroupStore)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
@@ -57,7 +58,10 @@ module LavinMQ
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          if session = sessions[client.client_id]?
+            session.client = client
+            session.topic_read = client.topic_permissions.read if Config.instance.mqtt_topic_permissions_enabled?
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -92,6 +96,7 @@ module LavinMQ
 
       def subscribe(client, topics)
         session = sessions.declare(client)
+        session.topic_read = client.topic_permissions.read if Config.instance.mqtt_topic_permissions_enabled?
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)

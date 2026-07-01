@@ -1,5 +1,4 @@
-require "./spec_helper"
-require "../../src/lavinmq/mqtt/subscription_tree"
+require "../spec_helper"
 
 describe LavinMQ::MQTT::SubscriptionTree do
   describe "#any?" do
@@ -276,5 +275,17 @@ describe LavinMQ::MQTT::SubscriptionTree do
       calls += 1
     end
     calls.should eq 7
+  end
+
+  it "covers? matches concrete topics against stored filters" do
+    tree = LavinMQ::MQTT::SubscriptionTree(Nil).new
+    tree.subscribe("chat/alice/#", nil, 0u8)
+    tree.subscribe("sys/+/status", nil, 0u8)
+
+    tree.covers?("chat/alice/room1").should be_true
+    tree.covers?("chat/alice").should be_true # '#' matches the parent level
+    tree.covers?("chat/bob/room1").should be_false
+    tree.covers?("sys/db/status").should be_true
+    tree.covers?("sys/db/other").should be_false
   end
 end

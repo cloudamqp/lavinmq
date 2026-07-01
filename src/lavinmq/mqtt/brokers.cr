@@ -1,13 +1,14 @@
 require "./broker"
 require "../observable"
 require "../vhost_store"
+require "../auth/permission_group_store"
 
 module LavinMQ
   module MQTT
     class Brokers
       include Observer(VHostStore::Event)
 
-      def initialize(@vhosts : VHostStore)
+      def initialize(@vhosts : VHostStore, @permission_groups : Auth::PermissionGroupStore)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
         @closed = Atomic(Bool).new(false)
         populate
@@ -16,7 +17,7 @@ module LavinMQ
 
       private def populate
         @vhosts.each do |(name, vhost)|
-          @brokers[name] = Broker.new(vhost)
+          @brokers[name] = Broker.new(vhost, @permission_groups)
         end
       end
 
@@ -34,7 +35,7 @@ module LavinMQ
         vhost = data.to_s
         case event
         in VHostStore::Event::Added
-          @brokers[vhost] = Broker.new(@vhosts[vhost])
+          @brokers[vhost] = Broker.new(@vhosts[vhost], @permission_groups)
         in VHostStore::Event::Deleted
           @brokers.delete(vhost)
         in VHostStore::Event::Closed
