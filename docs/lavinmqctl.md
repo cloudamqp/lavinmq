@@ -105,6 +105,10 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
 The TUI poll interval is specified in seconds and must be positive. It defaults to `1.0`.
+The Overview page uses a compact panel layout with message-rate dot graphs,
+queue-depth graphs, node resource bars, and the busiest queues. The graph
+history comes from the management API logs when available and then rolls forward
+with each refresh.
 The dashboard pages are selected with number keys:
 
 | Key | Page |

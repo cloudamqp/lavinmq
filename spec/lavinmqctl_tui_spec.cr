@@ -71,13 +71,20 @@ require "spec"
         bindings:    7,
       },
       queue_totals: {
-        messages:                42,
-        messages_ready:          39,
-        messages_unacknowledged: 3,
+        messages:                    42,
+        messages_ready:              39,
+        messages_unacknowledged:     3,
+        messages_ready_log:          [28, 31, 30, 35, 36, 39],
+        messages_unacknowledged_log: [1, 2, 1, 3, 2, 3],
       },
       message_stats: {
         publish_details: {
           rate: 12.5,
+          log:  [3.0, 5.1, 8.0, 7.2, 10.3, 12.5],
+        },
+        deliver_details: {
+          rate: 9.7,
+          log:  [2.0, 4.1, 6.0, 5.2, 8.3, 9.7],
         },
       },
     }.to_json,
@@ -283,7 +290,7 @@ require "spec"
           screen = FakeTUIScreen.new(events: [tui_key(key), tui_key('q')] of Termisu::Event::Any)
           LavinMQCtl::TUI.new(client, 60.0, screen).start
 
-          screen.text.should contain("| #{page} |")
+          screen.text.should contain(page)
           screen.text.should contain(expected_text)
           screen.closed?.should be_true
         end

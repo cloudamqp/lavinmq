@@ -62,11 +62,24 @@ module TUIMockAPI
             json.field "messages", 183
             json.field "messages_ready", 166
             json.field "messages_unacknowledged", 17
+            json.field "messages_ready_log", [120, 126, 130, 128, 139, 144, 141, 150, 155, 160, 166]
+            json.field "messages_unacknowledged_log", [8, 11, 13, 10, 12, 16, 14, 19, 18, 15, 17]
           end
         end
         json.field "message_stats" do
           json.object do
-            json.field "publish_details" { stats(json, 23.4) }
+            json.field "publish_details" do
+              json.object do
+                json.field "rate", 23.4
+                json.field "log", [7.0, 11.2, 9.8, 15.4, 18.1, 14.0, 21.3, 19.9, 24.7, 22.0, 23.4]
+              end
+            end
+            json.field "deliver_details" do
+              json.object do
+                json.field "rate", 17.8
+                json.field "log", [4.0, 8.2, 6.8, 12.4, 11.1, 13.0, 15.3, 16.9, 14.7, 18.0, 17.8]
+              end
+            end
           end
         end
       end
