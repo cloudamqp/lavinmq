@@ -245,6 +245,11 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : Protocol::Subscribe)
+        # subscription_identifier_available=0: a Subscription Identifier is a
+        # packet-level protocol error [MQTT-3.8.2] -> DISCONNECT 0xA1.
+        if @io.version.v5? && packet.properties.subscription_identifier
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SubscriptionIdentifiersNotSupported)
+        end
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
