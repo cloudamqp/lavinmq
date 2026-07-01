@@ -18,14 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Persist follower checksums incrementally during full sync, so interrupted syncs can reuse already-computed hashes after restart [#2065](https://github.com/cloudamqp/lavinmq/pull/2065)
 - Deprecated config handling is now consistent between INI and CLI options [#2059](https://github.com/cloudamqp/lavinmq/pull/2059)
 - MQTT sessions are decoupled from AMQP queues as part of separating protocol-specific queue/session handling [#1920](https://github.com/cloudamqp/lavinmq/pull/1920)
-- IPv4-mapped peer addresses are normalized in connection metadata, logs and API fields [#2122](https://github.com/cloudamqp/lavinmq/pull/2122)
+- The management UI version is advertised via the `LavinMQ-Version` response header instead of being injected at build time [#2123](https://github.com/cloudamqp/lavinmq/pull/2123)
+
+## [2.9.1] - 2026-07-01
 
 ### Fixed
 
+- Management UI OAuth2 login now works with identity providers that require a specific scope (e.g. Entra ID), via the new `mgmt_scopes` config option [#2127](https://github.com/cloudamqp/lavinmq/pull/2127)
+- Accept JWKS keys that omit the `alg` parameter when fetching keys for OAuth/OIDC [#2124](https://github.com/cloudamqp/lavinmq/pull/2124)
 - Document that OAuth/OIDC JWTs must include a `kid` header matching a JWKS key [#2107](https://github.com/cloudamqp/lavinmq/pull/2107)
-- Heartbeat frames on non-zero channels now close the connection with `UNEXPECTED_FRAME` [#1999](https://github.com/cloudamqp/lavinmq/pull/1999)
-- Clustered localhost listener bind failures during startup [#2114](https://github.com/cloudamqp/lavinmq/pull/2114)
+- Enforce policymaker role checks on the shovel management endpoints [#2133](https://github.com/cloudamqp/lavinmq/pull/2133)
+- Apply SNI certificate changes on config reload [#2129](https://github.com/cloudamqp/lavinmq/pull/2129)
 - Stream `cleanup_consumer_offsets` overflow when the `consumer_offsets` file is near full [#1995](https://github.com/cloudamqp/lavinmq/pull/1995)
+- Clustered localhost listener bind failures during startup [#2114](https://github.com/cloudamqp/lavinmq/pull/2114)
+- Heartbeat frames on non-zero channels now close the connection with `UNEXPECTED_FRAME` [#1999](https://github.com/cloudamqp/lavinmq/pull/1999)
+- Normalize IPv4-mapped peer addresses in connection metadata, logs and API fields [#2122](https://github.com/cloudamqp/lavinmq/pull/2122)
 
 ## [2.9.0] - 2026-06-25
 
