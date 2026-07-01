@@ -3,7 +3,7 @@
   get:
     tags:
       - shovels
-    description: List all shovels across all vhosts.
+    description: List all shovels across all vhosts. Requires policymaker access.
     summary: List all shovels
     operationId: GetShovels
     responses:
@@ -37,7 +37,7 @@
   get:
     tags:
       - shovels
-    description: List all shovels for specific vhost.
+    description: List all shovels for specific vhost. Requires policymaker access.
     summary: List shovels by vhost
     operationId: GetShovelsVhost
     responses:
@@ -77,7 +77,7 @@
   get:
     tags:
       - shovels
-    description: Get specific shovel details.
+    description: Get specific shovel details. Requires policymaker access.
     summary: Get shovel
     operationId: GetShovel
     responses:
@@ -123,7 +123,7 @@
   put:
     tags:
       - shovels
-    description: Pause a running shovel.
+    description: Pause a running shovel. Requires policymaker access.
     summary: Pause shovel
     operationId: PauseShovel
     responses:
@@ -171,7 +171,7 @@
   put:
     tags:
       - shovels
-    description: Resume a paused shovel.
+    description: Resume a paused shovel. Requires policymaker access.
     summary: Resume shovel
     operationId: ResumeShovel
     responses:
