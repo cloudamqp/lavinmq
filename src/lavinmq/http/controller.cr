@@ -81,8 +81,6 @@ module LavinMQ
           sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
         when String
           sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
-        when QueueState
-          sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
         when Nil
           nil # all values are nil, nothing to sort
         else

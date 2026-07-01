@@ -13,6 +13,10 @@ module LavinMQ
         [] of BindingDetails
       end
 
+      def bindings_lock_holder : Fiber?
+        nil
+      end
+
       def binding_count : Int32
         0
       end

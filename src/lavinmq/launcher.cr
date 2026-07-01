@@ -30,6 +30,8 @@ module LavinMQ
     @mqtt_server : LavinMQ::MQTT::Server?
 
     def initialize(@config : Config)
+      count = ENV.fetch("CRYSTAL_WORKERS", "").to_i? || 1
+      Fiber::ExecutionContext.default.resize(count)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -112,7 +114,7 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       {% if flag?(:preview_mt) %}
-        Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
+        Log.info { "Multithreading: #{Fiber::ExecutionContext.default.capacity} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
@@ -218,7 +220,41 @@ module LavinMQ
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
+      dump_lock_holders
       STDOUT.flush
+    end
+
+    # For each AMQP queue and client, print the fiber currently holding its
+    # primary lock. Useful when a connection leak survives the IO timeouts —
+    # the holder name (e.g. another `Client#read_loop`) points at the cycle.
+    private def dump_lock_holders
+      puts "Locks: (begin)"
+      server = @server || return
+      # Read structures via `unsafe_get` so the dump doesn't itself block on a
+      # contested Sync::Shared writer.
+      server.vhosts.unsafe_each do |vhost|
+        vhost.unsafe_each_queue do |q|
+          next unless q.is_a?(LavinMQ::AMQP::Queue)
+          report_lock("Queue #{vhost.name}/#{q.name} msg_store_lock", q.msg_store_lock_holder)
+          report_lock("Queue #{vhost.name}/#{q.name} consumers", q.consumers_lock_holder)
+          report_lock("Queue #{vhost.name}/#{q.name} basic_get_unacked", q.basic_get_unacked_lock_holder)
+        end
+        vhost.each_exchange do |ex|
+          next unless ex.is_a?(LavinMQ::AMQP::Exchange)
+          report_lock("Exchange #{vhost.name}/#{ex.name} bindings", ex.bindings_lock_holder)
+        end
+        vhost.unsafe_each_connection do |c|
+          next unless c.is_a?(LavinMQ::AMQP::Client)
+          report_lock("Client #{c.name} write_lock", c.write_lock_holder)
+          report_lock("Client #{c.name} channels", c.channels_lock_holder)
+        end
+      end
+      puts "Locks: (end)"
+    end
+
+    private def report_lock(label : String, holder : Fiber?)
+      return unless holder
+      puts "  #{label} held by #{holder.inspect}"
     end
 
     private def run_gc

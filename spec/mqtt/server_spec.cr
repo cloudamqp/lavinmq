@@ -24,7 +24,7 @@ describe LavinMQ::MQTT::Server do
     begin
       mqtt_server.bind_tcp(tcp_server)
       spawn(name: "mqtt direct listen spec") { mqtt_server.listen }
-      wait_for { mqtt_server.@listeners.includes?(tcp_server) }
+      wait_for { mqtt_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       mqtt_socket, mqtt_io = connect_mqtt(tcp_server.local_address.port, "mqtt-direct-listen-spec")
       MQTT::Protocol::Disconnect.new.to_io(mqtt_io)
@@ -43,7 +43,7 @@ describe LavinMQ::MQTT::Server do
     begin
       mqtt_server.bind_tcp(tcp_server)
       spawn(name: "mqtt restart listen spec") { mqtt_server.listen }
-      wait_for { mqtt_server.@listeners.includes?(tcp_server) }
+      wait_for { mqtt_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       mqtt_server.close
       restart_server(server)
@@ -51,7 +51,7 @@ describe LavinMQ::MQTT::Server do
       tcp_server = TCPServer.new("127.0.0.1", port)
       mqtt_server.bind_tcp(tcp_server)
       spawn(name: "mqtt restart replacement listen spec") { mqtt_server.listen }
-      wait_for { mqtt_server.@listeners.includes?(tcp_server) }
+      wait_for { mqtt_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       mqtt_socket, mqtt_io = connect_mqtt(tcp_server.local_address.port, "mqtt-restart-spec")
       MQTT::Protocol::Disconnect.new.to_io(mqtt_io)

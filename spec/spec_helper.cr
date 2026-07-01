@@ -1,6 +1,10 @@
 require "log"
 Log.setup_from_env(default_level: :error)
 
+# Enable MT
+count = Fiber::ExecutionContext.default_workers_count
+Fiber::ExecutionContext.default.resize(count)
+
 Signal::SEGV.reset # Let the OS generate a coredump
 
 class Log
@@ -60,6 +64,10 @@ class LavinMQ::Server
   getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self, @config) }
   getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
 
+  def amqp_url
+    amqp_server.url
+  end
+
   # Close the spec-built servers (if any) before tearing down the stores, so
   # specs only have to close the server they were handed. HTTP first, since it
   # holds references to the protocol servers (matches Launcher#stop order).
@@ -96,7 +104,7 @@ class LavinMQ::Server
 end
 
 private def protocol_server_state(server : LavinMQ::ProtocolServer)
-  tcp_listener = server.@listeners.select(TCPServer).first?
+  tcp_listener = server.@listeners.unsafe_get.select(TCPServer).first?
   {
     config:      server.@config,
     address:     tcp_listener.try(&.local_address.address),
@@ -151,7 +159,7 @@ ensure
 end
 
 def amqp_port(s)
-  s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+  s.amqp_server.tcp_port
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep

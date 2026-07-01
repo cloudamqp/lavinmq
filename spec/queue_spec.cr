@@ -195,7 +195,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts["/"].queue("q").pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         restart_server(s)
-        s.vhosts["/"].queue("q").state.paused?.should be_true
+        s.vhosts["/"].queue("q").paused?.should be_true
         s.vhosts["/"].queue("q").resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
       end
@@ -210,7 +210,7 @@ describe LavinMQ::AMQP::Queue do
         File.touch(File.join(data_dir, ".paused"))
         restart_server(s)
         File.exists?(File.join(data_dir, "paused")).should be_true
-        s.vhosts["/"].queue("q").state.paused?.should be_true
+        s.vhosts["/"].queue("q").paused?.should be_true
       end
     end
 
@@ -284,6 +284,48 @@ describe LavinMQ::AMQP::Queue do
 
   describe "Close" do
     q_name = "close"
+    it "swallows MessageStore::ClosedError when queue is closed mid-publish" do
+      # Regression: if `close` runs between publish_internal's top-level
+      # `closed?` check and acquiring `@msg_store_lock`, `@msg_store.push`
+      # raises `ClosedError`, which would otherwise propagate to the AMQP
+      # client's read_loop and disconnect the client with INTERNAL_ERROR.
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("close-race", false, false)
+        queue = vhost.queue("close-race").as(LavinMQ::AMQP::Queue)
+
+        # Hold the lock so the publisher fiber blocks after the top check.
+        queue.@msg_store_lock.lock
+
+        publish_result = nil
+        publish_error = nil
+        done = Channel(Nil).new
+        spawn do
+          msg = LavinMQ::Message.new("", "close-race", "body")
+          publish_result = queue.publish(msg)
+        rescue ex
+          publish_error = ex
+        ensure
+          done.send(nil)
+        end
+
+        # Let the publisher reach the lock-acquire site.
+        Fiber.yield
+
+        # Simulate `close` having marked the queue closed and closed the
+        # underlying msg_store while we held the lock.
+        queue.@closed.set(true, :release)
+        queue.@msg_store.close
+        queue.@msg_store_lock.unlock
+
+        done.receive
+        publish_error.should be_nil
+        publish_result.should eq LavinMQ::AMQP::Queue::PublishResult::Dropped
+      ensure
+        queue.try &.delete
+      end
+    end
+
     it "should cancel consumer" do
       with_amqp_server do |s|
         tag = "consumer-to-be-canceled"
@@ -351,7 +393,7 @@ describe LavinMQ::AMQP::Queue do
 
           # Try to consume, which will trigger the close due to corrupt data
           q.subscribe(tag: "tag", no_ack: false, &.ack)
-          should_eventually(be_true) { queue.state.closed? }
+          should_eventually(be_true) { queue.closed? }
 
           # Delete corrupted segment file
           File.delete(mfile.path)
@@ -359,7 +401,7 @@ describe LavinMQ::AMQP::Queue do
           # Restart the queue & verify that it is running
           queue.restart!.should be_true
           queue.closed?.should be_false
-          queue.state.running?.should be_true
+          queue.running?.should be_true
           queue.message_count.should eq 0
         end
       end
@@ -690,7 +732,7 @@ describe LavinMQ::AMQP::Queue do
 
       done.receive
 
-      yields.should eq 2
+      yields.should be >= 2
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end

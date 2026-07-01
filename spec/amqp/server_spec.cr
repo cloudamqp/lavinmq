@@ -8,7 +8,7 @@ describe LavinMQ::AMQP::Server do
     begin
       amqp_server.bind_tcp(tcp_server)
       spawn(name: "amqp direct listen spec") { amqp_server.listen }
-      wait_for { amqp_server.@listeners.includes?(tcp_server) }
+      wait_for { amqp_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       amqp_connection = AMQP::Client.new(host: "127.0.0.1", port: tcp_server.local_address.port).connect
     ensure
@@ -43,7 +43,7 @@ describe LavinMQ::AMQP::Server do
 
       amqp_server.closed?.should be_true
       amqp_server.listening?.should be_false
-      amqp_server.@listeners.empty?.should be_true
+      amqp_server.@listeners.unsafe_get.empty?.should be_true
     ensure
       server.close unless server.closed?
     end
@@ -77,7 +77,7 @@ describe LavinMQ::AMQP::Server do
     begin
       amqp_server.bind_tcp(tcp_server)
       spawn(name: "amqp restart listen spec") { amqp_server.listen }
-      wait_for { amqp_server.@listeners.includes?(tcp_server) }
+      wait_for { amqp_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       amqp_server.close
       restart_server(server)
@@ -85,7 +85,7 @@ describe LavinMQ::AMQP::Server do
       tcp_server = TCPServer.new("127.0.0.1", port)
       amqp_server.bind_tcp(tcp_server)
       spawn(name: "amqp restart replacement listen spec") { amqp_server.listen }
-      wait_for { amqp_server.@listeners.includes?(tcp_server) }
+      wait_for { amqp_server.@listeners.unsafe_get.includes?(tcp_server) }
 
       amqp_connection = AMQP::Client.new(host: "127.0.0.1", port: tcp_server.local_address.port).connect
     ensure

@@ -22,14 +22,14 @@ module LavinMQ
     include ParameterTarget
 
     @closed = BoolChannel.new(false)
-    @flow = true
+    @flow = Atomic(Bool).new(true)
 
     def closed? : Bool
       @closed.value
     end
 
     def flow? : Bool
-      @flow
+      @flow.get(:acquire)
     end
 
     @replicator : Clustering::Replicator?
@@ -328,7 +328,7 @@ module LavinMQ
     end
 
     def flow(active : Bool)
-      @flow = active
+      @flow.set(active, :release)
       @vhosts.each_value &.flow=(active)
     end
 
