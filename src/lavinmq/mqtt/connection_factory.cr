@@ -32,10 +32,16 @@ module LavinMQ
             io = io.reframe(packet.version)
             logger.trace { "recv #{packet.inspect}" }
             user, broker = authenticate(io, packet)
-            packet = assign_client_id(packet, user.name) if packet.client_id.empty?
+            # A client that sends an empty client id gets one assigned; a v5
+            # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].
+            assigned_client_id = nil
+            if packet.client_id.empty?
+              packet = with_assigned_client_id(packet, user.name)
+              assigned_client_id = packet.client_id
+            end
             validate_client_id!(packet.client_id, user.name)
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-            connack io, session_present, Protocol::Connack::ReturnCode::Accepted
+            connack io, session_present, Protocol::Connack::ReturnCode::Accepted, assigned_client_id
             broker.run_client(io, connection_info, user, packet)
           end
         rescue ex : Protocol::Error::Connect
@@ -52,12 +58,27 @@ module LavinMQ
         end
       end
 
-      private def connack(io : Protocol::IO, session_present : Bool, return_code : Protocol::Connack::ReturnCode)
+      private def connack(io : Protocol::IO, session_present : Bool,
+                          return_code : Protocol::Connack::ReturnCode,
+                          assigned_client_id : String? = nil)
         reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
         # A v5 server must advertise which optional features it supports; an
         # accepted v5 connection carries the capability set. On v3 the properties
         # are ignored on the wire, so the v3 CONNACK is byte-for-byte unchanged.
-        properties = io.version.v5? && return_code.accepted? ? @server_capabilities : Protocol::ConnackProperties.new
+        properties =
+          if io.version.v5? && return_code.accepted?
+            if assigned_client_id
+              # Per-connection, so build a fresh set rather than mutating the
+              # shared static one.
+              caps = build_server_capabilities
+              caps.assigned_client_identifier = assigned_client_id
+              caps
+            else
+              @server_capabilities
+            end
+          else
+            Protocol::ConnackProperties.new
+          end
         Protocol::Connack.new(session_present, reason, properties).to_io(io)
         io.flush
       end
@@ -100,18 +121,24 @@ module LavinMQ
         {user, broker}
       end
 
-      def assign_client_id(packet, username : String)
+      # Returns a copy of the CONNECT with a server-generated client id filled in
+      # (Connect is an immutable struct, so the id can't be set in place). Used
+      # when the client sends an empty client id.
+      def with_assigned_client_id(packet, username : String)
         client_id = case @config.mqtt_client_id_validation
                     in .none?     then Random::Secure.base64(32)
                     in .username? then username
                     end
+        # Preserve the negotiated version and the client's CONNECT properties;
+        # only the client id changes.
         Protocol::Connect.new(client_id,
           packet.clean_session?,
           packet.keepalive,
           packet.username,
           packet.password,
           packet.will,
-          packet.version)
+          packet.version,
+          packet.properties)
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil
