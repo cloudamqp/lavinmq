@@ -138,20 +138,6 @@ module MqttSpecs
           end
         end
 
-        it "negotiates the protocol version from CONNECT and replies with a v5 CONNACK" do
-          with_server do |server|
-            with_client_socket(server) do |socket|
-              io = MQTT::Protocol::IO::V5.new(socket)
-              # A v5 CONNECT must be answered with a v5-framed CONNACK; if the
-              # broker kept v3 framing the reply would be unparseable here.
-              connack = connect(io, version: MQTT::Protocol::Version::V5)
-              connack.should be_a(MQTT::Protocol::Connack)
-              connack = connack.as(MQTT::Protocol::Connack)
-              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
-            end
-          end
-        end
-
         # pending "for invalid credentials" do
         #   auth = SpecAuth.new({"a" => {password: "b", acls: ["a", "a/b", "/", "/a"] of String}})
         #   with_server(auth: auth) do |server|

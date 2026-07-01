@@ -12,8 +12,11 @@ module LavinMQ
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "mqtt.connection_factory"
 
+      @server_capabilities : Protocol::ConnackProperties
+
       def initialize(@authenticator : Auth::Authenticator,
                      @brokers : Brokers, @config : Config)
+        @server_capabilities = build_server_capabilities
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
@@ -50,8 +53,29 @@ module LavinMQ
       end
 
       private def connack(io : Protocol::IO, session_present : Bool, return_code : Protocol::Connack::ReturnCode)
-        Protocol::Connack.new(session_present, return_code).to_io(io)
+        reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
+        # A v5 server must advertise which optional features it supports; an
+        # accepted v5 connection carries the capability set. On v3 the properties
+        # are ignored on the wire, so the v3 CONNACK is byte-for-byte unchanged.
+        properties = io.version.v5? && return_code.accepted? ? @server_capabilities : Protocol::ConnackProperties.new
+        Protocol::Connack.new(session_present, reason, properties).to_io(io)
         io.flush
+      end
+
+      # The fixed v5 capabilities LavinMQ advertises in CONNACK. They depend only
+      # on config (fixed after startup), so this is built once in initialize.
+      # Advertising a feature as unavailable is what makes deferring it spec-
+      # compliant; each deferred feature is then rejected in its own packet handler.
+      private def build_server_capabilities : Protocol::ConnackProperties
+        props = Protocol::ConnackProperties.new
+        props.maximum_qos = 1u8       # QoS 2 not implemented
+        props.retain_available = true # LavinMQ has a retain store
+        props.wildcard_subscription_available = true
+        props.topic_alias_maximum = 0u16                # topic aliases not implemented
+        props.subscription_identifier_available = false # subscription ids not implemented
+        props.shared_subscription_available = false     # shared subscriptions not implemented
+        props.maximum_packet_size = @config.mqtt_max_packet_size
+        props
       end
 
       def authenticate(io : Protocol::IO, packet)
