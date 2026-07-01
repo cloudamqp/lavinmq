@@ -144,7 +144,7 @@ module MqttSpecs
           suback = subscribe(io, topic_filters: topic_filters)
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
-          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS1])
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)

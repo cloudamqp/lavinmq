@@ -98,23 +98,25 @@ module LavinMQ
         @exchange.publish(packet)
       end
 
-      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReasonCode)
         session = sessions.declare(client)
         unless session
           Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
-          return topics.map { Protocol::SubAck::ReturnCode::Failure }
+          return topics.map { Protocol::SubAck::ReasonCode::UnspecifiedError }
         end
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
-          session.subscribe(tf.topic, qos)
+          # We only deliver up to MAX_QOS, so grant (and store/deliver at) the
+          # clamped QoS - the SUBACK must report the granted max [MQTT-3.8.4-7].
+          granted = Math.min(tf.qos, MAX_QOS)
+          session.subscribe(tf.topic, granted)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: qos)
+            props = AMQP::Properties.new(headers: headers, delivery_mode: granted)
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          Protocol::SubAck::ReasonCode.from_value(tf.qos)
+          Protocol::SubAck::ReasonCode.from_value(granted)
         end
       end
 
