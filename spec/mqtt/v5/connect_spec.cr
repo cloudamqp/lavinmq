@@ -4,6 +4,21 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "MQTT 5.0 connect" do
+    it "rejects enhanced authentication with BadAuthenticationMethod (0x8C)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          # A CONNECT carrying an Authentication Method wants the AUTH-packet
+          # flow, which we don't support -> CONNACK 0x8C [MQTT-4.12].
+          props = MQTT::Protocol::ConnectProperties.new
+          props.authentication_method = "SCRAM-SHA-1"
+          connack = connect(io, version: MQTT::Protocol::Version::V5,
+            properties: props).as(MQTT::Protocol::Connack)
+          connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+        end
+      end
+    end
+
     it "negotiates the protocol version from CONNECT and replies with a v5 CONNACK" do
       with_server do |server|
         with_client_socket(server) do |socket|
