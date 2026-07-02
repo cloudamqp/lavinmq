@@ -206,13 +206,12 @@ module LavinMQ
           if no_ack
             begin
               packet = build_packet(env, nil)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
+              if exceeds_max_packet_size?(packet)
+                delete_message(sp)
+                next
               end
+              yield packet, sp.bytesize
+              record_delivery(env.redelivered, no_ack)
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
@@ -226,15 +225,16 @@ module LavinMQ
                 return false
               end
               packet = build_packet(env, id)
+              if exceeds_max_packet_size?(packet)
+                # Discard without sending and complete the delivery: do not track
+                # it in @unacked, so it is not redelivered [MQTT-3.1.2-25].
+                delete_message(sp)
+                next
+              end
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
+              record_delivery(env.redelivered, no_ack)
               @unacked[id] = sp
               @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
@@ -251,6 +251,24 @@ module LavinMQ
         @log.error(ex) { "Queue closed due to error" }
         close
         raise ClosedError.new(cause: ex)
+      end
+
+      private def record_delivery(redelivered : Bool, no_ack : Bool) : Nil
+        if redelivered
+          @redeliver_count.add(1, :relaxed)
+        else
+          (no_ack ? @deliver_no_ack_count : @deliver_count).add(1, :relaxed)
+          @deliver_get_count.add(1, :relaxed)
+        end
+      end
+
+      # A v5 client's Maximum Packet Size caps the packets we may send it
+      # [MQTT-3.1.2-24]. Only v5 clients set it, so size against v5 framing.
+      private def exceeds_max_packet_size?(packet : Protocol::Publish) : Bool
+        max = @client.try(&.max_packet_size) || return false
+        return false unless packet.bytesize(Protocol::Version::V5) > max
+        @log.debug { "Dropping PUBLISH exceeding client Maximum Packet Size (#{max} bytes)" }
+        true
       end
 
       def build_packet(env, packet_id) : Protocol::Publish

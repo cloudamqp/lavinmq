@@ -73,6 +73,115 @@ module MqttSpecs
       end
     end
 
+    it "does not deliver a PUBLISH exceeding the subscriber's Maximum Packet Size" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          props.maximum_packet_size = 50u32
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub", properties: props)
+          subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
+
+          with_client_socket(server) do |pub_socket|
+            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
+            publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 50 -> dropped
+            publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 50 -> delivered
+          end
+
+          # The oversized message is discarded [MQTT-3.1.2-25]; the subscriber
+          # receives only the small one, and the big one is not redelivered.
+          delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          String.new(delivered.payload).should eq("ok")
+          read_packet(sub).should be_nil
+        end
+      end
+    end
+
+    it "does not deliver an oversized QoS 0 PUBLISH exceeding the subscriber's Maximum Packet Size" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          props.maximum_packet_size = 50u32
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub", properties: props)
+          subscribe(sub, topic_filters: [subtopic("t", 0)], packet_id: 1u16)
+
+          with_client_socket(server) do |pub_socket|
+            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
+            publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 0u8) # over 50 -> dropped
+            publish(pub, topic: "t", payload: "ok".to_slice, qos: 0u8)       # under 50 -> delivered
+          end
+
+          delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          String.new(delivered.payload).should eq("ok")
+        end
+      end
+    end
+
+    it "keeps the Maximum Packet Size of a subscriber that connected without a client id" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          props.maximum_packet_size = 50u32
+          # Empty client id: the server assigns one and rebuilds the CONNECT.
+          # The rebuild must carry the properties over, or the limit is lost.
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "",
+            clean_session: true, properties: props)
+          subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
+
+          with_client_socket(server) do |pub_socket|
+            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
+            publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 50 -> dropped
+            publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 50 -> delivered
+          end
+
+          delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          String.new(delivered.payload).should eq("ok")
+          read_packet(sub).should be_nil
+        end
+      end
+    end
+
+    it "delivers an oversized PUBLISH when the subscriber sets no Maximum Packet Size (v5)" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
+
+          with_client_socket(server) do |pub_socket|
+            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
+            publish(pub, topic: "t", payload: Bytes.new(200, 7u8), qos: 1u8)
+          end
+
+          delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          delivered.payload.size.should eq(200)
+        end
+      end
+    end
+
+    it "delivers a large PUBLISH to a v3 subscriber (no Maximum Packet Size in v3)" do
+      with_server do |server|
+        with_client_io(server) do |sub| # v3
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
+
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            publish(pub, topic: "t", payload: Bytes.new(200, 3u8), qos: 1u8)
+          end
+
+          delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          delivered.payload.size.should eq(200)
+        end
+      end
+    end
+
     it "disconnects with QoSNotSupported (0x9B) when a client publishes QoS 2" do
       with_server do |server|
         with_client_socket(server) do |socket|
