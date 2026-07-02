@@ -28,6 +28,9 @@ module LavinMQ
       include SortableJSON
 
       getter log, name, user, client_id, socket, connection_info
+      # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
+      # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
+      getter max_packet_size : UInt32?
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -63,7 +66,8 @@ module LavinMQ
                      @client_id : String,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
-                     @will : Protocol::Will? = nil)
+                     @will : Protocol::Will? = nil,
+                     @max_packet_size : UInt32? = nil)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
