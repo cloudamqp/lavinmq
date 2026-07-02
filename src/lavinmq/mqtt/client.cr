@@ -122,6 +122,13 @@ module LavinMQ
         @log.warn { "Protocol violation, disconnecting client: #{ex.reason}" }
         disconnect(ex.reason)
         publish_will
+      rescue ex : Protocol::Error::ProtocolError
+        # The shard raises this (with a reason byte) for codec-level protocol
+        # violations, e.g. an empty PUBLISH topic with no alias (0x82). Map it to
+        # a v5 server DISCONNECT; v3 just closes.
+        @log.warn { "Protocol error, disconnecting client: #{ex.message}" }
+        disconnect(disconnect_reason(ex.reason_code))
+        publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
@@ -200,6 +207,13 @@ module LavinMQ
         # peer may already be gone; read_loop's ensure still closes the socket
       end
 
+      # Map a shard reason byte to a DISCONNECT reason code, defaulting to a
+      # generic protocol error if it isn't a known DISCONNECT code.
+      private def disconnect_reason(reason_byte : UInt8) : Protocol::Disconnect::ReasonCode
+        Protocol::Disconnect::ReasonCode.from_value?(reason_byte) ||
+          Protocol::Disconnect::ReasonCode::ProtocolError
+      end
+
       def receive_pingreq(packet : Protocol::PingReq)
         send Protocol::PingResp.new
       end
@@ -218,10 +232,8 @@ module LavinMQ
         if packet.properties.topic_alias
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
         end
-        # An empty topic is only resolvable via a Topic Alias, which we don't allow.
-        if packet.topic_bytes.empty?
-          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
-        end
+        # (An empty topic with no alias is rejected by the shard on decode with a
+        # ProtocolError 0x82, mapped to a server DISCONNECT in read_loop.)
       end
 
       def recieve_publish(packet : Protocol::Publish)
