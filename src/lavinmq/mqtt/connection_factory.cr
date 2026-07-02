@@ -31,6 +31,14 @@ module LavinMQ
           io = Protocol::IO::V3.new(socket, @config.mqtt_max_packet_size)
           packet, io = io.read_connect
           logger.trace { "recv #{packet.inspect}" }
+          # Enhanced authentication (the AUTH-packet flow) is not supported;
+          # reject before username/password auth so the reason is accurate. v5
+          # only - v3 has no properties. [MQTT-4.12]
+          if packet.properties.authentication_method
+            logger.warn { "Enhanced authentication requested but not supported" }
+            reject_connack(io, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+            return socket.close
+          end
           user, broker = authenticate(io, packet)
           # A client that sends an empty client id gets one assigned; a v5
           # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].
@@ -55,6 +63,13 @@ module LavinMQ
           logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
           socket.close
         end
+      end
+
+      # Send a v5 CONNACK carrying a reason code that has no v3 return-code
+      # equivalent (e.g. BadAuthenticationMethod 0x8C). v5-only by construction.
+      private def reject_connack(io : Protocol::IO, reason : Protocol::Connack::ReasonCode)
+        Protocol::Connack.new(false, reason).to_io(io)
+        io.flush
       end
 
       private def connack(io : Protocol::IO, session_present : Bool,
