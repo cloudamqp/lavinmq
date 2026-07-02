@@ -1,5 +1,6 @@
 require "../amqp/exchange"
 require "./consts"
+require "./publish_headers"
 require "../destination"
 require "./subscription_tree"
 require "./session"
@@ -21,7 +22,9 @@ module LavinMQ
 
       def publish(packet : Protocol::Publish) : UInt32
         @publish_in_count.add(1, :relaxed)
-        properties = AMQP::Properties.new(headers: AMQP::Table.new)
+        headers = AMQP::Table.new
+        PublishHeaders.store(packet.properties, headers)
+        properties = AMQP::Properties.new(headers: headers)
         properties.delivery_mode = packet.qos
 
         timestamp = RoughTime.unix_ms

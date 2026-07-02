@@ -1,5 +1,6 @@
 require "digest/sha1"
 require "./protocol"
+require "./publish_headers"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
@@ -258,13 +259,15 @@ module LavinMQ
         qos = msg.properties.delivery_mode || 0u8
         qos = MAX_QOS if qos > MAX_QOS
         dup = qos.zero? ? false : env.redelivered
+        properties = PublishHeaders.restore(msg.properties.headers)
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
           qos: qos,
           retain: retained,
-          topic: msg.routing_key
+          topic: msg.routing_key,
+          properties: properties
         )
       end
 
