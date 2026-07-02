@@ -95,6 +95,93 @@ If the lexicographically-lowest-host node is reset (step 1 above) **at the same 
 
 On the raft backend, the in-sync replica set (ISR) is committed through raft consensus while the leader holds its replication-dispatch lock. If the raft cluster loses quorum (e.g. two of three nodes down), an ISR commit blocks until leadership is lost (an election timeout), which can stall the data plane for that window — even when leader→follower data replication is otherwise healthy. This is not a regression from the etcd backend, which commits the ISR under the same lock (with a bounded single PUT); it is a worse latency profile specific to raft's blocking consensus. Moving the ISR commit out from under that lock is tracked as a follow-up.
 
+### Migrating from the etcd backend to the raft backend
+
+An existing etcd-coordinated cluster can be switched to the raft backend in place: the data directories, node identities (`.clustering_id`) and message data all carry over — only the coordination backend changes. The migration reads etcd but never writes to it, so it can be rolled back.
+
+The cutover requires a **full-cluster stop**. The order in which nodes are stopped and started carries the safety guarantees, so follow the steps exactly.
+
+> **Warning — never mix backends.** A node started with `backend = raft` while other nodes still run the etcd backend forms a second, independent cluster and serves stale data alongside the etcd leader (split-brain). There is no built-in fence against this; the full stop in step 3 is what prevents it.
+
+**Prerequisites**
+
+- All nodes run a raft-capable LavinMQ release. Upgrade the binaries first with a normal rolling upgrade while still on the etcd backend; switch backends as a separate step.
+- etcd stays reachable until the cutover is complete (the secret is read from it in step 1).
+- `etcdctl` pointed at the cluster's `etcd_endpoints`; the key prefix below is the default `etcd_prefix` (`lavinmq`).
+
+#### Step 1 — distribute the replication secret
+
+On the raft backend the shared replication secret lives in `<data_dir>/.clustering_password` (see [Security](#security)). Copy it out of etcd on **every node**:
+
+```sh
+etcdctl get --print-value-only lavinmq/clustering_secret > /var/lib/lavinmq/.clustering_password
+chmod 0600 /var/lib/lavinmq/.clustering_password
+```
+
+Verify the file has identical content on all nodes.
+
+#### Step 2 — identify the current leader and prepare the configs
+
+Find the current leader — the election value is its `advertised_uri`. The command streams leader changes, so bound it with `timeout`:
+
+```sh
+timeout 2 etcdctl elect --listen lavinmq/leader
+# lavinmq/leader/694d89b0c464e40a
+# tcp://node2.example.com:5679
+```
+
+Then update the configs on all nodes, but do not restart anything yet: set `backend = raft`, keep `advertised_uri`, and open the raft port (default 5680) between the nodes. On the **followers** also set `seed_uris` to every node's management URI — joins authenticate automatically with the `.clustering_password` distributed in step 1, so the URIs carry no credentials:
+
+```ini
+[clustering]
+enabled = true
+backend = raft
+advertised_uri = tcp://node1.example.com:5679
+seed_uris = http://node1.example.com:15672,http://node2.example.com:15672,http://node3.example.com:15672
+```
+
+On the **leader**, leave `seed_uris` unset for now — an empty seed list is what makes it bootstrap the new cluster in step 4.
+
+#### Step 3 — stop the cluster: followers first, leader last
+
+Stop each follower, then the leader. The order matters: clients keep writing to the leader between follower stops, so earlier-stopped nodes can be missing the newest data. The last-stopped leader is guaranteed to hold every message that has been confirmed to a client — which is why it must also be the node that forms the new cluster. Starting the migration from any other node can silently discard the confirmed tail (rejoining nodes sync *from* the bootstrapper, deleting what it lacks).
+
+#### Step 4 — start the old leader, alone
+
+With no `seed_uris` it bootstraps a single-node raft cluster and begins serving clients immediately. Verify:
+
+```sh
+lavinmqctl raft_status
+# Role:         leader
+```
+
+#### Step 5 — start the followers
+
+They probe the seed list, join the leader and perform a full data sync. Until the first follower has finished syncing, the raft ISR is empty and treats every voter as in-sync — a leader crash in that window could elect a node without data — so start the followers promptly after step 4.
+
+Verify all nodes joined (`lavinmqctl raft_status` lists every node id under `Peers:`) and re-entered the ISR (the leader logs `In-sync replicas: [...]` with every node id).
+
+#### Step 6 — post-migration cleanup
+
+- Add `seed_uris` to the bootstrapper's config (same list as the others). It resumes from its raft state, so the setting only matters for future recovery — but make sure its `advertised_uri` host appears in the seed list.
+- Remove `etcd_endpoints` and `etcd_prefix` from all configs.
+- Decommission etcd.
+
+From here on, node recovery follows the [recovery runbook](#recovery-runbook).
+
+#### Rolling back
+
+The migration never writes to etcd, so the cluster can return to it: stop the raft nodes (if clients already wrote to the raft cluster, stop followers first and the leader last, for the same reason as step 3), revert `backend = etcd` and restore `etcd_endpoints`, run `lavinmqctl raft_reset --force` on every node that formed raft state (wipes the `raft/` directories; message data and `.clustering_id` are kept), and start the nodes. Leftover `.clustering_password` files are harmless under the etcd backend.
+
+#### If something goes wrong
+
+| Symptom | Cause / action |
+|---------|----------------|
+| A node exits with `Replication secret file missing or empty` | Step 1 was skipped or wrote a different secret on that node — re-copy `.clustering_password` |
+| A follower keeps logging failed join attempts | The bootstrapper isn't serving yet, `seed_uris` is wrong, or the management port is unreachable — it retries indefinitely, so fix the cause and wait |
+| A node exits with `rejected our clustering password` | Its `.clustering_password` differs from the cluster's — redo step 1 on that node and restart it |
+| Two nodes serve clients at once | Backends were mixed, or a follower was started with an empty `seed_uris` and bootstrapped its own cluster. Stop the extra "leader", run `lavinmqctl raft_reset --force` on it, give it the full `seed_uris`, and start it again — it rejoins and resyncs |
+
 ## Replication
 
 ### Bulk Sync
@@ -162,4 +249,4 @@ For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leade
 Followers authenticate to the leader using a shared replication secret. How it is stored depends on the clustering backend:
 
 - **`etcd`** — stored in etcd under `{etcd_prefix}/clustering_secret`, randomly generated on first cluster initialization. Every node reads it from etcd, so no manual distribution is needed.
-- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to join. The same secret also authenticates cluster-membership changes: the mutating `/raft/admin/*` endpoints on the management port accept it as the basic-auth password (any username). Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command.
+- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to join. The same secret also authenticates cluster-membership changes: the mutating `/raft/admin/*` endpoints on the management port accept it as the basic-auth password (any username). Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command. When migrating from the etcd backend, populate the file from the existing etcd secret instead — see [Migrating from the etcd backend to the raft backend](#migrating-from-the-etcd-backend-to-the-raft-backend).
