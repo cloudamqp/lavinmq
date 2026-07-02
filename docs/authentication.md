@@ -167,12 +167,12 @@ A token with these filtered scopes:
 
 ```
 tag:management
-read:%2F/.*
-write:%2F/orders
-configure:staging/temp.*
+read:%2F/*
+write:%2F/orders*
+configure:staging/temp*
 ```
 
-Grants the user the `management` tag, full read access on the `/` vhost, write access only to resources starting with `orders` on `/`, and configure access to resources matching `temp*` on the `staging` vhost.
+Grants the user the `management` tag, full read access on the `/` vhost, write access only to resources starting with `orders` on `/`, and configure access to resources starting with `temp` on the `staging` vhost.
 
 ### Token Refresh
 
