@@ -124,11 +124,10 @@ module MqttSpecs
           io = MQTT::Protocol::IO::V5.new(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
-          # An empty topic is only valid with an alias to resolve it; we allow none.
-          MQTT::Protocol::Publish.new(
-            topic: "", payload: "x".to_slice,
-            packet_id: 1u16, dup: false, qos: 1u8, retain: false,
-          ).to_io(io)
+          # The shard refuses to encode an empty-topic PUBLISH, so send raw bytes
+          # for a v5 QoS 0 PUBLISH with an empty topic, empty properties, payload
+          # "x": [0x30, remaining=4, topic-len=0x0000, props-len=0x00, 'x'].
+          io.write_bytes_raw(Bytes[0x30, 0x04, 0x00, 0x00, 0x00, 0x78])
           io.flush
 
           pkt = MQTT::Protocol::Packet.from_io(io)
