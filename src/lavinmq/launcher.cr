@@ -41,7 +41,11 @@ module LavinMQ
       end
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
-        @data_dir_lock = DataDirLock.new(@config.data_dir)
+        # Acquire before anything touches the data dir: the backend
+        # constructors below write .clustering_id, and the raft backend
+        # writes raft state during campaign — long before start() runs.
+        # This also means followers hold the lock, not just the leader.
+        @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
       end
 
       if @config.clustering?
@@ -74,7 +78,6 @@ module LavinMQ
     private def start : self
       Log.info { "Starting LavinMQ version #{LavinMQ::VERSION}" }
       started_at = Time.instant
-      @data_dir_lock.try &.acquire
       # Force-init the cluster secret before clustering listener starts. For
       # the raft backend, this requires being leader (we are — the backend yielded
       # to us). For etcd, this writes the key so follower watches fire.
