@@ -80,17 +80,10 @@ module LavinMQ::Raft
     # password. The follower file-sync skips this file (see Clustering::Client)
     # so replication can't delete it.
     def password : String
-      path = File.join(@config.data_dir, PASSWORD_FILE)
-      if File.exists?(path)
-        existing = File.read(path).strip
-        return existing unless existing.empty?
-        # A 0-byte/whitespace-only file (a crash between File.open("w")
-        # truncation and the write, a failed `openssl rand`, or an operator
-        # `touch`) must NOT be used verbatim — a blank secret would authenticate
-        # every follower. Treat it as missing: regenerate if we're the leader,
-        # else fail fast just like an absent file.
-        Log.warn { "Replication secret file is empty: #{path}; treating as missing" }
+      if secret = password?
+        return secret
       end
+      path = File.join(@config.data_dir, PASSWORD_FILE)
       unless @server.is_leader.value
         Log.fatal { "Replication secret file missing or empty: #{path}. Copy it from another node in the cluster." }
         exit 3
@@ -99,6 +92,25 @@ module LavinMQ::Raft
       File.open(path, "w", perm: 0o600, &.print(secret))
       Log.info { "Generated clustering password at #{path}; copy it to every other node before they join" }
       secret
+    end
+
+    # The secret when the file is present and non-blank; nil otherwise. Unlike
+    # #password it never generates a secret and never exits — boot-time
+    # callers (joining, /raft/admin auth) decide how to fail.
+    def password? : String?
+      path = File.join(@config.data_dir, PASSWORD_FILE)
+      return unless File.exists?(path)
+      if secret = File.read(path).strip.presence
+        secret
+      else
+        # A 0-byte/whitespace-only file (a crash between File.open("w")
+        # truncation and the write, a failed `openssl rand`, or an operator
+        # `touch`) must NOT be used verbatim — a blank secret would authenticate
+        # every follower. Treat it as missing: #password regenerates if we're
+        # the leader, else fails fast just like an absent file.
+        Log.warn { "Replication secret file is empty: #{path}; treating as missing" }
+        nil
+      end
     end
 
     def advertised_address : String
@@ -197,9 +209,18 @@ module LavinMQ::Raft
           end
         end
       in .join?
+        # Fail before the first HTTP roundtrip: without the shared secret the
+        # join can only ever be rejected (see RaftAdminAuth).
+        if password?.nil?
+          Log.fatal { "Replication secret file missing or empty: #{File.join(@config.data_dir, PASSWORD_FILE)}. Joining a cluster requires the shared secret; copy it from another node." }
+          exit 3
+        end
         Log.info { "Joining via seed URIs: #{@config.seed_uris.map(&.to_s).join(", ")}" }
         join_with_retry(@config.seed_uris)
       end
+    rescue ex : JoinAuthRejected
+      Log.fatal { "#{ex.message} — a live cluster exists but refused us; refusing to proceed (bootstrapping alongside it would split the cluster). Copy .clustering_password from an existing member and restart." }
+      exit 3
     end
 
     # Called only from the .bootstrap? branch — i.e. only when this node's
@@ -243,6 +264,12 @@ module LavinMQ::Raft
     # scheme / empty list) is a separate, permanent error and is NOT this type.
     class JoinExhausted < Exception; end
 
+    # A serving node answered 401/403: a live cluster exists but rejected our
+    # clustering password. Never transient — retrying with the same file is
+    # futile, and bootstrapping alongside would split the cluster — so
+    # maybe_bootstrap_or_join converts this to a fatal, actionable error.
+    class JoinAuthRejected < Exception; end
+
     # Retry a join sweep until it succeeds or stop() is called. join_via_seeds
     # raises JoinExhausted when every seed is unreachable or still electing; on
     # simultaneous boot the lowest-host bootstrapper may simply not be up yet,
@@ -282,19 +309,25 @@ module LavinMQ::Raft
         end
       end
       address = build_advertised_address
+      secret = password?
       last_error = "unknown error"
       max_attempts.times do |attempt|
         seeds.each do |uri|
           begin
             # The route and payload format are raft.cr's contract; AdminClient
             # keeps them in the shard. We own retry policy here.
-            status = ::Raft::HTTP::AdminClient.add_server(uri, @server.node_id.to_u64, address)
+            status = ::Raft::HTTP::AdminClient.add_server(authed(uri, secret), @server.node_id.to_u64, address)
             if status.ok?
               Log.info { "Joined cluster via #{uri} on attempt #{attempt + 1}" }
               return
             end
+            if status.unauthorized? || status.forbidden?
+              raise JoinAuthRejected.new("#{uri} rejected our clustering password (HTTP #{status.code})")
+            end
             last_error = "HTTP #{status.code} from #{uri}"
             Log.warn { "Join attempt #{attempt + 1}/#{max_attempts} to #{uri} got HTTP #{status.code}" }
+          rescue ex : JoinAuthRejected
+            raise ex
           rescue ex
             last_error = "#{uri}: #{ex.message}"
             Log.warn { "Join attempt #{attempt + 1}/#{max_attempts} to #{uri} failed: #{ex.message}" }
@@ -303,6 +336,17 @@ module LavinMQ::Raft
         sleep retry_interval unless attempt == max_attempts - 1
       end
       raise JoinExhausted.new("join exhausted #{max_attempts} attempts: #{last_error}")
+    end
+
+    # AdminClient takes basic auth from the URI userinfo; RaftAdminAuth on the
+    # serving node compares only the password, the username is ignored. The
+    # caller's URI is left untouched so logs never carry the secret.
+    private def authed(uri : URI, secret : String?) : URI
+      return uri unless secret
+      uri.dup.tap do |u|
+        u.user = "raft"
+        u.password = secret
+      end
     end
 
     HANDOFF_RETRY_INTERVAL = 1.second

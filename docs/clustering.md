@@ -55,7 +55,7 @@ advertised_uri = tcp://node1.example.com:5679
 seed_uris = http://node1.example.com:15672,http://node2.example.com:15672,http://node3.example.com:15672
 ```
 
-The same list goes on every node, including the node itself. Equivalent forms:
+The same list goes on every node, including the node itself. Joining is a `POST /raft/admin/add_server` call authenticated with the shared clustering secret: each node sends its `.clustering_password` automatically, so the seed URIs carry no credentials and formation never depends on the management user database. Equivalent forms:
 
 | Method | Syntax |
 |--------|--------|
@@ -74,7 +74,7 @@ chmod 0600 /var/lib/lavinmq/.clustering_password
 # copy the same file to every node (config management, a mounted secret, etc.)
 ```
 
-If you skip this, only the node that bootstraps will have a secret (it auto-generates one), and every other node logs a fatal "Replication secret file missing" error and exits when it tries to follow the leader — until you copy that file to them. A node that already has the file reads it as-is and never generates a new one, so pre-placing the same secret everywhere is safe.
+If you skip this, only the node that bootstraps will have a secret (it auto-generates one), and every other node logs a fatal "Replication secret file missing" error and exits before it even attempts to join — until you copy that file to them. A node whose file holds a *different* secret gets its join rejected and exits with a fatal error rather than retrying. A node that already has the correct file reads it as-is and never generates a new one, so pre-placing the same secret everywhere is safe.
 
 **`clustering_advertised_uri` must match a seed entry.** Each node identifies itself in the seed list by its advertised host. If a node's advertised host does not match any seed host, it will always attempt to join (never bootstrap) — a safe failure, but the cluster won't form if the lowest-host node never identifies itself.
 
@@ -162,4 +162,4 @@ For AMQP TCP traffic, the proxy prepends a PROXY protocol v1 header so the leade
 Followers authenticate to the leader using a shared replication secret. How it is stored depends on the clustering backend:
 
 - **`etcd`** — stored in etcd under `{etcd_prefix}/clustering_secret`, randomly generated on first cluster initialization. Every node reads it from etcd, so no manual distribution is needed.
-- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to follow the leader. Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command.
+- **`raft`** — stored in each node's `<data_dir>/.clustering_password` and **not** replicated between nodes. The bootstrapping node auto-generates one (mode `0600`) if absent; every other node must already have the *same* file or it exits when it tries to join. The same secret also authenticates cluster-membership changes: the mutating `/raft/admin/*` endpoints on the management port accept it as the basic-auth password (any username). Distribute the identical secret to all nodes before forming the cluster — see [Declarative cluster formation with `seed_uris`](#declarative-cluster-formation-with-seed_uris) for the prerequisite and the generation command.

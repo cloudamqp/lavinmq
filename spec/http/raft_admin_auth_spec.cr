@@ -1,6 +1,27 @@
 require "../spec_helper"
 require "base64"
 require "../../src/lavinmq/raft/backend"
+require "../../src/lavinmq/http/handler/raft_admin_auth"
+
+private CLUSTER_SECRET = "spec-cluster-secret"
+
+private def write_clustering_password(secret : String = CLUSTER_SECRET) : Nil
+  path = File.join(LavinMQ::Config.instance.data_dir, ".clustering_password")
+  File.write(path, secret)
+  File.chmod(path, 0o600)
+end
+
+private def basic(user : String, password : String) : String
+  "Basic " + Base64.strict_encode("#{user}:#{password}")
+end
+
+private def raft_admin_ctx(path : String, auth : String? = nil) : HTTP::Server::Context
+  headers = HTTP::Headers.new
+  headers["Authorization"] = auth if auth
+  request = HTTP::Request.new("POST", path, headers)
+  response = HTTP::Server::Response.new(IO::Memory.new)
+  HTTP::Server::Context.new(request, response)
+end
 
 private def with_raft_backend(&)
   config = LavinMQ::Config.instance
@@ -80,21 +101,57 @@ describe "raft HTTP surface authorization" do
       end
     end
 
-    it "refuses /raft/admin to a non-administrator" do
-      with_raft_http_server do |http, s|
-        s.users.create("mon", "pw", [LavinMQ::Tag::Monitoring])
-        auth = "Basic " + Base64.strict_encode("mon:pw")
-        response = http.post("/raft/admin/promote_learner/99", {"Authorization" => auth})
-        response.status_code.should eq 403
+    it "refuses /raft/admin to management users, even administrators" do
+      with_raft_http_server do |http, _s|
+        write_clustering_password
+        # guest is an administrator, but membership changes authenticate with
+        # the clustering password, not the user database.
+        response = http.post("/raft/admin/promote_learner/99")
+        response.status_code.should eq 401
       end
     end
 
-    it "allows /raft/admin for an administrator" do
+    it "refuses /raft/admin with a wrong clustering password" do
       with_raft_http_server do |http, _s|
-        # guest is an administrator; 400 (unknown learner) proves the request
-        # passed the guard and reached the admin handler.
-        response = http.post("/raft/admin/promote_learner/99")
+        write_clustering_password
+        response = http.post("/raft/admin/promote_learner/99",
+          {"Authorization" => basic("raft", "not-the-secret")})
+        response.status_code.should eq 401
+      end
+    end
+
+    it "allows /raft/admin with the clustering password, any username" do
+      with_raft_http_server do |http, _s|
+        write_clustering_password
+        # 400 (unknown learner) proves the request passed the guard and
+        # reached the admin handler.
+        response = http.post("/raft/admin/promote_learner/99",
+          {"Authorization" => basic("whoever", CLUSTER_SECRET)})
         response.status_code.should eq 400
+      end
+    end
+  end
+
+  describe LavinMQ::HTTP::RaftAdminAuth do
+    it "rejects the admin path while the password file is missing" do
+      with_raft_backend do |backend|
+        guard = LavinMQ::HTTP::RaftAdminAuth.new("/raft/admin/", backend)
+        reached = false
+        guard.next = ->(_ctx : HTTP::Server::Context) { reached = true }
+        ctx = raft_admin_ctx("/raft/admin/add_server/5", basic("raft", CLUSTER_SECRET))
+        guard.call(ctx)
+        ctx.response.status_code.should eq 401
+        reached.should be_false
+      end
+    end
+
+    it "passes requests outside the prefix through untouched" do
+      with_raft_backend do |backend|
+        guard = LavinMQ::HTTP::RaftAdminAuth.new("/raft/admin/", backend)
+        reached = false
+        guard.next = ->(_ctx : HTTP::Server::Context) { reached = true }
+        guard.call(raft_admin_ctx("/api/overview"))
+        reached.should be_true
       end
     end
   end

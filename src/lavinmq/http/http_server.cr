@@ -66,9 +66,13 @@ module LavinMQ
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         if raft_backend = backend.as?(LavinMQ::Raft::Backend)
+          # Joining nodes authenticate /raft/admin/* with the clustering
+          # password, not a management user, so the admin surface mounts
+          # before the auth stack behind its own guard (see RaftAdminAuth).
+          auth_index = handlers.index! { |h| h.is_a?(AuthHandler) }
+          handlers.insert(auth_index, raft_backend.admin_handler)
+          handlers.insert(auth_index, RaftAdminAuth.new("/raft/admin/", raft_backend))
           handlers << raft_backend.status_handler
-          handlers << AdminGuard.new("/raft/admin/")
-          handlers << raft_backend.admin_handler
         end
         @http = ::HTTP::Server.new(handlers)
       end

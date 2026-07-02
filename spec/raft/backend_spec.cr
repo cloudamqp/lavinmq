@@ -32,6 +32,32 @@ private def retry_until(timeout : Time::Span = 2.seconds, &block : -> Bool)
   end
 end
 
+private SPEC_CLUSTER_SECRET = "spec-cluster-secret"
+
+private def write_password_file(dir : String) : Nil
+  path = File.join(dir, ".clustering_password")
+  File.write(path, SPEC_CLUSTER_SECRET)
+  File.chmod(path, 0o600)
+end
+
+private def expected_join_auth : String
+  "Basic " + Base64.strict_encode("raft:#{SPEC_CLUSTER_SECRET}")
+end
+
+# Stub seed that accepts add_server only with the clustering password, like
+# a real node's RaftAdminAuth would.
+private def auth_checking_stub(&on_authed_hit : -> Nil) : HTTP::Server
+  HTTP::Server.new do |ctx|
+    if ctx.request.headers["Authorization"]? == expected_join_auth
+      on_authed_hit.call
+      ctx.response.status_code = 200
+      ctx.response.print %({"status":"added"})
+    else
+      ctx.response.status_code = 401
+    end
+  end
+end
+
 describe LavinMQ::Raft::Backend do
   describe ".leader_change_action" do
     self_id = 1_u64
@@ -404,16 +430,13 @@ describe LavinMQ::Raft::Backend do
     it "joins via seeds when not the lowest host" do
       dir = tmp_data_dir
       hit = false
-      stub = HTTP::Server.new do |ctx|
-        hit = true
-        ctx.response.status_code = 200
-        ctx.response.print %({"status":"added"})
-      end
+      stub = auth_checking_stub { hit = true }
       addr = stub.bind_tcp("127.0.0.1", 0)
       spawn { stub.listen }
       backend = nil.as(LavinMQ::Raft::Backend?)
       begin
         File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        write_password_file(dir)
         cfg = backend_config(dir, free_port, free_port)
         # Our advertised host won't be the lowest: seed "aaa" sorts below ours.
         cfg.clustering_advertised_uri = "tcp://zzz:#{free_port}"
@@ -435,16 +458,13 @@ describe LavinMQ::Raft::Backend do
     it "probes seeds and joins instead of bootstrapping when a seed answers (lowest-host disaster recovery)" do
       dir = tmp_data_dir
       target_hit = false
-      stub = HTTP::Server.new do |ctx|
-        target_hit = true
-        ctx.response.status_code = 200
-        ctx.response.print %({"status":"added"})
-      end
+      stub = auth_checking_stub { target_hit = true }
       addr = stub.bind_tcp("127.0.0.1", 0)
       spawn { stub.listen }
       backend = nil.as(LavinMQ::Raft::Backend?)
       begin
         File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        write_password_file(dir)
         cfg = backend_config(dir, free_port, free_port)
         # We ARE the lowest (only) seed host, so boot_action resolves to
         # Bootstrap — but the stub answering must make us join instead.
@@ -487,6 +507,53 @@ describe LavinMQ::Raft::Backend do
           fail "did not bootstrap after seed probe exhausted"
         end
         (Time.instant - started).should be < 5.seconds
+      ensure
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "refuses to bootstrap when the probe is auth-rejected (a live cluster refused our password)" do
+      stub = HTTP::Server.new do |ctx|
+        ctx.response.status_code = 401
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-cluster-401") { stub.listen }
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        write_password_file(dir) # present but not the cluster's
+        cfg = backend_config(dir, free_port, free_port)
+        # We are the (only) lowest seed host, so the decision is Bootstrap —
+        # but a 401 from the probe proves a live cluster refused us, and
+        # bootstrapping alongside it would split the cluster.
+        cfg.clustering_seed_uris = "http://#{addr}"
+        backend = LavinMQ::Raft::Backend.new(cfg)
+        expect_raises(SpecExit) do
+          backend.not_nil!.campaign { }
+        end
+      ensure
+        stub.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "exits with an actionable error when joining without a password file" do
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        cfg = backend_config(dir, free_port, free_port)
+        # Duplicate lowest hosts make the decision Join for everyone; the
+        # fatal must fire before any HTTP roundtrip, so unreachable seeds are
+        # fine (a real join would just retry them forever).
+        cfg.clustering_seed_uris = "http://aaa:1,http://aaa:2"
+        backend = LavinMQ::Raft::Backend.new(cfg)
+        expect_raises(SpecExit) do
+          backend.not_nil!.campaign { }
+        end
       ensure
         backend.try &.stop rescue nil
         FileUtils.rm_rf(dir)
@@ -594,6 +661,57 @@ describe LavinMQ::Raft::Backend do
       ensure
         reject.close
         accept.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "sends the clustering password as basic auth (username ignored by the server)" do
+      seen_auth = nil.as(String?)
+      stub = HTTP::Server.new do |ctx|
+        seen_auth = ctx.request.headers["Authorization"]?
+        ctx.response.status_code = 200
+        ctx.response.print %({"status":"added"})
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-auth-capture") { stub.listen }
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        write_password_file(dir)
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        backend.not_nil!.join_via_seeds([URI.parse("http://#{addr}")])
+        seen_auth.should eq expected_join_auth
+      ensure
+        stub.close
+        backend.try &.stop rescue nil
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "raises JoinAuthRejected on 401 instead of retrying" do
+      requests = 0
+      stub = HTTP::Server.new do |ctx|
+        requests += 1
+        ctx.response.status_code = 401
+      end
+      addr = stub.bind_tcp("127.0.0.1", 0)
+      spawn(name: "stub-always-401") { stub.listen }
+      dir = tmp_data_dir
+      backend = nil.as(LavinMQ::Raft::Backend?)
+      begin
+        File.write(File.join(dir, ".clustering_id"), 1.to_s(36))
+        write_password_file(dir)
+        backend = LavinMQ::Raft::Backend.new(backend_config(dir, free_port, free_port))
+        expect_raises(LavinMQ::Raft::Backend::JoinAuthRejected, /clustering password/) do
+          backend.not_nil!.join_via_seeds([URI.parse("http://#{addr}")],
+            max_attempts: 3, retry_interval: 1.millisecond)
+        end
+        # Auth rejection is permanent: no second sweep with the same file.
+        requests.should eq 1
+      ensure
+        stub.close
         backend.try &.stop rescue nil
         FileUtils.rm_rf(dir)
       end
