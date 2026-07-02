@@ -35,6 +35,9 @@ dependencies:
     github: 84codes/lz4.cr
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
+  termisu:
+    github: omarluq/termisu
+    version: ">= 0.5.0"
 
 development_dependencies:
   ameba:

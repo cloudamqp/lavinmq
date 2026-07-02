@@ -315,7 +315,37 @@ describe "LavinMQCtl" do
       end
     end
 
+    it "should start TUI with parsed interval" do
+      called = false
+      interval = nil.as(Float64?)
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, parsed_interval : Float64) {
+        called = true
+        interval = parsed_interval
+      }
+
+      result = run_lavinmqctl("localhost:15672", ["tui", "-i", "2.5"])
+      result[:exit].should eq(0)
+      called.should be_true
+      interval.should eq(2.5)
+    ensure
+      LavinMQCtl.tui_launcher = nil
+    end
+
     # Error cases
+    it "should fail when TUI interval is invalid" do
+      called = false
+      LavinMQCtl.tui_launcher = ->(_client : HTTP::Client, _interval : Float64) {
+        called = true
+      }
+
+      result = run_lavinmqctl("localhost:15672", ["tui", "-i", "0"])
+      result[:exit].should eq(1)
+      result[:stderr].should contain("Invalid interval: 0")
+      called.should be_false
+    ensure
+      LavinMQCtl.tui_launcher = nil
+    end
+
     it "should fail when creating user with missing password" do
       with_http_server do |(http, s)|
         result = run_lavinmqctl(http.addr.to_s, ["add_user", "testuser"])

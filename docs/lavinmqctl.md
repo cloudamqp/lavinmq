@@ -99,9 +99,35 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 |---------|-------------|
 | `status` | Display server status |
 | `cluster_status` | Display cluster status |
+| `tui [-i interval]` | Start the interactive dashboard |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
+
+The TUI poll interval is specified in seconds and must be positive. It defaults to `1.0`.
+The Overview page uses a compact panel layout with message-rate dot graphs,
+queue-depth graphs, node resource bars, and the busiest queues. The graph
+history comes from the management API logs when available and then rolls forward
+with each refresh.
+The dashboard pages are selected with number keys:
+
+| Key | Page |
+|-----|------|
+| `1` | Overview |
+| `2` | Queues |
+| `3` | Connections |
+| `4` | Channels |
+| `5` | Exchanges |
+| `6` | Consumers |
+| `7` | Vhosts |
+| `8` | Nodes |
+| `9` | Parameters |
+| `0` | Policies |
+| `s` | Shovels |
+| `f` | Federation |
+| `u` | Users |
+
+For local TUI inspection without a broker, run `extras/tui_inspect.sh`. It starts a mock management API, runs the TUI in `tmux`, captures each page to text files, and exits.
 
 ## Global Options
 
