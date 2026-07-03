@@ -56,7 +56,7 @@ module LavinMQ
       def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
         4.times do |idx|
-          byte = socket.read_byte || return
+          byte = socket.read_byte || return log_incomplete_header(log, idx)
           proto[idx] = byte
           next if byte == AMQP_PROTOCOL_PREFIX[idx]
 
@@ -66,7 +66,7 @@ module LavinMQ
           return
         end
         (4...8).each do |idx|
-          proto[idx] = socket.read_byte || return
+          proto[idx] = socket.read_byte || return log_incomplete_header(log, idx)
         end
         if proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
           :amqp091
@@ -85,6 +85,12 @@ module LavinMQ
           nil
         end
       rescue IO::EOFError
+        log.warn { "Client closed connection during protocol header, closing socket" }
+        nil
+      end
+
+      private def log_incomplete_header(log : Logger, count : Int32) : Symbol?
+        log.warn { "Incomplete protocol header (#{count} bytes) before disconnect, closing socket" }
         nil
       end
 

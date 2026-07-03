@@ -28,9 +28,13 @@ module LavinMQ::AMQP10
       vhost = resolve_vhost(socket, open, user, log) || return
 
       max_frame_size = negotiated_frame_max(open.max_frame_size)
-      client = Client.new(socket, connection_info, vhost, user, "PLAIN", max_frame_size)
+      # Advertise our own idle-timeout so dead peers are reaped, and honor the
+      # peer's so it does not drop us during idle periods.
+      local_idle_timeout = server_idle_timeout
+      remote_idle_timeout = open.idle_time_out
+      client = Client.new(socket, connection_info, vhost, user, "PLAIN", max_frame_size,
+        remote_idle_timeout, local_idle_timeout)
       client.send_open
-      socket.read_timeout = nil
       client
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
       log.warn { "#{ex} when #{connection_info.remote_address} tried to establish AMQP 1.0 connection" }
@@ -143,6 +147,13 @@ module LavinMQ::AMQP10
       fields = Array(Value).new(1)
       fields << ErrorInfo.new(condition, description).to_value
       FrameWriter.write_performative(socket, 0_u16, AMQP_FRAME_TYPE, Descriptor::CLOSE, fields)
+    end
+
+    # Derive the AMQP 1.0 idle-timeout (milliseconds) from the configured
+    # heartbeat, or nil to disable idle-timeout enforcement.
+    private def server_idle_timeout : UInt32?
+      heartbeat = Config.instance.heartbeat
+      heartbeat.zero? ? nil : heartbeat.to_u32 * 1000
     end
 
     private def negotiated_frame_max(client_frame_max) : UInt32
