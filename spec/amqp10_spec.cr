@@ -691,6 +691,22 @@ describe LavinMQ::AMQP10::Codec do
     end
   end
 
+  it "rejects a list element that overruns the list's own declared size" do
+    payload = IO::Memory.new
+    payload.write_byte 0xc0_u8                         # list8
+    payload.write_byte 7_u8                            # size: count byte + 6 payload bytes
+    payload.write_byte 1_u8                            # count: 1 element
+    payload.write_byte 0xb1_u8                         # string32 constructor
+    LavinMQ::AMQP10::Codec.write_u32(payload, 100_u32) # claims a 100-byte string,
+    payload.write Bytes.new(100)                       # far larger than the list's own 6-byte payload
+    # but still present in the surrounding buffer, so the read itself succeeds
+    # and only the post-loop "did we overrun end_pos" check can catch it.
+
+    expect_raises(LavinMQ::AMQP10::DecodeError, /overran declared size/) do
+      LavinMQ::AMQP10::Codec.decode(IO::Memory.new(payload.to_slice))
+    end
+  end
+
   it "raises DecodeError for oversized variable-width values" do
     payload = IO::Memory.new
     payload.write_byte 0xb1_u8

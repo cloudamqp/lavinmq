@@ -131,7 +131,7 @@ module LavinMQ::AMQP10
     private def peek_null(reader) : Bool
       # Peek without consuming, rather than reading-then-rewinding, to avoid
       # complicating the hot path with a rewind.
-      if Codec.remaining(reader) > 0
+      if reader.bytesize - reader.pos > 0
         # Null is a single byte and never followed by payload.
         slice = reader.peek
         if slice[0] == 0x40_u8

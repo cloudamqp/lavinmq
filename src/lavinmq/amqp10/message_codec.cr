@@ -18,7 +18,7 @@ module LavinMQ::AMQP10
       body = EMPTY_BODY
       body_io : IO::Memory? = nil
 
-      until Codec.exhausted?(reader)
+      until reader.pos >= reader.bytesize
         descriptor = read_descriptor_code(reader)
         case descriptor
         when Descriptor::HEADER
@@ -103,9 +103,9 @@ module LavinMQ::AMQP10
       when 0x50 then Codec.read_byte(reader).to_u64
       when 0x52 then Codec.read_byte(reader).to_u64
       when 0x53 then Codec.read_byte(reader).to_u64
-      when 0x60 then Codec.read_u16(reader).to_u64
-      when 0x70 then Codec.read_u32(reader).to_u64
-      when 0x80 then Codec.read_u64(reader)
+      when 0x60 then reader.read_bytes(UInt16, IO::ByteFormat::NetworkEndian).to_u64
+      when 0x70 then reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian).to_u64
+      when 0x80 then reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
       else
         raise DecodeError.new("expected uint-like value, got 0x#{code.to_s(16)}")
       end
@@ -221,17 +221,17 @@ module LavinMQ::AMQP10
       when 0x54 then Codec.read_byte(reader).to_i8!.to_i32
       when 0x55 then Codec.read_byte(reader).to_i8!.to_i64
       when 0x56 then !Codec.read_byte(reader).zero?
-      when 0x60 then Codec.read_u16(reader)
-      when 0x61 then Codec.read_i16(reader)
-      when 0x70 then Codec.read_u32(reader)
-      when 0x71 then Codec.read_i32(reader)
-      when 0x72 then Codec.read_f32(reader)
+      when 0x60 then reader.read_bytes(UInt16, IO::ByteFormat::NetworkEndian)
+      when 0x61 then reader.read_bytes(Int16, IO::ByteFormat::NetworkEndian)
+      when 0x70 then reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      when 0x71 then reader.read_bytes(Int32, IO::ByteFormat::NetworkEndian)
+      when 0x72 then reader.read_bytes(Float32, IO::ByteFormat::NetworkEndian)
       when 0x80
-        value = Codec.read_u64(reader)
+        value = reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
         value <= Int64::MAX ? value.to_i64 : nil
-      when 0x81       then Codec.read_i64(reader)
-      when 0x82       then Codec.read_f64(reader)
-      when 0x83       then safe_time(Codec.read_i64(reader))
+      when 0x81       then reader.read_bytes(Int64, IO::ByteFormat::NetworkEndian)
+      when 0x82       then reader.read_bytes(Float64, IO::ByteFormat::NetworkEndian)
+      when 0x83       then safe_time(reader.read_bytes(Int64, IO::ByteFormat::NetworkEndian))
       when 0xa0       then Codec.read_slice(reader, Codec.read_byte(reader).to_i)
       when 0xb0       then Codec.read_slice(reader, Codec.read_size32(reader, "binary32"))
       when 0xa1, 0xa3 then reader.read_string(Codec.read_byte(reader).to_i)
@@ -303,13 +303,13 @@ module LavinMQ::AMQP10
       when 0x52
         Codec.read_byte(reader).to_s
       when 0x70
-        Codec.read_u32(reader).to_s
+        reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian).to_s
       when 0x44
         "0"
       when 0x53
         Codec.read_byte(reader).to_s
       when 0x80
-        Codec.read_u64(reader).to_s
+        reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian).to_s
       when 0xa0
         reader.read_string(Codec.read_byte(reader).to_i)
       when 0xb0
@@ -325,7 +325,7 @@ module LavinMQ::AMQP10
     private def read_timestamp_value(reader) : Int64?
       case code = Codec.read_byte(reader)
       when 0x40 then nil
-      when 0x83 then Codec.read_i64(reader)
+      when 0x83 then reader.read_bytes(Int64, IO::ByteFormat::NetworkEndian)
       else
         skip_value_payload(reader, code)
         nil
@@ -349,10 +349,10 @@ module LavinMQ::AMQP10
       when 0x40             then nil
       when 0x43, 0x44       then 0_u32
       when 0x50, 0x52, 0x53 then Codec.read_byte(reader).to_u32
-      when 0x60             then Codec.read_u16(reader).to_u32
-      when 0x70             then Codec.read_u32(reader)
+      when 0x60             then reader.read_bytes(UInt16, IO::ByteFormat::NetworkEndian).to_u32
+      when 0x70             then reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
       when 0x80
-        value = Codec.read_u64(reader)
+        value = reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
         value <= UInt32::MAX ? value.to_u32 : nil
       else
         skip_value_payload(reader, code)
@@ -385,13 +385,13 @@ module LavinMQ::AMQP10
       when 0x43, 0x44       then 0_u8
       when 0x50, 0x52, 0x53 then Codec.read_byte(reader)
       when 0x60
-        value = Codec.read_u16(reader)
+        value = reader.read_bytes(UInt16, IO::ByteFormat::NetworkEndian)
         value <= UInt8::MAX ? value.to_u8 : nil
       when 0x70
-        value = Codec.read_u32(reader)
+        value = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
         value <= UInt8::MAX ? value.to_u8 : nil
       when 0x80
-        value = Codec.read_u64(reader)
+        value = reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
         value <= UInt8::MAX ? value.to_u8 : nil
       else
         skip_value_payload(reader, code)
@@ -464,7 +464,7 @@ module LavinMQ::AMQP10
         raise DecodeError.new("#{type} size #{size} smaller than count field")
       end
       payload_size = size - 1
-      if payload_size > Codec.remaining(reader)
+      if payload_size > reader.bytesize - reader.pos
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       if count > payload_size
@@ -474,13 +474,13 @@ module LavinMQ::AMQP10
     end
 
     private def read_compound32_header(reader : IO::Memory, type : String) : Tuple(Int32, Int32)
-      size = Codec.read_u32(reader)
-      count = Codec.read_u32(reader)
+      size = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      count = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
       if size < 4
         raise DecodeError.new("#{type} size #{size} smaller than count field")
       end
       payload_size = size - 4
-      if payload_size > Codec.remaining(reader).to_u32
+      if payload_size > (reader.bytesize - reader.pos).to_u32
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       if count > payload_size
