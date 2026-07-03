@@ -330,6 +330,52 @@ module LavinMQ::AMQP10
       CounterIO.count { |io| write_described_list(io, code, fields) }
     end
 
+    # Shared with TransferCodec's direct-field writers below, and with
+    # client.cr/types.cr's direct-field performative senders -- a single
+    # implementation for the "described-list header" shape used throughout
+    # AMQP 1.0's wire format, not a generic Value/Array round-trip.
+    def write_descriptor(io : IO, code : UInt64) : Nil
+      io.write_byte 0x00_u8
+      write_ulong(io, code)
+    end
+
+    def write_list_header(io : IO, fields_size : Int32, count : Int32) : Nil
+      write_compound_header(io, 0xc0_u8, 0xd0_u8, fields_size, count)
+    end
+
+    def write_compound_header(io : IO, code8 : UInt8, code32 : UInt8, fields_size : Int32, count : Int32) : Nil
+      if fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX
+        io.write_byte code8
+        io.write_byte((fields_size + 1).to_u8)
+        io.write_byte count.to_u8
+      else
+        io.write_byte code32
+        write_u32(io, (fields_size + 4).to_u32)
+        write_u32(io, count.to_u32)
+      end
+    end
+
+    def list_header_size(fields_size) : Int32
+      fields_size + 1 <= UInt8::MAX ? 3 : 9
+    end
+
+    def uint_size(value) : Int32
+      value = value.to_u64
+      value.zero? ? 1 : value <= UInt8::MAX ? 2 : 5
+    end
+
+    def string_size(value : String) : Int32
+      (value.bytesize <= UInt8::MAX ? 2 : 5) + value.bytesize
+    end
+
+    def nullable_string_size(value : String?) : Int32
+      value ? string_size(value) : 1
+    end
+
+    def write_nullable_string(io : IO, value : String?) : Nil
+      value ? write_string(io, value) : io.write_byte(0x40_u8)
+    end
+
     def write_u16(io : IO, value : UInt16) : Nil
       io.write_bytes value, IO::ByteFormat::NetworkEndian
     end

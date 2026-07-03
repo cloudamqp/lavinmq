@@ -162,11 +162,11 @@ module LavinMQ::AMQP10
 
     def write_disposition(io : IO, channel : UInt16, first : UInt32, outcome : Outcome, settled = true) : Nil
       state_size = outcome_size(outcome)
-      fields_size = 1 + 1 + uint_size(first) + 1 + state_size
-      frame_size = 8 + 3 + list_header_size(fields_size) + fields_size
+      fields_size = 1 + 1 + Codec.uint_size(first) + 1 + state_size
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
-      write_descriptor(io, Descriptor::DISPOSITION)
-      write_list_header(io, fields_size, 5)
+      Codec.write_descriptor(io, Descriptor::DISPOSITION)
+      Codec.write_list_header(io, fields_size, 5)
       io.write_byte 0x41_u8 # role receiver=true
       Codec.write_uint(io, first)
       io.write_byte 0x40_u8 # last
@@ -178,11 +178,11 @@ module LavinMQ::AMQP10
     def write_flow(io : IO, channel : UInt16, next_incoming_id : UInt32, incoming_window : UInt32,
                    next_outgoing_id : UInt32, outgoing_window : UInt32, handle : UInt32? = nil,
                    delivery_count : UInt32? = nil, link_credit : UInt32? = nil, drain : Bool = false) : UInt64
-      fields_size = uint_size(next_incoming_id) + uint_size(incoming_window) +
-                    uint_size(next_outgoing_id) + uint_size(outgoing_window)
+      fields_size = Codec.uint_size(next_incoming_id) + Codec.uint_size(incoming_window) +
+                    Codec.uint_size(next_outgoing_id) + Codec.uint_size(outgoing_window)
       fields_count = 4
       if handle
-        fields_size += uint_size(handle) + uint_size(delivery_count || 0_u32) + uint_size(link_credit || 0_u32)
+        fields_size += Codec.uint_size(handle) + Codec.uint_size(delivery_count || 0_u32) + Codec.uint_size(link_credit || 0_u32)
         fields_count = 7
         if drain
           # available (field 7) is encoded as null, drain (field 8) as a boolean
@@ -190,10 +190,10 @@ module LavinMQ::AMQP10
           fields_count = 9
         end
       end
-      frame_size = 8 + 3 + list_header_size(fields_size) + fields_size
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
-      write_descriptor(io, Descriptor::FLOW)
-      write_list_header(io, fields_size, fields_count)
+      Codec.write_descriptor(io, Descriptor::FLOW)
+      Codec.write_list_header(io, fields_size, fields_count)
       Codec.write_uint(io, next_incoming_id)
       Codec.write_uint(io, incoming_window)
       Codec.write_uint(io, next_outgoing_id)
@@ -251,10 +251,10 @@ module LavinMQ::AMQP10
       props = msg.properties
       header_count = header_field_count(props)
       header_fields = header_count.zero? ? 0 : header_fields_size(props, header_count)
-      header_sec = header_count.zero? ? 0 : 3 + list_header_size(header_fields) + header_fields
+      header_sec = header_count.zero? ? 0 : 3 + Codec.list_header_size(header_fields) + header_fields
       props_count = properties_field_count(props)
       props_fields = props_count.zero? ? 0 : properties_fields_size(props, props_count)
-      props_sec = props_count.zero? ? 0 : 3 + list_header_size(props_fields) + props_fields
+      props_sec = props_count.zero? ? 0 : 3 + Codec.list_header_size(props_fields) + props_fields
       headers = props.headers
       if headers && !headers.empty?
         app_fields = application_properties_fields_size(headers)
@@ -273,7 +273,7 @@ module LavinMQ::AMQP10
       write_header_section(io, msg.properties, sizes.header_count, sizes.header_fields)
       write_properties_section(io, msg.properties, sizes.props_count, sizes.props_fields)
       write_application_properties_section(io, msg.properties.headers, sizes.app_fields)
-      write_descriptor(io, Descriptor::DATA)
+      Codec.write_descriptor(io, Descriptor::DATA)
       write_binary_header(io, msg.bodysize)
     end
 
@@ -399,11 +399,11 @@ module LavinMQ::AMQP10
     def write_transfer_performative(io, handle, delivery_id, delivery_tag, more, settled) : Nil
       # fields: handle(0) delivery-id(1) delivery-tag(2) message-format(3) settled(4) more(5)
       fields_count = more ? 6 : (settled ? 5 : 4)
-      fields_size = uint_size(handle) + uint_size(delivery_id) + binary_size(delivery_tag) + 1
+      fields_size = Codec.uint_size(handle) + Codec.uint_size(delivery_id) + binary_size(delivery_tag) + 1
       fields_size += 1 if settled || more # settled field (bool or null)
       fields_size += 1 if more            # more field
-      write_descriptor(io, Descriptor::TRANSFER)
-      write_list_header(io, fields_size, fields_count)
+      Codec.write_descriptor(io, Descriptor::TRANSFER)
+      Codec.write_list_header(io, fields_size, fields_count)
       Codec.write_uint(io, handle)
       Codec.write_uint(io, delivery_id)
       Codec.write_binary(io, delivery_tag)
@@ -417,18 +417,18 @@ module LavinMQ::AMQP10
     end
 
     def transfer_performative_size(handle, delivery_id, delivery_tag, more, settled) : Int32
-      fields_size = uint_size(handle) + uint_size(delivery_id) + binary_size(delivery_tag) + 1
+      fields_size = Codec.uint_size(handle) + Codec.uint_size(delivery_id) + binary_size(delivery_tag) + 1
       fields_size += 1 if settled || more
       fields_size += 1 if more
-      3 + list_header_size(fields_size) + fields_size
+      3 + Codec.list_header_size(fields_size) + fields_size
     end
 
     private def write_continuation_transfer_performative(io, handle, more) : Nil
       fields_count = more ? 6 : 1
-      fields_size = uint_size(handle)
+      fields_size = Codec.uint_size(handle)
       fields_size += 5 if more
-      write_descriptor(io, Descriptor::TRANSFER)
-      write_list_header(io, fields_size, fields_count)
+      Codec.write_descriptor(io, Descriptor::TRANSFER)
+      Codec.write_list_header(io, fields_size, fields_count)
       Codec.write_uint(io, handle)
       if more
         4.times { io.write_byte 0x40_u8 }
@@ -437,9 +437,9 @@ module LavinMQ::AMQP10
     end
 
     private def continuation_transfer_performative_size(handle, more) : Int32
-      fields_size = uint_size(handle)
+      fields_size = Codec.uint_size(handle)
       fields_size += 5 if more
-      3 + list_header_size(fields_size) + fields_size
+      3 + Codec.list_header_size(fields_size) + fields_size
     end
 
     private def header_ttl(props) : UInt32?
@@ -462,7 +462,7 @@ module LavinMQ::AMQP10
                 when 0 then 1                      # durable bool
                 when 1 then props.priority ? 2 : 1 # ubyte or null
                 when 2
-                  (ttl = header_ttl(props)) ? uint_size(ttl) : 1
+                  (ttl = header_ttl(props)) ? Codec.uint_size(ttl) : 1
                 else 1
                 end
         index += 1
@@ -472,8 +472,8 @@ module LavinMQ::AMQP10
 
     private def write_header_section(io, props, count : Int32, fields_size : Int32) : Nil
       return if count.zero?
-      write_descriptor(io, Descriptor::HEADER)
-      write_list_header(io, fields_size, count)
+      Codec.write_descriptor(io, Descriptor::HEADER)
+      Codec.write_list_header(io, fields_size, count)
       index = 0
       while index < count
         case index
@@ -499,17 +499,17 @@ module LavinMQ::AMQP10
     # ameba:disable Metrics/CyclomaticComplexity
     private def write_properties_section(io, props, count : Int32, fields_size : Int32) : Nil
       return if count.zero?
-      write_descriptor(io, Descriptor::PROPERTIES)
-      write_list_header(io, fields_size, count)
+      Codec.write_descriptor(io, Descriptor::PROPERTIES)
+      Codec.write_list_header(io, fields_size, count)
       index = 0
       while index < count
         case index
-        when 0 then write_nullable_string(io, props.message_id)
+        when 0 then Codec.write_nullable_string(io, props.message_id)
         when 1 then write_nullable_binary_string(io, props.user_id)
         when 2 then io.write_byte 0x40_u8
-        when 3 then write_nullable_string(io, props.type)
-        when 4 then write_nullable_string(io, props.reply_to)
-        when 5 then write_nullable_string(io, props.correlation_id)
+        when 3 then Codec.write_nullable_string(io, props.type)
+        when 4 then Codec.write_nullable_string(io, props.reply_to)
+        when 5 then Codec.write_nullable_string(io, props.correlation_id)
         when 6 then write_nullable_symbol(io, props.content_type)
         when 7 then write_nullable_symbol(io, props.content_encoding)
         when 8 then io.write_byte 0x40_u8
@@ -530,7 +530,7 @@ module LavinMQ::AMQP10
     private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?, fields_size : Int32) : Nil
       return unless headers
       return if headers.empty?
-      write_descriptor(io, Descriptor::APPLICATION_PROPERTIES)
+      Codec.write_descriptor(io, Descriptor::APPLICATION_PROPERTIES)
       write_map_header(io, fields_size, headers.size * 2)
       headers.each do |key, value|
         Codec.write_string(io, key)
@@ -557,13 +557,13 @@ module LavinMQ::AMQP10
       index = 0
       while index < count
         size += case index
-                when 0 then nullable_string_size(props.message_id)
+                when 0 then Codec.nullable_string_size(props.message_id)
                 when 1 then nullable_binary_string_size(props.user_id)
-                when 3 then nullable_string_size(props.type)
-                when 4 then nullable_string_size(props.reply_to)
-                when 5 then nullable_string_size(props.correlation_id)
-                when 6 then nullable_string_size(props.content_type)
-                when 7 then nullable_string_size(props.content_encoding)
+                when 3 then Codec.nullable_string_size(props.type)
+                when 4 then Codec.nullable_string_size(props.reply_to)
+                when 5 then Codec.nullable_string_size(props.correlation_id)
+                when 6 then Codec.nullable_string_size(props.content_type)
+                when 7 then Codec.nullable_string_size(props.content_encoding)
                 when 9 then props.timestamp_raw ? 9 : 1
                 else        1
                 end
@@ -572,42 +572,12 @@ module LavinMQ::AMQP10
       size
     end
 
-    private def write_descriptor(io, code : UInt64) : Nil
-      io.write_byte 0x00_u8
-      Codec.write_ulong(io, code)
-    end
-
-    private def write_list_header(io, fields_size : Int32, count : Int32) : Nil
-      write_compound_header(io, 0xc0_u8, 0xd0_u8, fields_size, count)
-    end
-
     private def write_map_header(io, fields_size : Int32, count : Int32) : Nil
-      write_compound_header(io, 0xc1_u8, 0xd1_u8, fields_size, count)
-    end
-
-    private def write_compound_header(io, code8 : UInt8, code32 : UInt8, fields_size : Int32, count : Int32) : Nil
-      if fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX
-        io.write_byte code8
-        io.write_byte((fields_size + 1).to_u8)
-        io.write_byte count.to_u8
-      else
-        io.write_byte code32
-        Codec.write_u32(io, (fields_size + 4).to_u32)
-        Codec.write_u32(io, count.to_u32)
-      end
-    end
-
-    private def list_header_size(fields_size) : Int32
-      fields_size + 1 <= UInt8::MAX ? 3 : 9
+      Codec.write_compound_header(io, 0xc1_u8, 0xd1_u8, fields_size, count)
     end
 
     private def map_header_size(fields_size, count) : Int32
       fields_size + 1 <= UInt8::MAX && count <= UInt8::MAX ? 3 : 9
-    end
-
-    private def uint_size(value) : Int32
-      value = value.to_u64
-      value.zero? ? 1 : value <= UInt8::MAX ? 2 : 5
     end
 
     private def binary_size(value : Bytes) : Int32
@@ -628,29 +598,17 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def nullable_string_size(value : String?) : Int32
-      value ? string_size(value) : 1
-    end
-
     private def nullable_binary_string_size(value : String?) : Int32
       value ? binary_header_size(value.bytesize.to_u64) + value.bytesize : 1
-    end
-
-    private def string_size(value : String) : Int32
-      (value.bytesize <= UInt8::MAX ? 2 : 5) + value.bytesize
     end
 
     private def application_properties_fields_size(headers : LavinMQ::AMQP::Table) : Int32
       size = 0
       headers.each do |key, value|
-        size += string_size(key)
+        size += Codec.string_size(key)
         size += application_property_value_size(value)
       end
       size
-    end
-
-    private def write_nullable_string(io, value : String?) : Nil
-      value ? Codec.write_string(io, value) : io.write_byte(0x40_u8)
     end
 
     private def write_nullable_symbol(io, value : String?) : Nil
@@ -678,7 +636,7 @@ module LavinMQ::AMQP10
       when Int32
         int_size(value)
       when UInt32
-        uint_size(value)
+        Codec.uint_size(value)
       when Float32
         5
       when Int64
@@ -686,11 +644,11 @@ module LavinMQ::AMQP10
       when Float64, Time
         9
       when String
-        string_size(value)
+        Codec.string_size(value)
       when Bytes
         binary_size(value)
       else
-        string_size(value.to_s)
+        Codec.string_size(value.to_s)
       end
     end
 
@@ -755,13 +713,13 @@ module LavinMQ::AMQP10
     private def write_outcome(io, outcome : Outcome) : Nil
       case outcome
       in .accepted?
-        write_descriptor(io, Descriptor::ACCEPTED)
+        Codec.write_descriptor(io, Descriptor::ACCEPTED)
       in .released?
-        write_descriptor(io, Descriptor::RELEASED)
+        Codec.write_descriptor(io, Descriptor::RELEASED)
       in .rejected?
-        write_descriptor(io, Descriptor::REJECTED)
+        Codec.write_descriptor(io, Descriptor::REJECTED)
       in .modified?
-        write_descriptor(io, Descriptor::MODIFIED)
+        Codec.write_descriptor(io, Descriptor::MODIFIED)
       end
       io.write_byte 0x45_u8
     end
