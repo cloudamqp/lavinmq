@@ -13,8 +13,8 @@ require "../amqp/queue/event"
 require "../amqp/queue"
 require "./address"
 require "./frame"
+require "./io_memory_reset"
 require "./message_codec"
-require "./slice_io"
 require "./transfer_codec"
 require "./types"
 
@@ -36,7 +36,7 @@ module LavinMQ::AMQP10
     @exclusive_queues = Array(LavinMQ::AMQP::Queue).new
     @running = true
     @write_lock = Mutex.new(:checked)
-    @descriptor_reader = SliceReader.new
+    @descriptor_reader = IO::Memory.new(Bytes.empty)
     @acl_write_cache = Auth::PermissionCache.new
     @last_recv = RoughTime.instant
     # idle-time-out negotiated with the peer (milliseconds):
@@ -426,7 +426,7 @@ module LavinMQ::AMQP10
       when Descriptor::TRANSFER
         reader = frame.body_reader
         transfer = TransferCodec.read_transfer(reader)
-        session(frame.channel).transfer(transfer, reader.remaining_slice)
+        session(frame.channel).transfer(transfer, reader.peek)
         return
       when Descriptor::DISPOSITION
         session(frame.channel).disposition(TransferCodec.read_disposition(frame.body_reader))

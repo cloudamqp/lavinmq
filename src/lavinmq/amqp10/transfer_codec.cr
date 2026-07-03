@@ -23,7 +23,7 @@ module LavinMQ::AMQP10
       state_present : Bool
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def read_transfer(reader : SliceReader) : TransferView
+    def read_transfer(reader : IO::Memory) : TransferView
       descriptor = MessageCodec.read_descriptor_code(reader)
       raise DecodeError.new("expected transfer") unless descriptor == Descriptor::TRANSFER
       count, end_pos = MessageCodec.read_list_header(reader)
@@ -66,7 +66,7 @@ module LavinMQ::AMQP10
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def read_disposition(reader : SliceReader) : DispositionView
+    def read_disposition(reader : IO::Memory) : DispositionView
       descriptor = MessageCodec.read_descriptor_code(reader)
       raise DecodeError.new("expected disposition") unless descriptor == Descriptor::DISPOSITION
       count, end_pos = MessageCodec.read_list_header(reader)
@@ -129,11 +129,11 @@ module LavinMQ::AMQP10
     end
 
     private def peek_null(reader) : Bool
-      # SliceReader is cheap to copy; peek by consuming and rewinding via a copy
-      # is deliberately avoided because rewinding would complicate the hot path.
-      if reader.remaining > 0
+      # Peek without consuming, rather than reading-then-rewinding, to avoid
+      # complicating the hot path with a rewind.
+      if Codec.remaining(reader) > 0
         # Null is a single byte and never followed by payload.
-        slice = reader.remaining_slice
+        slice = reader.peek
         if slice[0] == 0x40_u8
           reader.skip(1)
           return true
