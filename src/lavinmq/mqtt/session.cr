@@ -3,6 +3,7 @@ require "./protocol"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
+require "../peekable"
 require "../sortable_json"
 require "./client"
 require "../policy"
@@ -18,6 +19,7 @@ module LavinMQ
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
+      include Peekable
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
@@ -370,6 +372,20 @@ module LavinMQ
         count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
         count
+      end
+
+      # Non-destructive peek at messages delivered to the client but not yet acked.
+      def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
+        return if count <= 0
+
+        yielded = 0
+        @unacked.values.each.skip(offset).each do |sp|
+          break if yielded >= count
+          if message = peek_copy(sp, redelivered: false, max_body: max_body)
+            block.call(message)
+            yielded += 1
+          end
+        end
       end
 
       def in_use? : Bool
