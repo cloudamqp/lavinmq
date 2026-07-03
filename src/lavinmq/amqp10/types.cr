@@ -45,16 +45,12 @@ module LavinMQ::AMQP10
     INVALID_FIELD           = "amqp:invalid-field"
     NOT_IMPLEMENTED         = "amqp:not-implemented"
     RESOURCE_LOCKED         = "amqp:resource-locked"
+    RESOURCE_DELETED        = "amqp:resource-deleted"
     PRECONDITION_FAILED     = "amqp:precondition-failed"
     ILLEGAL_STATE           = "amqp:illegal-state"
   end
 
   enum Role
-    Sender
-    Receiver
-  end
-
-  enum LinkKind
     Sender
     Receiver
   end
@@ -144,7 +140,8 @@ module LavinMQ::AMQP10
   record Open,
     container_id : String,
     hostname : String?,
-    max_frame_size : UInt32 = Config.instance.frame_max do
+    max_frame_size : UInt32 = Config.instance.frame_max,
+    idle_time_out : UInt32? = nil do
     def self.from_value(value : Value) : Open
       described = value.described? || raise DecodeError.new("expected open")
       raise DecodeError.new("expected open") unless described.descriptor_code? == Descriptor::OPEN
@@ -152,17 +149,26 @@ module LavinMQ::AMQP10
       container_id = fields[0]?.try(&.string_like?) || ""
       hostname = fields[1]?.try &.string_like?
       max_frame_size = fields[2]?.try(&.uint?).try(&.to_u32) || Config.instance.frame_max
-      new(container_id, hostname, max_frame_size)
+      # field 3 is channel-max, field 4 is idle-time-out (milliseconds)
+      idle_time_out = fields[4]?.try(&.uint?).try(&.to_u32)
+      new(container_id, hostname, max_frame_size, idle_time_out)
     end
   end
 
-  record Begin, remote_channel : UInt16? = nil do
+  record Begin,
+    remote_channel : UInt16? = nil,
+    next_outgoing_id : UInt32 = 0_u32,
+    incoming_window : UInt32 = DEFAULT_WINDOW,
+    outgoing_window : UInt32 = DEFAULT_WINDOW do
     def self.from_value(value : Value) : Begin
       described = value.described? || raise DecodeError.new("expected begin")
       raise DecodeError.new("expected begin") unless described.descriptor_code? == Descriptor::BEGIN
       fields = described.value.list? || Array(Value).new
       remote_channel = fields[0]?.try(&.uint?).try(&.to_u16)
-      new(remote_channel)
+      next_outgoing_id = fields[1]?.try(&.uint?).try(&.to_u32) || 0_u32
+      incoming_window = fields[2]?.try(&.uint?).try(&.to_u32) || DEFAULT_WINDOW
+      outgoing_window = fields[3]?.try(&.uint?).try(&.to_u32) || DEFAULT_WINDOW
+      new(remote_channel, next_outgoing_id, incoming_window, outgoing_window)
     end
   end
 
@@ -222,52 +228,6 @@ module LavinMQ::AMQP10
     end
   end
 
-  record Transfer,
-    handle : UInt32,
-    delivery_id : UInt32?,
-    delivery_tag : Bytes?,
-    message_format : UInt32?,
-    settled : Bool,
-    more : Bool,
-    state : Value?,
-    aborted : Bool do
-    def self.decode(reader : SliceReader) : Transfer
-      value = Codec.decode(reader)
-      described = value.described? || raise DecodeError.new("expected transfer")
-      raise DecodeError.new("expected transfer") unless described.descriptor_code? == Descriptor::TRANSFER
-      fields = described.value.list? || raise DecodeError.new("transfer fields must be list")
-      handle = fields[0]?.try(&.uint?).try(&.to_u32) || raise DecodeError.new("transfer missing handle")
-      delivery_id = fields[1]?.try(&.uint?).try(&.to_u32)
-      delivery_tag = fields[2]?.try &.binary?
-      message_format = fields[3]?.try(&.uint?).try(&.to_u32)
-      settled = fields[4]?.try(&.bool?) || false
-      more = fields[5]?.try(&.bool?) || false
-      state = fields[7]?
-      aborted = fields[9]?.try(&.bool?) || false
-      new(handle, delivery_id, delivery_tag, message_format, settled, more, state, aborted)
-    end
-  end
-
-  record Disposition,
-    role : Role,
-    first : UInt32,
-    last : UInt32?,
-    settled : Bool,
-    state : Value? do
-    def self.from_value(value : Value) : Disposition
-      described = value.described? || raise DecodeError.new("expected disposition")
-      raise DecodeError.new("expected disposition") unless described.descriptor_code? == Descriptor::DISPOSITION
-      fields = described.value.list? || raise DecodeError.new("disposition fields must be list")
-      role_bool = fields[0]?.try(&.bool?) || raise DecodeError.new("disposition missing role")
-      role = role_bool ? Role::Receiver : Role::Sender
-      first = fields[1]?.try(&.uint?).try(&.to_u32) || raise DecodeError.new("disposition missing first")
-      last = fields[2]?.try(&.uint?).try(&.to_u32)
-      settled = fields[3]?.try(&.bool?) || false
-      state = fields[4]?
-      new(role, first, last, settled, state)
-    end
-  end
-
   record Detach, handle : UInt32, closed : Bool do
     def self.from_value(value : Value) : Detach
       described = value.described? || raise DecodeError.new("expected detach")
@@ -276,31 +236,6 @@ module LavinMQ::AMQP10
       handle = fields[0]?.try(&.uint?).try(&.to_u32) || raise DecodeError.new("detach missing handle")
       closed = fields[1]?.try(&.bool?) || false
       new(handle, closed)
-    end
-  end
-
-  def self.outcome_value(outcome : Outcome, error : ErrorInfo? = nil) : Value
-    case outcome
-    in .accepted?
-      Value.described(Value.ulong(Descriptor::ACCEPTED), Value.list(Array(Value).new))
-    in .released?
-      Value.described(Value.ulong(Descriptor::RELEASED), Value.list(Array(Value).new))
-    in .rejected?
-      fields = Array(Value).new(1)
-      fields << (error.try(&.to_value) || Value.null)
-      Value.described(Value.ulong(Descriptor::REJECTED), Value.list(fields))
-    in .modified?
-      Value.described(Value.ulong(Descriptor::MODIFIED), Value.list(Array(Value).new))
-    end
-  end
-
-  def self.outcome_from_value(value : Value?) : Outcome?
-    return unless described = value.try &.described?
-    case described.descriptor_code?
-    when Descriptor::ACCEPTED then Outcome::Accepted
-    when Descriptor::RELEASED then Outcome::Released
-    when Descriptor::REJECTED then Outcome::Rejected
-    when Descriptor::MODIFIED then Outcome::Modified
     end
   end
 end

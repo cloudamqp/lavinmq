@@ -58,6 +58,9 @@ module LavinMQ::AMQP10
     # ameba:disable Metrics/CyclomaticComplexity
     def receive(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
       return if closed?
+      if (fmt = transfer.message_format) && fmt != 0_u32
+        raise ProtocolError.new("unsupported message-format #{fmt}")
+      end
       if transfer.aborted
         clear_partial
         return
@@ -73,6 +76,13 @@ module LavinMQ::AMQP10
                                                else
                                                  {payload, transfer.delivery_id, transfer.settled}
                                                end
+
+      # Match the 0-9-1 publish path: refuse to write while flow control is off
+      # (e.g. low disk space). Release so the sender can retry later.
+      unless @session.client.vhost.flow?
+        settle(delivery_id, settled, Outcome::Released)
+        return
+      end
 
       incoming = MessageCodec.decode(@message_reader.reset(incoming_payload))
       target = @target || begin
@@ -96,8 +106,8 @@ module LavinMQ::AMQP10
                   Outcome::Released
                 end
       settle(delivery_id, settled, outcome)
-    rescue ex : ProtocolError | DecodeError | LavinMQ::Error::PreconditionFailed
-      @session.client.@log.warn { "AMQP 1.0 publish rejected: #{ex.message}" }
+    rescue ex : ProtocolError | DecodeError | LavinMQ::Error::PreconditionFailed | OverflowError
+      @session.client.log.warn { "AMQP 1.0 publish rejected: #{ex.message}" }
       settle(@partial_delivery_id || transfer.delivery_id, @partial_settled || transfer.settled, Outcome::Rejected)
       clear_partial
     ensure
@@ -151,6 +161,7 @@ module LavinMQ::AMQP10
     record Unack, delivery_id : UInt32, queue : LavinMQ::AMQP::Queue, sp : SegmentPosition, delivered_at : Time::Instant
 
     getter queue
+    getter delivery_tag_buffer : Bytes
     @consumer : Consumer?
     @unacked = Deque(Unack).new
     @unack_lock = Mutex.new(:checked)
@@ -160,18 +171,38 @@ module LavinMQ::AMQP10
     @deliver_loop_running = Atomic(Bool).new(false)
     @credit_available = BoolChannel.new(false)
     @closed_channel = ::Channel(Nil).new
-    @delivery_tag = Bytes.new(8)
+    @delivery_tag_buffer = Bytes.new(8)
+    # snd-settle-mode == 1 (settled): deliver pre-settled, no dispositions expected.
+    @settled = false
 
     def consumer : Consumer?
       @consumer
     end
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
-                   local_handle : UInt32, @queue : LavinMQ::AMQP::Queue, dynamic_queue : LavinMQ::AMQP::Queue? = nil)
+                   local_handle : UInt32, @queue : LavinMQ::AMQP::Queue,
+                   dynamic_queue : LavinMQ::AMQP::Queue? = nil, snd_settle_mode : UInt8? = nil)
       super(session, name, remote_handle, local_handle, Role::Sender, dynamic_queue)
+      @settled = snd_settle_mode == 1_u8
       consumer = Consumer.new(self, @queue)
       @consumer = consumer
       @queue.add_consumer(consumer)
+    end
+
+    def settled? : Bool
+      @settled
+    end
+
+    # Called by the client under the connection write lock, so recording the
+    # unacked delivery and writing the transfer stay ordered together.
+    def record_unacked(delivery_id : UInt32, sp : SegmentPosition) : Nil
+      @unack_lock.synchronize do
+        @unacked << Unack.new(delivery_id, @queue, sp, RoughTime.instant)
+      end
+    end
+
+    def detach_from_server(error : ErrorInfo? = nil) : Nil
+      @session.detach_link(self, error)
     end
 
     def credit : UInt32
@@ -226,6 +257,7 @@ module LavinMQ::AMQP10
 
     def ensure_deliver_loop
       return if closed?
+      return if @session.client.closed?
       return if @deliver_loop_running.swap(true, :acquire_release)
       @queue.deliver_loop_wg.spawn(name: "AMQP10 sender link #{@queue.vhost.name}/#{@queue.name}") { deliver_loop }
     end
@@ -236,11 +268,18 @@ module LavinMQ::AMQP10
         wait_for_credit
         deliver_one if wait_until_deliverable
       end
+    rescue IdleTimeout
+      # Idle with credit on an empty queue: exit the fiber and let the queue
+      # respawn it on the next publish, matching the 0-9-1 consumer.
+      @session.client.log.debug { "AMQP 1.0 sender link deliver loop idle, exiting" }
     rescue ex : ClosedError | LavinMQ::AMQP::Queue::ClosedError | IO::Error | ::Channel::ClosedError
-      @session.client.@log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
+      @session.client.log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
     ensure
       @deliver_loop_running.set(false, :release)
-      ensure_deliver_loop if !closed? && credit > 0 && !@queue.empty?
+      # Do not respawn when the connection is gone: a failed transfer closes the
+      # socket, and respawning here would busy-loop and, worse, re-add a fiber to
+      # the queue's deliver-loop wait-group while it is being torn down.
+      ensure_deliver_loop if !closed? && !@session.client.closed? && credit > 0 && !@queue.empty?
     end
 
     # Blocks until a message can be delivered. Returns false (after completing the
@@ -259,23 +298,31 @@ module LavinMQ::AMQP10
         raise ClosedError.new if closed?
         next if wait_for_paused_queue
         next if wait_for_flow
+        next if wait_for_remote_window
+        # Credit may have been revoked (flow with link-credit 0) while we waited
+        # for a message; block for credit again rather than over-deliver.
+        if credit.zero?
+          wait_for_credit
+          next
+        end
         return true
       end
     end
 
     private def deliver_one : Nil
-      delivered = @queue.consume_get(false) do |env|
-        delivery_id = @session.next_delivery_id
+      settled = @settled
+      delivered = @queue.consume_get(settled) do |env|
         increment_delivery_count
         has_credit = decrement_credit
-        @credit_available.set(has_credit)
+        @credit_available.swap(has_credit)
         set_consumer_capacity(has_credit)
-        IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, @delivery_tag)
-        @unack_lock.synchronize do
-          @unacked << Unack.new(delivery_id, @queue, env.segment_position, RoughTime.instant)
-        end
-        unless @session.client.send_transfer(@session, self, delivery_id, @delivery_tag, env.message)
-          close
+        # send_transfer assigns the delivery-id and records the unacked entry
+        # under the connection write lock so ids stay ordered across links.
+        unless @session.client.send_transfer(@session, self, env.message, env.segment_position, settled)
+          # The transfer failed and the socket is closed; break the loop and let
+          # connection cleanup requeue and detach, avoiding a self-close deadlock
+          # on the queue's deliver-loop wait-group.
+          raise ClosedError.new
         end
         @session.increment_deliver_count(env.redelivered)
       end
@@ -287,7 +334,7 @@ module LavinMQ::AMQP10
         complete_drain
       else
         has_credit = credit > 0
-        @credit_available.set(has_credit)
+        @credit_available.swap(has_credit)
         set_consumer_capacity(has_credit)
         Fiber.yield
       end
@@ -331,6 +378,7 @@ module LavinMQ::AMQP10
 
     private def wait_for_credit
       until closed? || credit > 0
+        @session.client.flush # push buffered deliveries before we block
         select
         when @credit_available.when_true.receive
         when @closed_channel.receive
@@ -340,15 +388,19 @@ module LavinMQ::AMQP10
 
     private def wait_for_queue
       while !closed? && @queue.empty?
+        @session.client.flush
         select
         when @queue.empty.when_false.receive
         when @closed_channel.receive
+        when timeout Config.instance.deliver_loop_idle_timeout
+          raise IdleTimeout.new
         end
       end
     end
 
     private def wait_for_paused_queue
       if @queue.state.paused?
+        @session.client.flush
         select
         when @queue.paused.when_false.receive
         when @closed_channel.receive
@@ -360,8 +412,23 @@ module LavinMQ::AMQP10
 
     private def wait_for_flow
       unless @session.client.vhost.flow?
+        @session.client.flush
         select
         when @session.client.vhost.flow_change.when_true.receive
+        when @closed_channel.receive
+          raise ClosedError.new
+        end
+        return true
+      end
+    end
+
+    # Blocks until the peer's session incoming-window has room for another
+    # transfer, so we never overrun the window the client advertised.
+    private def wait_for_remote_window
+      unless @session.remote_window_open?
+        @session.client.flush
+        select
+        when @session.remote_window.when_true.receive
         when @closed_channel.receive
           raise ClosedError.new
         end
@@ -391,14 +458,24 @@ module LavinMQ::AMQP10
     end
 
     private def set_consumer_capacity(has_capacity : Bool) : Nil
-      @consumer.try &.has_capacity.set(has_capacity)
+      @consumer.try &.has_capacity.swap(has_capacity)
     end
 
     def settle(first : UInt32, last : UInt32, outcome : Outcome) : Nil
       found = false
       @unack_lock.synchronize do
-        @unacked.reject! do |unack|
-          next false unless first <= unack.delivery_id <= last
+        # @unacked is sorted ascending by delivery-id, so skip links whose range
+        # does not overlap and stop scanning once past `last`.
+        next if @unacked.empty?
+        next if last < @unacked.first.delivery_id || first > @unacked.last.delivery_id
+        i = 0
+        while i < @unacked.size
+          unack = @unacked[i]
+          break if unack.delivery_id > last
+          unless first <= unack.delivery_id
+            i += 1
+            next
+          end
           found = true
           case outcome
           in .accepted?
@@ -411,11 +488,13 @@ module LavinMQ::AMQP10
             unack.queue.reject(unack.sp, requeue: false)
             @session.increment_reject_count
           end
-          true
+          @unacked.delete_at(i)
         end
       end
-      @credit_available.set(credit > 0) if found
-      set_consumer_capacity(credit > 0) if found
+      if found
+        @credit_available.swap(credit > 0)
+        set_consumer_capacity(credit > 0)
+      end
     end
 
     def close : Nil
@@ -433,6 +512,10 @@ module LavinMQ::AMQP10
     end
 
     class ClosedError < Error; end
+
+    # Raised to unwind the deliver loop after it has sat idle with credit; the
+    # queue respawns it on the next publish.
+    class IdleTimeout < Exception; end
   end
 
   class Consumer < LavinMQ::Client::Channel::Consumer
@@ -466,7 +549,7 @@ module LavinMQ::AMQP10
     end
 
     def cancel
-      @link.close
+      @link.detach_from_server(ErrorInfo.new(ErrorCondition::RESOURCE_DELETED, "resource deleted"))
     end
 
     def ack(sp)
@@ -521,20 +604,30 @@ module LavinMQ::AMQP10
     INCOMING_WINDOW_REFILL_AT = DEFAULT_WINDOW // 2
 
     getter client, id, name
+    getter remote_window : BoolChannel
     property? running = true
     @links = Hash(UInt32, Link).new
     @sender_links = Array(SenderLink).new
     @next_local_handle = 0_u32
+    # Our outgoing transfer-id counter; a delivery-id equals the transfer-id of
+    # the delivery's first frame, so this doubles as the delivery-id source.
     @next_outgoing_id = Atomic(UInt32).new(0_u32)
-    @next_incoming_id = Atomic(UInt32).new(0_u32)
+    @next_incoming_id : Atomic(UInt32)
     @incoming_window_remaining = Atomic(UInt32).new(DEFAULT_WINDOW)
+    # How many transfers the peer's session incoming-window can still accept.
+    @remote_incoming_window : Atomic(UInt32)
     @visited = Set(Exchange).new
     @found_queues = Set(AMQP::Queue).new
 
     rate_stats({"ack", "publish", "deliver", "redeliver", "reject"})
 
-    def initialize(@client : Client, @id : UInt16)
+    def initialize(@client : Client, @id : UInt16, begin_frame : Begin)
       @name = "#{@client.connection_info.remote_address}[#{@id}]"
+      # Seed our incoming transfer-id from the peer's initial next-outgoing-id and
+      # track the session window it advertised.
+      @next_incoming_id = Atomic(UInt32).new(begin_frame.next_outgoing_id)
+      @remote_incoming_window = Atomic(UInt32).new(begin_frame.incoming_window)
+      @remote_window = BoolChannel.new(begin_frame.incoming_window > 0)
     end
 
     def details_tuple
@@ -548,7 +641,7 @@ module LavinMQ::AMQP10
         global_prefetch_count:   0,
         confirm:                 false,
         transactional:           false,
-        messages_unacknowledged: 0,
+        messages_unacknowledged: unacked_count,
         connection_details:      @client.connection_details,
         state:                   @running ? "running" : "closed",
         message_stats:           current_stats_details,
@@ -560,6 +653,10 @@ module LavinMQ::AMQP10
 
     def consumers_size : Int32
       @sender_links.size
+    end
+
+    def unacked_count : Int32
+      @sender_links.sum(&.unacked)
     end
 
     def consumers : Array(LavinMQ::Client::Channel::Consumer)
@@ -579,13 +676,18 @@ module LavinMQ::AMQP10
     def check_consumer_timeout
       @sender_links.dup.each do |link|
         next unless link.timed_out?
-        @links.delete(link.remote_handle)
-        @sender_links.delete(link)
-        @client.send_detach(self, link.local_handle, true,
-          ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, "consumer timeout"))
-        link.close
+        detach_link(link, ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, "consumer timeout"))
         break
       end
+    end
+
+    # Server-initiated link teardown: notify the peer with a detach and drop the
+    # link from the session maps. Used by consumer-timeout and queue deletion.
+    def detach_link(link : SenderLink, error : ErrorInfo? = nil) : Nil
+      @links.delete(link.remote_handle)
+      @sender_links.delete(link)
+      @client.send_detach(self, link.local_handle, true, error)
+      link.close
     end
 
     def attach(frame : Attach) : Nil
@@ -593,6 +695,9 @@ module LavinMQ::AMQP10
     end
 
     private def attach(frame : Attach, local_handle : UInt32) : Nil
+      if @links.has_key?(frame.handle)
+        raise ProtocolError.new("handle #{frame.handle} is already in use")
+      end
       case frame.role
       in .sender?
         target = attach_receiver(frame, local_handle)
@@ -602,13 +707,13 @@ module LavinMQ::AMQP10
         @client.send_flow(self, link, Int32::MAX.to_u32)
       in .receiver?
         source = attach_sender(frame, local_handle)
-        link = SenderLink.new(self, frame.name, frame.handle, local_handle, source[0], source[1])
+        link = SenderLink.new(self, frame.name, frame.handle, local_handle, source[0], source[1], frame.snd_settle_mode)
         @links[frame.handle] = link
         @sender_links << link
         @client.send_attach(self, link, source[2], frame.target, frame)
       end
     rescue ex : ProtocolError
-      @client.@log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
+      @client.log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
       @client.send_rejected_attach(self, frame, local_handle)
       @client.send_detach(self, local_handle, true,
         ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, ex.message))
@@ -659,6 +764,7 @@ module LavinMQ::AMQP10
     end
 
     def flow(frame : Flow) : Nil
+      update_remote_window(frame)
       if handle = frame.handle
         link = @links[handle]? || raise ProtocolError.new("unknown link handle #{handle}")
         case link
@@ -682,7 +788,7 @@ module LavinMQ::AMQP10
     end
 
     def transfer(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
-      advance_incoming_window(transfer)
+      advance_incoming_window
       link = @links[transfer.handle]? || raise ProtocolError.new("unknown link handle #{transfer.handle}")
       receiver = link.as?(ReceiverLink) || raise ProtocolError.new("transfer sent on non-receiver link")
       receiver.receive(transfer, payload)
@@ -690,8 +796,15 @@ module LavinMQ::AMQP10
 
     def disposition(frame : TransferCodec::DispositionView) : Nil
       return unless frame.role.receiver?
+      outcome = frame.outcome
+      if outcome.nil?
+        # A missing/non-terminal delivery state (e.g. received) must not be
+        # treated as acceptance. Only a bare settlement with no state at all is
+        # taken as accepted.
+        return if !frame.settled || frame.state_present
+        outcome = Outcome::Accepted
+      end
       last = frame.last || frame.first
-      outcome = frame.outcome || Outcome::Accepted
       @sender_links.each(&.settle(frame.first, last, outcome))
     end
 
@@ -709,12 +822,39 @@ module LavinMQ::AMQP10
       @client.vhost.publish(msg, false, @visited, @found_queues)
     end
 
-    def next_delivery_id : UInt32
-      @next_outgoing_id.add(1_u32, :acquire_release)
-    end
-
     def next_outgoing_id : UInt32
       @next_outgoing_id.get(:acquire)
+    end
+
+    # Advance the outgoing transfer-id by the number of frames just written and
+    # consume that many from the peer's session incoming-window. Called by the
+    # client under the write lock, right after emitting a transfer.
+    def advance_outgoing(frames : UInt32) : Nil
+      @next_outgoing_id.add(frames, :acquire_release)
+      loop do
+        current = @remote_incoming_window.get(:acquire)
+        remaining = current > frames ? current - frames : 0_u32
+        _, exchanged = @remote_incoming_window.compare_and_set(current, remaining)
+        if exchanged
+          @remote_window.swap(remaining > 0)
+          break
+        end
+      end
+    end
+
+    def remote_window_open? : Bool
+      @remote_incoming_window.get(:acquire) > 0
+    end
+
+    private def update_remote_window(frame : Flow) : Nil
+      return unless niw = frame.incoming_window
+      nid = frame.next_incoming_id || @next_outgoing_id.get(:acquire)
+      # window = peer.next-incoming-id + peer.incoming-window - our next-outgoing-id
+      window = nid.to_i64 + niw.to_i64 - @next_outgoing_id.get(:acquire).to_i64
+      window = 0_i64 if window < 0
+      clamped = window > UInt32::MAX ? UInt32::MAX : window.to_u32
+      @remote_incoming_window.set(clamped, :release)
+      @remote_window.swap(clamped > 0)
     end
 
     def next_incoming_id : UInt32
@@ -725,13 +865,10 @@ module LavinMQ::AMQP10
       @incoming_window_remaining.get(:acquire)
     end
 
-    private def advance_incoming_window(transfer : TransferCodec::TransferView) : Nil
-      if delivery_id = transfer.delivery_id
-        @next_incoming_id.set(delivery_id &+ 1, :release)
-      else
-        @next_incoming_id.add(1_u32, :acquire_release)
-      end
-
+    private def advance_incoming_window : Nil
+      # next-incoming-id counts transfer frames, so advance once per received
+      # frame (multi-frame deliveries advance it per continuation).
+      @next_incoming_id.add(1_u32, :acquire_release)
       remaining = decrement_incoming_window
       if remaining <= INCOMING_WINDOW_REFILL_AT
         @incoming_window_remaining.set(DEFAULT_WINDOW, :release)

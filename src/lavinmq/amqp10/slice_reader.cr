@@ -77,5 +77,20 @@ module LavinMQ::AMQP10
     def remaining_slice : Bytes
       @slice[@pos, remaining]
     end
+
+    # The slice from an earlier position up to the current one.
+    def slice_from(start : Int) : Bytes
+      @slice[start, @pos - start]
+    end
+
+    # Reads a 32-bit size field and validates it against the remaining payload,
+    # so a hostile oversized size cannot allocate or read past the buffer.
+    def read_size32(type : String) : Int32
+      size = read_u32
+      if size > remaining.to_u32
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      size.to_i
+    end
   end
 end

@@ -70,19 +70,19 @@ module LavinMQ::AMQP10
         size = reader.read_byte.to_i
         Value.binary(reader.read_slice(size))
       when 0xb0
-        size = read_size32(reader, "binary32")
+        size = reader.read_size32("binary32")
         Value.binary(reader.read_slice(size))
       when 0xa1
         size = reader.read_byte.to_i
         Value.string(reader.read_string(size))
       when 0xb1
-        size = read_size32(reader, "string32")
+        size = reader.read_size32("string32")
         Value.string(reader.read_string(size))
       when 0xa3
         size = reader.read_byte.to_i
         Value.symbol(reader.read_string(size))
       when 0xb3
-        size = read_size32(reader, "symbol32")
+        size = reader.read_size32("symbol32")
         Value.symbol(reader.read_string(size))
       when 0xc0
         decode_list8(reader, depth)
@@ -203,21 +203,13 @@ module LavinMQ::AMQP10
       raise DecodeError.new("map count #{count} is not even") unless count.even?
     end
 
-    private def read_size32(reader : SliceReader, type : String) : Int32
-      size = reader.read_u32
-      if size > reader.remaining.to_u32
-        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
-      end
-      size.to_i
-    end
-
     private def decode_array_item(reader, constructor : UInt8) : Value
       case constructor
       when 0xa3
         size = reader.read_byte.to_i
         Value.symbol(reader.read_string(size))
       when 0xb3
-        size = read_size32(reader, "symbol32")
+        size = reader.read_size32("symbol32")
         Value.symbol(reader.read_string(size))
       when 0x70
         Value.uint(reader.read_u32)

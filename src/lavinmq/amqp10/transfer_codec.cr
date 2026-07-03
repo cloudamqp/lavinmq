@@ -19,7 +19,8 @@ module LavinMQ::AMQP10
       first : UInt32,
       last : UInt32?,
       settled : Bool,
-      outcome : Outcome?
+      outcome : Outcome?,
+      state_present : Bool
 
     # ameba:disable Metrics/CyclomaticComplexity
     def read_transfer(reader : SliceReader) : TransferView
@@ -60,8 +61,11 @@ module LavinMQ::AMQP10
       handle_value = handle
       raise DecodeError.new("transfer missing handle") unless handle_value
       TransferView.new(handle_value, delivery_id, delivery_tag, message_format, settled, more, aborted)
+    rescue ex : IO::EOFError
+      raise DecodeError.new("truncated AMQP 1.0 transfer", cause: ex)
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def read_disposition(reader : SliceReader) : DispositionView
       descriptor = MessageCodec.read_descriptor_code(reader)
       raise DecodeError.new("expected disposition") unless descriptor == Descriptor::DISPOSITION
@@ -71,6 +75,7 @@ module LavinMQ::AMQP10
       last = nil
       settled = false
       outcome = nil
+      state_present = false
 
       index = 0
       while index < count
@@ -84,7 +89,7 @@ module LavinMQ::AMQP10
         when 3
           settled = read_optional_bool(reader) || false
         when 4
-          outcome = read_outcome(reader)
+          state_present, outcome = read_state(reader)
         else
           MessageCodec.skip_value(reader)
         end
@@ -95,7 +100,9 @@ module LavinMQ::AMQP10
       first_value = first
       raise DecodeError.new("disposition missing role") unless role_value
       raise DecodeError.new("disposition missing first") unless first_value
-      DispositionView.new(role_value, first_value, last, settled, outcome)
+      DispositionView.new(role_value, first_value, last, settled, outcome, state_present)
+    rescue ex : IO::EOFError
+      raise DecodeError.new("truncated AMQP 1.0 disposition", cause: ex)
     end
 
     private def read_optional_uint(reader, field : String) : UInt32?
@@ -135,26 +142,22 @@ module LavinMQ::AMQP10
       false
     end
 
-    private def read_outcome(reader) : Outcome?
-      return nil if peek_null(reader)
+    # Returns whether a delivery-state field was present (vs. a null placeholder)
+    # and, if it was a recognized terminal outcome, which one. A non-terminal
+    # state (e.g. received) reports present=true with a nil outcome so the
+    # caller does not mistake it for acceptance.
+    private def read_state(reader) : Tuple(Bool, Outcome?)
+      return {false, nil} if peek_null(reader)
       descriptor = MessageCodec.read_descriptor_code(reader)
-      case descriptor
-      when Descriptor::ACCEPTED
-        MessageCodec.skip_value(reader)
-        Outcome::Accepted
-      when Descriptor::RELEASED
-        MessageCodec.skip_value(reader)
-        Outcome::Released
-      when Descriptor::REJECTED
-        MessageCodec.skip_value(reader)
-        Outcome::Rejected
-      when Descriptor::MODIFIED
-        MessageCodec.skip_value(reader)
-        Outcome::Modified
-      else
-        MessageCodec.skip_value(reader)
-        nil
-      end
+      outcome = case descriptor
+                when Descriptor::ACCEPTED then Outcome::Accepted
+                when Descriptor::RELEASED then Outcome::Released
+                when Descriptor::REJECTED then Outcome::Rejected
+                when Descriptor::MODIFIED then Outcome::Modified
+                else                           nil
+                end
+      MessageCodec.skip_value(reader)
+      {true, outcome}
     end
 
     def write_disposition(io : IO, channel : UInt16, first : UInt32, outcome : Outcome, settled = true) : Nil
@@ -208,51 +211,81 @@ module LavinMQ::AMQP10
       frame_size.to_u64
     end
 
+    # Precomputed encoded sizes for a message's sections, so the size pass and
+    # the write pass do not each re-walk the (allocating) headers Table.
+    private record SectionSizes,
+      total : Int32,
+      header_count : Int32,
+      header_fields : Int32,
+      props_count : Int32,
+      props_fields : Int32,
+      app_fields : Int32
+
+    # Returns the number of AMQP 1.0 transfer frames written.
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
-                       delivery_tag : Bytes, msg : BytesMessage, max_frame_size = UInt32::MAX) : UInt64
+                       delivery_tag : Bytes, msg : BytesMessage, max_frame_size = UInt32::MAX,
+                       settled = false) : Tuple(UInt64, UInt32)
       if msg.bodysize > UInt32::MAX
         raise ProtocolError.new("message too large for AMQP 1.0 data section")
       end
 
-      prefix_size = message_sections_prefix_size(msg)
+      sizes = compute_section_sizes(msg)
+      prefix_size = sizes.total
       message_size = prefix_size.to_u64 + msg.bodysize
       max = effective_max_frame_size(max_frame_size)
-      transfer_size = transfer_performative_size(handle, delivery_id, delivery_tag, false)
+      transfer_size = transfer_performative_size(handle, delivery_id, delivery_tag, false, settled)
       frame_size = 8_u64 + transfer_size.to_u64 + message_size
 
       if frame_size <= max
         FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
-        write_transfer_performative(io, handle, delivery_id, delivery_tag, false)
-        write_message_sections_prefix(io, msg)
+        write_transfer_performative(io, handle, delivery_id, delivery_tag, false, settled)
+        write_message_sections_prefix(io, msg, sizes)
         io.write msg.body
-        io.flush
-        return frame_size
+        return {frame_size, 1_u32}
       end
 
-      write_fragmented_transfer(io, channel, handle, delivery_id, delivery_tag, msg, prefix_size, max)
+      write_fragmented_transfer(io, channel, handle, delivery_id, delivery_tag, msg, prefix_size, max, settled)
     end
 
-    private def message_sections_prefix_size(msg : BytesMessage) : Int32
-      properties_section_size(msg.properties) +
-        application_properties_section_size(msg.properties.headers) +
-        3 + binary_header_size(msg.bodysize)
+    private def compute_section_sizes(msg : BytesMessage) : SectionSizes
+      props = msg.properties
+      header_count = header_field_count(props)
+      header_fields = header_count.zero? ? 0 : header_fields_size(props, header_count)
+      header_sec = header_count.zero? ? 0 : 3 + list_header_size(header_fields) + header_fields
+      props_count = properties_field_count(props)
+      props_fields = props_count.zero? ? 0 : properties_fields_size(props, props_count)
+      props_sec = props_count.zero? ? 0 : 3 + list_header_size(props_fields) + props_fields
+      headers = props.headers
+      if headers && !headers.empty?
+        app_fields = application_properties_fields_size(headers)
+        app_sec = 3 + map_header_size(app_fields, headers.size * 2) + app_fields
+      else
+        app_fields = 0
+        app_sec = 0
+      end
+      data_sec = 3 + binary_header_size(msg.bodysize)
+      total = header_sec + props_sec + app_sec + data_sec
+      SectionSizes.new(total, header_count, header_fields, props_count, props_fields, app_fields)
     end
 
-    private def write_message_sections_prefix(io, msg : BytesMessage) : Nil
-      write_properties_section(io, msg.properties)
-      write_application_properties_section(io, msg.properties.headers)
+    private def write_message_sections_prefix(io, msg : BytesMessage, sizes : SectionSizes? = nil) : Nil
+      sizes ||= compute_section_sizes(msg)
+      write_header_section(io, msg.properties, sizes.header_count, sizes.header_fields)
+      write_properties_section(io, msg.properties, sizes.props_count, sizes.props_fields)
+      write_application_properties_section(io, msg.properties.headers, sizes.app_fields)
       write_descriptor(io, Descriptor::DATA)
       write_binary_header(io, msg.bodysize)
     end
 
     private def write_fragmented_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
                                           delivery_tag : Bytes, msg : BytesMessage, prefix_size : Int32,
-                                          max : UInt64) : UInt64
+                                          max : UInt64, settled : Bool) : Tuple(UInt64, UInt32)
       prefix_offset = 0
       body_offset = 0
       body = msg.body
       first = true
       written = 0_u64
+      frames = 0_u32
       prefix_writer = PrefixRangeIO.new(io)
 
       loop do
@@ -261,7 +294,7 @@ module LavinMQ::AMQP10
 
         more = true
         transfer_size = if first
-                          transfer_performative_size(handle, delivery_id, delivery_tag, true)
+                          transfer_performative_size(handle, delivery_id, delivery_tag, true, settled)
                         else
                           final_size = continuation_transfer_performative_size(handle, false)
                           if 8_u64 + final_size.to_u64 + remaining.to_u64 <= max
@@ -280,7 +313,7 @@ module LavinMQ::AMQP10
 
         FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
         if first
-          write_transfer_performative(io, handle, delivery_id, delivery_tag, true)
+          write_transfer_performative(io, handle, delivery_id, delivery_tag, true, settled)
           first = false
         else
           write_continuation_transfer_performative(io, handle, more)
@@ -288,10 +321,10 @@ module LavinMQ::AMQP10
         prefix_offset, body_offset = write_message_bytes(io, msg, prefix_size, prefix_offset, body, body_offset,
           chunk_size, prefix_writer)
         written += frame_size
+        frames += 1
       end
 
-      io.flush
-      written
+      {written, frames}
     end
 
     private def write_message_bytes(io, msg, prefix_size, prefix_offset, body, body_offset, count, prefix_writer)
@@ -363,10 +396,12 @@ module LavinMQ::AMQP10
       Math.max(max_frame_size, MIN_MAX_FRAME_SIZE).to_u64
     end
 
-    def write_transfer_performative(io, handle, delivery_id, delivery_tag, more) : Nil
-      fields_count = more ? 6 : 4
+    def write_transfer_performative(io, handle, delivery_id, delivery_tag, more, settled) : Nil
+      # fields: handle(0) delivery-id(1) delivery-tag(2) message-format(3) settled(4) more(5)
+      fields_count = more ? 6 : (settled ? 5 : 4)
       fields_size = uint_size(handle) + uint_size(delivery_id) + binary_size(delivery_tag) + 1
-      fields_size += 1 + 1 if more # settled null, more bool
+      fields_size += 1 if settled || more # settled field (bool or null)
+      fields_size += 1 if more            # more field
       write_descriptor(io, Descriptor::TRANSFER)
       write_list_header(io, fields_size, fields_count)
       Codec.write_uint(io, handle)
@@ -374,14 +409,17 @@ module LavinMQ::AMQP10
       Codec.write_binary(io, delivery_tag)
       io.write_byte 0x43_u8 # message-format = 0
       if more
-        io.write_byte 0x40_u8
-        io.write_byte 0x41_u8
+        io.write_byte(settled ? 0x41_u8 : 0x40_u8) # settled (null when unsettled)
+        io.write_byte 0x41_u8                      # more = true
+      elsif settled
+        io.write_byte 0x41_u8 # settled = true
       end
     end
 
-    def transfer_performative_size(handle, delivery_id, delivery_tag, more) : Int32
+    def transfer_performative_size(handle, delivery_id, delivery_tag, more, settled) : Int32
       fields_size = uint_size(handle) + uint_size(delivery_id) + binary_size(delivery_tag) + 1
-      fields_size += 2 if more
+      fields_size += 1 if settled || more
+      fields_size += 1 if more
       3 + list_header_size(fields_size) + fields_size
     end
 
@@ -404,18 +442,63 @@ module LavinMQ::AMQP10
       3 + list_header_size(fields_size) + fields_size
     end
 
-    private def properties_section_size(props) : Int32
-      count = properties_field_count(props)
-      return 0 if count.zero?
-      fields_size = properties_fields_size(props, count)
-      3 + list_header_size(fields_size) + fields_size
+    private def header_ttl(props) : UInt32?
+      props.expiration.try(&.to_u32?)
+    end
+
+    private def header_field_count(props) : Int32
+      count = 0
+      count = 1 if props.delivery_mode
+      count = 2 if props.priority
+      count = 3 if header_ttl(props)
+      count
+    end
+
+    private def header_fields_size(props, count : Int32) : Int32
+      size = 0
+      index = 0
+      while index < count
+        size += case index
+                when 0 then 1                      # durable bool
+                when 1 then props.priority ? 2 : 1 # ubyte or null
+                when 2
+                  (ttl = header_ttl(props)) ? uint_size(ttl) : 1
+                else 1
+                end
+        index += 1
+      end
+      size
+    end
+
+    private def write_header_section(io, props, count : Int32, fields_size : Int32) : Nil
+      return if count.zero?
+      write_descriptor(io, Descriptor::HEADER)
+      write_list_header(io, fields_size, count)
+      index = 0
+      while index < count
+        case index
+        when 0 then Codec.write_bool(io, props.delivery_mode == 2_u8)
+        when 1
+          if priority = props.priority
+            io.write_byte 0x50_u8
+            io.write_byte priority
+          else
+            io.write_byte 0x40_u8
+          end
+        when 2
+          if ttl = header_ttl(props)
+            Codec.write_uint(io, ttl.to_u64)
+          else
+            io.write_byte 0x40_u8
+          end
+        end
+        index += 1
+      end
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def write_properties_section(io, props) : Nil
-      count = properties_field_count(props)
+    private def write_properties_section(io, props, count : Int32, fields_size : Int32) : Nil
       return if count.zero?
-      fields_size = properties_fields_size(props, count)
       write_descriptor(io, Descriptor::PROPERTIES)
       write_list_header(io, fields_size, count)
       index = 0
@@ -444,17 +527,9 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def application_properties_section_size(headers : LavinMQ::AMQP::Table?) : Int32
-      return 0 unless headers
-      return 0 if headers.empty?
-      fields_size = application_properties_fields_size(headers)
-      3 + map_header_size(fields_size, headers.size * 2) + fields_size
-    end
-
-    private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?) : Nil
+    private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?, fields_size : Int32) : Nil
       return unless headers
       return if headers.empty?
-      fields_size = application_properties_fields_size(headers)
       write_descriptor(io, Descriptor::APPLICATION_PROPERTIES)
       write_map_header(io, fields_size, headers.size * 2)
       headers.each do |key, value|
@@ -670,13 +745,11 @@ module LavinMQ::AMQP10
       end
     end
 
+    # Every outcome we emit is a descriptor followed by an empty list (list0).
+    OUTCOME_SIZE = 3 + 1
+
     private def outcome_size(outcome : Outcome) : Int32
-      case outcome
-      in .accepted?, .released?, .modified?
-        3 + 1 # descriptor + list0
-      in .rejected?
-        3 + 1
-      end
+      OUTCOME_SIZE
     end
 
     private def write_outcome(io, outcome : Outcome) : Nil

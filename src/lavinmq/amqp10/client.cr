@@ -37,6 +37,13 @@ module LavinMQ::AMQP10
     @running = true
     @write_lock = Mutex.new(:checked)
     @descriptor_reader = SliceReader.new
+    @acl_write_cache = Auth::PermissionCache.new
+    @last_recv = RoughTime.instant
+    # idle-time-out negotiated with the peer (milliseconds):
+    #   @remote_idle_timeout — the peer's; we must send a frame within it
+    #   @local_idle_timeout  — ours; we may drop the peer if it goes silent
+    @remote_idle_timeout : UInt32?
+    @local_idle_timeout : UInt32?
 
     rate_stats({"send_oct", "recv_oct"})
 
@@ -45,10 +52,16 @@ module LavinMQ::AMQP10
                    @vhost : VHost,
                    @user : Auth::BaseUser,
                    @auth_mechanism : String,
-                   @max_frame_size : UInt32)
+                   @max_frame_size : UInt32,
+                   @remote_idle_timeout : UInt32? = nil,
+                   @local_idle_timeout : UInt32? = nil)
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
+    end
+
+    def log : Logger
+      @log
     end
 
     def run : Nil
@@ -134,7 +147,7 @@ module LavinMQ::AMQP10
 
     def declare_dynamic_queue : LavinMQ::AMQP::Queue
       raise ProtocolError.new("Server low on disk space, can not create queue") unless @vhost.flow?
-      if @vhost.max_queues.try { |max| @vhost.queues_size >= max }
+      if @vhost.queue_limit_reached?
         raise ProtocolError.new("queue limit in vhost '#{@vhost.name}' is reached")
       end
 
@@ -165,7 +178,7 @@ module LavinMQ::AMQP10
         ex = @vhost.exchange?(parsed.exchange) || raise ProtocolError.new("exchange '#{parsed.exchange}' not found")
         raise ProtocolError.new("Exchange '#{parsed.exchange}' is internal") if ex.internal?
       end
-      unless @user.can_write?(@vhost.name, parsed.exchange)
+      unless @user.can_write?(@vhost.name, parsed.exchange, @acl_write_cache)
         raise ProtocolError.new("User '#{@user.name}' not allowed to publish to exchange '#{parsed.exchange}'")
       end
       parsed
@@ -182,10 +195,14 @@ module LavinMQ::AMQP10
     end
 
     def send_open : Nil
-      fields = Array(Value).new(3)
+      fields = Array(Value).new(5)
       fields << Value.string(SERVER_CONTAINER_ID)
-      fields << Value.null
-      fields << Value.uint(@max_frame_size)
+      fields << Value.null                  # hostname
+      fields << Value.uint(@max_frame_size) # max-frame-size
+      if idle = @local_idle_timeout
+        fields << Value.null       # channel-max
+        fields << Value.uint(idle) # idle-time-out (ms)
+      end
       send_performative(0_u16, Descriptor::OPEN, fields)
     end
 
@@ -276,16 +293,33 @@ module LavinMQ::AMQP10
       add_send_bytes(32_u64)
     end
 
-    def send_transfer(session : Session, link : SenderLink, delivery_id : UInt32, delivery_tag : Bytes, msg : BytesMessage) : Bool
-      bytes = @write_lock.synchronize do
-        TransferCodec.write_transfer(@socket, session.id, link.local_handle, delivery_id, delivery_tag, msg, @max_frame_size)
+    def send_transfer(session : Session, link : SenderLink, msg : BytesMessage,
+                      sp : SegmentPosition, settled : Bool) : Bool
+      @write_lock.synchronize do
+        # Assign the delivery-id (== transfer-id of the first frame) and record
+        # the unacked entry under the lock so ids and unacked stay ordered even
+        # if two sender links deliver concurrently.
+        delivery_id = session.next_outgoing_id
+        tag = link.delivery_tag_buffer
+        IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
+        link.record_unacked(delivery_id, sp) unless settled
+        bytes, frames = TransferCodec.write_transfer(@socket, session.id, link.local_handle,
+          delivery_id, tag, msg, @max_frame_size, settled)
+        session.advance_outgoing(frames)
+        add_send_bytes(bytes)
       end
-      add_send_bytes(bytes)
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error | ProtocolError
       @log.debug { "Lost AMQP 1.0 connection while sending transfer: #{ex.inspect}" }
       close_socket
       false
+    end
+
+    def flush : Nil
+      @write_lock.synchronize { @socket.flush }
+    rescue ex : IO::Error | OpenSSL::SSL::Error
+      @log.debug { "Lost AMQP 1.0 connection while flushing: #{ex.inspect}" } unless closed?
+      close_socket
     end
 
     private def send_performative(channel : UInt16, code : UInt64, fields : Array(Value)) : Nil
@@ -308,16 +342,24 @@ module LavinMQ::AMQP10
 
     private def read_loop
       reader = FrameReader.new(@socket, @max_frame_size)
+      configure_idle_timeout
+      @last_recv = RoughTime.instant
       while @running
-        frame = reader.read
+        begin
+          frame = reader.read
+        rescue IO::TimeoutError
+          handle_idle_timeout || break
+          next
+        end
+        @last_recv = RoughTime.instant
         recv_bytes = 8_u64 + frame.body.bytesize
         @recv_oct_count.add(recv_bytes, :relaxed)
         @vhost.add_recv_bytes(recv_bytes)
         process_frame(frame)
       end
-    rescue ex : IO::Error | IO::TimeoutError | OpenSSL::SSL::Error
+    rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost AMQP 1.0 connection while reading: #{ex.inspect}" } unless closed?
-    rescue ex : DecodeError | ProtocolError
+    rescue ex : DecodeError | ProtocolError | OverflowError
       @log.warn { "AMQP 1.0 protocol error: #{ex.message}" }
       send_close(ErrorInfo.new(ErrorCondition::DECODE_ERROR, ex.message)) unless closed?
     rescue ex
@@ -329,8 +371,56 @@ module LavinMQ::AMQP10
       @log.info { "AMQP 1.0 connection disconnected for user=#{@user.name} duration=#{duration}" }
     end
 
+    private def configure_idle_timeout : Nil
+      socket = @socket
+      return unless socket.responds_to?(:"read_timeout=")
+      if interval = idle_check_interval
+        socket.read_timeout = interval
+      end
+    end
+
+    # How often the read loop should wake to send a keepalive and/or check the
+    # peer's liveness; nil when no idle-timeout was negotiated in either direction.
+    private def idle_check_interval : Time::Span?
+      intervals = [] of Int64
+      if r = @remote_idle_timeout
+        intervals << (r // 2).to_i64 if r > 0
+      end
+      if l = @local_idle_timeout
+        intervals << (l // 2).to_i64 if l > 0
+      end
+      return if intervals.empty?
+      Math.max(intervals.min, 1_i64).milliseconds
+    end
+
+    # Returns false when the peer has gone silent past our advertised idle-timeout
+    # (with grace); otherwise sends an empty keepalive when the peer expects one.
+    private def handle_idle_timeout : Bool
+      if l = @local_idle_timeout
+        if l > 0 && (RoughTime.instant - @last_recv) > (l + l // 2).milliseconds
+          @log.info { "AMQP 1.0 idle timeout, no frames received for #{l} ms" }
+          return false
+        end
+      end
+      send_empty_frame if (r = @remote_idle_timeout) && r > 0
+      true
+    end
+
+    private def send_empty_frame : Nil
+      @write_lock.synchronize do
+        FrameWriter.write_frame_header(@socket, 8_u32, AMQP_FRAME_TYPE, 0_u16)
+        @socket.flush
+      end
+      add_send_bytes(8_u64)
+    rescue ex : IO::Error | OpenSSL::SSL::Error
+      @log.debug { "Lost AMQP 1.0 connection while sending keepalive: #{ex.inspect}" } unless closed?
+      close_socket
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
     private def process_frame(frame : Frame) : Nil
       raise DecodeError.new("unexpected SASL frame after SASL negotiation") unless frame.type == AMQP_FRAME_TYPE
+      return if frame.body.empty? # empty (idle-timeout keepalive) frame
 
       case peek_descriptor_code(frame.body)
       when Descriptor::TRANSFER
@@ -376,7 +466,7 @@ module LavinMQ::AMQP10
       if @sessions.has_key?(channel)
         raise ProtocolError.new("session already begun on channel #{channel}")
       end
-      session = Session.new(self, channel)
+      session = Session.new(self, channel, begin_frame)
       @sessions[channel] = session
       send_begin(channel)
       @vhost.event_tick(EventType::ChannelCreated)
