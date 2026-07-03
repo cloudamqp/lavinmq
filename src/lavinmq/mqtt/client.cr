@@ -289,8 +289,10 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        @broker.unsubscribe(client_id, packet.topics)
-        send(Protocol::UnsubAck.new(packet.packet_id))
+        reason_codes = @broker.unsubscribe(client_id, packet.topics)
+        # v5 UNSUBACK carries a reason code per topic filter; the shard drops
+        # the payload on v3, so no version branch is needed here.
+        send(Protocol::UnsubAck.new(packet.packet_id, reason_codes))
       end
 
       def details_tuple

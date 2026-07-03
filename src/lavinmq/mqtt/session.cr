@@ -168,9 +168,14 @@ module LavinMQ
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
       end
 
-      def unsubscribe(tf)
+      # Returns whether a matching subscription existed, so the v5 UNSUBACK can
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3].
+      def unsubscribe(tf) : Bool
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
+          true
+        else
+          false
         end
       end
 
