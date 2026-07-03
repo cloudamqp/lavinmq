@@ -51,28 +51,37 @@ module LavinMQ
         end
       end
 
-      AMQP_PROTOCOL_PREFIX = UInt8.static_array('A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord)
+      HEADERS = {
+        AMQP::PROTOCOL_START_0_9_1.to_slice,
+        AMQP::PROTOCOL_START_0_9.to_slice,
+        LavinMQ::AMQP10::SASL_HEADER,
+        LavinMQ::AMQP10::PROTOCOL_HEADER,
+      }
 
       def confirm_header(socket, log : Logger) : Symbol?
         proto = uninitialized UInt8[8]
-        4.times do |idx|
-          byte = socket.read_byte || return log_incomplete_header(log, idx)
-          proto[idx] = byte
-          next if byte == AMQP_PROTOCOL_PREFIX[idx]
+        slice = proto.to_slice
+        pos = 0
+        while pos < slice.size
+          read = socket.read(slice + pos)
+          if read.zero?
+            log.warn { "Incomplete protocol header (#{pos} bytes) before disconnect, closing socket" }
+            return
+          end
+          pos += read
+          received = slice[0, pos]
+          next if HEADERS.any? { |header| header[0, pos] == received }
 
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, idx + 1).inspect}, closing socket" }
+          log.warn { "Unexpected protocol #{String.new(received).inspect}, closing socket" }
           return
-        end
-        (4...8).each do |idx|
-          proto[idx] = socket.read_byte || return log_incomplete_header(log, idx)
         end
         if proto == AMQP::PROTOCOL_START_0_9_1 || proto == AMQP::PROTOCOL_START_0_9
           :amqp091
-        elsif proto.to_slice == LavinMQ::AMQP10::SASL_HEADER
+        elsif slice == LavinMQ::AMQP10::SASL_HEADER
           :amqp10
-        elsif proto.to_slice == LavinMQ::AMQP10::PROTOCOL_HEADER
+        elsif slice == LavinMQ::AMQP10::PROTOCOL_HEADER
           socket.write LavinMQ::AMQP10::SASL_HEADER
           socket.flush
           socket.close
@@ -81,16 +90,11 @@ module LavinMQ
         else
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_slice).inspect}, closing socket" }
+          log.warn { "Unexpected protocol #{String.new(slice).inspect}, closing socket" }
           nil
         end
       rescue IO::EOFError
         log.warn { "Client closed connection during protocol header, closing socket" }
-        nil
-      end
-
-      private def log_incomplete_header(log : Logger, count : Int32) : Symbol?
-        log.warn { "Incomplete protocol header (#{count} bytes) before disconnect, closing socket" }
         nil
       end
 
