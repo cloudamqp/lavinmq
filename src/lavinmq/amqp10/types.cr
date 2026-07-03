@@ -63,6 +63,10 @@ module LavinMQ::AMQP10
   end
 
   record ErrorInfo, condition : String, description : String? = nil do
+    # Still used by connection_factory.cr's pre-authentication close path,
+    # which sends via the generic Value-based FrameWriter.write_performative
+    # (SASL/pre-auth rejection is low-frequency, left as-is). write_to/encoded_size
+    # below are for client.cr's direct-write senders.
     def to_value : Value
       fields = Array(Value).new(2)
       fields << Value.symbol(condition)
@@ -70,6 +74,29 @@ module LavinMQ::AMQP10
         fields << Value.string(desc)
       end
       Value.described(Value.ulong(Descriptor::ERROR), Value.list(fields))
+    end
+
+    def encoded_size : Int32
+      3 + Codec.list_header_size(fields_size) + fields_size
+    end
+
+    def write_to(io : IO) : Nil
+      count = 1
+      count = 2 if description
+      Codec.write_descriptor(io, Descriptor::ERROR)
+      Codec.write_list_header(io, fields_size, count)
+      Codec.write_symbol(io, condition)
+      if desc = description
+        Codec.write_string(io, desc)
+      end
+    end
+
+    private def fields_size : Int32
+      size = Codec.string_size(condition)
+      if desc = description
+        size += Codec.string_size(desc)
+      end
+      size
     end
   end
 
@@ -92,6 +119,9 @@ module LavinMQ::AMQP10
       new(address, durable, dynamic, dynamic_node_properties, filter)
     end
 
+    # Still used by spec/amqp10_spec.cr's test-client helper, which builds
+    # outgoing Attach frames via the generic Value encoding; write_to/
+    # encoded_size below are for client.cr's direct-write sender.
     def to_value : Value
       fields = Array(Value).new(dynamic_node_properties ? 6 : 5)
       fields << (address.try { |a| Value.string(a) } || Value.null)
@@ -103,6 +133,37 @@ module LavinMQ::AMQP10
         fields << props
       end
       Value.described(Value.ulong(Descriptor::SOURCE), Value.list(fields))
+    end
+
+    def encoded_size : Int32
+      3 + Codec.list_header_size(fields_size) + fields_size
+    end
+
+    def write_to(io : IO) : Nil
+      Codec.write_descriptor(io, Descriptor::SOURCE)
+      Codec.write_list_header(io, fields_size, dynamic_node_properties ? 6 : 5)
+      Codec.write_nullable_string(io, address)
+      if durable.zero?
+        io.write_byte 0x40_u8
+      else
+        Codec.write_uint(io, durable)
+      end
+      io.write_byte 0x40_u8 # expiry-policy: null
+      io.write_byte 0x40_u8 # timeout: null
+      io.write_byte(dynamic ? 0x41_u8 : 0x40_u8)
+      if props = dynamic_node_properties
+        Codec.write_value(io, props)
+      end
+    end
+
+    private def fields_size : Int32
+      size = Codec.nullable_string_size(address)
+      size += durable.zero? ? 1 : Codec.uint_size(durable)
+      size += 1 + 1 + 1 # expiry-policy, timeout, dynamic
+      if props = dynamic_node_properties
+        size += Codec.encoded_size(props)
+      end
+      size
     end
   end
 
@@ -123,6 +184,9 @@ module LavinMQ::AMQP10
       new(address, durable, dynamic, dynamic_node_properties)
     end
 
+    # Still used by spec/amqp10_spec.cr's test-client helper, which builds
+    # outgoing Attach frames via the generic Value encoding; write_to/
+    # encoded_size below are for client.cr's direct-write sender.
     def to_value : Value
       fields = Array(Value).new(dynamic_node_properties ? 6 : 5)
       fields << (address.try { |a| Value.string(a) } || Value.null)
@@ -134,6 +198,37 @@ module LavinMQ::AMQP10
         fields << props
       end
       Value.described(Value.ulong(Descriptor::TARGET), Value.list(fields))
+    end
+
+    def encoded_size : Int32
+      3 + Codec.list_header_size(fields_size) + fields_size
+    end
+
+    def write_to(io : IO) : Nil
+      Codec.write_descriptor(io, Descriptor::TARGET)
+      Codec.write_list_header(io, fields_size, dynamic_node_properties ? 6 : 5)
+      Codec.write_nullable_string(io, address)
+      if durable.zero?
+        io.write_byte 0x40_u8
+      else
+        Codec.write_uint(io, durable)
+      end
+      io.write_byte 0x40_u8 # expiry-policy: null
+      io.write_byte 0x40_u8 # timeout: null
+      io.write_byte(dynamic ? 0x41_u8 : 0x40_u8)
+      if props = dynamic_node_properties
+        Codec.write_value(io, props)
+      end
+    end
+
+    private def fields_size : Int32
+      size = Codec.nullable_string_size(address)
+      size += durable.zero? ? 1 : Codec.uint_size(durable)
+      size += 1 + 1 + 1 # expiry-policy, timeout, dynamic
+      if props = dynamic_node_properties
+        size += Codec.encoded_size(props)
+      end
+      size
     end
   end
 

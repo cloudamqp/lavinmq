@@ -195,77 +195,139 @@ module LavinMQ::AMQP10
     end
 
     def send_open : Nil
-      fields = Array(Value).new(5)
-      fields << Value.string(SERVER_CONTAINER_ID)
-      fields << Value.null                  # hostname
-      fields << Value.uint(@max_frame_size) # max-frame-size
+      fields_size = Codec.string_size(SERVER_CONTAINER_ID) + 1 + Codec.uint_size(@max_frame_size)
+      fields_count = 3
       if idle = @local_idle_timeout
-        fields << Value.null       # channel-max
-        fields << Value.uint(idle) # idle-time-out (ms)
+        fields_size += 1 + Codec.uint_size(idle)
+        fields_count = 5
       end
-      send_performative(0_u16, Descriptor::OPEN, fields)
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, 0_u16) do |io|
+        Codec.write_descriptor(io, Descriptor::OPEN)
+        Codec.write_list_header(io, fields_size, fields_count)
+        Codec.write_string(io, SERVER_CONTAINER_ID)
+        io.write_byte 0x40_u8 # hostname: null
+        Codec.write_uint(io, @max_frame_size)
+        if idle = @local_idle_timeout
+          io.write_byte 0x40_u8 # channel-max: null
+          Codec.write_uint(io, idle)
+        end
+      end
     end
 
     def send_begin(channel : UInt16) : Nil
-      fields = Array(Value).new(4)
-      fields << Value.ushort(channel)
-      fields << Value.uint(0_u32)
-      fields << Value.uint(DEFAULT_WINDOW)
-      fields << Value.uint(DEFAULT_WINDOW)
-      send_performative(channel, Descriptor::BEGIN, fields)
+      fields_size = 3 + Codec.uint_size(0_u32) + Codec.uint_size(DEFAULT_WINDOW) + Codec.uint_size(DEFAULT_WINDOW)
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, channel) do |io|
+        Codec.write_descriptor(io, Descriptor::BEGIN)
+        Codec.write_list_header(io, fields_size, 4)
+        io.write_byte 0x60_u8 # remote-channel: ushort
+        Codec.write_u16(io, channel)
+        Codec.write_uint(io, 0_u32)
+        Codec.write_uint(io, DEFAULT_WINDOW)
+        Codec.write_uint(io, DEFAULT_WINDOW)
+      end
     end
 
     def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
-      fields = Array(Value).new(link.role.sender? ? 10 : 7)
-      fields << Value.string(link.name)
-      fields << Value.uint(link.local_handle)
-      fields << Value.bool(link.role.receiver?)
-      fields << Value.ubyte(remote_attach.try(&.snd_settle_mode) || 0_u8)
-      fields << Value.ubyte(remote_attach.try(&.rcv_settle_mode) || 0_u8)
-      fields << (source.try(&.to_value) || Value.null)
-      fields << (target.try(&.to_value) || Value.null)
+      snd_mode = remote_attach.try(&.snd_settle_mode) || 0_u8
+      rcv_mode = remote_attach.try(&.rcv_settle_mode) || 0_u8
+      fields_size = Codec.string_size(link.name) + Codec.uint_size(link.local_handle) + 1 + 2 + 2 +
+                    (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
+      fields_count = 7
       if link.role.sender?
-        fields << Value.null
-        fields << Value.null
-        fields << Value.uint(link.delivery_count)
+        fields_size += 1 + 1 + Codec.uint_size(link.delivery_count)
+        fields_count = 10
       end
-      send_performative(session.id, Descriptor::ATTACH, fields)
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, session.id) do |io|
+        Codec.write_descriptor(io, Descriptor::ATTACH)
+        Codec.write_list_header(io, fields_size, fields_count)
+        Codec.write_string(io, link.name)
+        Codec.write_uint(io, link.local_handle)
+        io.write_byte(link.role.receiver? ? 0x41_u8 : 0x42_u8)
+        io.write_byte 0x50_u8
+        io.write_byte snd_mode
+        io.write_byte 0x50_u8
+        io.write_byte rcv_mode
+        source ? source.write_to(io) : io.write_byte(0x40_u8)
+        target ? target.write_to(io) : io.write_byte(0x40_u8)
+        if link.role.sender?
+          io.write_byte 0x40_u8 # unsettled: null
+          io.write_byte 0x40_u8 # incomplete-unsettled: null
+          Codec.write_uint(io, link.delivery_count)
+        end
+      end
     end
 
     def send_rejected_attach(session : Session, remote_attach : Attach, local_handle : UInt32) : Nil
       local_role_receiver = remote_attach.role.sender?
-      fields = Array(Value).new(local_role_receiver ? 7 : 10)
-      fields << Value.string(remote_attach.name)
-      fields << Value.uint(local_handle)
-      fields << Value.bool(local_role_receiver)
-      fields << Value.ubyte(remote_attach.snd_settle_mode || 0_u8)
-      fields << Value.ubyte(remote_attach.rcv_settle_mode || 0_u8)
-      fields << Value.null
-      fields << Value.null
+      fields_size = Codec.string_size(remote_attach.name) + Codec.uint_size(local_handle) + 1 + 2 + 2 + 1 + 1
+      fields_count = 7
       unless local_role_receiver
-        fields << Value.null
-        fields << Value.null
-        fields << Value.uint(0_u32)
+        fields_size += 1 + 1 + Codec.uint_size(0_u32)
+        fields_count = 10
       end
-      send_performative(session.id, Descriptor::ATTACH, fields)
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, session.id) do |io|
+        Codec.write_descriptor(io, Descriptor::ATTACH)
+        Codec.write_list_header(io, fields_size, fields_count)
+        Codec.write_string(io, remote_attach.name)
+        Codec.write_uint(io, local_handle)
+        io.write_byte(local_role_receiver ? 0x41_u8 : 0x42_u8)
+        io.write_byte 0x50_u8
+        io.write_byte(remote_attach.snd_settle_mode || 0_u8)
+        io.write_byte 0x50_u8
+        io.write_byte(remote_attach.rcv_settle_mode || 0_u8)
+        io.write_byte 0x40_u8 # source: null
+        io.write_byte 0x40_u8 # target: null
+        unless local_role_receiver
+          io.write_byte 0x40_u8 # unsettled: null
+          io.write_byte 0x40_u8 # incomplete-unsettled: null
+          Codec.write_uint(io, 0_u32)
+        end
+      end
     end
 
     def send_detach(session : Session, handle : UInt32, closed = true, error : ErrorInfo? = nil) : Nil
-      fields = Array(Value).new(error ? 3 : 2)
-      fields << Value.uint(handle)
-      fields << Value.bool(closed)
-      fields << error.to_value if error
-      send_performative(session.id, Descriptor::DETACH, fields)
+      fields_size = Codec.uint_size(handle) + 1
+      fields_count = 2
+      if error
+        fields_size += error.encoded_size
+        fields_count = 3
+      end
+      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+      send_frame(frame_size.to_u32, session.id) do |io|
+        Codec.write_descriptor(io, Descriptor::DETACH)
+        Codec.write_list_header(io, fields_size, fields_count)
+        Codec.write_uint(io, handle)
+        io.write_byte(closed ? 0x41_u8 : 0x42_u8)
+        error.write_to(io) if error
+      end
     end
 
     def send_end(channel : UInt16) : Nil
-      send_performative(channel, Descriptor::END, Array(Value).new)
+      send_frame((8 + 3 + 1).to_u32, channel) do |io|
+        Codec.write_descriptor(io, Descriptor::END)
+        io.write_byte 0x45_u8 # empty list0
+      end
     end
 
     def send_close(error : ErrorInfo? = nil) : Nil
-      fields = Array(Value).new(error ? 1 : 0)
-      fields << error.to_value if error
-      send_performative(0_u16, Descriptor::CLOSE, fields)
+      if error
+        fields_size = error.encoded_size
+        frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+        send_frame(frame_size.to_u32, 0_u16) do |io|
+          Codec.write_descriptor(io, Descriptor::CLOSE)
+          Codec.write_list_header(io, fields_size, 1)
+          error.write_to(io)
+        end
+      else
+        send_frame((8 + 3 + 1).to_u32, 0_u16) do |io|
+          Codec.write_descriptor(io, Descriptor::CLOSE)
+          io.write_byte 0x45_u8 # empty list0
+        end
+      end
     ensure
       @running = false
     end
@@ -322,14 +384,13 @@ module LavinMQ::AMQP10
       close_socket
     end
 
-    private def send_performative(channel : UInt16, code : UInt64, fields : Array(Value)) : Nil
-      body_size = Codec.described_list_size(code, fields)
+    private def send_frame(frame_size : UInt32, channel : UInt16, &) : Nil
       @write_lock.synchronize do
-        FrameWriter.write_frame_header(@socket, (8 + body_size).to_u32, AMQP_FRAME_TYPE, channel)
-        Codec.write_described_list(@socket, code, fields)
+        FrameWriter.write_frame_header(@socket, frame_size, AMQP_FRAME_TYPE, channel)
+        yield @socket
         @socket.flush
       end
-      add_send_bytes(8_u64 + body_size)
+      add_send_bytes(frame_size.to_u64)
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost AMQP 1.0 connection while sending: #{ex.inspect}" } unless closed?
       close_socket
