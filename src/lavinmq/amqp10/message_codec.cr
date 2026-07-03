@@ -1,7 +1,7 @@
 require "uuid"
 require "../amqp"
 require "../message"
-require "./slice_reader"
+require "./codec"
 require "./types"
 
 module LavinMQ::AMQP10
@@ -12,13 +12,13 @@ module LavinMQ::AMQP10
 
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
-    def decode(reader : SliceReader) : Incoming
+    def decode(reader : IO::Memory) : Incoming
       props = LavinMQ::AMQP::Properties.new
       to = nil
       body = EMPTY_BODY
       body_io : IO::Memory? = nil
 
-      until reader.empty?
+      until Codec.exhausted?(reader)
         descriptor = read_descriptor_code(reader)
         case descriptor
         when Descriptor::HEADER
@@ -79,11 +79,11 @@ module LavinMQ::AMQP10
       "amqp:modified:list"              => Descriptor::MODIFIED,
     }
 
-    def read_descriptor_code(reader : SliceReader) : UInt64
-      raise DecodeError.new("expected described type") unless reader.read_byte == 0x00
-      case code = reader.read_byte
-      when 0xa3 then symbolic_descriptor(reader.read_string(reader.read_byte.to_i))
-      when 0xb3 then symbolic_descriptor(reader.read_string(reader.read_size32("symbol32")))
+    def read_descriptor_code(reader : IO::Memory) : UInt64
+      raise DecodeError.new("expected described type") unless Codec.read_byte(reader) == 0x00
+      case code = Codec.read_byte(reader)
+      when 0xa3 then symbolic_descriptor(reader.read_string(Codec.read_byte(reader).to_i))
+      when 0xb3 then symbolic_descriptor(reader.read_string(Codec.read_size32(reader, "symbol32")))
       else           uint_value(reader, code)
       end
     end
@@ -92,41 +92,41 @@ module LavinMQ::AMQP10
       DESCRIPTOR_SYMBOLS[name]? || raise DecodeError.new("unknown descriptor #{name.inspect}")
     end
 
-    def read_uint_value(reader : SliceReader) : UInt64
-      uint_value(reader, reader.read_byte)
+    def read_uint_value(reader : IO::Memory) : UInt64
+      uint_value(reader, Codec.read_byte(reader))
     end
 
-    private def uint_value(reader : SliceReader, code : UInt8) : UInt64
+    private def uint_value(reader : IO::Memory, code : UInt8) : UInt64
       case code
       when 0x43 then 0_u64
       when 0x44 then 0_u64
-      when 0x50 then reader.read_byte.to_u64
-      when 0x52 then reader.read_byte.to_u64
-      when 0x53 then reader.read_byte.to_u64
-      when 0x60 then reader.read_u16.to_u64
-      when 0x70 then reader.read_u32.to_u64
-      when 0x80 then reader.read_u64
+      when 0x50 then Codec.read_byte(reader).to_u64
+      when 0x52 then Codec.read_byte(reader).to_u64
+      when 0x53 then Codec.read_byte(reader).to_u64
+      when 0x60 then Codec.read_u16(reader).to_u64
+      when 0x70 then Codec.read_u32(reader).to_u64
+      when 0x80 then Codec.read_u64(reader)
       else
         raise DecodeError.new("expected uint-like value, got 0x#{code.to_s(16)}")
       end
     end
 
-    def read_bool_value(reader : SliceReader) : Bool
-      case code = reader.read_byte
+    def read_bool_value(reader : IO::Memory) : Bool
+      case code = Codec.read_byte(reader)
       when 0x41 then true
       when 0x42 then false
-      when 0x56 then !reader.read_byte.zero?
+      when 0x56 then !Codec.read_byte(reader).zero?
       else
         raise DecodeError.new("expected boolean, got 0x#{code.to_s(16)}")
       end
     end
 
-    def read_binary_value(reader : SliceReader) : Bytes
-      case code = reader.read_byte
+    def read_binary_value(reader : IO::Memory) : Bytes
+      case code = Codec.read_byte(reader)
       when 0xa0
-        reader.read_slice(reader.read_byte.to_i)
+        Codec.read_slice(reader, Codec.read_byte(reader).to_i)
       when 0xb0
-        reader.read_slice(reader.read_size32("binary32"))
+        Codec.read_slice(reader, Codec.read_size32(reader, "binary32"))
       when 0x40
         EMPTY_BODY
       else
@@ -134,35 +134,35 @@ module LavinMQ::AMQP10
       end
     end
 
-    def read_string_value(reader : SliceReader) : String?
-      case code = reader.read_byte
+    def read_string_value(reader : IO::Memory) : String?
+      case code = Codec.read_byte(reader)
       when 0x40
         nil
       when 0xa1, 0xa3
-        reader.read_string(reader.read_byte.to_i)
+        reader.read_string(Codec.read_byte(reader).to_i)
       when 0xb1, 0xb3
-        reader.read_string(reader.read_size32("string32"))
+        reader.read_string(Codec.read_size32(reader, "string32"))
       else
         skip_value_payload(reader, code)
         nil
       end
     end
 
-    private def read_amqp_value_body(reader : SliceReader) : Bytes
+    private def read_amqp_value_body(reader : IO::Memory) : Bytes
       start = reader.pos
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40
         EMPTY_BODY
       when 0xa0, 0xa1, 0xa3
-        reader.read_slice(reader.read_byte.to_i)
+        Codec.read_slice(reader, Codec.read_byte(reader).to_i)
       when 0xb0, 0xb1, 0xb3
-        reader.read_slice(reader.read_size32("value32"))
+        Codec.read_slice(reader, Codec.read_size32(reader, "value32"))
       else
         # Structured amqp-value bodies (lists, maps, numbers) have no 0-9-1
         # equivalent; preserve the raw encoded value verbatim instead of
         # silently dropping it.
         skip_value_payload(reader, code)
-        reader.slice_from(start)
+        Codec.slice_from(reader, start)
       end
     end
 
@@ -208,34 +208,34 @@ module LavinMQ::AMQP10
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def read_application_property_value(reader) : LavinMQ::AMQP::Field
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40 then nil
       when 0x41 then true
       when 0x42 then false
-      when 0x50 then reader.read_byte
+      when 0x50 then Codec.read_byte(reader)
       when 0x43 then 0_u32
       when 0x44 then 0_i64
-      when 0x51 then reader.read_byte.to_i8!
-      when 0x52 then reader.read_byte.to_u32
-      when 0x53 then reader.read_byte.to_i64
-      when 0x54 then reader.read_byte.to_i8!.to_i32
-      when 0x55 then reader.read_byte.to_i8!.to_i64
-      when 0x56 then !reader.read_byte.zero?
-      when 0x60 then reader.read_u16
-      when 0x61 then IO::ByteFormat::NetworkEndian.decode(Int16, reader.read_slice(2))
-      when 0x70 then reader.read_u32
-      when 0x71 then reader.read_i32
-      when 0x72 then reader.read_f32
+      when 0x51 then Codec.read_byte(reader).to_i8!
+      when 0x52 then Codec.read_byte(reader).to_u32
+      when 0x53 then Codec.read_byte(reader).to_i64
+      when 0x54 then Codec.read_byte(reader).to_i8!.to_i32
+      when 0x55 then Codec.read_byte(reader).to_i8!.to_i64
+      when 0x56 then !Codec.read_byte(reader).zero?
+      when 0x60 then Codec.read_u16(reader)
+      when 0x61 then Codec.read_i16(reader)
+      when 0x70 then Codec.read_u32(reader)
+      when 0x71 then Codec.read_i32(reader)
+      when 0x72 then Codec.read_f32(reader)
       when 0x80
-        value = reader.read_u64
+        value = Codec.read_u64(reader)
         value <= Int64::MAX ? value.to_i64 : nil
-      when 0x81       then reader.read_i64
-      when 0x82       then reader.read_f64
-      when 0x83       then safe_time(reader.read_i64)
-      when 0xa0       then reader.read_slice(reader.read_byte.to_i)
-      when 0xb0       then reader.read_slice(reader.read_size32("binary32"))
-      when 0xa1, 0xa3 then reader.read_string(reader.read_byte.to_i)
-      when 0xb1, 0xb3 then reader.read_string(reader.read_size32("string32"))
+      when 0x81       then Codec.read_i64(reader)
+      when 0x82       then Codec.read_f64(reader)
+      when 0x83       then safe_time(Codec.read_i64(reader))
+      when 0xa0       then Codec.read_slice(reader, Codec.read_byte(reader).to_i)
+      when 0xb0       then Codec.read_slice(reader, Codec.read_size32(reader, "binary32"))
+      when 0xa1, 0xa3 then reader.read_string(Codec.read_byte(reader).to_i)
+      when 0xb1, 0xb3 then reader.read_string(Codec.read_size32(reader, "string32"))
       else
         skip_value_payload(reader, code)
         nil
@@ -291,29 +291,29 @@ module LavinMQ::AMQP10
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def read_message_id(reader) : String?
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40
         nil
       when 0xa1, 0xa3
-        reader.read_string(reader.read_byte.to_i)
+        reader.read_string(Codec.read_byte(reader).to_i)
       when 0xb1, 0xb3
-        reader.read_string(reader.read_size32("string32"))
+        reader.read_string(Codec.read_size32(reader, "string32"))
       when 0x43
         "0"
       when 0x52
-        reader.read_byte.to_s
+        Codec.read_byte(reader).to_s
       when 0x70
-        reader.read_u32.to_s
+        Codec.read_u32(reader).to_s
       when 0x44
         "0"
       when 0x53
-        reader.read_byte.to_s
+        Codec.read_byte(reader).to_s
       when 0x80
-        reader.read_u64.to_s
+        Codec.read_u64(reader).to_s
       when 0xa0
-        reader.read_string(reader.read_byte.to_i)
+        reader.read_string(Codec.read_byte(reader).to_i)
       when 0xb0
-        reader.read_string(reader.read_size32("binary32"))
+        reader.read_string(Codec.read_size32(reader, "binary32"))
       when 0x98
         read_uuid_value(reader)
       else
@@ -323,9 +323,9 @@ module LavinMQ::AMQP10
     end
 
     private def read_timestamp_value(reader) : Int64?
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40 then nil
-      when 0x83 then reader.read_i64
+      when 0x83 then Codec.read_i64(reader)
       else
         skip_value_payload(reader, code)
         nil
@@ -333,11 +333,11 @@ module LavinMQ::AMQP10
     end
 
     private def read_optional_bool_value(reader) : Bool?
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40 then nil
       when 0x41 then true
       when 0x42 then false
-      when 0x56 then !reader.read_byte.zero?
+      when 0x56 then !Codec.read_byte(reader).zero?
       else
         skip_value_payload(reader, code)
         nil
@@ -345,14 +345,14 @@ module LavinMQ::AMQP10
     end
 
     private def read_optional_uint_value(reader) : UInt32?
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40             then nil
       when 0x43, 0x44       then 0_u32
-      when 0x50, 0x52, 0x53 then reader.read_byte.to_u32
-      when 0x60             then reader.read_u16.to_u32
-      when 0x70             then reader.read_u32
+      when 0x50, 0x52, 0x53 then Codec.read_byte(reader).to_u32
+      when 0x60             then Codec.read_u16(reader).to_u32
+      when 0x70             then Codec.read_u32(reader)
       when 0x80
-        value = reader.read_u64
+        value = Codec.read_u64(reader)
         value <= UInt32::MAX ? value.to_u32 : nil
       else
         skip_value_payload(reader, code)
@@ -380,18 +380,18 @@ module LavinMQ::AMQP10
     end
 
     private def read_optional_ubyte_value(reader) : UInt8?
-      case code = reader.read_byte
+      case code = Codec.read_byte(reader)
       when 0x40             then nil
       when 0x43, 0x44       then 0_u8
-      when 0x50, 0x52, 0x53 then reader.read_byte
+      when 0x50, 0x52, 0x53 then Codec.read_byte(reader)
       when 0x60
-        value = reader.read_u16
+        value = Codec.read_u16(reader)
         value <= UInt8::MAX ? value.to_u8 : nil
       when 0x70
-        value = reader.read_u32
+        value = Codec.read_u32(reader)
         value <= UInt8::MAX ? value.to_u8 : nil
       when 0x80
-        value = reader.read_u64
+        value = Codec.read_u64(reader)
         value <= UInt8::MAX ? value.to_u8 : nil
       else
         skip_value_payload(reader, code)
@@ -399,12 +399,12 @@ module LavinMQ::AMQP10
       end
     end
 
-    def skip_value(reader : SliceReader) : Nil
-      skip_value_payload(reader, reader.read_byte)
+    def skip_value(reader : IO::Memory) : Nil
+      skip_value_payload(reader, Codec.read_byte(reader))
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    def skip_value_payload(reader : SliceReader, code : UInt8) : Nil
+    def skip_value_payload(reader : IO::Memory, code : UInt8) : Nil
       case code
       when 0x00
         skip_value(reader)
@@ -421,20 +421,20 @@ module LavinMQ::AMQP10
       when 0x94, 0x98
         reader.skip(16)
       when 0xa0, 0xa1, 0xa3
-        reader.skip(reader.read_byte.to_i)
+        reader.skip(Codec.read_byte(reader).to_i)
       when 0xb0, 0xb1, 0xb3
-        reader.skip(reader.read_size32("value32"))
+        reader.skip(Codec.read_size32(reader, "value32"))
       when 0xc0, 0xc1, 0xe0
-        reader.skip(reader.read_byte.to_i)
+        reader.skip(Codec.read_byte(reader).to_i)
       when 0xd0, 0xd1, 0xf0
-        reader.skip(reader.read_size32("compound32"))
+        reader.skip(Codec.read_size32(reader, "compound32"))
       else
         raise DecodeError.new("unsupported value 0x#{code.to_s(16)}")
       end
     end
 
-    def read_list_header(reader : SliceReader) : Tuple(Int32, Int32)
-      case code = reader.read_byte
+    def read_list_header(reader : IO::Memory) : Tuple(Int32, Int32)
+      case code = Codec.read_byte(reader)
       when 0x45
         {0, reader.pos}
       when 0xc0
@@ -446,8 +446,8 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def read_map_header(reader : SliceReader) : Tuple(Int32, Int32)
-      case code = reader.read_byte
+    private def read_map_header(reader : IO::Memory) : Tuple(Int32, Int32)
+      case code = Codec.read_byte(reader)
       when 0xc1
         read_compound8_header(reader, "map8")
       when 0xd1
@@ -457,14 +457,14 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def read_compound8_header(reader : SliceReader, type : String) : Tuple(Int32, Int32)
-      size = reader.read_byte.to_i
-      count = reader.read_byte.to_i
+    private def read_compound8_header(reader : IO::Memory, type : String) : Tuple(Int32, Int32)
+      size = Codec.read_byte(reader).to_i
+      count = Codec.read_byte(reader).to_i
       if size < 1
         raise DecodeError.new("#{type} size #{size} smaller than count field")
       end
       payload_size = size - 1
-      if payload_size > reader.remaining
+      if payload_size > Codec.remaining(reader)
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       if count > payload_size
@@ -473,14 +473,14 @@ module LavinMQ::AMQP10
       {count, reader.pos + payload_size}
     end
 
-    private def read_compound32_header(reader : SliceReader, type : String) : Tuple(Int32, Int32)
-      size = reader.read_u32
-      count = reader.read_u32
+    private def read_compound32_header(reader : IO::Memory, type : String) : Tuple(Int32, Int32)
+      size = Codec.read_u32(reader)
+      count = Codec.read_u32(reader)
       if size < 4
         raise DecodeError.new("#{type} size #{size} smaller than count field")
       end
       payload_size = size - 4
-      if payload_size > reader.remaining.to_u32
+      if payload_size > Codec.remaining(reader).to_u32
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       if count > payload_size
@@ -489,8 +489,8 @@ module LavinMQ::AMQP10
       {count.to_i, reader.pos + payload_size.to_i}
     end
 
-    private def read_uuid_value(reader : SliceReader) : String
-      UUID.new(reader.read_slice(16)).to_s
+    private def read_uuid_value(reader : IO::Memory) : String
+      UUID.new(Codec.read_slice(reader, 16)).to_s
     end
   end
 end

@@ -4,10 +4,10 @@ module LavinMQ::AMQP10
   struct Frame
     getter type, channel, body
 
-    def initialize(@type : UInt8, @channel : UInt16, @body : Bytes, @reader : SliceReader)
+    def initialize(@type : UInt8, @channel : UInt16, @body : Bytes, @reader : IO::Memory)
     end
 
-    def body_reader : SliceReader
+    def body_reader : IO::Memory
       @reader.reset(@body)
     end
   end
@@ -15,7 +15,7 @@ module LavinMQ::AMQP10
   class FrameReader
     @header = Bytes.new(8)
     @buffer : Bytes
-    @reader = SliceReader.new
+    @reader = IO::Memory.new(Bytes.empty)
 
     def initialize(@io : IO, max_frame_size : UInt32)
       size = max_frame_size.zero? ? Config.instance.frame_max : max_frame_size

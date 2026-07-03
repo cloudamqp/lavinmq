@@ -1,5 +1,6 @@
 require "../stats"
 require "./client"
+require "./io_memory_reset"
 
 module LavinMQ::AMQP10
   abstract class Link
@@ -42,8 +43,8 @@ module LavinMQ::AMQP10
   end
 
   class ReceiverLink < Link
-    @body_io = SliceIO.new
-    @message_reader = SliceReader.new
+    @body_io = IO::Memory.new(Bytes.empty)
+    @message_reader = IO::Memory.new(Bytes.empty)
     @partial_payload = IO::Memory.new
     @partial_delivery_id : UInt32?
     @partial_settled = false

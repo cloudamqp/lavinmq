@@ -1,5 +1,5 @@
 require "./value"
-require "./slice_reader"
+require "./io_memory_reset"
 
 module LavinMQ::AMQP10
   module Codec
@@ -8,15 +8,94 @@ module LavinMQ::AMQP10
     MAX_DECODE_DEPTH    =     64
     MAX_COMPOUND_VALUES = 65_536
 
-    def decode(reader : SliceReader) : Value
+    # Symmetric to write_u16/write_u32/etc below; reads straight off any IO.
+    def read_byte(io : IO) : UInt8
+      io.read_byte || raise IO::EOFError.new
+    end
+
+    def read_u16(io : IO) : UInt16
+      io.read_bytes(UInt16, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_u32(io : IO) : UInt32
+      io.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_u64(io : IO) : UInt64
+      io.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_i16(io : IO) : Int16
+      io.read_bytes(Int16, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_i32(io : IO) : Int32
+      io.read_bytes(Int32, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_i64(io : IO) : Int64
+      io.read_bytes(Int64, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_f32(io : IO) : Float32
+      io.read_bytes(Float32, IO::ByteFormat::NetworkEndian)
+    end
+
+    def read_f64(io : IO) : Float64
+      io.read_bytes(Float64, IO::ByteFormat::NetworkEndian)
+    end
+
+    # Bytes left unread in the frame-bounded buffer.
+    def remaining(io : IO::Memory) : Int32
+      io.bytesize - io.pos
+    end
+
+    # True once every byte of the frame-bounded buffer has been consumed.
+    # Not stdlib's IO::Memory#empty? -- that means "buffer size is zero",
+    # not "fully consumed" -- deliberately named differently so it can't be
+    # silently "corrected" back to the wrong stdlib method.
+    def exhausted?(io : IO::Memory) : Bool
+      io.pos >= io.bytesize
+    end
+
+    # Zero-copy view into io's own backing buffer, advancing pos past it.
+    # Mirrors amq-protocol's Table.from_io IO::Memory fast path (io.@writeable
+    # read, not written -- reading a foreign ivar is already used elsewhere in
+    # this codebase, e.g. src/lavinmq/mqtt/sessions.cr). Unlike amq-protocol's
+    # Table, these readers are short-lived (retired within one synchronous
+    # decode call), so -- deliberately, unlike Table.from_io -- we never
+    # defensively copy when the source is writeable.
+    def read_slice(io : IO::Memory, size : Int) : Bytes
+      raise IO::EOFError.new if size < 0 || size > remaining(io)
+      slice = Bytes.new(io.buffer + io.pos, size, read_only: !io.@writeable)
+      io.pos += size
+      slice
+    end
+
+    # The slice from an earlier saved position up to io's current pos.
+    def slice_from(io : IO::Memory, start : Int) : Bytes
+      Bytes.new(io.buffer + start, io.pos - start, read_only: !io.@writeable)
+    end
+
+    # Reads a 32-bit size field and validates it against the remaining payload,
+    # so a hostile oversized size cannot allocate or read past the buffer.
+    def read_size32(io : IO::Memory, type : String) : Int32
+      size = read_u32(io)
+      if size > remaining(io).to_u32
+        raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
+      end
+      size.to_i
+    end
+
+    def decode(reader : IO::Memory) : Value
       decode(reader, 0)
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def decode(reader : SliceReader, depth : Int32) : Value
+    private def decode(reader : IO::Memory, depth : Int32) : Value
       raise DecodeError.new("AMQP 1.0 value nesting too deep") if depth > MAX_DECODE_DEPTH
 
-      code = reader.read_byte
+      code = read_byte(reader)
       case code
       when 0x00
         descriptor = decode(reader, depth + 1)
@@ -35,54 +114,54 @@ module LavinMQ::AMQP10
       when 0x45
         Value.list(Array(Value).new)
       when 0x50
-        Value.ubyte(reader.read_byte)
+        Value.ubyte(read_byte(reader))
       when 0x51
-        Value.int(reader.read_byte.to_i8!.to_i32)
+        Value.int(read_byte(reader).to_i8!.to_i32)
       when 0x52
-        Value.uint(reader.read_byte.to_u32)
+        Value.uint(read_byte(reader).to_u32)
       when 0x53
-        Value.ulong(reader.read_byte.to_u64)
+        Value.ulong(read_byte(reader).to_u64)
       when 0x54
-        Value.int(reader.read_byte.to_i8!.to_i32)
+        Value.int(read_byte(reader).to_i8!.to_i32)
       when 0x55
-        Value.long(reader.read_byte.to_i8!.to_i64)
+        Value.long(read_byte(reader).to_i8!.to_i64)
       when 0x56
-        Value.bool(!reader.read_byte.zero?)
+        Value.bool(!read_byte(reader).zero?)
       when 0x60
-        Value.ushort(reader.read_u16)
+        Value.ushort(read_u16(reader))
       when 0x61
-        Value.int(reader.read_i16.to_i32)
+        Value.int(read_i16(reader).to_i32)
       when 0x70
-        Value.uint(reader.read_u32)
+        Value.uint(read_u32(reader))
       when 0x71
-        Value.int(reader.read_i32)
+        Value.int(read_i32(reader))
       when 0x72
-        Value.float(reader.read_f32)
+        Value.float(read_f32(reader))
       when 0x80
-        Value.ulong(reader.read_u64)
+        Value.ulong(read_u64(reader))
       when 0x81
-        Value.long(reader.read_i64)
+        Value.long(read_i64(reader))
       when 0x82
-        Value.double(reader.read_f64)
+        Value.double(read_f64(reader))
       when 0x83
-        Value.timestamp(reader.read_i64)
+        Value.timestamp(read_i64(reader))
       when 0xa0
-        size = reader.read_byte.to_i
-        Value.binary(reader.read_slice(size))
+        size = read_byte(reader).to_i
+        Value.binary(read_slice(reader, size))
       when 0xb0
-        size = reader.read_size32("binary32")
-        Value.binary(reader.read_slice(size))
+        size = read_size32(reader, "binary32")
+        Value.binary(read_slice(reader, size))
       when 0xa1
-        size = reader.read_byte.to_i
+        size = read_byte(reader).to_i
         Value.string(reader.read_string(size))
       when 0xb1
-        size = reader.read_size32("string32")
+        size = read_size32(reader, "string32")
         Value.string(reader.read_string(size))
       when 0xa3
-        size = reader.read_byte.to_i
+        size = read_byte(reader).to_i
         Value.symbol(reader.read_string(size))
       when 0xb3
-        size = reader.read_size32("symbol32")
+        size = read_size32(reader, "symbol32")
         Value.symbol(reader.read_string(size))
       when 0xc0
         decode_list8(reader, depth)
@@ -104,8 +183,8 @@ module LavinMQ::AMQP10
     end
 
     private def decode_list8(reader, depth)
-      size = reader.read_byte.to_i
-      count = reader.read_byte.to_i
+      size = read_byte(reader).to_i
+      count = read_byte(reader).to_i
       payload = compound_payload_reader(reader, "list8", size, 1, count)
       values = Array(Value).new(count)
       count.times { values << decode(payload, depth + 1) }
@@ -113,8 +192,8 @@ module LavinMQ::AMQP10
     end
 
     private def decode_list32(reader, depth)
-      size = reader.read_u32
-      count = reader.read_u32
+      size = read_u32(reader)
+      count = read_u32(reader)
       payload = compound_payload_reader(reader, "list32", size, 4, count)
       values = Array(Value).new(count.to_i)
       count.times { values << decode(payload, depth + 1) }
@@ -122,8 +201,8 @@ module LavinMQ::AMQP10
     end
 
     private def decode_map8(reader, depth)
-      size = reader.read_byte.to_i
-      count = reader.read_byte.to_i
+      size = read_byte(reader).to_i
+      count = read_byte(reader).to_i
       payload = compound_payload_reader(reader, "map8", size, 1, count)
       validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new(count // 2)
@@ -134,8 +213,8 @@ module LavinMQ::AMQP10
     end
 
     private def decode_map32(reader, depth)
-      size = reader.read_u32
-      count = reader.read_u32
+      size = read_u32(reader)
+      count = read_u32(reader)
       payload = compound_payload_reader(reader, "map32", size, 4, count)
       validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new((count // 2).to_i)
@@ -146,43 +225,43 @@ module LavinMQ::AMQP10
     end
 
     private def decode_array8(reader, depth)
-      size = reader.read_byte.to_i
-      count = reader.read_byte.to_i
+      size = read_byte(reader).to_i
+      count = read_byte(reader).to_i
       payload = array_payload_reader(reader, "array8", size, 1, count)
       return Value.array(Array(Value).new) if count.zero?
 
-      constructor = payload.read_byte
+      constructor = read_byte(payload)
       values = Array(Value).new(count)
       count.times { values << decode_array_item(payload, constructor) }
       Value.array(values)
     end
 
     private def decode_array32(reader, depth)
-      size = reader.read_u32
-      count = reader.read_u32
+      size = read_u32(reader)
+      count = read_u32(reader)
       payload = array_payload_reader(reader, "array32", size, 4, count)
       return Value.array(Array(Value).new) if count.zero?
 
-      constructor = payload.read_byte
+      constructor = read_byte(payload)
       values = Array(Value).new(count.to_i)
       count.times { values << decode_array_item(payload, constructor) }
       Value.array(values)
     end
 
-    private def compound_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : SliceReader
+    private def compound_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : IO::Memory
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > payload_size
         raise DecodeError.new("#{type} count #{count} exceeds payload size #{payload_size}")
       end
-      SliceReader.new(reader.read_slice(payload_size))
+      IO::Memory.new(read_slice(reader, payload_size))
     end
 
-    private def array_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : SliceReader
+    private def array_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : IO::Memory
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > 0 && payload_size < 1
         raise DecodeError.new("#{type} with values is missing constructor")
       end
-      SliceReader.new(reader.read_slice(payload_size))
+      IO::Memory.new(read_slice(reader, payload_size))
     end
 
     private def validate_compound_header(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : Int32
@@ -193,7 +272,7 @@ module LavinMQ::AMQP10
         raise DecodeError.new("#{type} count #{count} exceeds maximum #{MAX_COMPOUND_VALUES}")
       end
       payload_size = size - count_width
-      if payload_size > reader.remaining
+      if payload_size > remaining(reader)
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       payload_size.to_i
@@ -206,15 +285,15 @@ module LavinMQ::AMQP10
     private def decode_array_item(reader, constructor : UInt8) : Value
       case constructor
       when 0xa3
-        size = reader.read_byte.to_i
+        size = read_byte(reader).to_i
         Value.symbol(reader.read_string(size))
       when 0xb3
-        size = reader.read_size32("symbol32")
+        size = read_size32(reader, "symbol32")
         Value.symbol(reader.read_string(size))
       when 0x70
-        Value.uint(reader.read_u32)
+        Value.uint(read_u32(reader))
       when 0x80
-        Value.ulong(reader.read_u64)
+        Value.ulong(read_u64(reader))
       else
         raise DecodeError.new("unsupported AMQP 1.0 array constructor 0x#{constructor.to_s(16)}")
       end
