@@ -8,54 +8,10 @@ module LavinMQ::AMQP10
     MAX_DECODE_DEPTH    =     64
     MAX_COMPOUND_VALUES = 65_536
 
-    # Symmetric to write_u16/write_u32/etc below; reads straight off any IO.
+    # Turns IO#read_byte's nilable return into the raising form AMQP10 always
+    # wants; not a passthrough over read_bytes, so it earns its keep.
     def read_byte(io : IO) : UInt8
       io.read_byte || raise IO::EOFError.new
-    end
-
-    def read_u16(io : IO) : UInt16
-      io.read_bytes(UInt16, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_u32(io : IO) : UInt32
-      io.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_u64(io : IO) : UInt64
-      io.read_bytes(UInt64, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_i16(io : IO) : Int16
-      io.read_bytes(Int16, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_i32(io : IO) : Int32
-      io.read_bytes(Int32, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_i64(io : IO) : Int64
-      io.read_bytes(Int64, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_f32(io : IO) : Float32
-      io.read_bytes(Float32, IO::ByteFormat::NetworkEndian)
-    end
-
-    def read_f64(io : IO) : Float64
-      io.read_bytes(Float64, IO::ByteFormat::NetworkEndian)
-    end
-
-    # Bytes left unread in the frame-bounded buffer.
-    def remaining(io : IO::Memory) : Int32
-      io.bytesize - io.pos
-    end
-
-    # True once every byte of the frame-bounded buffer has been consumed.
-    # Not stdlib's IO::Memory#empty? -- that means "buffer size is zero",
-    # not "fully consumed" -- deliberately named differently so it can't be
-    # silently "corrected" back to the wrong stdlib method.
-    def exhausted?(io : IO::Memory) : Bool
-      io.pos >= io.bytesize
     end
 
     # Zero-copy view into io's own backing buffer, advancing pos past it.
@@ -66,7 +22,7 @@ module LavinMQ::AMQP10
     # decode call), so -- deliberately, unlike Table.from_io -- we never
     # defensively copy when the source is writeable.
     def read_slice(io : IO::Memory, size : Int) : Bytes
-      raise IO::EOFError.new if size < 0 || size > remaining(io)
+      raise IO::EOFError.new if size < 0 || size > io.bytesize - io.pos
       slice = Bytes.new(io.buffer + io.pos, size, read_only: !io.@writeable)
       io.pos += size
       slice
@@ -80,8 +36,8 @@ module LavinMQ::AMQP10
     # Reads a 32-bit size field and validates it against the remaining payload,
     # so a hostile oversized size cannot allocate or read past the buffer.
     def read_size32(io : IO::Memory, type : String) : Int32
-      size = read_u32(io)
-      if size > remaining(io).to_u32
+      size = io.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      if size > (io.bytesize - io.pos).to_u32
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       size.to_i
@@ -128,23 +84,23 @@ module LavinMQ::AMQP10
       when 0x56
         Value.bool(!read_byte(reader).zero?)
       when 0x60
-        Value.ushort(read_u16(reader))
+        Value.ushort(reader.read_bytes(UInt16, IO::ByteFormat::NetworkEndian))
       when 0x61
-        Value.int(read_i16(reader).to_i32)
+        Value.int(reader.read_bytes(Int16, IO::ByteFormat::NetworkEndian).to_i32)
       when 0x70
-        Value.uint(read_u32(reader))
+        Value.uint(reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian))
       when 0x71
-        Value.int(read_i32(reader))
+        Value.int(reader.read_bytes(Int32, IO::ByteFormat::NetworkEndian))
       when 0x72
-        Value.float(read_f32(reader))
+        Value.float(reader.read_bytes(Float32, IO::ByteFormat::NetworkEndian))
       when 0x80
-        Value.ulong(read_u64(reader))
+        Value.ulong(reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian))
       when 0x81
-        Value.long(read_i64(reader))
+        Value.long(reader.read_bytes(Int64, IO::ByteFormat::NetworkEndian))
       when 0x82
-        Value.double(read_f64(reader))
+        Value.double(reader.read_bytes(Float64, IO::ByteFormat::NetworkEndian))
       when 0x83
-        Value.timestamp(read_i64(reader))
+        Value.timestamp(reader.read_bytes(Int64, IO::ByteFormat::NetworkEndian))
       when 0xa0
         size = read_byte(reader).to_i
         Value.binary(read_slice(reader, size))
@@ -185,83 +141,95 @@ module LavinMQ::AMQP10
     private def decode_list8(reader, depth)
       size = read_byte(reader).to_i
       count = read_byte(reader).to_i
-      payload = compound_payload_reader(reader, "list8", size, 1, count)
+      end_pos = compound_end_pos(reader, "list8", size, 1, count)
       values = Array(Value).new(count)
-      count.times { values << decode(payload, depth + 1) }
+      count.times { values << decode(reader, depth + 1) }
+      raise DecodeError.new("list8 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.list(values)
     end
 
     private def decode_list32(reader, depth)
-      size = read_u32(reader)
-      count = read_u32(reader)
-      payload = compound_payload_reader(reader, "list32", size, 4, count)
+      size = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      count = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      end_pos = compound_end_pos(reader, "list32", size, 4, count)
       values = Array(Value).new(count.to_i)
-      count.times { values << decode(payload, depth + 1) }
+      count.times { values << decode(reader, depth + 1) }
+      raise DecodeError.new("list32 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.list(values)
     end
 
     private def decode_map8(reader, depth)
       size = read_byte(reader).to_i
       count = read_byte(reader).to_i
-      payload = compound_payload_reader(reader, "map8", size, 1, count)
+      end_pos = compound_end_pos(reader, "map8", size, 1, count)
       validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new(count // 2)
       (count // 2).times do
-        pairs << {decode(payload, depth + 1), decode(payload, depth + 1)}
+        pairs << {decode(reader, depth + 1), decode(reader, depth + 1)}
       end
+      raise DecodeError.new("map8 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.map(pairs)
     end
 
     private def decode_map32(reader, depth)
-      size = read_u32(reader)
-      count = read_u32(reader)
-      payload = compound_payload_reader(reader, "map32", size, 4, count)
+      size = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      count = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      end_pos = compound_end_pos(reader, "map32", size, 4, count)
       validate_map_count(count)
       pairs = Array(Tuple(Value, Value)).new((count // 2).to_i)
       (count // 2).times do
-        pairs << {decode(payload, depth + 1), decode(payload, depth + 1)}
+        pairs << {decode(reader, depth + 1), decode(reader, depth + 1)}
       end
+      raise DecodeError.new("map32 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.map(pairs)
     end
 
     private def decode_array8(reader, depth)
       size = read_byte(reader).to_i
       count = read_byte(reader).to_i
-      payload = array_payload_reader(reader, "array8", size, 1, count)
+      end_pos = array_end_pos(reader, "array8", size, 1, count)
       return Value.array(Array(Value).new) if count.zero?
 
-      constructor = read_byte(payload)
+      constructor = read_byte(reader)
       values = Array(Value).new(count)
-      count.times { values << decode_array_item(payload, constructor) }
+      count.times { values << decode_array_item(reader, constructor) }
+      raise DecodeError.new("array8 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.array(values)
     end
 
     private def decode_array32(reader, depth)
-      size = read_u32(reader)
-      count = read_u32(reader)
-      payload = array_payload_reader(reader, "array32", size, 4, count)
+      size = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      count = reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian)
+      end_pos = array_end_pos(reader, "array32", size, 4, count)
       return Value.array(Array(Value).new) if count.zero?
 
-      constructor = read_byte(payload)
+      constructor = read_byte(reader)
       values = Array(Value).new(count.to_i)
-      count.times { values << decode_array_item(payload, constructor) }
+      count.times { values << decode_array_item(reader, constructor) }
+      raise DecodeError.new("array32 elements overran declared size") if reader.pos > end_pos
+      reader.skip(end_pos - reader.pos) if reader.pos < end_pos
       Value.array(values)
     end
 
-    private def compound_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : IO::Memory
+    private def compound_end_pos(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : Int32
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > payload_size
         raise DecodeError.new("#{type} count #{count} exceeds payload size #{payload_size}")
       end
-      IO::Memory.new(read_slice(reader, payload_size))
+      reader.pos + payload_size
     end
 
-    private def array_payload_reader(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : IO::Memory
+    private def array_end_pos(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : Int32
       payload_size = validate_compound_header(reader, type, size, count_width, count)
       if count > 0 && payload_size < 1
         raise DecodeError.new("#{type} with values is missing constructor")
       end
-      IO::Memory.new(read_slice(reader, payload_size))
+      reader.pos + payload_size
     end
 
     private def validate_compound_header(reader, type : String, size : Int | UInt32, count_width : Int32, count : Int | UInt32) : Int32
@@ -272,7 +240,7 @@ module LavinMQ::AMQP10
         raise DecodeError.new("#{type} count #{count} exceeds maximum #{MAX_COMPOUND_VALUES}")
       end
       payload_size = size - count_width
-      if payload_size > remaining(reader)
+      if payload_size > reader.bytesize - reader.pos
         raise DecodeError.new("#{type} size #{size} exceeds remaining frame payload")
       end
       payload_size.to_i
@@ -291,9 +259,9 @@ module LavinMQ::AMQP10
         size = read_size32(reader, "symbol32")
         Value.symbol(reader.read_string(size))
       when 0x70
-        Value.uint(read_u32(reader))
+        Value.uint(reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian))
       when 0x80
-        Value.ulong(read_u64(reader))
+        Value.ulong(reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian))
       else
         raise DecodeError.new("unsupported AMQP 1.0 array constructor 0x#{constructor.to_s(16)}")
       end
