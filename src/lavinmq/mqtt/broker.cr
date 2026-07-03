@@ -121,10 +121,18 @@ module LavinMQ
         end
       end
 
-      def unsubscribe(client_id, topics)
-        session = sessions[client_id]? || return
-        topics.each do |tf|
-          session.unsubscribe(tf)
+      def unsubscribe(client_id, topics) : Array(Protocol::UnsubAck::ReasonCode)
+        # A client with no session has no matching filter for anything it names,
+        # and [MQTT-3.11.3-2] still wants a code per filter received.
+        unless session = sessions[client_id]?
+          return topics.map { Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted }
+        end
+        topics.map do |tf|
+          if session.unsubscribe(tf)
+            Protocol::UnsubAck::ReasonCode::Success
+          else
+            Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted
+          end
         end
       end
 
