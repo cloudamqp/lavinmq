@@ -664,6 +664,27 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should peek unacked messages held by basic_get" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q9")
+          server_q = s.vhosts["/"].queue("peek_q9")
+          q.publish "taken"
+          wait_for { server_q.message_count == 1 }
+          q.get(no_ack: false).not_nil!
+          wait_for { server_q.unacked_count == 1 }
+
+          body = %({"count": 10, "state": "unacked"})
+          response = http.post("/api/queues/%2f/peek_q9/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 1
+          messages[0]["payload"].as_s.should eq "taken"
+          server_q.unacked_count.should eq 1
+        end
+      end
+    end
+
     it "should show requeued messages as redelivered ready messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

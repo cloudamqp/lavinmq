@@ -894,13 +894,17 @@ module LavinMQ::AMQP
       result.concat(@basic_get_unacked.to_a)
     end
 
-    # Non-destructive peek at messages delivered to consumers but not yet acked.
+    # Non-destructive peek at messages delivered to clients but not yet acked,
+    # both consumer deliveries and basic_get:s.
     def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
       return if @closed || count <= 0
 
       sps = [] of SegmentPosition
-      consumers.select(AMQP::Consumer).map(&.channel).uniq!.each do |ch|
-        ch.unacked.each { |u| sps << u.sp if u.queue == self }
+      @vhost.connections.each do |client|
+        next unless client.is_a?(Client)
+        client.channels.each do |ch|
+          ch.unacked.each { |u| sps << u.sp if u.queue == self }
+        end
       end
 
       yielded = 0
