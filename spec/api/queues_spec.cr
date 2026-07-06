@@ -664,6 +664,26 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should refuse peeking queues that are not running, but allow paused" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q10")
+          server_q = s.vhosts["/"].queue("peek_q10")
+          q.publish "m1"
+          wait_for { server_q.message_count == 1 }
+
+          server_q.pause!
+          response = http.post("/api/queues/%2f/peek_q10/peek", body: %({"count": 1}))
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.size.should eq 1
+
+          server_q.close
+          response = http.post("/api/queues/%2f/peek_q10/peek", body: %({"count": 1}))
+          response.status_code.should eq 403
+        end
+      end
+    end
+
     it "should peek unacked messages held by basic_get" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

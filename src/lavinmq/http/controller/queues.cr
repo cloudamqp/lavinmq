@@ -250,6 +250,9 @@ module LavinMQ
             if q.is_a?(LavinMQ::AMQP::Stream)
               bad_request(context, "Use /stream for stream queues")
             end
+            if q.state != QueueState::Running && q.state != QueueState::Paused
+              forbidden(context, "Can't peek queue that is not in running state")
+            end
             body = parse_body(context)
             offset = body["offset"]?.try(&.as_i?) || 0
             count = body["count"]?.try(&.as_i?) || 1

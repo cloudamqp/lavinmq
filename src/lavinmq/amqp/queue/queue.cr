@@ -899,12 +899,18 @@ module LavinMQ::AMQP
     def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
       return if @closed || count <= 0
 
+      max = offset.to_i64 + count
       sps = [] of SegmentPosition
       @vhost.connections.each do |client|
         next unless client.is_a?(Client)
         client.channels.each do |ch|
-          ch.each_unacked { |u| sps << u.sp if u.queue == self }
+          break if sps.size >= max
+          ch.each_unacked do |u|
+            break if sps.size >= max
+            sps << u.sp if u.queue == self
+          end
         end
+        break if sps.size >= max
       end
 
       yielded = 0

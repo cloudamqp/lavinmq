@@ -377,7 +377,15 @@ module LavinMQ
       def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
         return if count <= 0
 
-        sps = @msg_store_lock.synchronize { @unacked.values }
+        max = offset.to_i64 + count
+        sps = Array(SegmentPosition).new
+        @msg_store_lock.synchronize do
+          @unacked.each_value do |sp|
+            break if sps.size >= max
+            sps << sp
+          end
+        end
+
         yielded = 0
         sps.each.skip(offset).each do |sp|
           break if yielded >= count

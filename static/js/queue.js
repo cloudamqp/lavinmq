@@ -252,10 +252,13 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 })
 
 const getMessagesForm = document.querySelector('#getMessages')
-getMessagesForm.querySelector('[name=mode]').addEventListener('change', function () {
-  const peek = this.value === 'peek'
+const getModeSelect = getMessagesForm.querySelector('[name=mode]')
+const togglePeekFields = () => {
+  const peek = getModeSelect.value === 'peek'
   getMessagesForm.querySelectorAll('.peek-only').forEach(el => el.classList.toggle('hide', !peek))
-})
+}
+getModeSelect.addEventListener('change', togglePeekFields)
+togglePeekFields()
 getMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
