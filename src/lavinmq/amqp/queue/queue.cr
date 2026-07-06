@@ -903,7 +903,7 @@ module LavinMQ::AMQP
       @vhost.connections.each do |client|
         next unless client.is_a?(Client)
         client.channels.each do |ch|
-          ch.unacked.each { |u| sps << u.sp if u.queue == self }
+          ch.each_unacked { |u| sps << u.sp if u.queue == self }
         end
       end
 

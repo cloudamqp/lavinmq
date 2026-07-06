@@ -136,15 +136,14 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
-        unless clean_session?
-          @msg_store_lock.synchronize do
+        @msg_store_lock.synchronize do
+          unless clean_session?
             @unacked.values.each do |sp|
               @msg_store.requeue(sp)
             end
           end
+          @unacked.clear
         end
-
-        @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
         @has_capacity.set(true)
@@ -236,7 +235,7 @@ module LavinMQ
                 @deliver_count.add(1, :relaxed)
                 @deliver_get_count.add(1, :relaxed)
               end
-              @unacked[id] = sp
+              @msg_store_lock.synchronize { @unacked[id] = sp }
               @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -293,7 +292,7 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
+        if sp = @msg_store_lock.synchronize { @unacked.delete(id) }
           begin
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)
@@ -378,8 +377,9 @@ module LavinMQ
       def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
         return if count <= 0
 
+        sps = @msg_store_lock.synchronize { @unacked.values }
         yielded = 0
-        @unacked.values.each.skip(offset).each do |sp|
+        sps.each.skip(offset).each do |sp|
           break if yielded >= count
           if message = peek_copy(sp, redelivered: false, max_body: max_body)
             block.call(message)
