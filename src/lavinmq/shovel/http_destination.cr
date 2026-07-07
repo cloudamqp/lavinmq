@@ -13,14 +13,6 @@ module LavinMQ
         (secs && secs > 0 ? secs : 30.0).seconds
       end
 
-      # Fast in-place retry for transient (Retry) delivery failures in OnConfirm
-      # mode: re-POST a few times with a small random jitter (no backoff) so a
-      # brief blip recovers without a broker round-trip. Exhausting the budget
-      # reports Retry, handing the message back to the Runner to requeue (where
-      # its own capped backoff throttles further attempts).
-      MAX_RETRIES = 5
-      JITTER      = 200.milliseconds
-
       @client : ::HTTP::Client?
 
       getter timeout : Time::Span
@@ -66,7 +58,7 @@ module LavinMQ
                end
         case @ack_mode
         in AckMode::OnConfirm
-          outcome = deliver_with_outcome(headers, path, msg.body_io)
+          outcome = attempt(headers, path, msg.body_io)
           @listener.report(msg.delivery_tag, outcome)
         in AckMode::OnPublish
           begin
@@ -84,21 +76,6 @@ module LavinMQ
         end
       end
 
-      # Delivers the message, retrying transient failures in place up to
-      # MAX_RETRIES with a random jitter (no backoff). Re-classifies every
-      # attempt, so a non-transient response (Reject/Abort) or a success returns
-      # immediately; only Retry outcomes are retried.
-      private def deliver_with_outcome(headers, path, body_io) : Outcome
-        attempts = 0
-        loop do
-          outcome = attempt(headers, path, body_io)
-          return outcome unless outcome.retry?
-          return outcome if attempts >= MAX_RETRIES
-          attempts += 1
-          sleep JITTER * Random.rand(0.0..1.0)
-        end
-      end
-
       # A single delivery attempt. A transport-level failure (timeout, reset,
       # connection refused) closes and reopens the client so the next attempt
       # starts clean, and counts as a transient Retry.
@@ -112,7 +89,6 @@ module LavinMQ
         Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
         @client.try &.close
         @client = nil
-        # Heloo
         Outcome::Retry
       end
 
