@@ -46,6 +46,7 @@ A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message 
 | Parameter | Description |
 |-----------|-------------|
 | `dest-uri` | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
+| `dest-timeout` | Connect and read timeout for each HTTP attempt, in seconds (int or float). Defaults to `30`. |
 
 The AMQP message is mapped to the HTTP request as follows:
 
@@ -63,7 +64,7 @@ The AMQP message is mapped to the HTTP request as follows:
 For `on-confirm` and `on-publish` ack modes, the HTTP response status is classified into a [delivery outcome](#delivery-outcomes) rather than triggering a uniform retry:
 
 - `2xx` acks the message.
-- `408`, `429`, and `5xx` (and transport-level failures such as connection refused or read timeout) requeue the message and retry it with backoff.
+- `408`, `429`, and `5xx` (and transport-level failures such as connection refused or read timeout) are first retried in place, up to 5 times with a small random jitter (no backoff), so a brief blip recovers without a broker round-trip. If it still fails, the message is requeued and retried on the source with capped exponential backoff.
 - `400` and `422` reject the message without requeue, so the source queue's dead-letter exchange handles it.
 - Any other status (e.g. `401`, `403`, `404`, `405`, `410`) is treated as an unusable endpoint; after repeated consecutive failures the shovel errors out for an operator to resolve.
 
