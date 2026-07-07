@@ -67,11 +67,11 @@ module LavinMQ
           # reject-publish overflow) is transient — the queue may drain — so it
           # becomes Retry, never a silent ack.
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do |confirmed|
-            @on_outcome.call(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
+            @listener.report(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
           end
         in AckMode::OnPublish
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
-          @on_outcome.call(tag, Outcome::Confirmed)
+          @listener.report(tag, Outcome::Confirmed)
         in AckMode::NoAck
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
         end

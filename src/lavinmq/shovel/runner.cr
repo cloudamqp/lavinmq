@@ -7,6 +7,7 @@ module LavinMQ
   module Shovel
     class Runner
       include SortableJSON
+      include OutcomeListener
       @state = State::Stopped
       @error : String?
       @message_count : UInt64 = 0
@@ -79,40 +80,42 @@ module LavinMQ
         terminate_if_needed(run_generation)
       end
 
+      # Register this Runner as the destination's outcome listener, once per run.
+      private def register_outcome_handler
+        @destination.listener = self
+      end
+
       # The single place a delivery Outcome becomes a source action: a confirmed
       # delivery acks; a rejection (broker nack or HTTP error) requeues so
-      # queue-based retry/DLX policies still apply. Registered once per run.
-      private def register_outcome_handler
-        source = @source
-        @destination.on_outcome = ->(delivery_tag : UInt64, outcome : Outcome) do
-          case outcome
-          in Outcome::Confirmed
-            @confirmed_total.add(1)
-            @delivery_failures.set(0)
-            @delivery_aborts.set(0)
-            source.ack(delivery_tag)
-          in Outcome::Retry
-            # A non-abort outcome breaks any consecutive-abort streak: the
-            # destination is reachable, just not accepting this message yet.
-            @retried_total.add(1)
-            @delivery_aborts.set(0)
-            @delivery_failures.add(1)
-            source.reject(delivery_tag, requeue: true)
-          in Outcome::Reject
-            # The endpoint responded (it just refused this message), so it is
-            # healthy — clear the backoff and the abort streak.
-            @rejected_total.add(1)
-            @delivery_failures.set(0)
-            @delivery_aborts.set(0)
-            source.reject(delivery_tag, requeue: false)
-          in Outcome::Abort
-            # Keep the message; the consuming loop errors-out the shovel once
-            # consecutive Aborts cross ABORT_THRESHOLD.
-            @aborted_total.add(1)
-            @delivery_aborts.add(1)
-            source.reject(delivery_tag, requeue: true)
-          end
-          nil
+      # queue-based retry/DLX policies still apply. Called by the destination
+      # (synchronously for HTTP, from the confirm fiber for AMQP on-confirm).
+      def report(delivery_tag : UInt64, outcome : Outcome)
+        case outcome
+        in Outcome::Confirmed
+          @confirmed_total.add(1)
+          @delivery_failures.set(0)
+          @delivery_aborts.set(0)
+          @source.ack(delivery_tag)
+        in Outcome::Retry
+          # A non-abort outcome breaks any consecutive-abort streak: the
+          # destination is reachable, just not accepting this message yet.
+          @retried_total.add(1)
+          @delivery_aborts.set(0)
+          @delivery_failures.add(1)
+          @source.reject(delivery_tag, requeue: true)
+        in Outcome::Reject
+          # The endpoint responded (it just refused this message), so it is
+          # healthy — clear the backoff and the abort streak.
+          @rejected_total.add(1)
+          @delivery_failures.set(0)
+          @delivery_aborts.set(0)
+          @source.reject(delivery_tag, requeue: false)
+        in Outcome::Abort
+          # Keep the message; the consuming loop errors-out the shovel once
+          # consecutive Aborts cross ABORT_THRESHOLD.
+          @aborted_total.add(1)
+          @delivery_aborts.add(1)
+          @source.reject(delivery_tag, requeue: true)
         end
       end
 
