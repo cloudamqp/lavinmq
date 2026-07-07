@@ -54,7 +54,7 @@ module LavinMQ
         end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
-          @on_outcome.call(msg.delivery_tag, outcome)
+          @listener.report(msg.delivery_tag, outcome)
         in AckMode::NoAck
         end
       end
