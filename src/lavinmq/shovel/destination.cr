@@ -1,14 +1,14 @@
 require "./constants"
+require "./outcome_listener"
 
 module LavinMQ
   module Shovel
     abstract class Destination
-      # The Runner registers this once, before starting. A Destination invokes
-      # it with (delivery_tag, outcome) when a delivery's result is known —
-      # synchronously for HTTP, and from the publisher-confirm callback for AMQP
-      # on-confirm. In no-ack mode it is never invoked (nothing to settle).
-      # The Runner is the single place that maps an Outcome to a source action.
-      property on_outcome : Proc(UInt64, Outcome, Nil) = ->(_tag : UInt64, _outcome : Outcome) { nil }
+      # The listener a Destination reports delivery Outcomes to (see
+      # OutcomeListener). Registered once by the Runner before starting.
+      # Defaults to a no-op so an unregistered or NoAck destination reports
+      # into the void rather than nil-checking.
+      property listener : OutcomeListener = NullOutcomeListener::INSTANCE
 
       abstract def start
 

@@ -9,6 +9,8 @@ module LavinMQ
     # between — does it emit Abort upward so the Runner errors-out the shovel.
     # Name kept for continuity; this is a failover handler, not fan-out.
     class MultiDestinationHandler < Destination
+      include OutcomeListener
+
       @current : Destination?
       @index = 0
       @consecutive_aborts = 0
@@ -42,7 +44,7 @@ module LavinMQ
           dest.push(msg)
         else
           # No usable destination at all — surface it rather than dropping.
-          @on_outcome.call(msg.delivery_tag, Outcome::Abort)
+          @listener.report(msg.delivery_tag, Outcome::Abort)
         end
       end
 
@@ -52,7 +54,7 @@ module LavinMQ
         return false if @destinations.empty?
         @index = index % @destinations.size
         dest = @destinations[@index]
-        dest.on_outcome = ->(tag : UInt64, outcome : Outcome) { handle(tag, outcome) }
+        dest.listener = self
         dest.start
         @current = dest
         true
@@ -64,22 +66,21 @@ module LavinMQ
       # Intercepts each active destination's outcome. A non-Abort is forwarded
       # unchanged. An Abort fails over to the next destination (and retries the
       # message there) until all have aborted in a row, then propagates Abort.
-      private def handle(tag : UInt64, outcome : Outcome)
+      def report(delivery_tag : UInt64, outcome : Outcome)
         case outcome
         in Outcome::Confirmed, Outcome::Retry, Outcome::Reject
           @consecutive_aborts = 0
-          @on_outcome.call(tag, outcome)
+          @listener.report(delivery_tag, outcome)
         in Outcome::Abort
           @consecutive_aborts += 1
           if @consecutive_aborts >= @destinations.size
-            @on_outcome.call(tag, Outcome::Abort) # every destination is unusable
+            @listener.report(delivery_tag, Outcome::Abort) # every destination is unusable
           else
             @current.try &.stop
             start_next
-            @on_outcome.call(tag, Outcome::Retry) # re-deliver on the new active one
+            @listener.report(delivery_tag, Outcome::Retry) # re-deliver on the new active one
           end
         end
-        nil
       end
 
       private def start_next
