@@ -154,7 +154,7 @@ module LavinMQ
         destinations = uris.map do |uri|
           case uri.scheme
           when "http", "https"
-            Shovel::HTTPDestination.new(name, uri, ack_mode, 30)
+            Shovel::HTTPDestination.new(name, uri, ack_mode, Shovel::HTTPDestination.timeout_from(config))
           else
             Shovel::AMQPDestination.new(name, uri,
               config["dest-queue"]?.try &.as_s?,
