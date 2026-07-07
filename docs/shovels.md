@@ -61,14 +61,14 @@ The AMQP message is mapped to the HTTP request as follows:
 | `X-<header>` | One header per AMQP header on the message |
 | `User-Agent` | `LavinMQ` |
 
-For `on-confirm` and `on-publish` ack modes, the HTTP response status is classified into a [delivery outcome](#delivery-outcomes) rather than triggering a uniform retry:
+With the `on-confirm` ack mode, the HTTP response status is classified into a [delivery outcome](#delivery-outcomes) rather than triggering a uniform retry:
 
 - `2xx` acks the message.
-- `408`, `429`, and `5xx` (and transport-level failures such as connection refused or read timeout) are first retried in place, up to 5 times with a small random jitter (no backoff), so a brief blip recovers without a broker round-trip. If it still fails, the message is requeued and retried on the source with capped exponential backoff.
+- `408`, `429`, and `5xx` (and transport-level failures such as connection refused, read timeout, or a TLS handshake error) are first retried in place, up to 5 times with a small random jitter (no backoff), so a brief blip recovers without a broker round-trip. If it still fails, the message is requeued and retried on the source with capped exponential backoff.
 - `400` and `422` reject the message without requeue, so the source queue's dead-letter exchange handles it.
 - Any other status (e.g. `401`, `403`, `404`, `405`, `410`) is treated as an unusable endpoint; after repeated consecutive failures the shovel errors out for an operator to resolve.
 
-`no-ack` skips the check. See [Shovel delivery outcomes](shovel-delivery-outcomes.md) for the full status-to-outcome mapping.
+`on-publish` behaves differently: the message is POSTed once and acked as soon as the request completes, **regardless of the response status** (so even a `5xx` is treated as delivered); only a transport-level failure requeues it. There is no status classification and no in-place retry. `no-ack` POSTs once and never settles the source. See [Shovel delivery outcomes](shovel-delivery-outcomes.md) for the full status-to-outcome mapping.
 
 ## Multi-Destination
 

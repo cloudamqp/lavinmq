@@ -31,7 +31,13 @@ to an outcome:
 | `408`, `429`, `500`–`599` | `Retry` |
 | `400`, `422` | `Reject` |
 | Any other non-2xx (`401`, `403`, `404`, `405`, `410`, `3xx`, `418`, …) | `Abort` |
-| Transport failure during the request (connection refused/reset, read timeout — `IO::Error` / `Socket::Error`) | `Retry` |
+| Transport failure during the request (connection refused/reset, read timeout, or TLS handshake error — `IO::Error` / `OpenSSL::SSL::Error`) | `Retry` |
+
+Under `on-confirm`, a `Retry` outcome (a `5xx`/`429`/`408` response or a transport
+failure) is retried **in place** up to 5 times with a small random jitter (no
+backoff) before it is reported to the runner; `Confirmed`, `Reject`, and `Abort`
+are reported immediately. Once the in-place budget is exhausted the runner
+requeues the message and applies its own capped backoff.
 
 ## AMQP destination
 
@@ -50,7 +56,7 @@ The shovel's `ack-mode` controls **when** an outcome is reported:
 | Ack mode | AMQP destination | HTTP destination |
 | --- | --- | --- |
 | `on-confirm` | Reported on the asynchronous publisher-confirm callback (`Confirmed` / `Retry`). | Reported after the HTTP response (`classify`). |
-| `on-publish` | `Confirmed` reported immediately after publishing, without waiting for a confirm. | Same as `on-confirm` (always waits for the response). |
+| `on-publish` | `Confirmed` reported immediately after publishing, without waiting for a confirm. | Posts once and reports `Confirmed` as soon as the request returns, regardless of status; only a transport failure reports `Retry`. No status classification or in-place retry. |
 | `no-ack` | No outcome is reported — the source consumes with `no-ack`, so there is nothing to settle. | No outcome is reported. |
 
 ## Failover across multiple destinations
