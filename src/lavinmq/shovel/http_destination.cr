@@ -105,7 +105,7 @@ module LavinMQ
       private def attempt(headers, path, body_io) : Outcome
         start unless started?
         body_io.rewind
-        c = @client.not_nil!
+        c = @client || raise "Not started"
         resp = c.post(path, headers: headers, body: body_io)
         classify resp
       rescue ex : IO::Error | OpenSSL::SSL::Error
