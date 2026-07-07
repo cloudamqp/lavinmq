@@ -1031,7 +1031,77 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "backs off instead of busy-retrying when the HTTP destination returns 503 (#5 Retry)" do
+    it "fast-retries a transient 503 in place and delivers without requeueing" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          n = received.add(1) # returns the count before this request
+          context.response.status_code = n < 2 ? 503 : 200
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "fr_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "fr_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("fr_q1")
+          x.publish_confirm "retry me", "fr_q1"
+          # Two 503s then a 200, all within one push: the blip is absorbed in
+          # place, so the delivery is Confirmed and the message is never requeued.
+          shovel.run
+          received.get.should eq 3
+          d = shovel.details_tuple
+          d[:confirmed].should eq 1
+          d[:retried].should eq 0
+        end
+      end
+    end
+
+    it "retries transport-level timeouts in place (honouring dest-timeout) and recovers" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          n = received.add(1)
+          sleep 600.milliseconds if n < 2 # first two attempts exceed the 200ms timeout
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "to_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec", URI.parse("http://#{addr}/"), timeout: 200.milliseconds)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "to_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("to_q1")
+          x.publish_confirm "slow me", "to_q1"
+          # The first two attempts read-timeout at 200ms (server holds 600ms); each
+          # timeout closes and reopens the client and counts as a transient failure
+          # retried in place. The third attempt is fast and Confirms — never requeued.
+          shovel.run
+          received.get.should be >= 3
+          d = shovel.details_tuple
+          d[:confirmed].should eq 1
+          d[:retried].should eq 0
+        end
+      end
+    end
+
+    it "bounds in-place retries to 1 + MAX_RETRIES then requeues when the 503 persists (#5 Retry)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)
         server = HTTP::Server.new do |context|
@@ -1045,20 +1115,80 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "rt_q1", direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "rt_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "rt_shovel", vhost)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           q1 = ch.queue("rt_q1")
           x.publish_confirm "retry me", "rt_q1"
+          # A persistent 503: one push makes exactly 1 + MAX_RETRIES in-place
+          # attempts, then reports Retry so the Runner requeues the message. The
+          # endpoint sees a bounded burst, not a busy-loop of hundreds/sec.
+          shovel.run
+          received.get.should eq 6
+          shovel.details_tuple[:retried].should eq 1
+          # the message is never lost: it's back on the source queue
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "classifies a TLS handshake failure as a transient (Retry) outcome, not an unhandled error (#3)" do
+      with_amqp_server do |s|
+        # A plaintext HTTP server; connecting to it over TLS fails the handshake,
+        # which surfaces as OpenSSL::SSL::Error rather than an IO/Socket error.
+        server = HTTP::Server.new do |context|
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "tls_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec", URI.parse("https://#{addr}/"), timeout: 200.milliseconds)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "tls_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("tls_q1")
+          x.publish_confirm "deliver me", "tls_q1"
           spawn shovel.run
-          sleep 1.second
+          # The TLS error must be caught and classified as Retry (requeue). Before
+          # the fix it escaped the rescue as an unhandled exception, driving the
+          # runner's reconnect path instead — so `retried` would stay 0.
+          should_eventually(be_true, 5.seconds) { shovel.details_tuple[:retried] >= 1 }
+          shovel.state.error?.should be_false
           shovel.terminate
-          # 503 is transient: the message is retried with backoff, not in a tight
-          # loop. Without backoff this endpoint would see hundreds of hits/sec.
-          received.get.should be <= 3
-          # and the message is never lost
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "reports Retry (and does not hang) when an on-publish HTTP destination is unreachable" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "op_q1", direct_user: s.users.direct_user)
+        # Port 1 refuses connections, so every POST fails at the transport level.
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec", URI.parse("http://127.0.0.1:1/"),
+          LavinMQ::Shovel::AckMode::OnPublish, timeout: 200.milliseconds)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "op_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("op_q1")
+          x.publish_confirm "deliver me", "op_q1"
+          spawn shovel.run
+          # A failed on-publish POST must be reported as Retry (requeue), not spin
+          # in an unbounded loop and not be silently Confirmed.
+          should_eventually(be_true, 3.seconds) { shovel.details_tuple[:retried] >= 1 }
+          shovel.details_tuple[:confirmed].should eq 0
+          shovel.terminate
           should_eventually(eq 1) { q1.message_count }
         end
       end
@@ -1239,6 +1369,57 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds # better when than sleep?
           path.should eq "/some_path"
+        end
+      end
+    end
+  end
+
+  describe "HTTPDestination dest-timeout" do
+    it "defaults to 30 seconds" do
+      LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse("{}")).should eq 30.seconds
+      dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://localhost/"))
+      dest.timeout.should eq 30.seconds
+    end
+
+    it "parses dest-timeout given as seconds (int or float)" do
+      LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse(%({"dest-timeout": 5}))).should eq 5.seconds
+      LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse(%({"dest-timeout": 2.5}))).should eq 2.5.seconds
+    end
+
+    it "falls back to the default for non-positive values" do
+      LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse(%({"dest-timeout": 0}))).should eq 30.seconds
+      LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse(%({"dest-timeout": -3}))).should eq 30.seconds
+    end
+
+    it "wires the configured dest-timeout through the store to HTTP deliveries" do
+      with_amqp_server do |s|
+        served = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          served.add(1)
+          sleep 1.second # always slower than the configured 0.2s dest-timeout
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("ct_q1")
+          x.publish_confirm "hi", "ct_q1"
+          config = %({
+            "src-uri": "#{s.amqp_server.url}",
+            "src-queue": "ct_q1",
+            "dest-uri": "http://#{addr}/",
+            "dest-timeout": 0.2})
+          vhost.add_parameter(LavinMQ::Parameter.new("shovel", "ct_shovel", JSON.parse(config)))
+          # With the 0.2s timeout wired through, each attempt times out long before
+          # the server's 1s response and is retried, so the endpoint is hit
+          # repeatedly. With the old hard-coded 30s timeout the first attempt would
+          # simply wait 1s, succeed, and never retry (served would stay 1).
+          should_eventually(be_true, 3.seconds) { served.get >= 2 }
+          vhost.delete_parameter("shovel", "ct_shovel")
         end
       end
     end
