@@ -61,6 +61,34 @@ module ShovelSpecHelpers
       true
     end
   end
+
+  # A destination that starts cleanly and reports nothing on its own, so a test
+  # can drive MultiDestinationHandler#report directly.
+  class StubDestination < LavinMQ::Shovel::Destination
+    def start
+    end
+
+    def stop
+    end
+
+    def push(msg)
+    end
+
+    def started? : Bool
+      true
+    end
+  end
+
+  # Records every Outcome a Destination reports, for testing it in isolation
+  # from the Runner/Source.
+  class RecordingListener
+    include LavinMQ::Shovel::OutcomeListener
+    getter outcomes = [] of {UInt64, LavinMQ::Shovel::Outcome}
+
+    def report(delivery_tag : UInt64, outcome : LavinMQ::Shovel::Outcome)
+      @outcomes << {delivery_tag, outcome}
+    end
+  end
 end
 
 describe LavinMQ::Shovel do
@@ -1342,6 +1370,54 @@ describe LavinMQ::Shovel do
       expect_raises(LavinMQ::Shovel::ConfigError, "destination requires") do
         LavinMQ::Shovel::Store.validate_config!(config, nil)
       end
+    end
+  end
+
+  describe "MultiDestinationHandler" do
+    it "fails over to the next destination and retries on a single Abort" do
+      a = ShovelSpecHelpers::StubDestination.new
+      b = ShovelSpecHelpers::StubDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
+        [a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
+      parent.outcomes.should eq [{7_u64, LavinMQ::Shovel::Outcome::Retry}]
+    end
+
+    it "propagates Abort once every destination has aborted in a row" do
+      a = ShovelSpecHelpers::StubDestination.new
+      b = ShovelSpecHelpers::StubDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
+        [a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
+      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
+      parent.outcomes.should eq [
+        {7_u64, LavinMQ::Shovel::Outcome::Retry},
+        {7_u64, LavinMQ::Shovel::Outcome::Abort},
+      ]
+    end
+
+    it "forwards a non-Abort outcome and resets the abort streak" do
+      a = ShovelSpecHelpers::StubDestination.new
+      b = ShovelSpecHelpers::StubDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
+        [a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)     # streak 1, fail over to b
+      multi.report(2_u64, LavinMQ::Shovel::Outcome::Confirmed) # forwarded, streak reset
+      multi.report(3_u64, LavinMQ::Shovel::Outcome::Abort)     # streak 1 again, not >= size
+      parent.outcomes.should eq [
+        {1_u64, LavinMQ::Shovel::Outcome::Retry},
+        {2_u64, LavinMQ::Shovel::Outcome::Confirmed},
+        {3_u64, LavinMQ::Shovel::Outcome::Retry},
+      ]
     end
   end
 end
