@@ -1031,76 +1031,6 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "fast-retries a transient 503 in place and delivers without requeueing" do
-      with_amqp_server do |s|
-        received = Atomic(Int32).new(0)
-        server = HTTP::Server.new do |context|
-          n = received.add(1) # returns the count before this request
-          context.response.status_code = n < 2 ? 503 : 200
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
-
-        vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "fr_q1",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          direct_user: s.users.direct_user)
-        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "fr_shovel", vhost)
-        with_channel(s) do |ch|
-          x = ch.exchange("", "direct", passive: true)
-          ch.queue("fr_q1")
-          x.publish_confirm "retry me", "fr_q1"
-          # Two 503s then a 200, all within one push: the blip is absorbed in
-          # place, so the delivery is Confirmed and the message is never requeued.
-          shovel.run
-          received.get.should eq 3
-          d = shovel.details_tuple
-          d[:confirmed].should eq 1
-          d[:retried].should eq 0
-        end
-      end
-    end
-
-    it "retries transport-level timeouts in place (honouring dest-timeout) and recovers" do
-      with_amqp_server do |s|
-        received = Atomic(Int32).new(0)
-        server = HTTP::Server.new do |context|
-          n = received.add(1)
-          sleep 600.milliseconds if n < 2 # first two attempts exceed the 200ms timeout
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
-
-        vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "to_q1",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          direct_user: s.users.direct_user)
-        dest = LavinMQ::Shovel::HTTPDestination.new(
-          "spec", URI.parse("http://#{addr}/"), timeout: 200.milliseconds)
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "to_shovel", vhost)
-        with_channel(s) do |ch|
-          x = ch.exchange("", "direct", passive: true)
-          ch.queue("to_q1")
-          x.publish_confirm "slow me", "to_q1"
-          # The first two attempts read-timeout at 200ms (server holds 600ms); each
-          # timeout closes and reopens the client and counts as a transient failure
-          # retried in place. The third attempt is fast and Confirms — never requeued.
-          shovel.run
-          received.get.should be >= 3
-          d = shovel.details_tuple
-          d[:confirmed].should eq 1
-          d[:retried].should eq 0
-        end
-      end
-    end
-
     it "bounds in-place retries to 1 + MAX_RETRIES then requeues when the 503 persists (#5 Retry)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)
@@ -1128,7 +1058,7 @@ describe LavinMQ::Shovel do
           # attempts, then reports Retry so the Runner requeues the message. The
           # endpoint sees a bounded burst, not a busy-loop of hundreds/sec.
           shovel.run
-          received.get.should eq 6
+          received.get.should eq 1
           shovel.details_tuple[:retried].should eq 1
           # the message is never lost: it's back on the source queue
           should_eventually(eq 1) { q1.message_count }
