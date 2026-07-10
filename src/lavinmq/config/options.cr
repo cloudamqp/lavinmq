@@ -107,7 +107,7 @@ module LavinMQ
     # property data_dir : String = "/var/lib/lavinmq"
     # ```
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth", "external_auth"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -521,12 +521,11 @@ module LavinMQ
       property deliver_loop_idle_timeout : Time::Span = 30.seconds
 
       @[IniOpt(section: "external_auth", ini_name: login_from)]
-      property external_auth_login_from : Bool = true
+      property external_auth_login_from : String? = nil
       @[IniOpt(section: "external_auth", ini_name: san_type)]
       property external_auth_san_type : String? = nil
       @[IniOpt(section: "external_auth", ini_name: san_index)]
       property external_auth_san_index : Int32?
-
     end
   end
 end
