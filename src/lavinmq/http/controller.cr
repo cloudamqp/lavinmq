@@ -202,9 +202,12 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, *, vhost_key = "vhost", &)
-        if (name = params[vhost_key]?) && (vhost = @server.vhosts[name]?)
+        name = params[vhost_key]?
+        if name && (vhost = @server.vhosts[name]?)
           refuse_unless_vhost_access(context, user(context), vhost)
           yield vhost
+        elsif user(context).tags.any? &.administrator?
+          not_found(context, "Vhost #{name} does not exist")
         else
           access_refused(context)
         end
