@@ -51,7 +51,8 @@ module LavinMQ
                      @client_id : String,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
-                     @will : Protocol::Will? = nil)
+                     @will : Protocol::Will? = nil,
+                     @protocol_version : UInt8 = 0x04u8)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -205,7 +206,7 @@ module LavinMQ
         {
           vhost:             @broker.vhost.name,
           user:              @user.name,
-          protocol:          "MQTT 3.1.1",
+          protocol:          protocol_name,
           client_id:         @client_id,
           name:              @name,
           timeout:           @keepalive,
@@ -216,6 +217,19 @@ module LavinMQ
           cipher:            @connection_info.ssl_cipher,
           client_properties: NamedTuple.new,
         }.merge(current_stats_details)
+      end
+
+      # Maps the CONNECT protocol level byte to a human-readable version,
+      # shown as the connection's protocol in the management API/UI.
+      # Add new protocol levels here as support is introduced
+      # (e.g. 0x05 => "MQTT 5.0").
+      PROTOCOL_NAMES = {
+        0x03u8 => "MQTT 3.1.0", # "MQIsdp"
+        0x04u8 => "MQTT 3.1.1", # "MQTT"
+      }
+
+      private def protocol_name : String
+        PROTOCOL_NAMES.fetch(@protocol_version) { "MQTT #{@protocol_version}" }
       end
 
       def to_json(json : JSON::Builder)

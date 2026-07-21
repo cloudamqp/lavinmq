@@ -51,7 +51,8 @@ module LavinMQ
           packet.client_id,
           packet.clean_session?,
           packet.keepalive,
-          packet.will)
+          packet.will,
+          packet.version)
         if client.clean_session?
           sessions[client.client_id]?.try &.delete
         else

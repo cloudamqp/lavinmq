@@ -45,6 +45,28 @@ module MqttSpecs
       end
     end
 
+    describe "reports the negotiated protocol version" do
+      it "as MQTT 3.1.1 for protocol level 4" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, version: 0x04u8)
+            client = wait_for { server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first? }.not_nil!
+            client.details_tuple[:protocol].should eq("MQTT 3.1.1")
+          end
+        end
+      end
+
+      it "as MQTT 3.1.0 for protocol level 3" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, version: 0x03u8)
+            client = wait_for { server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first? }.not_nil!
+            client.details_tuple[:protocol].should eq("MQTT 3.1.0")
+          end
+        end
+      end
+    end
+
     describe "receives connack" do
       describe "with expected flags set" do
         it "no session present when reconnecting a non-clean session with a clean session [MQTT-3.1.2-6]" do
