@@ -430,6 +430,21 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      @[CliOpt("", "--clustering-disk-watchdog=BOOL", "Self-fence the leader if its data dir stalls (default: true)", section: "clustering")]
+      @[IniOpt(ini_name: disk_watchdog, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_DISK_WATCHDOG")]
+      property? clustering_disk_watchdog = true
+
+      @[CliOpt("", "--clustering-disk-watchdog-interval=SECONDS", "Seconds between leader disk health probes (default: 5)", section: "clustering")]
+      @[IniOpt(ini_name: disk_watchdog_interval, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_DISK_WATCHDOG_INTERVAL")]
+      property clustering_disk_watchdog_interval = 5
+
+      @[CliOpt("", "--clustering-disk-watchdog-timeout=SECONDS", "Fence the leader if a disk probe exceeds this many seconds (default: 15)", section: "clustering")]
+      @[IniOpt(ini_name: disk_watchdog_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_DISK_WATCHDOG_TIMEOUT")]
+      property clustering_disk_watchdog_timeout = 15
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 
