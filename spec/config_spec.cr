@@ -635,6 +635,28 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering disk watchdog" do
+    it "rejects non-positive interval and timeout values" do
+      {
+        "disk_watchdog_interval" => "clustering_disk_watchdog_interval",
+        "disk_watchdog_timeout"  => "clustering_disk_watchdog_timeout",
+      }.each do |option, property|
+        [0, -1].each do |value|
+          config_file = File.tempfile do |file|
+            file.print <<-CONFIG
+              [clustering]
+              #{option} = #{value}
+            CONFIG
+          end
+          config = LavinMQ::Config.new
+          expect_raises(LavinMQ::Config::Error, /#{property}/) do
+            config.parse(["-c", config_file.path])
+          end
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
