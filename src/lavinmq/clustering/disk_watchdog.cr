@@ -34,6 +34,11 @@ module LavinMQ
                      @probe : Proc(Nil), &@fence : String ->)
         @fenced = false
         @stopped = false
+        # One long-lived isolated context serves all probes. Creating an
+        # isolated context creates an OS thread, so doing it for every interval
+        # would continuously create and tear down threads on a healthy leader.
+        @probe_requests = ::Channel(::Channel(Exception?)).new
+        @probe_worker_started = false
       end
 
       # Build a watchdog whose probe writes+fsyncs a canary file in `data_dir`.
@@ -47,35 +52,30 @@ module LavinMQ
       # blocking syscalls live on isolated threads (the persister's syncfs and
       # this watchdog's own probe thread), not on the worker threads.
       def run : Nil
+        start_probe_worker unless @stopped
         until @stopped || @fenced
           sleep @interval
           probe_once unless @stopped
         end
+      ensure
+        # A healthy worker is waiting for requests and can exit cleanly. A
+        # worker stuck in fsync cannot be recovered, but fencing will kill this
+        # process shortly afterwards.
+        @probe_requests.close
       end
 
       # Halt the watchdog without fencing. Called on graceful shutdown so a slow
       # but legitimate final flush can't be mistaken for a stall and hard-killed.
       def stop : Nil
+        return if @stopped
         @stopped = true
+        @probe_requests.close
       end
 
       private def probe_once : Nil
         result = ::Channel(Exception?).new(1)
         started = Time.instant
-        # The probe must run on a separate thread: on a wedged filesystem the
-        # fsync(2) blocks in uninterruptible sleep and would freeze whatever
-        # thread it runs on. Isolating it keeps this fiber — and therefore the
-        # timeout below — responsive. If the fs is stalled this thread leaks,
-        # blocked in D state, which is fine: the process is about to be killed.
-        Fiber::ExecutionContext::Isolated.new("Disk probe") do
-          err = begin
-            @probe.call
-            nil
-          rescue ex
-            ex
-          end
-          result.send(err) rescue nil
-        end
+        @probe_requests.send(result)
 
         select
         when err = result.receive
@@ -89,6 +89,29 @@ module LavinMQ
           end
         when timeout(@timeout)
           fence!("disk probe did not complete within #{@timeout.total_seconds}s (filesystem stalled)")
+        end
+      end
+
+      # The probe must run on a separate thread: on a wedged filesystem the
+      # fsync(2) blocks in uninterruptible sleep and would freeze whatever
+      # thread it runs on. Isolating it keeps the watchdog fiber — and therefore
+      # its timeout — responsive. There is intentionally just one worker for
+      # the healthy path. If the filesystem stalls, that worker is unrecoverably
+      # blocked in D state, which is acceptable because fencing kills the
+      # process.
+      private def start_probe_worker : Nil
+        return if @probe_worker_started
+        @probe_worker_started = true
+        Fiber::ExecutionContext::Isolated.new("Disk probe") do
+          while result = @probe_requests.receive?
+            err = begin
+              @probe.call
+              nil
+            rescue ex
+              ex
+            end
+            result.send(err) rescue nil
+          end
         end
       end
 
