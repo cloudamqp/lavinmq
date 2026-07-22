@@ -42,6 +42,19 @@ class LavinMQ::Clustering::Controller
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
     end
   rescue Etcd::Lease::Expired
+    handle_lease_expiry
+  rescue Etcd::LeaseAlreadyExists
+    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
+    exit 3
+  rescue Etcd::LeaseNotFound
+    Log.fatal { "Lease not found, etcd may have been reset" }
+    exit 3
+  end
+
+  # Keep lease-expiry handling separate from the run loop so the fencing race
+  # is explicit and covered independently. Releasing the lease while fencing
+  # wakes the loop above with Expired; the hook has already run in that case.
+  private def handle_lease_expiry : Nil
     # When fencing, fence_leader has already dispatched the hook and is about to
     # SIGKILL; releasing the lease woke this path, so skip the duplicate dispatch.
     unless @fencing
@@ -51,12 +64,6 @@ class LavinMQ::Clustering::Controller
       Log.fatal { "Lease expired, lost leadership" }
       exit 3
     end
-  rescue Etcd::LeaseAlreadyExists
-    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
-    exit 3
-  rescue Etcd::LeaseNotFound
-    Log.fatal { "Lease not found, etcd may have been reset" }
-    exit 3
   end
 
   @disk_watchdog : DiskWatchdog? = nil

@@ -75,6 +75,26 @@ class SelfLeaderController < LavinMQ::Clustering::Controller
   end
 end
 
+class LeaseExpiryController < LavinMQ::Clustering::Controller
+  getter leader_lost_hooks = 0
+
+  def handle_lease_expiry_for_spec
+    handle_lease_expiry
+  end
+
+  # Mirrors the state and hook dispatch at the beginning of fence_leader,
+  # without exercising its intentional SIGKILL path in the spec process.
+  def fence_for_spec
+    @fencing = true
+    @stopped = true
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+  end
+
+  private def execute_shell_command(_command : String, event : String)
+    @leader_lost_hooks += 1 if event == "leader_lost"
+  end
+end
+
 class ProxyBindEtcd < LavinMQ::Etcd
   def initialize(@leader_uri : String)
     super("localhost:1")
@@ -90,6 +110,21 @@ class ProxyBindEtcd < LavinMQ::Etcd
 end
 
 describe LavinMQ::Clustering::Controller do
+  it "dispatches leader_lost only once when fencing wakes the expired lease path" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      etcd = SelfLeaderEtcd.new("tcp://127.0.0.1:5679")
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      controller = LeaseExpiryController.new(config, etcd, coordinator)
+
+      controller.fence_for_spec
+      controller.handle_lease_expiry_for_spec
+
+      controller.leader_lost_hooks.should eq 1
+    end
+  end
+
   it "reports follower proxy bind failures without the generic unhandled exception log" do
     blocker = TCPServer.new("127.0.0.1", 0)
     with_datadir do |data_dir|
