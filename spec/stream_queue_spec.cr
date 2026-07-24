@@ -476,9 +476,8 @@ describe LavinMQ::AMQP::Stream do
           # trimming after 1s and start honoring the new, longer duration
           # instead of keeping the previous value cached indefinitely.
           s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
-          sleep 10.milliseconds
           stream = s.vhosts["/"].queue("stream-max-age-relax").as(LavinMQ::AMQP::Stream)
-          stream.stream_msg_store.max_age.should eq 1.hour
+          wait_for { stream.stream_msg_store.max_age == 1.hour }
 
           sleep 1.1.seconds
           q.publish_confirm data
