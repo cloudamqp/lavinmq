@@ -460,6 +460,33 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "applies a relaxed max-age when a policy is edited to a larger value", tags: "slow" do
+      with_amqp_server do |s|
+        s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-max-age-relax", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          2.times { q.publish_confirm data }
+          sleep 1.1.seconds
+          q.publish_confirm data
+          q.message_count.should eq 1
+
+          # Relax the policy to a much longer max-age; the queue should stop
+          # trimming after 1s and start honoring the new, longer duration
+          # instead of keeping the previous value cached indefinitely.
+          s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
+          sleep 10.milliseconds
+          stream = s.vhosts["/"].queue("stream-max-age-relax").as(LavinMQ::AMQP::Stream)
+          stream.stream_msg_store.max_age.should eq 1.hour
+
+          sleep 1.1.seconds
+          q.publish_confirm data
+          q.message_count.should eq 2
+        end
+      end
+    end
+
     it "removes segments when max-length-bytes policy is applied" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
