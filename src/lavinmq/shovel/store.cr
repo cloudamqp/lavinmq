@@ -58,8 +58,11 @@ module LavinMQ
           dst = "" # default exchange
         end
 
+        # HTTP(S) destinations POST to a URL and have no queue/exchange.
+        http_dest = !dest_uris.empty? && dest_uris.all? { |u| u.scheme.try &.starts_with?("http") }
+
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
-        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil?
+        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
 
         return unless user
 
@@ -151,7 +154,7 @@ module LavinMQ
         destinations = uris.map do |uri|
           case uri.scheme
           when "http", "https"
-            Shovel::HTTPDestination.new(name, uri)
+            Shovel::HTTPDestination.new(name, uri, ack_mode, Shovel::HTTPDestination.timeout_from(config))
           else
             Shovel::AMQPDestination.new(name, uri,
               config["dest-queue"]?.try &.as_s?,
