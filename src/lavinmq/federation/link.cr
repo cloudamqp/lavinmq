@@ -341,7 +341,7 @@ module LavinMQ
         include Observer(ExchangeEvent)
         @consumer_ex : ::AMQP::Client::Exchange?
 
-        def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
+        def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_ex.name})
