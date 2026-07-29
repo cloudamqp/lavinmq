@@ -62,10 +62,10 @@ module LavinMQ::AMQP
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
-          if current_max = stream_msg_store.max_age
-            return false unless current_max > max_age_policy
-          end
           @msg_store_lock.synchronize do
+            if current_max = stream_msg_store.max_age
+              return false unless current_max > max_age_policy
+            end
             stream_msg_store.max_age = max_age_policy
             @effective_args.delete("x-max-age")
             stream_msg_store.drop_overflow
@@ -149,7 +149,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Dropped if @state.closed?
+      return PublishResult::Dropped if closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -177,6 +177,25 @@ module LavinMQ::AMQP
       StreamReader.new(self, offset)
     end
 
+    def read(segment : UInt32, position : UInt32, & : Envelope -> Nil) : Bool
+      raise ClosedError.new if closed?
+      env = @msg_store_lock.synchronize do
+        protected_env = stream_msg_store.read(segment, position)
+        stream_msg_store.protect_segment(protected_env.segment_position.segment) if protected_env
+        protected_env
+      end || return false
+      begin
+        yield env
+      ensure
+        unprotect_segment(env.segment_position.segment)
+      end
+      true
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ClosedError.new(cause: ex)
+    end
+
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
@@ -199,9 +218,17 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
-      yield env # deliver the message
+      raise ClosedError.new if closed?
+      env = @msg_store_lock.synchronize do
+        protected_env = @msg_store.shift?(consumer)
+        stream_msg_store.protect_segment(protected_env.segment_position.segment) if protected_env
+        protected_env
+      end || return false
+      begin
+        yield env # deliver the message
+      ensure
+        unprotect_segment(env.segment_position.segment)
+      end
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -219,10 +246,18 @@ module LavinMQ::AMQP
       # Overflow handling is done in StreamMessageStore
     end
 
+    private def unprotect_segment(segment : UInt32) : Nil
+      @msg_store_lock.synchronize do
+        stream_msg_store.unprotect_segment(segment)
+      end
+    end
+
     private def notify_all_stream_consumers
-      @consumers.each do |consumer|
-        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+      @consumers.shared do |consumers|
+        consumers.each do |consumer|
+          if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+            stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+          end
         end
       end
     end
@@ -230,8 +265,6 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      # drop_overflow mutates the store, so take @msg_store_lock like other
-      # store access; it can run concurrently with publishes/consumes.
       @msg_store_lock.synchronize do
         if max_age = parse_max_age(@arguments["x-max-age"]?)
           stream_msg_store.max_age = max_age
@@ -277,24 +310,31 @@ module LavinMQ::AMQP
     end
 
     private def unmap_and_remove_segments_loop
-      sleep rand(60).seconds
+      sleep rand(10).seconds
       until closed?
-        sleep 60.seconds
+        sleep 10.seconds
         break if closed?
         unmap_and_remove_segments
       end
     end
 
     private def unmap_and_remove_segments
-      used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          used_segments << consumer.as(AMQP::StreamConsumer).segment
-        end
-      end
       @msg_store_lock.synchronize do
-        stream_msg_store.drop_overflow
+        used_segments = used_stream_consumer_segments
+        stream_msg_store.drop_overflow(except: used_segments)
         stream_msg_store.unmap_segments(except: used_segments)
+      end
+    end
+
+    private def used_stream_consumer_segments : Set(UInt32)
+      Set(UInt32).new.tap do |used_segments|
+        @consumers.shared do |consumers|
+          consumers.each do |consumer|
+            if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+              used_segments << stream_consumer.segment
+            end
+          end
+        end
       end
     end
   end

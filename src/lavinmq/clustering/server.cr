@@ -28,8 +28,8 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
-      @lock = Mutex.new(:unchecked)
-      @sync_lock = Mutex.new(:unchecked)
+      @lock = Mutex.new(:checked)
+      @sync_lock = Mutex.new(:checked)
       @followers = Array(Follower).new(4)
       @password : String
       @dirty_isr = true
@@ -48,7 +48,7 @@ module LavinMQ
         @config = config
         @data_dir = @config.data_dir
         @password = password
-        @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
+        @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :checked)
       end
 
       def clear

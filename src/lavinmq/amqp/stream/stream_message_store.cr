@@ -18,6 +18,8 @@ module LavinMQ::AMQP
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : MFile
     @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
+    @protected_segments = Hash(UInt32, UInt32).new
+    @protected_segments_lock = Mutex.new(:checked)
 
     def initialize(*args, **kwargs)
       super
@@ -84,14 +86,53 @@ module LavinMQ::AMQP
       @segments.each do |seg_id, mfile|
         next if mfile == @wfile
         next if except.includes? seg_id
+        next if protected_segment?(seg_id)
         mfile.dontneed
+      end
+    end
+
+    def protect_segment(segment : UInt32) : Nil
+      @protected_segments_lock.synchronize do
+        @protected_segments[segment] = (@protected_segments[segment]? || 0u32) + 1
+      end
+    end
+
+    def unprotect_segment(segment : UInt32) : Nil
+      @protected_segments_lock.synchronize do
+        case refs = @protected_segments[segment]?
+        when Nil
+          nil
+        when 1u32
+          @protected_segments.delete(segment)
+        else
+          @protected_segments[segment] = refs - 1
+        end
+      end
+    end
+
+    private def protected_segment?(segment : UInt32) : Bool
+      @protected_segments_lock.synchronize do
+        @protected_segments.has_key?(segment)
       end
     end
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
-      mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
+      # `find_offset` is delegated from `Stream` without holding
+      # `@msg_store_lock`, so a new consumer's `initialize` can race against
+      # a publisher's `drop_segments_while`, which mutates @segments and
+      # @segment_first_offset. If we observe a torn snapshot — segment in
+      # @segments but no first_offset, or first_offset present but segment
+      # gone — fall through to the next segment rather than raising.
+      mfile = @segments[seg]?
+      first = @segment_first_offset[seg]?
+      if mfile.nil? || first.nil?
+        if next_seg = @segments.each_key.find { |sid| sid > seg }
+          return offset_at(next_seg, 4_u32, retried)
+        end
+        return {@last_offset, seg, pos}
+      end
+      offset = first
       mfile.pos = 4
       while mfile.pos < pos
         BytesMessage.skip(mfile)
@@ -285,8 +326,8 @@ module LavinMQ::AMQP
       end
     end
 
-    private def shift_requeued(requeued) : Envelope?
-      while sp = requeued.shift?
+    private def shift_requeued(requeued : Sync::Exclusive(Deque(SegmentPosition))) : Envelope?
+      while sp = requeued.lock(&.shift?)
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
@@ -324,34 +365,48 @@ module LavinMQ::AMQP
 
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
+        # Set the new segment's metadata BEFORE drop_overflow runs. If
+        # drop_overflow raised (e.g. inside cleanup_consumer_offsets) the
+        # entry would otherwise be left unset, and the *next* segment roll
+        # would call write_metadata_file → write_metadata → KeyError on this
+        # seg, wedging the queue: parent open_new_segment never advances
+        # @wfile_id past a failed write_metadata_file, so every subsequent
+        # push hits the same error forever.
+        new_seg = @segments.last_key
+        @segment_first_offset[new_seg] = @last_offset.zero? ? 1i64 : @last_offset
+        @segment_first_ts[new_seg] = RoughTime.unix_ms
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
-        @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
 
     private def write_metadata(io, seg)
       super
-      io.write_bytes @segment_first_offset[seg]
-      io.write_bytes @segment_first_ts[seg]
-      io.write_bytes @segment_last_ts[seg]
+      # Defensive fallbacks: if the entry is missing for any reason we'd
+      # rather write a plausible value than KeyError out of write_metadata,
+      # which would wedge the parent's open_new_segment (it never advances
+      # @wfile_id past a failure). produce_metadata rebuilds these fields
+      # from the segment file on startup, so a slightly stale value here is
+      # recoverable.
+      io.write_bytes(@segment_first_offset[seg]? || @last_offset)
+      io.write_bytes(@segment_first_ts[seg]? || RoughTime.unix_ms)
+      io.write_bytes(@segment_last_ts[seg]? || 0_i64)
     end
 
-    def drop_overflow
+    def drop_overflow(*, except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
       return if @closed
       if max_length = @max_length
-        drop_segments_while do
+        drop_segments_while(except: except) do
           @size >= max_length
         end
       end
       if max_bytes = @max_length_bytes
-        drop_segments_while do
+        drop_segments_while(except: except) do
           @bytesize >= max_bytes
         end
       end
       if max_age = @max_age
         min_ts = RoughTime.utc - max_age
-        drop_segments_while do |seg_id|
+        drop_segments_while(except: except) do |seg_id|
           last_ts = @segment_last_ts[seg_id]
           Time.unix_ms(last_ts) < min_ts
         end
@@ -359,10 +414,12 @@ module LavinMQ::AMQP
       cleanup_consumer_offsets
     end
 
-    private def drop_segments_while(& : UInt32 -> Bool)
+    private def drop_segments_while(*, except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32), & : UInt32 -> Bool)
       @segments.reject! do |seg_id, mfile|
         should_drop = yield seg_id
         break unless should_drop
+        break if except.includes?(seg_id)
+        break if protected_segment?(seg_id)
         next if mfile == @wfile # never delete the last active segment
         msg_count = @segment_msg_count.delete(seg_id)
         @size -= msg_count if msg_count

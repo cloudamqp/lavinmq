@@ -57,6 +57,25 @@ module LavinMQ
       body = bytes[pos, sz]
       BytesMessage.new(ts, ex, rk, pr, sz, body)
     end
+
+    # Heap-copies @body AND the headers Table off the source mmap. Required
+    # when the message will outlive the `@msg_store_lock` that pinned the
+    # segment alive — without this, the source segment can be `munmap`ed by a
+    # concurrent ack/purge and subsequent reads of @body or
+    # @properties.headers (whose Table buffer references the mmap via
+    # `read_only?`) segfault / arithmetic-overflow. Strings are already copied
+    # by `String.new(UInt8*, Int)` in ShortString.from_bytes, so we leave them
+    # as-is. Properties#clone upstream tries to call a non-existent positional
+    # `new`, so we shallow-copy the struct and only replace headers.
+    def detach : self
+      body_copy = Bytes.new(@bodysize)
+      @body.copy_to(body_copy)
+      props = @properties
+      if h = props.headers
+        props.headers = h.clone
+      end
+      BytesMessage.new(@timestamp, @exchange_name, @routing_key, props, @bodysize, body_copy)
+    end
   end
 
   # Messages from publishers, read from socket and then written to mmap files

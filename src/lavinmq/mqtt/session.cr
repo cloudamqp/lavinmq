@@ -362,8 +362,8 @@ module LavinMQ
         false
       end
 
-      def state : QueueState
-        closed? ? QueueState::Closed : QueueState::Running
+      def state : String
+        closed? ? "closed" : "running"
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32

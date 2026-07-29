@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "../consumer"
 require "../../segment_position"
 require "./filters/kv"
@@ -11,7 +12,7 @@ module LavinMQ
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
-      getter requeued = Deque(SegmentPosition).new
+      getter requeued : Sync::Exclusive(Deque(SegmentPosition)) = Sync::Exclusive.new(Deque(SegmentPosition).new, :checked)
       @filters = Array(StreamFilter).new
       @filter_match_all = true
       @match_unfiltered = false
@@ -90,7 +91,7 @@ module LavinMQ
         loop do
           wait_for_capacity
           loop do
-            raise ClosedError.new if @closed
+            raise ClosedError.new if closed?
             next if wait_for_queue_ready
             next if wait_for_paused_queue
             next if wait_for_flow
@@ -111,7 +112,7 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @offset > stream_queue.last_offset && @requeued.empty?
+        if @offset > stream_queue.last_offset && @requeued.unsafe_get.empty?
           @log.debug { "Waiting for queue not to be empty" }
           flush
           select
@@ -150,8 +151,11 @@ module LavinMQ
       def reject(sp, requeue : Bool)
         super
         if requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          size_after = @requeued.lock do |r|
+            r.push(sp)
+            r.size
+          end
+          @new_message_available.set(true) if size_after == 1
         end
       end
 

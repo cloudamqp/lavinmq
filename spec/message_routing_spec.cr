@@ -36,7 +36,7 @@ module MessageRoutingSpec
         10.times do |i|
           matches(x, "unbound#{i}").should be_empty
         end
-        x.@bindings.size.should eq 1
+        x.@bindings.unsafe_get.size.should eq 1
       end
     end
 
@@ -46,7 +46,7 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
         x.unbind(q1, "never-bound").should be_false
-        x.@bindings.size.should eq 0
+        x.@bindings.unsafe_get.size.should eq 0
       end
     end
   end
@@ -88,7 +88,7 @@ module MessageRoutingSpec
       it "returns false when unbinding a never-bound routing key" do
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
         x.unbind(q1, "never.bound").should be_false
-        x.@bindings.size.should eq 0
+        x.@bindings.unsafe_get.size.should eq 0
       end
 
       it "matches exact rk" do
@@ -446,7 +446,7 @@ module MessageRoutingSpec
       it "returns false when unbinding never-bound arguments" do
         q = LavinMQ::QueueFactory.make(vhost, "q")
         x.unbind(q, "", LavinMQ::AMQP::Table.new({"never" => "bound"})).should be_false
-        x.@bindings.size.should eq 0
+        x.@bindings.unsafe_get.size.should eq 0
       end
     end
   end

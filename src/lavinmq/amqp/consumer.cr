@@ -16,9 +16,19 @@ module LavinMQ
       getter? no_ack : Bool
       getter channel, queue
       getter prefetch_count : UInt16
-      getter? closed = false
-      @flow : Bool
+      @closed = Atomic(Bool).new(false)
+
+      def closed?
+        @closed.get(:acquire)
+      end
+
+      @flow = Atomic(Bool).new(true)
       @metadata : ::Log::Metadata
+
+      def flow?
+        @flow.get(:acquire)
+      end
+
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
       @deliver_loop_running = Atomic(Bool).new(false)
@@ -29,23 +39,22 @@ module LavinMQ
         @exclusive = frame.exclusive
         @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
         @prefetch_count = @channel.prefetch_count
-        @flow = @channel.flow?
+        @flow.set(@channel.flow?, :release)
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        @flow_change = BoolChannel.new(@flow)
+        @flow_change = BoolChannel.new(flow?)
         @has_capacity = BoolChannel.new(true)
       end
 
       def close
-        return if @closed
-        @closed = true
+        return if @closed.swap(true, :acquire_release)
         @notify_closed.close
         @has_capacity.close
         @flow_change.close
       end
 
       def ensure_deliver_loop
-        return if @closed
+        return if closed?
         return if @deliver_loop_running.swap(true, :acquire_release)
         fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
         @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
@@ -54,7 +63,7 @@ module LavinMQ
       @notify_closed = ::Channel(Nil).new
 
       def flow(active : Bool)
-        @flow = active
+        @flow.set(active, :release)
         @flow_change.set(active)
       end
 
@@ -74,7 +83,7 @@ module LavinMQ
         loop do
           wait_for_capacity
           loop do
-            raise ClosedError.new if @closed
+            raise ClosedError.new if closed?
             next if wait_for_global_capacity
             next if wait_for_priority_consumers
             case wait_for_queue_ready
@@ -185,7 +194,7 @@ module LavinMQ
       end
 
       private def wait_for_paused_queue
-        if @queue.state.paused?
+        if @queue.paused?
           @log.debug { "Waiting for queue not to be paused" }
           flush
           select
@@ -198,7 +207,7 @@ module LavinMQ
       end
 
       private def wait_for_flow
-        unless @flow
+        unless flow?
           @log.debug { "Waiting for flow" }
           flush
           @flow_change.when_true.receive
@@ -219,7 +228,7 @@ module LavinMQ
       end
 
       def accepts? : Bool
-        return false unless @flow
+        return false unless flow?
         return false if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
         return false if @channel.global_prefetch_count > 0 && @channel.unacked.size >= @channel.global_prefetch_count
         true

@@ -1,3 +1,4 @@
+require "sync/shared"
 require "./exchange"
 
 module LavinMQ
@@ -38,7 +39,7 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(AMQP::Table, Binding).new
+      @bindings : Sync::Shared(Hash(AMQP::Table, Binding)) = Sync::Shared.new(Hash(AMQP::Table, Binding).new, :checked)
       @default_match_any : Bool
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -53,16 +54,27 @@ module LavinMQ
         "headers"
       end
 
+      def bindings_lock_holder : Fiber?
+        @bindings.locked_by_fiber
+      end
+
       def bindings_details : Array(BindingDetails)
-        @bindings.values.flat_map do |binding|
-          binding.destinations.map do |d, binding_key|
-            BindingDetails.new(name, vhost.name, binding_key, d)
+        @bindings.shared do |b|
+          count = b.each_value.sum(&.destinations.size)
+          bds = Array(BindingDetails).new(count)
+          b.each_value do |binding|
+            binding.destinations.each do |d, binding_key|
+              bds << BindingDetails.new(name, vhost.name, binding_key, d)
+            end
           end
+          bds
         end
       end
 
       def binding_count : Int32
-        @bindings.each_value.sum(&.destinations.size)
+        @bindings.shared do |bindings|
+          bindings.each_value.sum(&.destinations.size)
+        end
       end
 
       def bind(destination : Destination, routing_key, arguments)
@@ -70,8 +82,11 @@ module LavinMQ
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments] ||= Binding.new(arguments, @default_match_any)
-        return false unless binding.destinations.add?({destination, binding_key})
+        added = @bindings.lock do |b|
+          binding = b[arguments] ||= Binding.new(arguments, @default_match_any)
+          binding.destinations.add?({destination, binding_key})
+        end
+        return false unless added
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -80,14 +95,22 @@ module LavinMQ
       def unbind(destination : Destination, routing_key, arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)
-        binding = @bindings[arguments]? || return false
-        return false unless binding.destinations.delete({destination, binding_key})
-        @bindings.delete(arguments) if binding.destinations.empty?
+        removed = false
+        all_empty = false
+        @bindings.lock do |b|
+          binding = b[arguments]?
+          next unless binding
+          next unless binding.destinations.delete({destination, binding_key})
+          removed = true
+          b.delete(arguments) if binding.destinations.empty?
+          all_empty = b.each_value.all?(&.destinations.empty?)
+        end
+        return false unless removed
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.destinations.empty?)
+        delete if @auto_delete && all_empty
         true
       end
 
@@ -102,10 +125,12 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        @bindings.each_value do |binding|
-          next unless binding.matches?(headers)
-          binding.destinations.each do |destination, _binding_key|
-            yield destination
+        @bindings.shared do |b|
+          b.each_value do |binding|
+            next unless binding.matches?(headers)
+            binding.destinations.each do |destination, _binding_key|
+              yield destination
+            end
           end
         end
       end

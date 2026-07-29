@@ -1,5 +1,6 @@
 require "socket"
 require "openssl"
+require "sync/shared"
 require "wait_group"
 require "./server"
 
@@ -10,7 +11,7 @@ module LavinMQ
   end
 
   abstract class ProtocolServer
-    @listeners = Array(Socket::Server).new
+    @listeners : Sync::Shared(Array(Socket::Server)) = Sync::Shared.new(Array(Socket::Server).new, :checked)
     @tls_contexts = Hash(TCPServer, OpenSSL::SSL::Context::Server).new
     @closed = BoolChannel.new(false)
     @config : Config
@@ -26,6 +27,16 @@ module LavinMQ
 
     def listening? : Bool
       @listening
+    end
+
+    # Local address of the first bound TCP listener. Handy for connecting to an
+    # ephemeral (port 0) listener, e.g. in specs and tooling.
+    def tcp_address : Socket::IPAddress
+      @listeners.shared(&.select(TCPServer).first.local_address)
+    end
+
+    def tcp_port : Int32
+      tcp_address.port
     end
 
     def bind_tcp(s : TCPServer)
@@ -97,16 +108,16 @@ module LavinMQ
       raise "Can't add socket to running #{@protocol} server" if listening?
       raise "Can't add socket to closed #{@protocol} server" if closed?
 
-      @listeners << s unless @listeners.includes?(s)
+      @listeners.lock { |ls| ls << s unless ls.includes?(s) }
     end
 
     private def start_listening
       raise "Can't re-start closed #{@protocol} server" if closed?
-      raise "Can't start #{@protocol} server with no sockets to listen to, use bind first" if @listeners.empty?
+      raise "Can't start #{@protocol} server with no sockets to listen to, use bind first" if @listeners.unsafe_get.empty?
       raise "Can't start running #{@protocol} server" if listening?
 
       @listening = true
-      @listeners.dup
+      @listeners.shared(&.dup)
     end
 
     private def listen_tcp(s : TCPServer)
@@ -143,22 +154,24 @@ module LavinMQ
     end
 
     def listeners
-      @listeners.map do |l|
-        case l
-        when UNIXServer
-          addr = l.local_address
-          {
-            "path":     addr.path,
-            "protocol": @protocol,
-          }
-        when TCPServer
-          addr = l.local_address
-          {
-            "ip_address": addr.address,
-            "protocol":   @protocol,
-            "port":       addr.port,
-          }
-        else raise "Unexpected listener '#{l.class}'"
+      @listeners.shared do |ls|
+        ls.map do |l|
+          case l
+          when UNIXServer
+            addr = l.local_address
+            {
+              "path":     addr.path,
+              "protocol": @protocol,
+            }
+          when TCPServer
+            addr = l.local_address
+            {
+              "ip_address": addr.address,
+              "protocol":   @protocol,
+              "port":       addr.port,
+            }
+          else raise "Unexpected listener '#{l.class}'"
+          end
         end
       end
     end
@@ -166,10 +179,12 @@ module LavinMQ
     def close
       return if @closed.swap(true)
       Log.debug { "Closing #{@protocol} listeners" }
-      @listeners.each do |listener|
-        listener.close rescue nil
+      @listeners.lock do |ls|
+        ls.each do |listener|
+          listener.close rescue nil
+        end
+        ls.clear
       end
-      @listeners.clear
       @tls_contexts.clear
       @listening = false
     end
