@@ -189,6 +189,9 @@ module LavinMQ
       end
 
       private def sync_files(socket, lz4)
+        @files.each_value &.close
+        @files.clear
+        @file_digests.clear
         Log.info { "Waiting for list of files" }
         hash_size = Digest::SHA1.new.digest_size
 
@@ -440,12 +443,8 @@ module LavinMQ
 
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
-        if f = @files.delete(filename)
-          f.delete
-          f.close
-        else
-          File.delete? File.join(@data_dir, filename)
-        end
+        @files.delete(filename).try &.close
+        File.delete? File.join(@data_dir, filename)
         @checksums.delete(filename)
         @file_digests.delete(filename)
         delete_empty_dirs File.dirname(filename)
