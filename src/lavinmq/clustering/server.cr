@@ -198,7 +198,11 @@ module LavinMQ
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
           # The cache holds full-size hashes; a capped pass must recompute.
-          cached_hash = caps ? nil : @file_index.shared { |_files, checksums| checksums[path]? }
+          cached_hash = @file_index.shared do |_f, checksums|
+            entry = checksums[path]?
+            cap = caps ? (caps[path]? || 0u64) : nil
+            entry if entry && (cap.nil? || entry.size == caps)
+          end
           if cached_hash
             yield({path, cached_hash})
           else
