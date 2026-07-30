@@ -52,6 +52,13 @@ class LavinMQCtl
                 end
               end
             end
+            if groups = permission_groups
+              json.field("permission_groups") do
+                json.array do
+                  groups.each(&.to_json(json))
+                end
+              end
+            end
             json.field("exchanges") do
               json.array do
                 each_vhost do |vhost, vhost_dir|
@@ -169,6 +176,17 @@ class LavinMQCtl
 
     private def users
       File.open("users.json") { |f| JSON.parse f }.as_a
+    end
+
+    # Unlike the other data files, absence is meaningful here: no permission
+    # groups have ever been created, which is the common case, so the
+    # generated definitions omit the "permission_groups" key entirely
+    # (matching how the online exporter behaves with no groups) rather than
+    # emitting an empty array.
+    private def permission_groups
+      File.open("permission_groups.json") { |f| JSON.parse(f) }.as_a
+    rescue File::NotFoundError
+      nil
     end
 
     private def vhosts

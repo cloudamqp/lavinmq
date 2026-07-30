@@ -58,6 +58,7 @@ module LavinMQ
           VHostLimitsController.new(@server),
           UsersController.new(@server),
           PermissionsController.new(@server),
+          PermissionGroupsController.new(@server),
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
