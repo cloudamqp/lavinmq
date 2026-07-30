@@ -5,7 +5,6 @@ require "./subscription_tree"
 require "./session"
 require "./subscription_key"
 require "./subscription_details"
-require "./retain_store"
 
 module LavinMQ
   module MQTT
@@ -16,10 +15,12 @@ module LavinMQ
         "mqtt"
       end
 
-      def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
+      def initialize(vhost : VHost, name : String)
         super(vhost, name, false, false, true)
       end
 
+      # Routes a packet to the subscribed sessions. Retaining the message is the
+      # `Broker`'s responsibility, it owns the retain store.
       def publish(packet : Protocol::Publish) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
@@ -28,11 +29,6 @@ module LavinMQ
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
-
-        if packet.retain?
-          @retain_store.retain(packet.topic, body, bodysize)
-          body.rewind
-        end
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
