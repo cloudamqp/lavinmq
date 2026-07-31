@@ -2,7 +2,13 @@ module LavinMQ
   module Clustering
     class Checksums
       Log = LavinMQ::Log.for "clustering.checksums"
-      @checksums = Hash(String, Bytes).new
+
+      # `size` is the number of bytes the hash covers, when known. Entries
+      # without a size (older checksums.sha1 files, follower-written entries)
+      # can never be served for a sized lookup (#hash_for?).
+      record Entry, hash : Bytes, size : Int64?
+
+      @checksums = Hash(String, Entry).new
       # Always-open handle to checksums.sha1, kept open across rewrites so
       # #append never has to check/reopen it: #append writes one line at a time
       # and #store adopts the freshly-renamed file's handle here.
@@ -20,8 +26,8 @@ module LavinMQ
         # can keep using it afterwards.
         tmp = "#{checksums_path}.tmp"
         f = File.new(tmp, "w")
-        @checksums.each do |path, hash|
-          f.puts "#{hash.hexstring} *#{path}"
+        @checksums.each do |path, entry|
+          f.puts line(path, entry)
         end
         f.flush
         File.rename(tmp, checksums_path)
@@ -34,9 +40,10 @@ module LavinMQ
       # progress survives a crash mid-sync (see Client#sync_files). No fsync:
       # the page cache survives a process crash and the cache is only an
       # optimization (a stale entry just triggers a re-fetch, never data loss).
-      def append(path : String, hash : Bytes) : Nil
-        @checksums[path] = hash
-        @checksum_file.puts "#{hash.hexstring} *#{path}"
+      def append(path : String, hash : Bytes, size : Int64? = nil) : Nil
+        entry = Entry.new(hash, size)
+        @checksums[path] = entry
+        @checksum_file.puts line(path, entry)
         @checksum_file.flush
       end
 
@@ -44,9 +51,13 @@ module LavinMQ
         File.open(checksums_path) do |f|
           loop do
             hash = f.read_string(40).hexbytes
-            f.skip(2) # " *"
-            path = f.read_line
-            @checksums[path] = hash
+            rest = f.read_line
+            if rest.starts_with?(" *") # sizeless format: "<hash> *<path>"
+              @checksums[rest[2..]] = Entry.new(hash, nil)
+            elsif idx = rest.index(" *", 1) # sized format: "<hash> <size> *<path>"
+              size = rest[1...idx].to_i64?
+              @checksums[rest[idx + 2..]] = Entry.new(hash, size)
+            end
           rescue IO::EOFError
             break
           end
@@ -60,12 +71,23 @@ module LavinMQ
         Log.info { "Checksums not found" }
       end
 
-      def []?(path)
-        @checksums[path]?
+      def []?(path) : Bytes?
+        @checksums[path]?.try &.hash
       end
 
-      def []=(path, value)
-        @checksums[path] = value
+      # The hash for `path` only if it covers exactly `size` bytes.
+      def hash_for?(path, size : Int64) : Bytes?
+        if entry = @checksums[path]?
+          entry.hash if entry.size == size
+        end
+      end
+
+      def []=(path, hash : Bytes)
+        @checksums[path] = Entry.new(hash, nil)
+      end
+
+      def set(path : String, hash : Bytes, size : Int64) : Nil
+        @checksums[path] = Entry.new(hash, size)
       end
 
       def delete(path)
@@ -78,6 +100,14 @@ module LavinMQ
 
       def size
         @checksums.size
+      end
+
+      private def line(path : String, entry : Entry) : String
+        if size = entry.size
+          "#{entry.hash.hexstring} #{size} *#{path}"
+        else
+          "#{entry.hash.hexstring} *#{path}"
+        end
       end
 
       private def checksums_path : String

@@ -197,25 +197,33 @@ module LavinMQ
         snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
-          # The cache holds full-size hashes; a capped pass must recompute.
-          cached_hash = @file_index.shared do |_f, checksums|
-            entry = checksums[path]?
-            cap = caps ? (caps[path]? || 0u64) : nil
-            entry if entry && (cap.nil? || entry.size == caps)
+          # Without caps any cached hash is valid: every write invalidates the
+          # entry, so an entry that still exists covers the whole file. With
+          # caps the hash must cover exactly caps[path] bytes. Checking the
+          # cap against the file's current size instead would race local
+          # writes that haven't invalidated the cache yet.
+          cached_hash = @file_index.shared do |_files, checksums|
+            if caps
+              checksums.hash_for?(path, caps[path]? || 0i64)
+            else
+              checksums[path]?
+            end
           end
           if cached_hash
             yield({path, cached_hash})
           else
             filename = File.join(@data_dir, path)
             begin
+              hashed_size = 0i64
               File.open(filename) do |f|
                 size = mfile ? mfile.size : f.size.to_i64
                 size = Math.min(size, caps[path]? || 0i64) if caps
+                hashed_size = size.to_i64
                 sha1.update IO::Sized.new(f, size)
               end
               hash = sha1.final
               sha1.reset
-              @file_index.lock { |_files, checksums| checksums[path] = hash } unless caps
+              @file_index.lock { |_files, checksums| checksums.set(path, hash, hashed_size) } unless caps
               yield({path, hash})
             rescue File::NotFoundError
               next # File disappeared since we took the snapshot, just skip it.

@@ -74,6 +74,53 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         FileUtils.rm_rf LavinMQ::Config.instance.data_dir
       end
     end
+
+    describe "with caps" do
+      it "reuses the cached hash when it covers exactly the cap" do
+        data_dir = LavinMQ::Config.instance.data_dir
+        Dir.mkdir_p(data_dir)
+        server = LavinMQ::Clustering::Server.new(
+          LavinMQ::Config.instance,
+          NullCoordinator.new,
+          0)
+        content = "hello world"
+        path = File.join(data_dir, "capped_cache_test")
+        File.write path, content
+        server.register_file(path)
+        server.files_with_hash { |_path_hash| }
+        # Deleted from disk: the capped pass can only produce the hash from
+        # the cache, proving it doesn't re-read the file.
+        File.delete path
+
+        caps = {"capped_cache_test" => content.bytesize.to_i64}
+        hashes = [] of Bytes
+        server.files_with_hash(caps) { |_path, hash| hashes << hash }
+        hashes.should eq [Digest::SHA1.digest(content)]
+      ensure
+        FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+      end
+
+      it "recomputes when the cap does not match the cached hash's size" do
+        data_dir = LavinMQ::Config.instance.data_dir
+        Dir.mkdir_p(data_dir)
+        server = LavinMQ::Clustering::Server.new(
+          LavinMQ::Config.instance,
+          NullCoordinator.new,
+          0)
+        content = "hello world"
+        path = File.join(data_dir, "capped_recompute_test")
+        File.write path, content
+        server.register_file(path)
+        server.files_with_hash { |_path_hash| }
+
+        caps = {"capped_recompute_test" => 5i64}
+        hashes = [] of Bytes
+        server.files_with_hash(caps) { |_path, hash| hashes << hash }
+        hashes.should eq [Digest::SHA1.digest(content[0, 5])]
+      ensure
+        FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+      end
+    end
   end
 
   describe "#followers" do

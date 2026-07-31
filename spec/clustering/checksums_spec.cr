@@ -61,4 +61,43 @@ describe LavinMQ::Clustering::Checksums do
       restored["b"]?.should eq Digest::SHA1.digest("b")
     end
   end
+
+  it "persists and restores the covered size" do
+    with_datadir do |data_dir|
+      hash = Digest::SHA1.digest("hello")
+      written = LavinMQ::Clustering::Checksums.new(data_dir)
+      written.append("q/msgs.0000000001", hash, 5i64)
+
+      restored = LavinMQ::Clustering::Checksums.new(data_dir)
+      restored.restore
+      restored["q/msgs.0000000001"]?.should eq hash
+      restored.hash_for?("q/msgs.0000000001", 5i64).should eq hash
+      restored.hash_for?("q/msgs.0000000001", 4i64).should be_nil
+    end
+  end
+
+  it "keeps covered sizes across a store rewrite" do
+    with_datadir do |data_dir|
+      hash = Digest::SHA1.digest("hello")
+      checksums = LavinMQ::Clustering::Checksums.new(data_dir)
+      checksums.set("q/msgs.0000000001", hash, 5i64)
+      checksums.store
+
+      restored = LavinMQ::Clustering::Checksums.new(data_dir)
+      restored.restore
+      restored.hash_for?("q/msgs.0000000001", 5i64).should eq hash
+    end
+  end
+
+  it "restores sizeless entries and never serves them for a sized lookup" do
+    with_datadir do |data_dir|
+      hash = Digest::SHA1.digest("hello")
+      File.write File.join(data_dir, "checksums.sha1"), "#{hash.hexstring} *q/msgs.0000000001\n"
+
+      checksums = LavinMQ::Clustering::Checksums.new(data_dir)
+      checksums.restore
+      checksums["q/msgs.0000000001"]?.should eq hash
+      checksums.hash_for?("q/msgs.0000000001", 5i64).should be_nil
+    end
+  end
 end
