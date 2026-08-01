@@ -11,6 +11,23 @@ module ClientSyncSpec
       stream_changes(socket, lz4)
     end
 
+    def hash_local_files_public
+      hash_local_files
+    end
+
+    # Counts hashed local files, so specs can assert that no CPU-bound hashing
+    # happens while the leader is connected and waiting.
+    getter files_hashed = 0
+    # Simulates an unreadable file (can't be done with permissions: specs may
+    # run as root).
+    property fail_hash_for : String? = nil
+
+    private def hash_file(filename : String, path : String) : Bytes
+      @files_hashed += 1
+      raise File::Error.new("Permission denied", file: path) if filename == @fail_hash_for
+      super
+    end
+
     # Instrumentation for the close/ack-loop fd race spec: slow each sync down
     # and record whether one ever ran against a closed data dir fd — the real
     # implementation would Log.fatal and exit 1 there.
@@ -73,6 +90,7 @@ module ClientSyncSpec
       lz4.write content.to_slice
       lz4.flush
     end
+    requested
   end
 
   describe LavinMQ::Clustering::Client do
@@ -341,6 +359,137 @@ module ClientSyncSpec
             leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           end
           client_socket.close
+        end
+      end
+    end
+
+    # Local hashing is CPU bound and the leader holds its sync lock (and, for
+    # the second sync pass, its replication lock) while it waits for the
+    # follower's file requests. So all local files are hashed before the
+    # follower even connects, not while comparing the leader's file list.
+    describe "hash_local_files" do
+      it "hashes every local file, including files the leader doesn't have" do
+        with_datadir do |data_dir|
+          Dir.mkdir_p File.join(data_dir, "queue1")
+          File.write File.join(data_dir, "queue1", "messages.dat"), "a"
+          File.write File.join(data_dir, "definitions.amqp"), "b"
+
+          client = make_client(data_dir)
+          client.hash_local_files_public
+
+          client.@checksums["queue1/messages.dat"]?.should eq Digest::SHA1.digest("a")
+          client.@checksums["definitions.amqp"]?.should eq Digest::SHA1.digest("b")
+          # Persisted too, so a crash before the sync doesn't waste the work.
+          checksums_file = File.read(File.join(data_dir, "checksums.sha1"))
+          checksums_file.should contain "#{Digest::SHA1.digest("a").hexstring} *queue1/messages.dat"
+          checksums_file.should contain "#{Digest::SHA1.digest("b").hexstring} *definitions.amqp"
+        end
+      end
+
+      it "skips local-only files the leader never sends" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, ".clustering_id"), "id"
+
+          client = make_client(data_dir)
+          client.hash_local_files_public
+
+          client.@checksums[".clustering_id"]?.should be_nil
+          client.@checksums[".lock"]?.should be_nil
+          client.@checksums["checksums.sha1"]?.should be_nil
+        end
+      end
+
+      it "skips files already in the checksum cache" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, "cached.dat"), "original"
+          client = make_client(data_dir)
+          cached = Digest::SHA1.digest("cached")
+          client.@checksums.append("cached.dat", cached)
+
+          client.hash_local_files_public
+
+          client.files_hashed.should eq 0
+          client.@checksums["cached.dat"]?.should eq cached
+        end
+      end
+
+      # This pass also hashes files the leader doesn't have, which the compare
+      # loop never did, so a single unreadable file must not abort it — that
+      # would wedge the follower in the connect/retry loop before it even dials.
+      it "keeps hashing after a file it can't read" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, "unreadable.dat"), "nope"
+          File.write File.join(data_dir, "readable.dat"), "yep"
+
+          client = make_client(data_dir)
+          client.fail_hash_for = "unreadable.dat"
+          client.hash_local_files_public
+
+          client.@checksums["unreadable.dat"]?.should be_nil
+          client.@checksums["readable.dat"]?.should eq Digest::SHA1.digest("yep")
+        end
+      end
+
+      # Regression: the compare loop used to hash local files while the leader
+      # waited for our file requests, stalling it (and every other follower
+      # waiting for its sync lock) for as long as hashing took.
+      it "leaves no hashing to do while the leader is connected" do
+        with_datadir do |data_dir|
+          content = "hello"
+          Dir.mkdir_p File.join(data_dir, "queue1")
+          File.write File.join(data_dir, "queue1", "messages.dat"), content
+
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          client.files_hashed.should eq 1
+
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          requested = Channel(Array(String)).new
+          spawn do
+            requested.send simulate_leader(server_io, {"queue1/messages.dat" => content})
+          end
+
+          client.sync_files_public(client_io, lz4_reader)
+
+          select
+          when files = requested.receive
+            files.should be_empty # matching hash, nothing to re-fetch
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          client.files_hashed.should eq 1 # nothing hashed while connected
+        end
+      end
+
+      # hash_local_files hashes files the leader doesn't have, and those get
+      # deleted during the sync; their entries must go with them or the
+      # checksum map grows with dead paths on every sync.
+      it "drops checksums of files deleted because the leader lacks them" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, "orphan.dat"), "gone tomorrow"
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          client.@checksums["orphan.dat"]?.should_not be_nil
+
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {} of String => String)
+            done.send nil
+          end
+
+          client.sync_files_public(client_io, lz4_reader)
+
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+
+          File.exists?(File.join(data_dir, "orphan.dat")).should be_false
+          client.@checksums["orphan.dat"]?.should be_nil
         end
       end
     end
