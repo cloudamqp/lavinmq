@@ -172,10 +172,13 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
-        sync_files(socket, lz4)
-        Log.info { "Bulk synchronised" }
-        sync_files(socket, lz4)
-        Log.info { "Fully synchronised" }
+        full_sync_time = Time.measure do
+          bulk_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
+          rest_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Changes since bulk synchronized in #{rest_time.total_seconds} seconds" }
+        end
+        Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
       end
 
       private def set_socket_opts(socket)
@@ -295,33 +298,35 @@ module LavinMQ
       # nothing. Files already in @checksums (restored from disk, or hashed in
       # an earlier pass) are skipped.
       private def hash_local_files : Nil
-        files, _dirs = ls_r(@data_dir)
-        Log.info { "Calculating checksums for #{files.size} local files" }
         computed = 0
-        log_limiter = RateLimiter.new(2.seconds)
-        files.each do |path|
-          break if @closed
-          filename = relative_path(path)
-          next if @checksums[filename]?
-          hash_file(filename, path)
-          computed &+= 1
-          Fiber.yield if computed % HASH_YIELD_INTERVAL == 0 # CPU bound, so let other fibers run
-          log_limiter.do { Log.info { "Calculated #{computed} checksums" } }
-        rescue ex : File::NotFoundError
-          Log.debug(exception: ex) { "#{path} disappeared while hashing" }
-        rescue ex : File::Error
-          # Unlike the compare loop, this pass also hashes files the leader
-          # doesn't have (they're about to be deleted), so one unreadable file
-          # must not abort the pass and wedge us in the reconnect loop. Left
-          # uncached: if the leader does have the file, the compare loop retries
-          # the hash and fails the sync there, as it always did.
-          Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
+        files, _dirs = ls_r(@data_dir)
+        time = Time.measure do
+          Log.info { "Calculating checksums for #{files.size} local files" }
+          log_limiter = RateLimiter.new(2.seconds)
+          files.each do |path|
+            break if @closed
+            filename = relative_path(path)
+            next if @checksums[filename]?
+            hash_file(filename, path)
+            computed &+= 1
+            Fiber.yield if computed % HASH_YIELD_INTERVAL == 0 # CPU bound, so let other fibers run
+            log_limiter.do { Log.info { "Calculated #{computed} checksums" } }
+          rescue ex : File::NotFoundError
+            Log.debug(exception: ex) { "#{path} disappeared while hashing" }
+          rescue ex : File::Error
+            # Unlike the compare loop, this pass also hashes files the leader
+            # doesn't have (they're about to be deleted), so one unreadable file
+            # must not abort the pass and wedge us in the reconnect loop. Left
+            # uncached: if the leader does have the file, the compare loop retries
+            # the hash and fails the sync there, as it always did.
+            Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
+          end
+          # #restore truncates checksums.sha1, so until something rewrites it a
+          # crash would throw away hashes that were on disk at boot. Snapshot the
+          # full set now, while we're not holding up the leader.
+          @checksums.store if computed > 0
         end
-        # #restore truncates checksums.sha1, so until something rewrites it a
-        # crash would throw away hashes that were on disk at boot. Snapshot the
-        # full set now, while we're not holding up the leader.
-        @checksums.store if computed > 0
-        Log.info { "Calculated #{computed} checksums (#{files.size} local files)" }
+        Log.info { "Calculated #{computed} checksums (#{files.size} local files) in #{time.total_seconds} seconds" }
       end
 
       # Hash one local file and persist the hash immediately (see
