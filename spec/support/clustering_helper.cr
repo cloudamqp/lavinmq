@@ -33,6 +33,13 @@ module ClusteringSpecHelper
       super
     end
 
+    # Mirrors what #sync does on a reconnect: drop the state describing the data
+    # dir as the previous connection left it, then compare against the leader.
+    def resync_files_public(socket, lz4)
+      reset_file_state
+      sync_files(socket, lz4)
+    end
+
     # Instrumentation for the close/ack-loop fd race spec: slow each sync down
     # and record whether one ever ran against a closed data dir fd — the real
     # implementation would Log.fatal and exit 1 there.
