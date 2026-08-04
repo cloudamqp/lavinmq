@@ -121,6 +121,7 @@ module LavinMQ
         end
         loop do
           hash_local_files
+          return if @closed
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
