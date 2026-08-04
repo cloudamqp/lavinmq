@@ -6,29 +6,7 @@ module LavinMQ
       # `size` is the number of bytes the hash covers, when known. Entries
       # without a size (older checksums.sha1 files, follower-written entries)
       # can never be served for a sized lookup (#hash_for?).
-      record Entry, hash : Bytes, size : Int64? do
-        # One line per entry: "<hash> <size> *<path>", or "<hash> *<path>"
-        # when the size is unknown. The path is the caller's hash key, so it
-        # travels alongside the entry rather than being stored in it.
-        def to_io(io : IO, path : String) : Nil
-          io << hash.hexstring
-          if s = size
-            io << ' ' << s
-          end
-          io << " *" << path << '\n'
-        end
-
-        # Returns nil for malformed lines. Raises IO::EOFError at end of file.
-        def self.from_io(io : IO) : {String, Entry}?
-          hash = io.read_string(40).hexbytes
-          rest = io.read_line
-          if rest.starts_with?(" *")
-            {rest[2..], new(hash, nil)}
-          elsif idx = rest.index(" *", 1)
-            {rest[idx + 2..], new(hash, rest[1...idx].to_i64?)}
-          end
-        end
-      end
+      record Entry, hash : Bytes, size : Int64?
 
       @checksums = Hash(String, Entry).new
       # Always-open handle to checksums.sha1, kept open across rewrites so
@@ -49,7 +27,7 @@ module LavinMQ
         tmp = "#{checksums_path}.tmp"
         f = File.new(tmp, "w")
         @checksums.each do |path, entry|
-          entry.to_io(f, path)
+          f.puts line(path, entry)
         end
         f.flush
         File.rename(tmp, checksums_path)
@@ -65,16 +43,20 @@ module LavinMQ
       def append(path : String, hash : Bytes, size : Int64? = nil) : Nil
         entry = Entry.new(hash, size)
         @checksums[path] = entry
-        entry.to_io(@checksum_file, path)
+        @checksum_file.puts line(path, entry)
         @checksum_file.flush
       end
 
       def restore : Nil
         File.open(checksums_path) do |f|
           loop do
-            if parsed = Entry.from_io(f)
-              path, entry = parsed
-              @checksums[path] = entry
+            hash = f.read_string(40).hexbytes
+            rest = f.read_line
+            if rest.starts_with?(" *") # sizeless format: "<hash> *<path>"
+              @checksums[rest[2..]] = Entry.new(hash, nil)
+            elsif idx = rest.index(" *", 1) # sized format: "<hash> <size> *<path>"
+              size = rest[1...idx].to_i64?
+              @checksums[rest[idx + 2..]] = Entry.new(hash, size)
             end
           rescue IO::EOFError
             break
@@ -118,6 +100,14 @@ module LavinMQ
 
       def size
         @checksums.size
+      end
+
+      private def line(path : String, entry : Entry) : String
+        if size = entry.size
+          "#{entry.hash.hexstring} #{size} *#{path}"
+        else
+          "#{entry.hash.hexstring} *#{path}"
+        end
       end
 
       private def checksums_path : String
