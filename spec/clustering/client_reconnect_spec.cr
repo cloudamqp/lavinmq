@@ -7,49 +7,7 @@ require "lz4"
 # in the old unlinked inode (acked but invisible), and a later delete record
 # for a reused path raises ENOENT and crash-loops the follower.
 module ClientReconnectSpec
-  class TestClient < LavinMQ::Clustering::Client
-    def sync_files_public(socket, lz4)
-      sync_files(socket, lz4)
-    end
-
-    def stream_changes_public(socket, lz4)
-      stream_changes(socket, lz4)
-    end
-  end
-
-  def self.make_client(data_dir : String) : TestClient
-    config = LavinMQ::Config.instance.dup
-    config.data_dir = data_dir
-    config.sync = false
-    config.metrics_http_port = -1
-    TestClient.new(config, 1, "password", proxy: false)
-  end
-
-  def self.simulate_leader(io : IO, leader_files : Hash(String, String))
-    lz4 = Compress::LZ4::Writer.new(io, Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-    leader_files.each do |filename, content|
-      hash = Digest::SHA1.digest(content)
-      lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-      lz4.write filename.to_slice
-      lz4.write hash
-    end
-    lz4.write_bytes 0i32, IO::ByteFormat::LittleEndian
-    lz4.flush
-
-    requested = Array(String).new
-    loop do
-      len = io.read_bytes Int32, IO::ByteFormat::LittleEndian
-      break if len == 0
-      requested << io.read_string(len)
-    end
-
-    requested.each do |filename|
-      content = leader_files[filename]? || ""
-      lz4.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
-      lz4.write content.to_slice
-      lz4.flush
-    end
-  end
+  extend ClusteringSpecHelper
 
   # One streaming "connection": run stream_changes against a socket pair,
   # yield the leader side, then disconnect.
@@ -83,7 +41,7 @@ module ClientReconnectSpec
       simulate_leader(server_io, leader_files)
       done.send nil
     end
-    client.sync_files_public(client_io, lz4_reader)
+    client.resync_files_public(client_io, lz4_reader)
     select
     when done.receive
     when timeout(1.second)
@@ -129,7 +87,7 @@ module ClientReconnectSpec
     # never reach the visible file, and the follower silently diverges again.
     it "applies streamed appends to the file re-fetched during resync, not the stale handle" do
       with_datadir do |data_dir|
-        client = make_client(data_dir)
+        client = make_client(data_dir, sync: false)
         filename = "queue1/msgs.0000000001"
         path = File.join(data_dir, filename)
 
@@ -161,7 +119,7 @@ module ClientReconnectSpec
     # be acked instead of raising ENOENT and crash-looping the follower.
     it "handles a path reused after a resync deleted it" do
       with_datadir do |data_dir|
-        client = make_client(data_dir)
+        client = make_client(data_dir, sync: false)
         filename = "queue1/msgs.0000000001"
         path = File.join(data_dir, filename)
 

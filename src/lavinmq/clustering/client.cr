@@ -170,6 +170,7 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
+        reset_file_state
         full_sync_time = Time.measure do
           bulk_time = Time.measure { sync_files(socket, lz4) }
           Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
@@ -177,6 +178,13 @@ module LavinMQ
           Log.info { "Changes since bulk synchronized in #{rest_time.total_seconds} seconds" }
         end
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
+      end
+
+      # handles from a previous connection may point at unlinked inodes
+      private def reset_file_state : Nil
+        @files.each_value &.close
+        @files.clear
+        @file_digests.clear
       end
 
       private def set_socket_opts(socket)
@@ -189,9 +197,6 @@ module LavinMQ
       end
 
       private def sync_files(socket, lz4)
-        @files.each_value &.close
-        @files.clear
-        @file_digests.clear
         Log.info { "Waiting for list of files" }
         hash_size = Digest::SHA1.new.digest_size
 
