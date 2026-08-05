@@ -207,6 +207,7 @@ module LavinMQ
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
         file_count = 0
+        files_total = remote_files.size
         Log.info { "Calculating checksums and comparing files" }
         log_limiter = RateLimiter.new(2.seconds)
         remote_files.each do |filename, remote_hash|
@@ -237,13 +238,13 @@ module LavinMQ
             requested_files << filename
           end
           file_count &+= 1
-          log_limiter.do { Log.info { "Compared #{file_count} files" } }
+          log_limiter.do { Log.info { "Compared #{file_count}/#{files_total} files…" } }
         end
+        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
         requested_files.each do |filename|
           request_file(filename, socket)
         end
         end_of_file_list(socket)
-        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
         Log.info { "Deleting #{files_to_delete.size} files not on leader" } unless files_to_delete.empty?
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
