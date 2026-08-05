@@ -170,6 +170,10 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
+        full_sync(socket, lz4)
+      end
+
+      private def full_sync(socket, lz4)
         reset_file_state
         full_sync_time = Time.measure do
           bulk_time = Time.measure { sync_files(socket, lz4) }

@@ -38,10 +38,10 @@ module ClientReconnectSpec
     lz4_reader = Compress::LZ4::Reader.new(client_io)
     done = Channel(Nil).new
     spawn do
-      simulate_leader(server_io, leader_files)
+      simulate_leader(server_io, leader_files, rounds: 2)
       done.send nil
     end
-    client.resync_files_public(client_io, lz4_reader)
+    client.full_sync_public(client_io, lz4_reader)
     select
     when done.receive
     when timeout(1.second)

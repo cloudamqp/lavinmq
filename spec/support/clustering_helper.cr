@@ -18,10 +18,8 @@ module ClusteringSpecHelper
       hash_local_files
     end
 
-    # what #sync does on a reconnect
-    def resync_files_public(socket, lz4)
-      reset_file_state
-      sync_files(socket, lz4)
+    def full_sync_public(socket, lz4)
+      full_sync(socket, lz4)
     end
 
     # Lets specs assert that nothing is hashed while the leader is connected.
@@ -72,31 +70,39 @@ module ClusteringSpecHelper
     TestClient.new(config, 1, "password", proxy: false)
   end
 
-  def simulate_leader(io : IO, leader_files : Hash(String, String))
+  # Serve `rounds` passes of the file sync protocol (full_sync runs two).
+  # Returns every file requested, across all rounds.
+  def simulate_leader(io : IO, leader_files : Hash(String, String), rounds = 1)
     lz4 = Compress::LZ4::Writer.new(io, Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
-    leader_files.each do |filename, content|
-      hash = Digest::SHA1.digest(content)
-      lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-      lz4.write filename.to_slice
-      lz4.write hash
-    end
-    lz4.write_bytes 0i32, IO::ByteFormat::LittleEndian
-    lz4.flush
-
-    requested = Array(String).new
-    loop do
-      len = io.read_bytes Int32, IO::ByteFormat::LittleEndian
-      break if len == 0
-      requested << io.read_string(len)
-    end
-
-    requested.each do |filename|
-      content = leader_files[filename]? || ""
-      lz4.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
-      lz4.write content.to_slice
+    all_requested = Array(String).new
+    rounds.times do
+      leader_files.each do |filename, content|
+        hash = Digest::SHA1.digest(content)
+        lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+        lz4.write filename.to_slice
+        lz4.write hash
+      end
+      lz4.write_bytes 0i32, IO::ByteFormat::LittleEndian
       lz4.flush
+
+      # Per round: only this round's requests may be served, or a later round
+      # re-sends earlier payloads and the follower reads the wrong file.
+      requested = Array(String).new
+      loop do
+        len = io.read_bytes Int32, IO::ByteFormat::LittleEndian
+        break if len == 0
+        requested << io.read_string(len)
+      end
+
+      requested.each do |filename|
+        content = leader_files[filename]? || ""
+        lz4.write_bytes content.bytesize.to_i64, IO::ByteFormat::LittleEndian
+        lz4.write content.to_slice
+        lz4.flush
+      end
+      all_requested.concat requested
     end
-    requested
+    all_requested
   end
 end
 
