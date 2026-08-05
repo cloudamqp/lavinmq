@@ -479,6 +479,32 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not double-decrement unacked_count when an ack fails mid-batch" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q4")
+          q4 = s.vhosts["/"].queue("q4").as(LavinMQ::AMQP::Queue)
+          3.times { q.publish_confirm "m1" }
+          wait_for { q4.message_count == 3 }
+
+          # Let the first ack of the batch succeed and the next one fail. The
+          # failing ack has already decremented unacked_count, so the recovery
+          # path must only requeue the messages it hasn't finalized yet.
+          q4.@msg_store.raise_on_delete_after = 1
+
+          body = %({ "count": 3, "ack_mode": "get", "encoding": "auto" })
+          begin
+            http.post("/api/queues/%2f/q4/get", body: body)
+          rescue # the endpoint re-raises the injected failure
+          end
+          q4.@msg_store.raise_on_delete_after = nil
+
+          q4.unacked_count.should eq 0
+          http.get("/api/overview").status_code.should eq 200
+        end
+      end
+    end
+
     it "should handle count > message_count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

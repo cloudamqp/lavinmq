@@ -216,7 +216,10 @@ module LavinMQ
                     end
                   end || break
                 end
-                sps.each do |sp|
+                # Shift each sp off before finalizing it, so `sps` only holds messages
+                # that aren't finalized yet. An sp whose #ack/#reject raised halfway
+                # has already been decremented, so the rescue below must not touch it.
+                while sp = sps.shift?
                   if ack
                     q.ack(sp)
                   else
@@ -224,10 +227,10 @@ module LavinMQ
                   end
                 end
               rescue e : Exception
-                # Requeue all unacked messages on error
+                # Requeue the messages that aren't finalized yet
                 if unacked_sps = sps
-                  unacked_sps.each do |sp|
-                    q.reject(sp, true)
+                  unacked_sps.each do |unacked_sp|
+                    q.reject(unacked_sp, true)
                   end
                 end
                 raise e
