@@ -209,8 +209,8 @@ module LavinMQ
       # covers only part of the content) or the file is gone.
       private def adopt_digest(filename : String, sha1 : Digest::SHA1?) : Nil
         return unless sha1
-        return unless File.exists?(File.join(@data_dir, filename))
-        @checksums[filename] = sha1.final
+        return unless info = File.info?(File.join(@data_dir, filename))
+        @checksums.set(filename, sha1.final, info.size)
       end
 
       private def set_socket_opts(socket)
@@ -351,10 +351,11 @@ module LavinMQ
       # survives a crash.
       private def hash_file(filename : String, path : String) : Bytes
         Log.debug { "Calculating checksum for #{filename}" }
+        size = File.size(path)
         sha1 = Digest::SHA1.new
         sha1.file(path)
         hash = sha1.final
-        @checksums.append(filename, hash)
+        @checksums.append(filename, hash, size)
         hash
       end
 
@@ -421,7 +422,7 @@ module LavinMQ
           remaining.zero? || raise IO::EOFError.new
           # Persist immediately too: a file received here is complete and
           # stable, so a crash mid-sync won't force re-hashing it on restart.
-          @checksums.append(filename, sha1.final)
+          @checksums.append(filename, sha1.final, length)
         end
         Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end

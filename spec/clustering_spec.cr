@@ -626,9 +626,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         # Should have checksums for multiple files (queue definition + message segments)
         lines.size.should be >= 2
 
-        # Verify each line has correct checksum format: 40 hex chars, space, asterisk, path
+        # Verify each line has correct checksum format: 40 hex chars, covered size, asterisk, path
         lines.each do |line|
-          line.should match(/^[0-9a-f]{40} \*/)
+          line.should match(/^[0-9a-f]{40} \d+ \*/)
         end
 
         # Should have checksum for the queue's message segment file
