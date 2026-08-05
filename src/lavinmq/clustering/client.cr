@@ -260,7 +260,7 @@ module LavinMQ
           if File.exists? path
             # Pre-computed by #hash_local_files, except for files that appeared
             # after that pass.
-            unless local_hash = @checksums[filename]?
+            unless local_hash = @checksums[filename]?.try &.hash
               local_hash = hash_file(filename, path)
               Fiber.yield # CPU bound, so allow other fibers to run
             end

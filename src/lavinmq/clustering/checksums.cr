@@ -3,9 +3,9 @@ module LavinMQ
     class Checksums
       Log = LavinMQ::Log.for "clustering.checksums"
 
-      # `size` is the number of bytes the hash covers, when known. Entries
-      # without a size (older checksums.sha1 files, follower-written entries)
-      # can never be served for a sized lookup (#hash_for?).
+      # `size` is the number of bytes the hash covers. Only entries restored
+      # from an old-format checksums.sha1 lack it; callers must treat those
+      # as unusable until recomputed.
       record Entry, hash : Bytes, size : Int64?
 
       @checksums = Hash(String, Entry).new
@@ -40,7 +40,7 @@ module LavinMQ
       # progress survives a crash mid-sync (see Client#sync_files). No fsync:
       # the page cache survives a process crash and the cache is only an
       # optimization (a stale entry just triggers a re-fetch, never data loss).
-      def append(path : String, hash : Bytes, size : Int64? = nil) : Nil
+      def append(path : String, hash : Bytes, size : Int64) : Nil
         entry = Entry.new(hash, size)
         @checksums[path] = entry
         @checksum_file.puts line(path, entry)
@@ -71,19 +71,10 @@ module LavinMQ
         Log.info { "Checksums not found" }
       end
 
-      def []?(path) : Bytes?
-        @checksums[path]?.try &.hash
-      end
-
-      # The hash for `path` only if it covers exactly `size` bytes.
-      def hash_for?(path, size : Int64) : Bytes?
-        if entry = @checksums[path]?
-          entry.hash if entry.size == size
-        end
-      end
-
-      def []=(path, hash : Bytes)
-        @checksums[path] = Entry.new(hash, nil)
+      # Hash and size are handed out together; the caller decides whether
+      # the recorded coverage fits its use.
+      def []?(path) : Entry?
+        @checksums[path]?
       end
 
       def set(path : String, hash : Bytes, size : Int64) : Nil

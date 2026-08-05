@@ -85,6 +85,8 @@ module ClientSyncSpec
     end
   end
 
+  alias Entry = LavinMQ::Clustering::Checksums::Entry
+
   describe LavinMQ::Clustering::Client do
     describe "stream_changes" do
       # Regression: a single large action must be acked incrementally as its
@@ -367,12 +369,12 @@ module ClientSyncSpec
           client = make_client(data_dir)
           client.hash_local_files_public
 
-          client.@checksums["queue1/messages.dat"]?.should eq Digest::SHA1.digest("a")
-          client.@checksums["definitions.amqp"]?.should eq Digest::SHA1.digest("b")
+          client.@checksums["queue1/messages.dat"]?.should eq Entry.new(Digest::SHA1.digest("a"), 1i64)
+          client.@checksums["definitions.amqp"]?.should eq Entry.new(Digest::SHA1.digest("b"), 1i64)
           # Persisted too, so a crash before the sync doesn't waste the work.
           checksums_file = File.read(File.join(data_dir, "checksums.sha1"))
-          checksums_file.should contain "#{Digest::SHA1.digest("a").hexstring} *queue1/messages.dat"
-          checksums_file.should contain "#{Digest::SHA1.digest("b").hexstring} *definitions.amqp"
+          checksums_file.should contain "#{Digest::SHA1.digest("a").hexstring} 1 *queue1/messages.dat"
+          checksums_file.should contain "#{Digest::SHA1.digest("b").hexstring} 1 *definitions.amqp"
         end
       end
 
@@ -394,12 +396,12 @@ module ClientSyncSpec
           File.write File.join(data_dir, "cached.dat"), "original"
           client = make_client(data_dir)
           cached = Digest::SHA1.digest("cached")
-          client.@checksums.append("cached.dat", cached)
+          client.@checksums.append("cached.dat", cached, 8i64)
 
           client.hash_local_files_public
 
           client.files_hashed.should eq 0
-          client.@checksums["cached.dat"]?.should eq cached
+          client.@checksums["cached.dat"]?.should eq Entry.new(cached, 8i64)
         end
       end
 
@@ -415,7 +417,7 @@ module ClientSyncSpec
           client.hash_local_files_public
 
           client.@checksums["unreadable.dat"]?.should be_nil
-          client.@checksums["readable.dat"]?.should eq Digest::SHA1.digest("yep")
+          client.@checksums["readable.dat"]?.should eq Entry.new(Digest::SHA1.digest("yep"), 3i64)
         end
       end
 

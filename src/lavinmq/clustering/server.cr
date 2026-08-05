@@ -197,19 +197,8 @@ module LavinMQ
         snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
-          # Without caps any cached hash is valid: every write invalidates the
-          # entry, so an entry that still exists covers the whole file. With
-          # caps the hash must cover exactly caps[path] bytes. Checking the
-          # cap against the file's current size instead would race local
-          # writes that haven't invalidated the cache yet.
-          cached_hash = @file_index.shared do |_files, checksums|
-            if caps
-              checksums.hash_for?(path, caps[path]? || 0i64)
-            else
-              checksums[path]?
-            end
-          end
-          if cached_hash
+          cap = caps ? caps[path]? || 0i64 : nil
+          if cached_hash = cached_hash(path, cap)
             yield({path, cached_hash})
           else
             filename = File.join(@data_dir, path)
@@ -217,7 +206,7 @@ module LavinMQ
               hashed_size = 0i64
               File.open(filename) do |f|
                 size = mfile ? mfile.size : f.size.to_i64
-                size = Math.min(size, caps[path]? || 0i64) if caps
+                size = Math.min(size, cap) if cap
                 hashed_size = size.to_i64
                 sha1.update IO::Sized.new(f, size)
               end
@@ -227,6 +216,24 @@ module LavinMQ
               yield({path, hash})
             rescue File::NotFoundError
               next # File disappeared since we took the snapshot, just skip it.
+            end
+          end
+        end
+      end
+
+      # Reuse a cached hash only when its recorded coverage fits: exactly
+      # `cap` bytes for a capped pass, any known coverage otherwise. Checking
+      # a cap against the file's current size instead would race local writes
+      # that haven't invalidated the cache yet. A sizeless entry (restored
+      # from an old-format file) is never reused, so the uncapped pass
+      # recomputes it and it gains a size a later capped pass can trust.
+      private def cached_hash(path : String, cap : Int64?) : Bytes?
+        @file_index.shared do |_files, checksums|
+          if entry = checksums[path]?
+            if cap
+              entry.hash if entry.size == cap
+            elsif entry.size
+              entry.hash
             end
           end
         end

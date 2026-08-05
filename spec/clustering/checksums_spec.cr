@@ -6,11 +6,11 @@ describe LavinMQ::Clustering::Checksums do
     with_datadir do |data_dir|
       checksums = LavinMQ::Clustering::Checksums.new(data_dir)
       hash = Digest::SHA1.digest("hello")
-      checksums.append("queue1/msgs.0000000001", hash)
+      checksums.append("queue1/msgs.0000000001", hash, 5i64)
 
       path = File.join(data_dir, "checksums.sha1")
       File.exists?(path).should be_true
-      File.read(path).should eq "#{hash.hexstring} *queue1/msgs.0000000001\n"
+      File.read(path).should eq "#{hash.hexstring} 5 *queue1/msgs.0000000001\n"
     end
   end
 
@@ -18,11 +18,11 @@ describe LavinMQ::Clustering::Checksums do
     with_datadir do |data_dir|
       hash = Digest::SHA1.digest("hello")
       written = LavinMQ::Clustering::Checksums.new(data_dir)
-      written.append("queue1/msgs.0000000001", hash)
+      written.append("queue1/msgs.0000000001", hash, 5i64)
 
       restored = LavinMQ::Clustering::Checksums.new(data_dir)
       restored.restore
-      restored["queue1/msgs.0000000001"]?.should eq hash
+      restored["queue1/msgs.0000000001"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(hash, 5i64)
 
       # one-shot: the on-disk copy is discarded after restore, so a stale hash
       # can't outlive a 2nd crash before a clean store rewrites it.
@@ -36,13 +36,13 @@ describe LavinMQ::Clustering::Checksums do
   it "rewrites a clean snapshot on store" do
     with_datadir do |data_dir|
       checksums = LavinMQ::Clustering::Checksums.new(data_dir)
-      checksums.append("a", Digest::SHA1.digest("a"))
-      checksums.append("b", Digest::SHA1.digest("b"))
+      checksums.append("a", Digest::SHA1.digest("a"), 1i64)
+      checksums.append("b", Digest::SHA1.digest("b"), 1i64)
       checksums.store
 
       lines = File.read(File.join(data_dir, "checksums.sha1")).lines
       lines.size.should eq checksums.size
-      lines.each(&.should(match(/^[0-9a-f]{40} \*/)))
+      lines.each(&.should(match(/^[0-9a-f]{40} \d+ \*/)))
       # No torn temp file left behind by the atomic rename.
       File.exists?(File.join(data_dir, "checksums.sha1.tmp")).should be_false
     end
@@ -51,14 +51,14 @@ describe LavinMQ::Clustering::Checksums do
   it "keeps persisting via append after a store rewrite" do
     with_datadir do |data_dir|
       checksums = LavinMQ::Clustering::Checksums.new(data_dir)
-      checksums.append("a", Digest::SHA1.digest("a"))
+      checksums.append("a", Digest::SHA1.digest("a"), 1i64)
       checksums.store # rewrites and adopts the new handle
-      checksums.append("b", Digest::SHA1.digest("b"))
+      checksums.append("b", Digest::SHA1.digest("b"), 1i64)
 
       restored = LavinMQ::Clustering::Checksums.new(data_dir)
       restored.restore
-      restored["a"]?.should eq Digest::SHA1.digest("a")
-      restored["b"]?.should eq Digest::SHA1.digest("b")
+      restored["a"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(Digest::SHA1.digest("a"), 1i64)
+      restored["b"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(Digest::SHA1.digest("b"), 1i64)
     end
   end
 
@@ -70,9 +70,7 @@ describe LavinMQ::Clustering::Checksums do
 
       restored = LavinMQ::Clustering::Checksums.new(data_dir)
       restored.restore
-      restored["q/msgs.0000000001"]?.should eq hash
-      restored.hash_for?("q/msgs.0000000001", 5i64).should eq hash
-      restored.hash_for?("q/msgs.0000000001", 4i64).should be_nil
+      restored["q/msgs.0000000001"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(hash, 5i64)
     end
   end
 
@@ -85,19 +83,18 @@ describe LavinMQ::Clustering::Checksums do
 
       restored = LavinMQ::Clustering::Checksums.new(data_dir)
       restored.restore
-      restored.hash_for?("q/msgs.0000000001", 5i64).should eq hash
+      restored["q/msgs.0000000001"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(hash, 5i64)
     end
   end
 
-  it "restores sizeless entries and never serves them for a sized lookup" do
+  it "restores old-format entries without a covered size" do
     with_datadir do |data_dir|
       hash = Digest::SHA1.digest("hello")
       File.write File.join(data_dir, "checksums.sha1"), "#{hash.hexstring} *q/msgs.0000000001\n"
 
       checksums = LavinMQ::Clustering::Checksums.new(data_dir)
       checksums.restore
-      checksums["q/msgs.0000000001"]?.should eq hash
-      checksums.hash_for?("q/msgs.0000000001", 5i64).should be_nil
+      checksums["q/msgs.0000000001"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(hash, nil)
     end
   end
 end

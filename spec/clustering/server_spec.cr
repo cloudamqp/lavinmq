@@ -120,6 +120,47 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       ensure
         FileUtils.rm_rf LavinMQ::Config.instance.data_dir
       end
+
+      # Regression: entries restored from an old-format checksums.sha1 have
+      # no size. The uncapped pass must treat them as misses and recompute,
+      # so the capped pass can reuse the healed entry instead of re-hashing
+      # every upgraded file under the lock.
+      it "heals restored sizeless entries in the uncapped pass" do
+        data_dir = LavinMQ::Config.instance.data_dir
+        Dir.mkdir_p(data_dir)
+        content = "hello world"
+        path = File.join(data_dir, "sizeless_heal_test")
+        File.write path, content
+        checksums_path = File.join(data_dir, "checksums.sha1")
+        stale_hash = Digest::SHA1.digest("stale")
+        File.write checksums_path, "#{stale_hash.hexstring} *sizeless_heal_test\n"
+
+        server = LavinMQ::Clustering::Server.new(
+          LavinMQ::Config.instance,
+          NullCoordinator.new,
+          0)
+        server.register_file(path)
+        tcp_server = TCPServer.new("localhost", 0)
+        spawn { server.listen(tcp_server) }
+        # restore (run by listen) truncates the file once it's loaded
+        wait_for { File.size(checksums_path) == 0 }
+
+        # The sizeless entry is a miss: recomputed, not served stale.
+        uncapped = [] of Bytes
+        server.files_with_hash { |_path, hash| uncapped << hash }
+        uncapped.should eq [Digest::SHA1.digest(content)]
+
+        # Deleted from disk: the capped pass can only reuse the healed entry.
+        File.delete path
+        caps = {"sizeless_heal_test" => content.bytesize.to_i64}
+        capped = [] of Bytes
+        server.files_with_hash(caps) { |_path, hash| capped << hash }
+        capped.should eq [Digest::SHA1.digest(content)]
+      ensure
+        server.try &.close
+        tcp_server.try &.close
+        FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+      end
     end
   end
 
