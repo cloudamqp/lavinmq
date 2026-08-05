@@ -108,6 +108,7 @@ module ClientReconnectSpec
         end
         File.read(path).should eq "AAAABBBBCCCC"
 
+        spawn { client.@follower_done.send(nil) }
         client.close
       end
     end
@@ -143,6 +144,7 @@ module ClientReconnectSpec
           File.exists?(path).should be_false
         end
 
+        spawn { client.@follower_done.send(nil) }
         client.close
       end
     end
