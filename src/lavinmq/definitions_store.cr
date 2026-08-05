@@ -527,6 +527,7 @@ module LavinMQ
       write_json_snapshot(@exchanges_file_path) do |json|
         json.array do
           @exchanges.each_value.select(&.durable?).each do |exchange|
+            json.indent = 0
             json.object do
               json.field "name", exchange.name
               json.field "type", exchange.type
@@ -534,6 +535,7 @@ module LavinMQ
               write_true(json, "internal", exchange.internal?)
               write_arguments(json, exchange.arguments)
             end
+            json.indent = 2
           end
         end
       end
@@ -544,12 +546,14 @@ module LavinMQ
         json.array do
           @queues.each_value.each do |queue|
             next unless persisted_queue?(queue)
+            json.indent = 0
             json.object do
               json.field "name", queue.name
               write_true(json, "exclusive", queue.exclusive?)
               write_true(json, "auto_delete", queue.auto_delete?)
               write_arguments(json, queue.arguments)
             end
+            json.indent = 2
           end
         end
       end
