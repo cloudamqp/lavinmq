@@ -18,6 +18,17 @@ module ClientSyncSpec
     getter syncs_started = 0
     getter? synced_on_closed_fd = false
 
+    # Instrumentation for the log-loop lifecycle spec: how many streamed-bytes
+    # logging fibers are currently running.
+    getter log_loops_running = 0
+
+    private def log_streamed_bytes_loop(done : Channel(Nil))
+      @log_loops_running += 1
+      super
+    ensure
+      @log_loops_running -= 1
+    end
+
     private def sync_data_dir : Nil
       @syncs_started += 1
       sleep @sync_delay unless @sync_delay.zero?
@@ -192,6 +203,28 @@ module ClientSyncSpec
           end
           acked.should eq framing
           File.exists?(File.join(data_dir, filename)).should be_false
+          client_socket.close
+        end
+      end
+
+      # Regression: the streamed-bytes logging fiber looped forever, so every
+      # reconnect (each of which spawns one) leaked another fiber logging the
+      # same counter.
+      it "stops the streamed bytes logging fiber when the stream ends" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+            # leader disconnected below to end the loop
+          end
+          wait_for { client.log_loops_running == 1 }
+
+          leader_io.close # disconnect, so stream_changes raises and returns
+          wait_for { client.log_loops_running.zero? }
           client_socket.close
         end
       end

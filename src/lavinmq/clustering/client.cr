@@ -341,7 +341,10 @@ module LavinMQ
       private def stream_changes(socket, lz4)
         acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
-        spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
+        # Stops the logging fiber when this stream ends, so a reconnect doesn't
+        # leave one behind per connection (they all report the same counter).
+        log_loop_done = Channel(Nil).new
+        spawn log_streamed_bytes_loop(log_loop_done), name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -370,6 +373,7 @@ module LavinMQ
         end
       ensure
         @acks.close
+        log_loop_done.try &.close
       end
 
       private def append(filename, len, lz4)
@@ -517,11 +521,18 @@ module LavinMQ
         {% end %}
       end
 
-      private def log_streamed_bytes_loop
+      # Logs the streamed byte count until #stream_changes closes the done
+      # channel (or the client is closed), so the fiber doesn't outlive the
+      # stream that spawned it.
+      private def log_streamed_bytes_loop(done : Channel(Nil))
         loop do
-          sleep 30.seconds
-          break if @closed
-          Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          select
+          when done.receive?
+            break
+          when timeout(30.seconds)
+            break if @closed
+            Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          end
         end
       end
 
