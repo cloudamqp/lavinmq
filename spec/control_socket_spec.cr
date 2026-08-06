@@ -153,7 +153,6 @@ describe "control socket" do
         LavinMQ::Config.instance = config
         with_datadir do |data_dir|
           config.data_dir = data_dir
-          client : LavinMQ::Clustering::Client? = nil
           begin
             client = LavinMQ::Clustering::Client.new(config, 1, "secret", proxy: false)
             File.exists?(socket_path).should be_false

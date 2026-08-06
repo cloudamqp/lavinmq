@@ -33,7 +33,6 @@ module LavinMQ
           sleep (ttl / 3).seconds
           ttl = @etcd.lease_keepalive(@id)
         end
-        error : Exception? = nil
       rescue ex : Etcd::Error # only rescue etcd errors
         unless @expired.closed?
           error = ex

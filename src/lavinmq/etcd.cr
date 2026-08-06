@@ -203,7 +203,6 @@ module LavinMQ
     end
 
     private def read_chunks(tcp, & : String -> _) : Nil
-      response_finished = false
       loop do
         bytesize = read_chunk_size(tcp)
         chunk = read_string(tcp, bytesize)
