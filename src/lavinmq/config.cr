@@ -453,7 +453,7 @@ module LavinMQ
       end
 
       def <=>(other : Option)
-        self.compare_value <=> other.compare_value
+        compare_value <=> other.compare_value
       end
 
       # Sort options alphabetically by short flag. Options without short flags

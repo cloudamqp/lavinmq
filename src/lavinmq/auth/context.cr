@@ -11,7 +11,7 @@ module LavinMQ
                          when IPSocket   then remote.remote_address
                          when UNIXSocket then remote.remote_address
                          end
-        self.new(username, password, remote_address)
+        new(username, password, remote_address)
       end
 
       def self.new(username : String, password : Bytes, address : ::Socket::Address?)

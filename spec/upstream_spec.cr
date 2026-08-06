@@ -13,7 +13,7 @@ module UpstreamSpecHelpers
 
   def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16, *,
                             reconnect_delay = 1.millisecond)
-    self.cleanup_vhosts(s)
+    cleanup_vhosts(s)
     upstream_vhost = s.vhosts.create("upstream")
     downstream_vhost = s.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(
