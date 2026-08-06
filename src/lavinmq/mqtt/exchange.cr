@@ -25,7 +25,7 @@ module LavinMQ
 
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
-        body = ::IO::Memory.new(packet.payload, writeable: false)
+        body = ::IO::Memory.new(packet.payload, writable: false)
 
         if packet.retain?
           @retain_store.retain(packet.topic, body, bodysize)

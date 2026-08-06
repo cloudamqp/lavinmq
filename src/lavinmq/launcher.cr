@@ -111,9 +111,7 @@ module LavinMQ
       {% unless flag?(:release) %}
         Log.warn { "Not built in release mode" }
       {% end %}
-      {% if flag?(:preview_mt) %}
-        Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
-      {% end %}
+      Log.info { "Parallelism: #{Fiber::ExecutionContext.default.capacity}" }
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
       Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
