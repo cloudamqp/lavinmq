@@ -630,7 +630,7 @@ describe LavinMQ::AMQP::Queue do
       Dir.mkdir_p data_dir
       begin
         store = LavinMQ::MessageStore.new(data_dir, nil)
-        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writable: false)
         msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
         sps.each { |sp| store.delete sp }
@@ -646,7 +646,7 @@ describe LavinMQ::AMQP::Queue do
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore2")
       Dir.mkdir_p data_dir
       begin
-        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writable: false)
         msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
         store = LavinMQ::MessageStore.new(data_dir, nil)

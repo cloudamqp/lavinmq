@@ -39,7 +39,11 @@ dependencies:
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
+    # 1.6.4 doesn't compile on Crystal 1.21. Pinned to a master commit rather
+    # than tracking the branch, so new rules don't appear unannounced.
+    # Revert to a version constraint once 1.7.0 is released.
+    commit: cdd58b34b0d8a9c785d67183a7a8f07541549e55
 
-crystal: 1.20.1
+crystal: 1.21.0
 
 license: Apache-2.0
