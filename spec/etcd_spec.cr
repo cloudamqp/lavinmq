@@ -80,11 +80,9 @@ describe LavinMQ::Etcd, tags: "etcd" do
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
-        begin
-          etcd.elect(key, "bar2", 1)
-        rescue SpecExit
-          # expect this when etcd nodes are terminated
-        end
+        etcd.elect(key, "bar2", 1)
+      rescue SpecExit
+        # expect this when etcd nodes are terminated
       end
       select
       when new = leader.receive

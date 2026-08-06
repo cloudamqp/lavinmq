@@ -58,11 +58,9 @@ module LavinMQ
         .map(&.strip)
         .reject(&.empty?)
         .map do |source|
-          begin
-            parse(source)
-          rescue ex : Socket::Error | ArgumentError
-            raise ArgumentError.new("Invalid IP/CIDR '#{source}': #{ex.message}")
-          end
+          parse(source)
+        rescue ex : Socket::Error | ArgumentError
+          raise ArgumentError.new("Invalid IP/CIDR '#{source}': #{ex.message}")
         end
     end
 

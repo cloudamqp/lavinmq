@@ -20,16 +20,14 @@ module LavinMQPerf
           @exclusive = false
         end
         @parser.on("--arguments=JSON", "Queue arguments as a JSON string") do |v|
-          begin
-            json = JSON.parse(v)
-            if args = json.as_h?
-              @args = ::AMQP::Client::Arguments.new(args)
-            else
-              abort "Error: --arguments must be a JSON object"
-            end
-          rescue JSON::ParseException
-            abort "Error: Invalid JSON in --arguments parameter"
+          json = JSON.parse(v)
+          if args = json.as_h?
+            @args = ::AMQP::Client::Arguments.new(args)
+          else
+            abort "Error: --arguments must be a JSON object"
           end
+        rescue JSON::ParseException
+          abort "Error: Invalid JSON in --arguments parameter"
         end
         @parser.on("-n", "--no-wait", "Don't wait for queue declaration confirm") do
           @no_wait = true

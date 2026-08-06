@@ -97,9 +97,8 @@ describe LavinMQ::Config do
   end
 
   it "Can parse all INI arguments" do
-    begin
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
           [main]
           data_dir = /tmp/lavinmq-test
           log_level = debug
@@ -181,93 +180,92 @@ describe LavinMQ::Config do
           on_leader_elected = echo "Leader elected"
           on_leader_lost = echo "Leader lost"
         CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path]
-      config.parse(argv)
-
-      # Main section
-      config.data_dir.should eq "/tmp/lavinmq-test"
-      config.log_level.should eq ::Log::Severity::Debug
-      config.log_file.should eq "/tmp/lavinmq-test.log"
-      config.stats_interval.should eq 10000
-      config.stats_log_size.should eq 240
-      config.set_timestamp?.should be_true
-      config.socket_buffer_size.should eq 32768
-      config.tcp_nodelay?.should be_true
-      config.segment_size.should eq 16777216
-      config.sync?.should be_false
-      config.tcp_keepalive.should eq({120, 20, 5})
-      config.tcp_recv_buffer_size.should eq 65536
-      config.tcp_send_buffer_size.should eq 65536
-      config.log_exchange?.should be_true
-      config.free_disk_min.should eq 1073741824
-      config.free_disk_warn.should eq 5368709120
-      config.max_deleted_definitions.should eq 16384
-      config.consumer_timeout.should eq 3600
-      config.consumer_timeout_loop_interval.should eq 120
-      config.auth_backends.should eq ["ldap", "basic"]
-      config.default_consumer_prefetch.should eq 1000
-      config.default_user.should eq "admin"
-      config.default_user_only_loopback?.should be_false
-      config.data_dir_lock?.should be_false
-      config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
-      config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
-      config.tls_key_path.should eq "/etc/lavinmq/key.pem"
-      config.tls_min_version.should eq "1.3"
-      config.tls_keylog_file.should eq "/tmp/keylog.txt"
-      config.metrics_http_bind.should eq "0.0.0.0"
-      config.metrics_http_port.should eq 9090
-      config.control_unix_path.should eq "/tmp/lavinmqctl-ini.sock"
-
-      # AMQP section
-      config.amqp_bind.should eq "0.0.0.0"
-      config.amqp_port.should eq 5673
-      config.amqps_port.should eq 5674
-      config.unix_path.should eq "/tmp/lavinmq.sock"
-      config.tcp_proxy_protocol?.should be_true
-      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
-      config.heartbeat.should eq 600
-      config.frame_max.should eq 262144
-      config.channel_max.should eq 4096
-      config.max_message_size.should eq 268435456
-      config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
-
-      # MQTT section
-      config.mqtt_bind.should eq "0.0.0.0"
-      config.mqtt_port.should eq 1884
-      config.mqtts_port.should eq 8884
-      config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
-      config.mqtt_permission_check_enabled?.should be_true
-      config.mqtt_max_packet_size.should eq 536870910
-      config.max_inflight_messages.should eq 100
-      config.default_mqtt_vhost.should eq "/mqtt"
-      config.mqtt_client_id_validation.should eq LavinMQ::MQTT::ClientIdValidation::Username
-
-      # MGMT section
-      config.http_bind.should eq "0.0.0.0"
-      config.http_port.should eq 15673
-      config.https_port.should eq 15674
-      config.http_unix_path.should eq "/tmp/mgmt.sock"
-      config.http_systemd_socket_name.should eq "custom-http.socket"
-
-      # Experimental section
-      config.yield_each_received_bytes.should eq 262144
-      config.yield_each_delivered_bytes.should eq 2097152
-
-      # Clustering section
-      config.clustering?.should be_true
-      config.clustering_bind.should eq "0.0.0.0"
-      config.clustering_port.should eq 5680
-      config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
-      config.clustering_etcd_prefix.should eq "test-lavinmq"
-      config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
-      config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
-      config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
-    ensure
-      # Reset log level to default for other specs
-      Log.setup(:fatal)
     end
+    config = LavinMQ::Config.new
+    argv = ["-c", config_file.path]
+    config.parse(argv)
+
+    # Main section
+    config.data_dir.should eq "/tmp/lavinmq-test"
+    config.log_level.should eq ::Log::Severity::Debug
+    config.log_file.should eq "/tmp/lavinmq-test.log"
+    config.stats_interval.should eq 10000
+    config.stats_log_size.should eq 240
+    config.set_timestamp?.should be_true
+    config.socket_buffer_size.should eq 32768
+    config.tcp_nodelay?.should be_true
+    config.segment_size.should eq 16777216
+    config.sync?.should be_false
+    config.tcp_keepalive.should eq({120, 20, 5})
+    config.tcp_recv_buffer_size.should eq 65536
+    config.tcp_send_buffer_size.should eq 65536
+    config.log_exchange?.should be_true
+    config.free_disk_min.should eq 1073741824
+    config.free_disk_warn.should eq 5368709120
+    config.max_deleted_definitions.should eq 16384
+    config.consumer_timeout.should eq 3600
+    config.consumer_timeout_loop_interval.should eq 120
+    config.auth_backends.should eq ["ldap", "basic"]
+    config.default_consumer_prefetch.should eq 1000
+    config.default_user.should eq "admin"
+    config.default_user_only_loopback?.should be_false
+    config.data_dir_lock?.should be_false
+    config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
+    config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_key_path.should eq "/etc/lavinmq/key.pem"
+    config.tls_min_version.should eq "1.3"
+    config.tls_keylog_file.should eq "/tmp/keylog.txt"
+    config.metrics_http_bind.should eq "0.0.0.0"
+    config.metrics_http_port.should eq 9090
+    config.control_unix_path.should eq "/tmp/lavinmqctl-ini.sock"
+
+    # AMQP section
+    config.amqp_bind.should eq "0.0.0.0"
+    config.amqp_port.should eq 5673
+    config.amqps_port.should eq 5674
+    config.unix_path.should eq "/tmp/lavinmq.sock"
+    config.tcp_proxy_protocol?.should be_true
+    config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
+    config.heartbeat.should eq 600
+    config.frame_max.should eq 262144
+    config.channel_max.should eq 4096
+    config.max_message_size.should eq 268435456
+    config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
+
+    # MQTT section
+    config.mqtt_bind.should eq "0.0.0.0"
+    config.mqtt_port.should eq 1884
+    config.mqtts_port.should eq 8884
+    config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
+    config.mqtt_permission_check_enabled?.should be_true
+    config.mqtt_max_packet_size.should eq 536870910
+    config.max_inflight_messages.should eq 100
+    config.default_mqtt_vhost.should eq "/mqtt"
+    config.mqtt_client_id_validation.should eq LavinMQ::MQTT::ClientIdValidation::Username
+
+    # MGMT section
+    config.http_bind.should eq "0.0.0.0"
+    config.http_port.should eq 15673
+    config.https_port.should eq 15674
+    config.http_unix_path.should eq "/tmp/mgmt.sock"
+    config.http_systemd_socket_name.should eq "custom-http.socket"
+
+    # Experimental section
+    config.yield_each_received_bytes.should eq 262144
+    config.yield_each_delivered_bytes.should eq 2097152
+
+    # Clustering section
+    config.clustering?.should be_true
+    config.clustering_bind.should eq "0.0.0.0"
+    config.clustering_port.should eq 5680
+    config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
+    config.clustering_etcd_prefix.should eq "test-lavinmq"
+    config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
+    config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
+    config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
+  ensure
+    # Reset log level to default for other specs
+    Log.setup(:fatal)
   end
 
   it "can parse all CLI argumetns" do
@@ -362,88 +360,84 @@ describe LavinMQ::Config do
   end
 
   it "can parse all ENV arguments" do
-    begin
-      ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = "/etc/custom"
-      ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
-      ENV["LAVINMQ_AMQP_PORT"] = "5674"
-      ENV["LAVINMQ_AMQP_BIND"] = "10.1.1.1"
-      ENV["LAVINMQ_AMQPS_PORT"] = "5676"
-      ENV["LAVINMQ_HTTP_BIND"] = "10.2.2.2"
-      ENV["LAVINMQ_HTTP_PORT"] = "15674"
-      ENV["LAVINMQ_HTTPS_PORT"] = "15676"
-      ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
-      ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
-      ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
-      ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
-      ENV["LAVINMQ_DEFAULT_CONSUMER_PREFETCH"] = "2000"
-      ENV["LAVINMQ_DEFAULT_USER"] = "envuser"
-      ENV["LAVINMQ_CLUSTERING"] = "true"
-      ENV["LAVINMQ_CLUSTERING_ADVERTISED_URI"] = "lavinmq://env:5679"
-      ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
-      ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
-      ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
-      ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
-      ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
-      ENV["LAVINMQ_SYNC"] = "false"
-      ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
+    ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = "/etc/custom"
+    ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
+    ENV["LAVINMQ_AMQP_PORT"] = "5674"
+    ENV["LAVINMQ_AMQP_BIND"] = "10.1.1.1"
+    ENV["LAVINMQ_AMQPS_PORT"] = "5676"
+    ENV["LAVINMQ_HTTP_BIND"] = "10.2.2.2"
+    ENV["LAVINMQ_HTTP_PORT"] = "15674"
+    ENV["LAVINMQ_HTTPS_PORT"] = "15676"
+    ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
+    ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
+    ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
+    ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
+    ENV["LAVINMQ_DEFAULT_CONSUMER_PREFETCH"] = "2000"
+    ENV["LAVINMQ_DEFAULT_USER"] = "envuser"
+    ENV["LAVINMQ_CLUSTERING"] = "true"
+    ENV["LAVINMQ_CLUSTERING_ADVERTISED_URI"] = "lavinmq://env:5679"
+    ENV["LAVINMQ_CLUSTERING_BIND"] = "10.3.3.3"
+    ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
+    ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
+    ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
+    ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
+    ENV["LAVINMQ_SYNC"] = "false"
+    ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
 
-      config.data_dir.should eq "/tmp/lavinmq-env"
-      config.amqp_port.should eq 5674
-      config.amqp_bind.should eq "10.1.1.1"
-      config.amqps_port.should eq 5676
-      config.http_bind.should eq "10.2.2.2"
-      config.http_port.should eq 15674
-      config.https_port.should eq 15676
-      config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
-      config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
-      config.tls_key_path.should eq "/etc/certs/env-key.pem"
-      config.tls_min_version.should eq "1.2"
-      config.default_consumer_prefetch.should eq 2000
-      config.default_user.should eq "envuser"
-      config.clustering?.should be_true
-      config.clustering_advertised_uri.should eq "lavinmq://env:5679"
-      config.clustering_bind.should eq "10.3.3.3"
-      config.clustering_etcd_endpoints.should eq "env-etcd:2379"
-      config.clustering_etcd_prefix.should eq "env-prefix"
-      config.clustering_port.should eq 5681
-      config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
-    ensure
-      ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
-      ENV.delete("LAVINMQ_DATADIR")
-      ENV.delete("LAVINMQ_AMQP_PORT")
-      ENV.delete("LAVINMQ_AMQP_BIND")
-      ENV.delete("LAVINMQ_AMQPS_PORT")
-      ENV.delete("LAVINMQ_HTTP_BIND")
-      ENV.delete("LAVINMQ_HTTP_PORT")
-      ENV.delete("LAVINMQ_HTTPS_PORT")
-      ENV.delete("LAVINMQ_TLS_CERT_PATH")
-      ENV.delete("LAVINMQ_TLS_CIPHERS")
-      ENV.delete("LAVINMQ_TLS_KEY_PATH")
-      ENV.delete("LAVINMQ_TLS_MIN_VERSION")
-      ENV.delete("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")
-      ENV.delete("LAVINMQ_DEFAULT_USER")
-      ENV.delete("LAVINMQ_CLUSTERING")
-      ENV.delete("LAVINMQ_CLUSTERING_ADVERTISED_URI")
-      ENV.delete("LAVINMQ_CLUSTERING_BIND")
-      ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
-      ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
-      ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
-      ENV.delete("LAVINMQ_CLUSTERING_PORT")
-      ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
-    end
+    config.data_dir.should eq "/tmp/lavinmq-env"
+    config.amqp_port.should eq 5674
+    config.amqp_bind.should eq "10.1.1.1"
+    config.amqps_port.should eq 5676
+    config.http_bind.should eq "10.2.2.2"
+    config.http_port.should eq 15674
+    config.https_port.should eq 15676
+    config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
+    config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
+    config.tls_key_path.should eq "/etc/certs/env-key.pem"
+    config.tls_min_version.should eq "1.2"
+    config.default_consumer_prefetch.should eq 2000
+    config.default_user.should eq "envuser"
+    config.clustering?.should be_true
+    config.clustering_advertised_uri.should eq "lavinmq://env:5679"
+    config.clustering_bind.should eq "10.3.3.3"
+    config.clustering_etcd_endpoints.should eq "env-etcd:2379"
+    config.clustering_etcd_prefix.should eq "env-prefix"
+    config.clustering_port.should eq 5681
+    config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
+  ensure
+    ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+    ENV.delete("LAVINMQ_DATADIR")
+    ENV.delete("LAVINMQ_AMQP_PORT")
+    ENV.delete("LAVINMQ_AMQP_BIND")
+    ENV.delete("LAVINMQ_AMQPS_PORT")
+    ENV.delete("LAVINMQ_HTTP_BIND")
+    ENV.delete("LAVINMQ_HTTP_PORT")
+    ENV.delete("LAVINMQ_HTTPS_PORT")
+    ENV.delete("LAVINMQ_TLS_CERT_PATH")
+    ENV.delete("LAVINMQ_TLS_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_KEY_PATH")
+    ENV.delete("LAVINMQ_TLS_MIN_VERSION")
+    ENV.delete("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")
+    ENV.delete("LAVINMQ_DEFAULT_USER")
+    ENV.delete("LAVINMQ_CLUSTERING")
+    ENV.delete("LAVINMQ_CLUSTERING_ADVERTISED_URI")
+    ENV.delete("LAVINMQ_CLUSTERING_BIND")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
+    ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
+    ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
+    ENV.delete("LAVINMQ_CLUSTERING_PORT")
+    ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
   end
 
   it "uses systemd STATE_DIRECTORY as default for data_dir" do
-    begin
-      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
-      config.data_dir.should eq "/var/lib/custom-state"
-    ensure
-      ENV.delete("STATE_DIRECTORY")
-    end
+    ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
+    config.data_dir.should eq "/var/lib/custom-state"
+  ensure
+    ENV.delete("STATE_DIRECTORY")
   end
 
   it "STATE_DIRECTORY takes precedence over INI data_dir" do
@@ -464,16 +458,14 @@ describe LavinMQ::Config do
   end
 
   it "LAVINMQ_DATADIR takes precedence over STATE_DIRECTORY" do
-    begin
-      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
-      ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
-      config = LavinMQ::Config.new
-      config.parse([] of String)
-      config.data_dir.should eq "/var/lib/lavinmq-explicit"
-    ensure
-      ENV.delete("STATE_DIRECTORY")
-      ENV.delete("LAVINMQ_DATADIR")
-    end
+    ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+    ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
+    config = LavinMQ::Config.new
+    config.parse([] of String)
+    config.data_dir.should eq "/var/lib/lavinmq-explicit"
+  ensure
+    ENV.delete("STATE_DIRECTORY")
+    ENV.delete("LAVINMQ_DATADIR")
   end
 
   it "uses systemd CONFIGURATION_DIRECTORY for config file lookup" do
