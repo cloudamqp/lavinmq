@@ -53,6 +53,3 @@ Lint/WhitespaceAroundMacroExpression: # 46 problems
 
 Lint/SpecEqWithBoolOrNilLiteral: # 34 problems
   Enabled: false
-
-Style/HeredocIndent: # 33 problems
-  Enabled: false

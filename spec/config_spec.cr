@@ -21,7 +21,7 @@ describe LavinMQ::Config do
         data_dir = /tmp/lavinmq-spec
         [mgmt]
         [amqp]
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -41,7 +41,7 @@ describe LavinMQ::Config do
         [main]
         log_level = fatal
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
     config = LavinMQ::Config.new
@@ -57,7 +57,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     ENV["LAVINMQ_DATADIR"] = "/tmp/lavinmq-env"
     config = LavinMQ::Config.new
@@ -74,7 +74,7 @@ describe LavinMQ::Config do
       File.write(config_file.path, <<-CONFIG
         [main]
         log_level = info
-      CONFIG
+        CONFIG
       )
       config = LavinMQ::Config.new
       argv = ["-c", config_file.path]
@@ -85,7 +85,7 @@ describe LavinMQ::Config do
       File.write(config_file.path, <<-CONFIG
         [main]
         log_level = debug
-      CONFIG
+        CONFIG
       )
       config.reload
       config.log_level.should eq ::Log::Severity::Debug
@@ -445,7 +445,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         data_dir = /tmp/lavinmq-ini
-      CONFIG
+        CONFIG
     end
     begin
       ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
@@ -512,7 +512,7 @@ describe LavinMQ::Config do
         data_dir = /tmp/lavinmq-spec
         [http]
         port = 15699
-      CONFIG
+        CONFIG
     end
     io = IO::Memory.new
     config = LavinMQ::Config.new(io)
@@ -548,7 +548,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [invalid_section]
         some_option = value
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -560,7 +560,7 @@ describe LavinMQ::Config do
       file.print <<-CONFIG
         [main]
         invalid_option = value
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new(IO::Memory.new)
     argv = ["-c", config_file.path]
@@ -581,7 +581,7 @@ describe LavinMQ::Config do
         log_level = fatal
         data_dir = /tmp/lavinmq-spec
         pidfile = /tmp/lavinmq.pid
-      CONFIG
+        CONFIG
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
@@ -604,7 +604,7 @@ describe LavinMQ::Config do
         file.print <<-CONFIG
           [main]
           stats_interval = 500
-        CONFIG
+          CONFIG
       end
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
@@ -617,7 +617,7 @@ describe LavinMQ::Config do
           file.print <<-CONFIG
             [main]
             stats_interval = #{ms}
-          CONFIG
+            CONFIG
         end
         config = LavinMQ::Config.new
         expect_raises(LavinMQ::Config::Error, /stats_interval/) do
@@ -702,20 +702,20 @@ describe LavinMQ::Config do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin
         File.write(config_file.path, <<-INI)
-        [sni:foobar.localhost]
-        tls_cert = spec/resources/foobar_localhost_certificate.pem
-        tls_key = spec/resources/foobar_localhost_key.pem
-        INI
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          INI
         config = LavinMQ::Config.new
         config.parse(["-c", config_file.path])
         config.sni_manager.get_host("foobar.localhost").should_not be_nil
         config.sni_manager.get_host("test.example.com").should be_nil
 
         File.write(config_file.path, <<-INI)
-        [sni:*.example.com]
-        tls_cert = spec/resources/wildcard_example_certificate.pem
-        tls_key = spec/resources/wildcard_example_key.pem
-        INI
+          [sni:*.example.com]
+          tls_cert = spec/resources/wildcard_example_certificate.pem
+          tls_key = spec/resources/wildcard_example_key.pem
+          INI
         config.reload
 
         # reload swaps in a fresh SNIManager: the new host resolves, the old one is gone.
@@ -824,44 +824,6 @@ describe LavinMQ::Launcher do
   describe "config reload" do
     it "serves the configured SNI certificate, and a rotated one after reload" do
       with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-
-      [sni:foobar.localhost]
-      tls_cert = spec/resources/foobar_localhost_certificate.pem
-      tls_key = spec/resources/foobar_localhost_key.pem
-      INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
-        served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
-
-        # Rotate the SNI host's certificate and reload.
-        File.write(config_file.path, <<-INI)
-        [main]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-
-        [sni:foobar.localhost]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-        INI
-        launcher.reload!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "anders"
-      end
-    end
-
-    it "serves a per-host certificate for an SNI host added on reload" do
-      with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
-        amqp_ctx = launcher.@amqp_tls_context.not_nil!
-        served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
-
-        # Add an SNI host and reload, as a SIGHUP would.
-        File.write(config_file.path, <<-INI)
         [main]
         tls_cert = spec/resources/server_certificate.pem
         tls_key = spec/resources/server_key.pem
@@ -870,6 +832,44 @@ describe LavinMQ::Launcher do
         tls_cert = spec/resources/foobar_localhost_certificate.pem
         tls_key = spec/resources/foobar_localhost_key.pem
         INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+        served_cn(amqp_ctx, "other.example.com").should eq "anders" # default cert
+
+        # Rotate the SNI host's certificate and reload.
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          INI
+        launcher.reload!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders"
+      end
+    end
+
+    it "serves a per-host certificate for an SNI host added on reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        served_cn(amqp_ctx, "foobar.localhost").should eq "anders" # default cert, no SNI host yet
+
+        # Add an SNI host and reload, as a SIGHUP would.
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          INI
         launcher.reload!
         served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
       end
@@ -879,10 +879,10 @@ describe LavinMQ::Launcher do
       with_launcher("[main]\nstats_interval = 5000\n") do |launcher, _config, config_file|
         launcher.@amqp_tls_context.should be_nil
         File.write(config_file.path, <<-INI)
-        [main]
-        tls_cert = spec/resources/server_certificate.pem
-        tls_key = spec/resources/server_key.pem
-        INI
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          INI
         Log.capture("lmq.launcher", :warn) do |logs|
           launcher.reload!
           logs.check(:warn, /Enabling TLS requires a restart/)
@@ -893,10 +893,10 @@ describe LavinMQ::Launcher do
 
     it "warns that disabling TLS requires a restart" do
       with_launcher(<<-INI) do |launcher, _config, config_file|
-      [main]
-      tls_cert = spec/resources/server_certificate.pem
-      tls_key = spec/resources/server_key.pem
-      INI
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        INI
         launcher.@amqp_tls_context.should_not be_nil
         File.write(config_file.path, "[main]\ntls_cert =\n")
         Log.capture("lmq.launcher", :warn) do |logs|
