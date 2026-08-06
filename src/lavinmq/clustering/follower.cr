@@ -266,7 +266,7 @@ module LavinMQ
       # When `caps` is set, a file missing from it is capped at 0 (sent empty,
       # then filled via the change stream); otherwise the file is uncapped.
       private def cap_for(caps : Hash(String, Int64)?, path : String) : Int64?
-        return nil unless caps
+        return unless caps
         caps[path]? || 0i64
       end
 
