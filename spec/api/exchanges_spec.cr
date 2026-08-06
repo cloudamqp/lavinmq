@@ -44,15 +44,17 @@ describe LavinMQ::HTTP::ExchangesController do
   describe "PUT /api/exchanges/vhost/name" do
     it "should create exchange" do
       with_http_server do |http, _|
-        body = %({
-        "type": "topic",
-        "durable": false,
-        "internal": false,
-        "auto_delete": true,
-        "arguments": {
-          "alternate-exchange": "spexchange"
-        }
-      })
+        body = <<-JSON
+          {
+            "type": "topic",
+            "durable": false,
+            "internal": false,
+            "auto_delete": true,
+            "arguments": {
+              "alternate-exchange": "spexchange"
+            }
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/spechange", body: body)
         response.status_code.should eq 201
         response = http.get("/api/exchanges/%2f/spechange")
@@ -108,22 +110,26 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should require durable to be the same when overwriting" do
       with_http_server do |http, _|
-        body = %({
-        "type": "topic",
-        "durable": true,
-        "arguments": {
-          "alternate-exchange": "tjotjo"
-        }
-      })
+        body = <<-JSON
+          {
+            "type": "topic",
+            "durable": true,
+            "arguments": {
+              "alternate-exchange": "tjotjo"
+            }
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/spechange", body: body)
         response.status_code.should eq 201
-        body = %({
-        "type": "topic",
-        "durable": false,
-        "arguments": {
-          "alternate-exchange": "tjotjo"
-        }
-      })
+        body = <<-JSON
+          {
+            "type": "topic",
+            "durable": false,
+            "arguments": {
+              "alternate-exchange": "tjotjo"
+            }
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/spechange", body: body)
         response.status_code.should eq 400
       end
@@ -131,9 +137,11 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should not be possible to declare amq. prefixed exchanges" do
       with_http_server do |http, _|
-        body = %({
-        "type": "topic"
-      })
+        body = <<-JSON
+          {
+            "type": "topic"
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/amq.test", body: body)
         response.status_code.should eq 400
       end
@@ -141,16 +149,18 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should redeclare identical delayed_message_exchange" do
       with_http_server do |http, _|
-        body = %({
-        "type": "x-delayed-message",
-        "durable": true,
-        "internal": false,
-        "auto_delete": false,
-        "arguments": {
-          "x-delayed-type": "fanout",
-          "test": "hello"
-        }
-      })
+        body = <<-JSON
+          {
+            "type": "x-delayed-message",
+            "durable": true,
+            "internal": false,
+            "auto_delete": false,
+            "arguments": {
+              "x-delayed-type": "fanout",
+              "test": "hello"
+            }
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/spechange", body: body)
         response.status_code.should eq 201
         response = http.put("/api/exchanges/%2f/spechange", body: body)
@@ -160,9 +170,11 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should require config access to declare" do
       with_http_server do |http, _|
-        body = %({
-        "type": "topic"
-      })
+        body = <<-JSON
+          {
+            "type": "topic"
+          }
+          JSON
         hdrs = HTTP::Headers{"Authorization" => "Basic dGVzdF9wZXJtOnB3"}
         response = http.put("/api/exchanges/%2f/test_perm", headers: hdrs, body: body)
         response.status_code.should eq 401
@@ -249,12 +261,14 @@ describe LavinMQ::HTTP::ExchangesController do
         s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
         s.vhosts["/"].declare_queue("q1p", false, false)
         s.vhosts["/"].bind_queue("q1p", "spechange", "*")
-        body = %({
-        "properties": {},
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         response = http.post("/api/exchanges/%2f/spechange/publish", body: body)
         response.status_code.should eq 200
         body = JSON.parse(response.body)
@@ -265,12 +279,14 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should require expiration to be a number" do
       with_http_server do |http, _|
-        body = %({
-        "properties": { "expiration": "foo" },
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": { "expiration": "foo" },
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         response = http.post("/api/exchanges/%2f/amq.direct/publish", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -280,12 +296,14 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should require expiration to be a non-negative number" do
       with_http_server do |http, _|
-        body = %({
-        "properties": { "expiration": -100 },
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": { "expiration": -100 },
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         response = http.post("/api/exchanges/%2f/amq.direct/publish", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -305,12 +323,14 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should handle string encoding" do
       with_http_server do |http, s|
-        body = %({
-        "properties": {},
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         with_channel(s) do |ch|
           q = ch.queue("q2", durable: false)
           x = ch.exchange("str_enc", "topic", passive: false)
@@ -328,12 +348,14 @@ describe LavinMQ::HTTP::ExchangesController do
     it "should handle base64 encoding" do
       with_http_server do |http, s|
         payload = Base64.urlsafe_encode("test")
-        body = %({
-        "properties": {},
-        "routing_key": "rk",
-        "payload": "#{payload}",
-        "payload_encoding": "base64"
-      })
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "rk",
+            "payload": "#{payload}",
+            "payload_encoding": "base64"
+          }
+          JSON
         with_channel(s) do |ch|
           q = ch.queue("q2", durable: false)
           x = ch.exchange("str_enc", "topic", passive: false)
@@ -354,12 +376,14 @@ describe LavinMQ::HTTP::ExchangesController do
         s.vhosts["/"].declare_exchange("of_ex", "topic", false, false)
         s.vhosts["/"].declare_queue("of_q", false, false, args)
         s.vhosts["/"].bind_queue("of_q", "of_ex", "rk")
-        body = %({
-        "properties": {},
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         response = http.post("/api/exchanges/%2f/of_ex/publish", body: body)
         response.status_code.should eq 200
         JSON.parse(response.body)["routed"].as_bool.should be_true
@@ -378,12 +402,14 @@ describe LavinMQ::HTTP::ExchangesController do
         s.vhosts["/"].declare_queue("mof_open", false, false)
         s.vhosts["/"].bind_queue("mof_full", "mof_ex", "rk")
         s.vhosts["/"].bind_queue("mof_open", "mof_ex", "rk")
-        body = %({
-        "properties": {},
-        "routing_key": "rk",
-        "payload": "test",
-        "payload_encoding": "string"
-      })
+        body = <<-JSON
+          {
+            "properties": {},
+            "routing_key": "rk",
+            "payload": "test",
+            "payload_encoding": "string"
+          }
+          JSON
         response = http.post("/api/exchanges/%2f/mof_ex/publish", body: body)
         response.status_code.should eq 200
         JSON.parse(response.body)["routed"].as_bool.should be_true
@@ -399,13 +425,15 @@ describe LavinMQ::HTTP::ExchangesController do
   describe "GET /api/exchanges/vhost/name with x-hash-on argument" do
     it "should include x-hash-on in effective_arguments for consistent hash exchange" do
       with_http_server do |http, _|
-        body = %({
-        "type": "x-consistent-hash",
-        "durable": false,
-        "arguments": {
-          "x-hash-on": "cluster"
-        }
-      })
+        body = <<-JSON
+          {
+            "type": "x-consistent-hash",
+            "durable": false,
+            "arguments": {
+              "x-hash-on": "cluster"
+            }
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/test-hash", body: body)
         response.status_code.should eq 201
         response = http.get("/api/exchanges/%2f/test-hash")
@@ -417,10 +445,12 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should not include x-hash-on in effective_arguments when not set" do
       with_http_server do |http, _|
-        body = %({
-        "type": "x-consistent-hash",
-        "durable": false
-      })
+        body = <<-JSON
+          {
+            "type": "x-consistent-hash",
+            "durable": false
+          }
+          JSON
         response = http.put("/api/exchanges/%2f/test-hash-2", body: body)
         response.status_code.should eq 201
         response = http.get("/api/exchanges/%2f/test-hash-2")

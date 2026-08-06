@@ -38,9 +38,11 @@ describe LavinMQ::HTTP::UsersController do
       with_http_server do |http, s|
         s.users.create("alan1", "alan")
         s.users.create("alan2", "alan")
-        body = %({
-        "users": ["alan1", "alan2"]
-      })
+        body = <<-JSON
+          {
+            "users": ["alan1", "alan2"]
+          }
+          JSON
         response = http.post("/api/users/bulk-delete", body: body)
         response.status_code.should eq 204
       end
@@ -83,9 +85,11 @@ describe LavinMQ::HTTP::UsersController do
   describe "PUT /api/users/name" do
     it "should create user with password" do
       with_http_server do |http, s|
-        body = %({
-        "password": "test"
-      })
+        body = <<-JSON
+          {
+            "password": "test"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         u = s.users["alan"]
@@ -96,9 +100,11 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should create user with password_hash" do
       with_http_server do |http, s|
-        body = %({
-        "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
-      })
+        body = <<-JSON
+          {
+            "password_hash": "kI3GCqW5JLMJa4iX1lo7X4D6XbYqlLgxIs30+P6tENUV2POR"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         u = s.users["alan"]
@@ -138,9 +144,11 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should create user with empty password_hash" do
       with_http_server do |http, _|
-        body = %({
-        "password_hash": ""
-      })
+        body = <<-JSON
+          {
+            "password_hash": ""
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         hrds = HTTP::Headers{"Authorization" => "Basic YWxhbjo="} # alan:
@@ -163,10 +171,12 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should create user with uniq tags" do
       with_http_server do |http, s|
-        body = %({
-        "password": "test",
-        "tags": "management,management"
-      })
+        body = <<-JSON
+          {
+            "password": "test",
+            "tags": "management,management"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 201
         s.users["alan"].tags.size.should eq 1
@@ -177,10 +187,12 @@ describe LavinMQ::HTTP::UsersController do
     it "should update user" do
       with_http_server do |http, s|
         s.users.create("alan", "pw")
-        body = %({
-        "password": "test",
-        "tags": "management"
-      })
+        body = <<-JSON
+          {
+            "password": "test",
+            "tags": "management"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 204
         s.users["alan"].tags.should eq([LavinMQ::Tag::Management])
@@ -190,10 +202,12 @@ describe LavinMQ::HTTP::UsersController do
     it "should update user with uniq tags" do
       with_http_server do |http, s|
         s.users.create("alan", "pw")
-        body = %({
-        "password": "test",
-        "tags": "management,management"
-      })
+        body = <<-JSON
+          {
+            "password": "test",
+            "tags": "management,management"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 204
         s.users["alan"].tags.size.should eq 1
@@ -229,9 +243,11 @@ describe LavinMQ::HTTP::UsersController do
     it "should not create user if disk is full" do
       with_http_server do |http, s|
         s.flow(false)
-        body = %({
-        "password": "test"
-      })
+        body = <<-JSON
+          {
+            "password": "test"
+          }
+          JSON
         response = http.put("/api/users/alan", body: body)
         response.status_code.should eq 412
         body = JSON.parse(response.body)
@@ -258,9 +274,11 @@ describe LavinMQ::HTTP::UsersController do
   describe "PUT /api/auth/hash_password" do
     it "should return hashed password" do
       with_http_server do |http, _s|
-        body = %({
-        "password": "a_pasword_to_hash"
-      })
+        body = <<-JSON
+          {
+            "password": "a_pasword_to_hash"
+          }
+          JSON
         response = http.put("/api/auth/hash_password", body: body)
         response.status_code.should eq 200
         JSON.parse(response.body)["password_hash"].as_s.size.should eq 48

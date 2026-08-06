@@ -445,12 +445,15 @@ describe LavinMQ::Shovel do
           _q2 = ch.queue("rc_q2")
           q1.publish_confirm "shovel me 1", props: AMQ::Protocol::Properties.new(delivery_mode: 2_u8)
         end
-        config = %({
-        "src-uri": "#{s.amqp_server.url}",
-        "src-queue": "rc_q1",
-        "dest-uri": "#{s.amqp_server.url}",
-        "dest-queue": "rc_q2",
-        "src-prefetch-count": 2})
+        config = <<-JSON
+          {
+            "src-uri": "#{s.amqp_server.url}",
+            "src-queue": "rc_q1",
+            "dest-uri": "#{s.amqp_server.url}",
+            "dest-queue": "rc_q2",
+            "src-prefetch-count": 2
+          }
+          JSON
         p = LavinMQ::Parameter.new("shovel", "rc_shovel", JSON.parse(config))
         s.vhosts["/"].add_parameter(p)
         restart_server(s)
@@ -760,13 +763,16 @@ describe LavinMQ::Shovel do
             q1.publish "msg #{i}", "#{queue_name}q1"
           end
 
-          config = %({
-            "src-uri": "#{s.amqp_server.url}",
-            "src-queue": "#{queue_name}q1",
-            "dest-uri": "#{s.amqp_server.url}",
-            "dest-queue": "#{queue_name}q2",
-            "src-delete-after": "queue-length",
-            "src-prefetch-count": 2})
+          config = <<-JSON
+            {
+              "src-uri": "#{s.amqp_server.url}",
+              "src-queue": "#{queue_name}q1",
+              "dest-uri": "#{s.amqp_server.url}",
+              "dest-queue": "#{queue_name}q2",
+              "src-delete-after": "queue-length",
+              "src-prefetch-count": 2
+            }
+            JSON
           p = LavinMQ::Parameter.new("shovel", queue_name, JSON.parse(config))
           vhost.add_parameter(p)
           wait_for { vhost.shovels.size > 0 }
@@ -789,11 +795,14 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         vhost = s.vhosts.create("pause:resume:vhost")
         shovel_name = "shovel:pause:resume"
-        config = %({
-        "src-uri": "#{s.amqp_server.url}",
-        "src-queue": "#{shovel_name}_q1",
-        "dest-uri": "#{s.amqp_server.url}",
-        "dest-queue": "#{shovel_name}_q2" })
+        config = <<-JSON
+          {
+            "src-uri": "#{s.amqp_server.url}",
+            "src-queue": "#{shovel_name}_q1",
+            "dest-uri": "#{s.amqp_server.url}",
+            "dest-queue": "#{shovel_name}_q2"
+          }
+          JSON
         p = LavinMQ::Parameter.new("shovel", shovel_name, JSON.parse(config))
         s.vhosts[vhost.name].add_parameter(p)
         shovel = s.vhosts[vhost.name].shovels[shovel_name]

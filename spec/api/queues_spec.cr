@@ -322,14 +322,18 @@ describe LavinMQ::HTTP::QueuesController do
 
     it "should require durable to be the same when overwriting" do
       with_http_server do |http, _|
-        body = %({
-        "durable": true
-      })
+        body = <<-JSON
+          {
+            "durable": true
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 201
-        body = %({
-        "durable": false
-      })
+        body = <<-JSON
+          {
+            "durable": false
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 400
       end
@@ -347,9 +351,11 @@ describe LavinMQ::HTTP::QueuesController do
         # supplying 'x-dead-letter-routing-key' is only valid if
         # 'x-dead-letter-exchange' is also in the request
         # so this request generates a Error::PreconditionFailed
-        body = %({
-        "arguments": {"x-dead-letter-routing-key": "value"}
-      })
+        body = <<-JSON
+          {
+            "arguments": {"x-dead-letter-routing-key": "value"}
+          }
+          JSON
         response = http.put("/api/queues/%2f/precond-failed", body: body)
         response.status_code.should eq 400
       end
@@ -378,11 +384,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "reject_requeue_true",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q3/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -511,11 +519,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 2,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 2,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q5/get", body: body)
           response.status_code.should eq 200
         end
@@ -526,11 +536,13 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           ch.queue("q6")
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q6/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -545,11 +557,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q7")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q7/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -564,12 +578,14 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q8")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "requeue": true,
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "requeue": true,
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q8/get", body: body)
           response.status_code.should eq 400
           body = JSON.parse(response.body)
