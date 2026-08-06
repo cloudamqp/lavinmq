@@ -41,7 +41,6 @@ module LavinMQPerf
         flags << "--release" if flag?(:release)
         flags << "--debug" if flag?(:debug)
         flags << "--no-debug" unless flag?(:debug)
-        flags << "--Dpreview_mt" if flag?(:preview_mt)
         flags << "--Dmt" if flag?(:mt)
       %}
       {{ flags.join(" ") }}

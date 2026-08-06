@@ -8,7 +8,7 @@ VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 VERSION := $(patsubst v%,%,$(or $(version),$(shell git describe --tags 2>/dev/null || shards version)))
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
-override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
+override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
 
 .DEFAULT_GOAL := all
@@ -98,7 +98,10 @@ js: $(JS)
 .PHONY: deps
 deps: js lib views
 
-lib/ameba/bin/ameba:
+lib/ameba/bin/ameba: lib/ameba
+	crystal build lib/ameba/src/cli.cr -o $@
+
+lib/ameba:
 	shards install
 
 .PHONY: lint
@@ -115,7 +118,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib views
-	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
+	crystal spec --order random --verbose $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
 format:
