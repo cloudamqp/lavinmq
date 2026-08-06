@@ -74,6 +74,3 @@ Style/RedundantNilInControlExpression: # 8 problems
 
 Lint/ElseNil: # 6 problems
   Enabled: false
-
-Lint/AssignmentInCallArgument: # 6 problems
-  Enabled: false

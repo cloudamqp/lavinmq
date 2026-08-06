@@ -47,7 +47,8 @@ module LavinMQPerf
             @io.print '.'
           end
           puts
-          @io.print "#{count += @queues} queues "
+          count += @queues
+          @io.print "#{count} queues "
           @io.puts "Using #{rss.humanize_bytes} memory."
           @io.puts "Press enter to add #{@queues} more queues or ctrl-c to abort"
           gets

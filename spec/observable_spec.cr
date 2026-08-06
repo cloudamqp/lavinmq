@@ -37,8 +37,10 @@ module ObservableSpec
         it "registers observers" do
           observable = Observable(FooEvent).new
 
-          observable.register_observer(obs1 = Observer(FooEvent).new { |_, _| nil })
-          observable.register_observer(obs2 = Observer(FooEvent).new { |_, _| nil })
+          obs1 = Observer(FooEvent).new { |_, _| nil }
+          obs2 = Observer(FooEvent).new { |_, _| nil }
+          observable.register_observer(obs1)
+          observable.register_observer(obs2)
 
           observable.@__t_observers.should eq Set{obs1, obs2}
         end
@@ -48,8 +50,10 @@ module ObservableSpec
         it "unregisters observers" do
           observable = Observable(FooEvent).new
 
-          observable.register_observer(obs1 = Observer(FooEvent).new { |_, _| nil })
-          observable.register_observer(obs2 = Observer(FooEvent).new { |_, _| nil })
+          obs1 = Observer(FooEvent).new { |_, _| nil }
+          obs2 = Observer(FooEvent).new { |_, _| nil }
+          observable.register_observer(obs1)
+          observable.register_observer(obs2)
           observable.unregister_observer(obs1)
 
           observable.@__t_observers.should eq Set{obs2}
