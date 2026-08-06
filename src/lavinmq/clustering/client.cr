@@ -16,8 +16,8 @@ module LavinMQ
       # LZ4::Reader's internal 64 KiB buffer.
       BUFFER_SIZE = 64 * 1024
 
-      # Files #hash_local_files hashes between Fiber.yields. Hashing is CPU
-      # bound, but a yield per (often tiny) file costs more than it gives back.
+      # Files #hash_local_files hashes between Fiber.yields; a yield per (often
+      # tiny) file costs more than it gives back.
       HASH_YIELD_INTERVAL = 32
 
       # Capacity of the channel buffering acks from the stream-reading fiber to
@@ -37,11 +37,9 @@ module LavinMQ
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       @streamed_bytes = 0_u64
-      # Running SHA1 of each file's *whole* content, persisted as that file's
-      # checksum on graceful shutdown. A nil value means the file is untracked:
-      # we started seeing it mid-content and Digest::SHA1 can't be seeded with a
-      # hash, so no digest here could cover the bytes already on disk. See
-      # #digest_for.
+      # Running SHA1 over each file's whole content, adopted as its checksum when
+      # tracking ends. nil when we started seeing the file mid-content, so no
+      # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
@@ -189,23 +187,17 @@ module LavinMQ
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
       end
 
-      # Drop everything that describes the data dir as the previous connection
-      # left it. A sync deletes and re-fetches every local file whose hash
-      # doesn't match the leader's, so a cached append handle can be left
-      # pointing at an unlinked inode (writes to it would silently vanish while
-      # still being acked as durable) and a running digest can describe content
-      # that's no longer on disk.
+      # Forget the data dir as the previous connection left it. The sync ahead
+      # deletes and re-fetches every file whose hash doesn't match the leader's,
+      # which would leave cached handles writing to unlinked inodes and digests
+      # covering content that's no longer on disk.
       private def reset_file_state : Nil
         finalize_digests
         @files.each_value &.close
         @files.clear
       end
 
-      # Adopt the running digests as the files' checksums and stop tracking
-      # them. A digest only describes a file's whole content if it was started
-      # while the file was empty (see #digest_for), so untracked (nil) entries
-      # are skipped, as are files that no longer exist on disk — a checksum for
-      # a missing file can only ever fail to match.
+      # Adopt the running digests as the files' checksums and stop tracking them.
       private def finalize_digests : Nil
         @file_digests.each do |filename, sha1|
           adopt_digest(filename, sha1)
@@ -213,9 +205,8 @@ module LavinMQ
         @file_digests.clear
       end
 
-      # Adopt `sha1` as `filename`'s checksum, if it's one we can trust: an
-      # untracked (nil) digest describes only part of the file, and a file that's
-      # no longer on disk can't be matched by any checksum.
+      # Store `sha1` as `filename`'s checksum, unless it's untracked (nil, i.e.
+      # covers only part of the content) or the file is gone.
       private def adopt_digest(filename : String, sha1 : Digest::SHA1?) : Nil
         return unless sha1
         return unless File.exists?(File.join(@data_dir, filename))
@@ -235,10 +226,9 @@ module LavinMQ
         Log.info { "Waiting for list of files" }
         hash_size = Digest::SHA1.new.digest_size
 
-        # Drain the entire file list FIRST, doing no hashing in this loop. Any
-        # CPU-bound work between entries stalls the leader's file-list flush
-        # until its write timeout fires and it disconnects us. Once the list is
-        # read the leader blocks reading our file requests, so the comparison
+        # Drain the whole file list before hashing anything: stalling between
+        # entries can make the leader's file-list write time out and drop us.
+        # Once the list is read it waits for our file requests, so the comparison
         # below is free to hash.
         remote_files = Array({String, Bytes}).new
         loop do
@@ -296,7 +286,7 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
-          # #hash_local_files hashed this file too, drop it or the checksum map
+          # It got a checksum from #hash_local_files; drop it or the checksum map
           # accumulates dead paths.
           @checksums.delete(relative_path(path))
         rescue ex : File::Error
@@ -325,10 +315,9 @@ module LavinMQ
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
 
-      # Hash every local file before connecting to the leader. Hashing while
-      # connected stalls the leader, which holds its sync lock (and, in the
-      # second sync pass, its replication lock) until we answer. Files already
-      # in @checksums (from disk or an earlier pass) are skipped.
+      # Hash every local file before connecting, because hashing while connected
+      # holds up the leader, which keeps its sync lock until we answer. Files
+      # already in @checksums (from disk or an earlier pass) are skipped.
       private def hash_local_files : Nil
         computed = 0
         files, _dirs = ls_r(@data_dir)
@@ -347,8 +336,8 @@ module LavinMQ
             Log.debug(exception: ex) { "#{path} disappeared while hashing" }
           rescue ex : File::Error
             # This pass also hashes files the leader doesn't have, so one
-            # unreadable file must not wedge us in the reconnect loop. Left
-            # uncached, so the compare loop still fails if the leader has it.
+            # unreadable file must not wedge the reconnect loop. Left uncached,
+            # so the compare loop still fails if the leader has it.
             Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
           end
           # #restore truncated checksums.sha1, so snapshot the full set or a
@@ -482,17 +471,11 @@ module LavinMQ
       end
 
       # The running digest over `filename`'s whole content, or nil if we can't
-      # keep one for it. Decided once per file (per connection) on its first
-      # append: a digest is only a valid checksum for the file if it has seen
-      # every byte in it, and Digest::SHA1 can't be seeded with a hash, so
-      # tracking can only start while the file is still empty. When it isn't,
-      # any checksum we hold for the file goes stale with this append, so it's
-      # dropped: the next sync then re-hashes the file from disk instead of
-      # trusting a hash that doesn't match its content (which would make the
-      # leader re-send a file we already have).
-      #
-      # `file` is opened in append mode, which doesn't change its size, so the
-      # size seen here is the file's size before this append.
+      # keep one: Digest::SHA1 can't be seeded with a hash, so tracking can only
+      # start while the file is empty (`file` is opened in append mode, so its
+      # size here is still the pre-append size). If it isn't, the checksum we
+      # hold goes stale with this append and is dropped, making the next sync
+      # re-hash the file from disk.
       private def digest_for(filename : String, file : File) : Digest::SHA1?
         # #fetch, not #[]?, to tell an absent entry from an untracked file
         @file_digests.fetch(filename) do
@@ -549,13 +532,10 @@ module LavinMQ
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
 
-        # A replace rewrites the file from byte 0, so a digest over the streamed
-        # bytes covers its whole content — but only once the rename below has
-        # installed it. Until then the old file is what's on disk, so let it keep
-        # its checksum (adopting any running digest, which is the up-to-date hash
-        # of it) and hold the new digest aside until the rename: an aborted
-        # replace then leaves a checksum that still matches the file, instead of
-        # a hash of content that never got installed.
+        # A replace rewrites the file from byte 0, so the digest below covers its
+        # whole content — but only once the rename installs it. Until then the old
+        # file is on disk, so leave it with a checksum matching it and start
+        # tracking the new digest only after the rename.
         adopt_digest(filename, @file_digests.delete(filename))
         sha1 = Digest::SHA1.new
 
@@ -575,8 +555,7 @@ module LavinMQ
 
       # Read from lz4, update SHA1, and write to file incrementally.
       # Returns the number of bytes received but not yet acked (see below).
-      # `sha1` is nil for a file whose content we can't checksum incrementally
-      # (see #digest_for); the bytes are then streamed without hashing.
+      # A nil `sha1` streams the bytes without hashing them (see #digest_for).
       private def stream_with_checksum(lz4 : IO, file : IO, length : Int64, sha1 : Digest::SHA1?, defer_final_ack = false) : Int64
         # Read, hash, and write incrementally. Each chunk is acked as soon as
         # it's persisted so the leader sees continuous progress within a large
