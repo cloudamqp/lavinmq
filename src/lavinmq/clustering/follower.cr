@@ -21,11 +21,11 @@ module LavinMQ
 
       # Write timeout used during full_sync. A syncing follower isn't in the ISR
       # yet, so its slowness can't stall publish confirms, and the bulk transfer
-      # legitimately blocks the leader's writes while the follower hashes its
-      # local files or persists received ones. The aggressive ACK_TIMEOUT is for
-      # the steady-state streaming phase; using it during full_sync wrongly drops
-      # a merely-slow follower. Still bounded so a genuinely wedged follower can't
-      # hold the sync lock forever.
+      # legitimately blocks the leader's writes while the follower persists the
+      # files it receives. The aggressive ACK_TIMEOUT is for the steady-state
+      # streaming phase; using it during full_sync wrongly drops a merely-slow
+      # follower. Still bounded so a genuinely wedged follower can't hold the
+      # sync lock forever.
       SYNC_WRITE_TIMEOUT = 60.seconds
 
       @acked_bytes = Atomic(Int64).new(0)

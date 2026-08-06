@@ -16,6 +16,10 @@ module LavinMQ
       # LZ4::Reader's internal 64 KiB buffer.
       BUFFER_SIZE = 64 * 1024
 
+      # Files #hash_local_files hashes between Fiber.yields. Hashing is CPU
+      # bound, but a yield per (often tiny) file costs more than it gives back.
+      HASH_YIELD_INTERVAL = 32
+
       # Capacity of the channel buffering acks from the stream-reading fiber to
       # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
       # drains and coalesces it continuously), so a fixed size is fine; the
@@ -113,6 +117,8 @@ module LavinMQ
           spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
         end
         loop do
+          hash_local_files
+          return if @closed
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
@@ -164,10 +170,13 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
-        sync_files(socket, lz4)
-        Log.info { "Bulk synchronised" }
-        sync_files(socket, lz4)
-        Log.info { "Fully synchronised" }
+        full_sync_time = Time.measure do
+          bulk_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
+          rest_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Changes since bulk synchronized in #{rest_time.total_seconds} seconds" }
+        end
+        Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
       end
 
       private def set_socket_opts(socket)
@@ -181,34 +190,31 @@ module LavinMQ
 
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
-        sha1 = Digest::SHA1.new
+        hash_size = Digest::SHA1.new.digest_size
 
-        # Drain the entire file list from the socket FIRST, doing no hashing in
-        # this loop. Computing local checksums is CPU-bound and would otherwise
-        # block reading between entries, so the leader's file-list flush can't
-        # complete within its write timeout and it disconnects us mid-sync. By
-        # reading the list back-to-back we let the leader's flush finish; it then
-        # blocks reading our file requests (below) while we hash, so it never
-        # write-times-out during the comparison.
+        # Drain the entire file list FIRST, doing no hashing in this loop. Any
+        # CPU-bound work between entries stalls the leader's file-list flush
+        # until its write timeout fires and it disconnects us. Once the list is
+        # read the leader blocks reading our file requests, so the comparison
+        # below is free to hash.
         remote_files = Array({String, Bytes}).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
           filename = lz4.read_string(filename_len)
-          remote_hash = Bytes.new(sha1.digest_size)
+          remote_hash = Bytes.new(hash_size)
           lz4.read_fully(remote_hash)
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
 
-        # Now compare against local files (CPU-bound hashing) with the socket
-        # already drained.
+        # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
         file_count = 0
         files_total = remote_files.size
-        Log.info { "Calculating checksums and comparing files" }
+        Log.info { "Comparing files" }
         log_limiter = RateLimiter.new(2.seconds)
         remote_files.each do |filename, remote_hash|
           path = File.join(@data_dir, filename)
@@ -219,12 +225,10 @@ module LavinMQ
             dir = File.dirname(dir)
           end
           if File.exists? path
+            # Pre-computed by #hash_local_files, except for files that appeared
+            # after that pass.
             unless local_hash = @checksums[filename]?
-              Log.debug { "Calculating checksum for #{filename}" }
-              sha1.file(path)
-              local_hash = sha1.final
-              @checksums.append(filename, local_hash)
-              sha1.reset
+              local_hash = hash_file(filename, path)
               Fiber.yield # CPU bound, so allow other fibers to run
             end
             if local_hash != remote_hash
@@ -249,6 +253,9 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
+          # #hash_local_files hashed this file too, drop it or the checksum map
+          # accumulates dead paths.
+          @checksums.delete(relative_path(path))
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
@@ -273,6 +280,55 @@ module LavinMQ
           log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
+      end
+
+      # Hash every local file before connecting to the leader. Hashing while
+      # connected stalls the leader, which holds its sync lock (and, in the
+      # second sync pass, its replication lock) until we answer. Files already
+      # in @checksums (from disk or an earlier pass) are skipped.
+      private def hash_local_files : Nil
+        computed = 0
+        files, _dirs = ls_r(@data_dir)
+        time = Time.measure do
+          Log.info { "Calculating checksums for #{files.size} local files" }
+          log_limiter = RateLimiter.new(2.seconds)
+          files.each do |path|
+            break if @closed
+            filename = relative_path(path)
+            next if @checksums[filename]?
+            hash_file(filename, path)
+            computed &+= 1
+            Fiber.yield if computed % HASH_YIELD_INTERVAL == 0 # CPU bound, so let other fibers run
+            log_limiter.do { Log.info { "Calculated #{computed} checksums" } }
+          rescue ex : File::NotFoundError
+            Log.debug(exception: ex) { "#{path} disappeared while hashing" }
+          rescue ex : File::Error
+            # This pass also hashes files the leader doesn't have, so one
+            # unreadable file must not wedge us in the reconnect loop. Left
+            # uncached, so the compare loop still fails if the leader has it.
+            Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
+          end
+          # #restore truncated checksums.sha1, so snapshot the full set or a
+          # crash loses the hashes that were on disk at boot.
+          @checksums.store if computed > 0
+        end
+        Log.info { "Calculated #{computed} checksums (#{files.size} local files) in #{time.total_seconds} seconds" }
+      end
+
+      # Hash one local file, persisting the hash right away so progress
+      # survives a crash.
+      private def hash_file(filename : String, path : String) : Bytes
+        Log.debug { "Calculating checksum for #{filename}" }
+        sha1 = Digest::SHA1.new
+        sha1.file(path)
+        hash = sha1.final
+        @checksums.append(filename, hash)
+        hash
+      end
+
+      # Path relative to the data dir, i.e. the name the leader knows a file by.
+      private def relative_path(path : String) : String
+        path.lchop(@data_dir).lchop('/')
       end
 
       private def ls_r(dir) : {Array(String), Array(String)}
