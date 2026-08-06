@@ -165,7 +165,7 @@ module LavinMQ
             break if higher_prio_consumers.empty?
             next
           end
-          return true
+          true
         end
       end
 
@@ -193,7 +193,7 @@ module LavinMQ
             @log.debug { "Queue is not paused" }
           when @notify_closed.receive
           end
-          return true
+          true
         end
       end
 
@@ -203,7 +203,7 @@ module LavinMQ
           flush
           @flow_change.when_true.receive
           @log.debug { "Channel flow=true" }
-          return true
+          true
         end
       end
 
