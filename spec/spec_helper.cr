@@ -353,13 +353,11 @@ Spec.around_each do |example|
   done = Channel(Exception?).new
 
   spawn(name: "Spec: #{example.example.description}") do
-    begin
-      example.run
-    rescue e
-      done.send(e)
-    else
-      done.send(nil)
-    end
+    example.run
+  rescue e
+    done.send(e)
+  else
+    done.send(nil)
   end
 
   timeout = SPEC_TIMEOUT

@@ -93,11 +93,9 @@ module LavinMQ
         mem = 0
         elapsed = Time.measure do
           mem = Benchmark.memory do
-            begin
-              yield
-            rescue ex
-              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
-            end
+            yield
+          rescue ex
+            Log.error(exception: ex) { "Error while reporting prometheus metrics" }
           end
         end
         writer = PrometheusWriter.new(io, "telemetry")

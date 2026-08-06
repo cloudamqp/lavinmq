@@ -86,19 +86,6 @@ Lint/VoidOutsideLib: # 1 problem
 # Kept enabled so they still guard the rest of the tree; only the files that
 # regressed are excluded.
 
-Style/RedundantBegin: # 14 problems
-  Excluded:
-  - spec/config_spec.cr
-  - spec/etcd_spec.cr
-  - spec/spec_helper.cr
-  - src/lavinmq/auth/jwt/jwks_fetcher.cr
-  - src/lavinmq/clustering/controller.cr
-  - src/lavinmq/clustering/follower.cr
-  - src/lavinmq/clustering/proxy.cr
-  - src/lavinmq/http/controller/prometheus.cr
-  - src/lavinmq/ip_matcher.cr
-  - src/lavinmqperf/amqp/queue_count.cr
-  - src/lavinmqperf/amqp/throughput.cr
 
 Style/RedundantReturn: # 10 problems
   Excluded:
