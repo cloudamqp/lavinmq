@@ -86,15 +86,6 @@ Lint/VoidOutsideLib: # 1 problem
 # Kept enabled so they still guard the rest of the tree; only the files that
 # regressed are excluded.
 
-# Complexity is scored differently in 1.7.0-dev: `Queue#message_expire_loop`
-# (16/12) and `Link#monitor_consumers` (13/12) newly trip the limit, while some
-# existing `# ameba:disable Metrics/CyclomaticComplexity` comments became
-# redundant.
-Metrics/CyclomaticComplexity: # 2 problems
-  Excluded:
-  - src/lavinmq/amqp/queue/queue.cr
-  - src/lavinmq/federation/link.cr
-
 Lint/UnneededDisableDirective: # 5 problems
   Excluded:
   - src/lavinmq/amqp/argument/dead_lettering.cr

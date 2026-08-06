@@ -226,14 +226,7 @@ module LavinMQ
               end
               @log.info { "Lost consumers, cancel upstream subscriber" }
               has_consumer = false
-              # cancel our consumer!
-              if channel = @upstream_channel
-                begin
-                  channel.basic_cancel(@upstream.consumer_tag)
-                rescue ex : ::AMQP::Client::Error
-                  @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
-                end
-              end
+              cancel_upstream_consumer
             else
               # Wait for queue get a consumer, or for the link
               # to stop
@@ -253,6 +246,13 @@ module LavinMQ
             end
           end
         rescue ::Channel::ClosedError
+        end
+
+        private def cancel_upstream_consumer
+          return unless channel = @upstream_channel
+          channel.basic_cancel(@upstream.consumer_tag)
+        rescue ex : ::AMQP::Client::Error
+          @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
         end
 
         def name : String
