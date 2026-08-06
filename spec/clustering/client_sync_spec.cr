@@ -15,11 +15,9 @@ module ClientSyncSpec
       hash_local_files
     end
 
-    # Counts hashed local files, so specs can assert that no CPU-bound hashing
-    # happens while the leader is connected and waiting.
+    # Lets specs assert that nothing is hashed while the leader is connected.
     getter files_hashed = 0
-    # Simulates an unreadable file (can't be done with permissions: specs may
-    # run as root).
+    # Simulates an unreadable file; permissions can't, specs may run as root.
     property fail_hash_for : String? = nil
 
     private def hash_file(filename : String, path : String) : Bytes
@@ -363,10 +361,8 @@ module ClientSyncSpec
       end
     end
 
-    # Local hashing is CPU bound and the leader holds its sync lock (and, for
-    # the second sync pass, its replication lock) while it waits for the
-    # follower's file requests. So all local files are hashed before the
-    # follower even connects, not while comparing the leader's file list.
+    # Hashing is CPU bound and the leader waits, holding its sync lock, for our
+    # file requests. So it all happens before the follower connects.
     describe "hash_local_files" do
       it "hashes every local file, including files the leader doesn't have" do
         with_datadir do |data_dir|
@@ -413,9 +409,8 @@ module ClientSyncSpec
         end
       end
 
-      # This pass also hashes files the leader doesn't have, which the compare
-      # loop never did, so a single unreadable file must not abort it — that
-      # would wedge the follower in the connect/retry loop before it even dials.
+      # This pass hashes files the leader doesn't have, so an unreadable file
+      # must not abort it and wedge the follower before it even dials.
       it "keeps hashing after a file it can't read" do
         with_datadir do |data_dir|
           File.write File.join(data_dir, "unreadable.dat"), "nope"
@@ -430,9 +425,8 @@ module ClientSyncSpec
         end
       end
 
-      # Regression: the compare loop used to hash local files while the leader
-      # waited for our file requests, stalling it (and every other follower
-      # waiting for its sync lock) for as long as hashing took.
+      # Regression: the compare loop used to hash while the leader waited for
+      # our file requests, stalling it for as long as hashing took.
       it "leaves no hashing to do while the leader is connected" do
         with_datadir do |data_dir|
           content = "hello"
@@ -462,9 +456,8 @@ module ClientSyncSpec
         end
       end
 
-      # hash_local_files hashes files the leader doesn't have, and those get
-      # deleted during the sync; their entries must go with them or the
-      # checksum map grows with dead paths on every sync.
+      # Files the leader lacks are hashed but then deleted, so their checksums
+      # must go too or the map grows dead paths on every sync.
       it "drops checksums of files deleted because the leader lacks them" do
         with_datadir do |data_dir|
           File.write File.join(data_dir, "orphan.dat"), "gone tomorrow"

@@ -16,11 +16,8 @@ module LavinMQ
       # LZ4::Reader's internal 64 KiB buffer.
       BUFFER_SIZE = 64 * 1024
 
-      # How many files #hash_local_files hashes between Fiber.yields. Hashing is
-      # CPU bound, and although it runs before we connect, the proxies are
-      # already forwarding clients to the leader, so it can't hog the scheduler.
-      # Yielding per file would add a scheduler round trip per (often small)
-      # file; a batch amortizes that without starving anyone.
+      # Files #hash_local_files hashes between Fiber.yields. Hashing is CPU
+      # bound, but a yield per (often tiny) file costs more than it gives back.
       HASH_YIELD_INTERVAL = 32
 
       # Capacity of the channel buffering acks from the stream-reading fiber to
@@ -195,15 +192,11 @@ module LavinMQ
         Log.info { "Waiting for list of files" }
         hash_size = Digest::SHA1.new.digest_size
 
-        # Drain the entire file list from the socket FIRST, doing no hashing in
-        # this loop. Local checksums are normally all computed before we even
-        # connect (see #hash_local_files), but the comparison below can still
-        # fall back to hashing a file that appeared since. Hashing is CPU-bound
-        # and would block reading between entries, so the leader's file-list
-        # flush couldn't complete within its write timeout and it would
-        # disconnect us mid-sync. By reading the list back-to-back we let the
-        # leader's flush finish; it then blocks reading our file requests
-        # (below), so it never write-times-out during the comparison.
+        # Drain the entire file list FIRST, doing no hashing in this loop. Any
+        # CPU-bound work between entries stalls the leader's file-list flush
+        # until its write timeout fires and it disconnects us. Once the list is
+        # read the leader blocks reading our file requests, so the comparison
+        # below is free to hash.
         remote_files = Array({String, Bytes}).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -232,9 +225,8 @@ module LavinMQ
             dir = File.dirname(dir)
           end
           if File.exists? path
-            # Normally pre-computed by #hash_local_files before we connected;
-            # hashing here only happens for a file that appeared since, which
-            # is why the file list is drained up front (see above).
+            # Pre-computed by #hash_local_files, except for files that appeared
+            # after that pass.
             unless local_hash = @checksums[filename]?
               local_hash = hash_file(filename, path)
               Fiber.yield # CPU bound, so allow other fibers to run
@@ -261,9 +253,8 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
-          # #hash_local_files hashes every local file, including ones the leader
-          # doesn't have; drop the entry with the file so the checksum map (and
-          # every snapshot written from it) doesn't accumulate dead paths.
+          # #hash_local_files hashed this file too, drop it or the checksum map
+          # accumulates dead paths.
           @checksums.delete(relative_path(path))
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
@@ -291,13 +282,10 @@ module LavinMQ
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
 
-      # Hash every local file before connecting to the leader. Comparing our
-      # files against the leader's file list is CPU-bound, and doing it while
-      # connected stalls the leader: it holds its sync lock (and, during the
-      # second sync pass, its replication lock) until we answer, and only
-      # relaxes its write timeout so much. Hashing here costs the leader
-      # nothing. Files already in @checksums (restored from disk, or hashed in
-      # an earlier pass) are skipped.
+      # Hash every local file before connecting to the leader. Hashing while
+      # connected stalls the leader, which holds its sync lock (and, in the
+      # second sync pass, its replication lock) until we answer. Files already
+      # in @checksums (from disk or an earlier pass) are skipped.
       private def hash_local_files : Nil
         computed = 0
         files, _dirs = ls_r(@data_dir)
@@ -315,23 +303,20 @@ module LavinMQ
           rescue ex : File::NotFoundError
             Log.debug(exception: ex) { "#{path} disappeared while hashing" }
           rescue ex : File::Error
-            # Unlike the compare loop, this pass also hashes files the leader
-            # doesn't have (they're about to be deleted), so one unreadable file
-            # must not abort the pass and wedge us in the reconnect loop. Left
-            # uncached: if the leader does have the file, the compare loop retries
-            # the hash and fails the sync there, as it always did.
+            # This pass also hashes files the leader doesn't have, so one
+            # unreadable file must not wedge us in the reconnect loop. Left
+            # uncached, so the compare loop still fails if the leader has it.
             Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
           end
-          # #restore truncates checksums.sha1, so until something rewrites it a
-          # crash would throw away hashes that were on disk at boot. Snapshot the
-          # full set now, while we're not holding up the leader.
+          # #restore truncated checksums.sha1, so snapshot the full set or a
+          # crash loses the hashes that were on disk at boot.
           @checksums.store if computed > 0
         end
         Log.info { "Calculated #{computed} checksums (#{files.size} local files) in #{time.total_seconds} seconds" }
       end
 
-      # Hash one local file and persist the hash immediately (see
-      # Checksums#append), so hashing progress survives a crash.
+      # Hash one local file, persisting the hash right away so progress
+      # survives a crash.
       private def hash_file(filename : String, path : String) : Bytes
         Log.debug { "Calculating checksum for #{filename}" }
         sha1 = Digest::SHA1.new
