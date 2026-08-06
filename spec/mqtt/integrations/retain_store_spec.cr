@@ -173,7 +173,7 @@ module MqttSpecs
           # Should receive the retained message without crashing
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")
 
           disconnect(io)
@@ -197,7 +197,7 @@ module MqttSpecs
           # Should receive the retained message without crashing
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("test/retain")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           String.new(pub.payload).should start_with("retained_message_")
 
           disconnect(io)

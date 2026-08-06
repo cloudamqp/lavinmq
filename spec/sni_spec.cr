@@ -178,7 +178,7 @@ describe LavinMQ::Config do
 
       mtls_host = config.sni_manager.get_host("mtls.example.com").not_nil!
       mtls_host.tls_verify_peer?.should be_true
-      mtls_host.http_tls_verify_peer.should eq(false)
+      mtls_host.http_tls_verify_peer.should be_false
     ensure
       File.delete(config_file)
     end

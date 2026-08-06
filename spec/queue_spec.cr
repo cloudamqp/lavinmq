@@ -79,7 +79,7 @@ describe LavinMQ::AMQP::Queue do
         x.publish_confirm("ttl", q.name)
         msg = wait_for { dlq.get }
         msg.not_nil!.body_io.to_s.should eq "ttl"
-        q.get.should eq nil
+        q.get.should be_nil
       end
     end
   end
@@ -298,7 +298,7 @@ describe LavinMQ::AMQP::Queue do
         end
 
         with_channel(s) do |ch|
-          ch.has_subscriber?(tag).should eq false
+          ch.has_subscriber?(tag).should be_false
         end
 
         # Queue is closed, delete to prevent spec failure because of closed queue

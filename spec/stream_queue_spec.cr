@@ -937,7 +937,7 @@ describe LavinMQ::AMQP::Stream do
         sleep 0.1.seconds
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
+        msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should be_nil
         msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
         msg_store.close
       end
@@ -1015,7 +1015,7 @@ describe LavinMQ::AMQP::Stream do
         end
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
+        msg_store.last_offset_by_consumer_tag(consumer_tag).should be_nil
       end
     end
 
@@ -1040,7 +1040,7 @@ describe LavinMQ::AMQP::Stream do
         sleep 0.1.seconds
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(c_tag).should eq nil
+        msg_store.last_offset_by_consumer_tag(c_tag).should be_nil
       end
     end
 

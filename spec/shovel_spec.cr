@@ -734,11 +734,11 @@ describe LavinMQ::Shovel do
           # duplicating them on q2. This races under load on macOS CI.
           wait_for { s.vhosts["/"].queue("#{queue_name}q1").unacked_count.zero? }
           shovel.pause
-          shovel.paused?.should eq true
+          shovel.paused?.should be_true
 
           q1.publish_confirm "shovel me 3", "#{queue_name}q1"
           q1.publish_confirm "shovel me 4", "#{queue_name}q1"
-          q2.get(no_ack: true).try(&.body_io.to_s).should eq nil
+          q2.get(no_ack: true).try(&.body_io.to_s).should be_nil
 
           spawn shovel.resume
           wait_for { shovel.running? } # Ensure it gets back to Running state
@@ -807,7 +807,7 @@ describe LavinMQ::Shovel do
         s.vhosts[vhost.name].add_parameter(p)
         shovel = s.vhosts[vhost.name].shovels[shovel_name]
         shovel.pause
-        shovel.paused?.should eq true
+        shovel.paused?.should be_true
         restart_server(s)
         should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
       end
