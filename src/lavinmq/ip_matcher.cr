@@ -106,8 +106,8 @@ module LavinMQ
     # If *fields* is an IPv4-mapped IPv6 address (::ffff:a.b.c.d), return the
     # embedded 4-byte IPv4 address, otherwise nil.
     private def ipv4_mapped_bytes(fields : StaticArray(UInt16, 8)) : Bytes?
-      return nil unless fields[0].zero? && fields[1].zero? && fields[2].zero? &&
-                        fields[3].zero? && fields[4].zero? && fields[5] == 0xffff_u16
+      return unless fields[0].zero? && fields[1].zero? && fields[2].zero? &&
+                    fields[3].zero? && fields[4].zero? && fields[5] == 0xffff_u16
       Bytes[
         (fields[6] >> 8).to_u8, (fields[6] & 0xFF).to_u8,
         (fields[7] >> 8).to_u8, (fields[7] & 0xFF).to_u8,

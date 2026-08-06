@@ -49,7 +49,7 @@ module LavinMQ
       private def authenticate_token(token, remote_address) : Auth::BaseUser?
         auth_context = Auth::Context.new("", token.to_slice, remote_address)
         user = @oauth_authenticator.authenticate(auth_context)
-        return nil if user.nil? || user.tags.empty?
+        return if user.nil? || user.tags.empty?
         user
       end
 

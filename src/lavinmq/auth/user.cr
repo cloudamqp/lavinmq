@@ -73,7 +73,7 @@ module LavinMQ
       end
 
       private def parse_password(hash, hash_algorithm, loc = nil)
-        return nil unless hash_algorithm
+        return unless hash_algorithm
         case hash_algorithm
         when /bcrypt$/i then Password::BcryptPassword.new(hash)
         when /sha256$/i then Password::SHA256Password.new(hash)
