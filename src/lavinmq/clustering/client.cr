@@ -170,6 +170,11 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
+        full_sync(socket, lz4)
+      end
+
+      private def full_sync(socket, lz4)
+        reset_file_state
         full_sync_time = Time.measure do
           bulk_time = Time.measure { sync_files(socket, lz4) }
           Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
@@ -177,6 +182,13 @@ module LavinMQ
           Log.info { "Changes since bulk synchronized in #{rest_time.total_seconds} seconds" }
         end
         Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
+      end
+
+      # handles from a previous connection may point at unlinked inodes
+      private def reset_file_state : Nil
+        @files.each_value &.close
+        @files.clear
+        @file_digests.clear
       end
 
       private def set_socket_opts(socket)
@@ -440,12 +452,8 @@ module LavinMQ
 
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
-        if f = @files.delete(filename)
-          f.delete
-          f.close
-        else
-          File.delete? File.join(@data_dir, filename)
-        end
+        @files.delete(filename).try &.close
+        File.delete? File.join(@data_dir, filename)
         @checksums.delete(filename)
         @file_digests.delete(filename)
         delete_empty_dirs File.dirname(filename)
