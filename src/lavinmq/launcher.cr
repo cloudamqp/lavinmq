@@ -135,10 +135,10 @@ module LavinMQ
       path = @config.load_definitions
       return if path.empty?
       GlobalDefinitions.import_from_file(path, amqp_server)
-    rescue ex : File::NotFoundError
+    rescue File::NotFoundError
       Log.error { "Failed to load definitions: file '#{path}' does not exist" }
       exit 1
-    rescue ex : File::AccessDeniedError
+    rescue File::AccessDeniedError
       Log.error { "Failed to load definitions: cannot read '#{path}': permission denied" }
       exit 1
     rescue ex : JSON::ParseException

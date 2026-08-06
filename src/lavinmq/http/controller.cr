@@ -167,7 +167,7 @@ module LavinMQ
         else
           bad_request(context, "Request body required")
         end
-      rescue e : JSON::ParseException
+      rescue JSON::ParseException
         bad_request(context, "Malformed JSON")
       end
 

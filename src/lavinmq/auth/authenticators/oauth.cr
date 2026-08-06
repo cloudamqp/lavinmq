@@ -16,7 +16,7 @@ module LavinMQ
       def authenticate(context : Context) : BaseUser?
         claims = @token_verifier.parse_token(String.new(context.password))
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, @token_verifier)
-      rescue ex : JWT::PasswordFormatError
+      rescue JWT::PasswordFormatError
         Log.debug do
           "skipping authentication for user \"#{context.username}\": " \
           "password is not a JWT token"

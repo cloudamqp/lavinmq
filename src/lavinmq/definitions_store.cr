@@ -292,7 +292,7 @@ module LavinMQ
           else
             raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
           end
-        rescue ex : IO::EOFError
+        rescue IO::EOFError
           break
         end
       end

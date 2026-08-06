@@ -60,9 +60,6 @@ Lint/SpecEqWithBoolOrNilLiteral: # 34 problems
 Style/HeredocIndent: # 33 problems
   Enabled: false
 
-Lint/UnusedRescueVariable: # 12 problems
-  Enabled: false
-
 Style/RedundantSelf: # 12 problems
   Enabled: false
 
