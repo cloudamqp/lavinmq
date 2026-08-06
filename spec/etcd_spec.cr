@@ -11,7 +11,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       etcd.del("foo")
-      etcd.put("foo", "bar").should eq nil
+      etcd.put("foo", "bar").should be_nil
       etcd.get("foo").should eq "bar"
       etcd.put("foo", "bar2").should eq "bar"
     end
@@ -60,7 +60,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       etcd.put "foo", "rab"
       w.receive.should eq "rab"
       etcd.del "foo"
-      w.receive.should eq nil
+      w.receive.should be_nil
     end
   end
 

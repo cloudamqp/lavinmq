@@ -103,7 +103,7 @@ describe LavinMQ::Server do
         m1 = q.get(no_ack: false)
         m1.try(&.reject)
         m1 = q.get(no_ack: false)
-        m1.should eq(nil)
+        m1.should be_nil
       end
     end
   end
@@ -255,8 +255,8 @@ describe LavinMQ::Server do
   it "can handle messages going to no queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.basic_publish_confirm("m1", "amq.direct", "none").should eq true
-        ch.basic_publish_confirm("m2", "amq.direct", "none").should eq true
+        ch.basic_publish_confirm("m1", "amq.direct", "none").should be_true
+        ch.basic_publish_confirm("m2", "amq.direct", "none").should be_true
       end
     end
   end
@@ -493,7 +493,7 @@ describe LavinMQ::Server do
         tag = q.subscribe { |msg| msgs << msg }
         q.unsubscribe(tag)
         sleep 10.milliseconds
-        ch.has_subscriber?(tag).should eq false
+        ch.has_subscriber?(tag).should be_false
       end
     end
   end

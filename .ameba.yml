@@ -50,6 +50,3 @@ Lint/SignalTrap:
 
 Lint/WhitespaceAroundMacroExpression: # 46 problems
   Enabled: false
-
-Lint/SpecEqWithBoolOrNilLiteral: # 34 problems
-  Enabled: false

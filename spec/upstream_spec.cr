@@ -529,11 +529,11 @@ describe LavinMQ::Federation::Upstream do
           downstream_ex = ch.exchange("downstream_ex", "topic")
           link = upstream.link(vhost.exchange(downstream_ex.name))
           wait_for { link.state.running? }
-          upstream_vhost.queue_exists?(federation_name).should eq true
-          upstream_vhost.exchange_exists?(federation_name).should eq true
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
           link.delete
-          upstream_vhost.queue_exists?(federation_name).should eq false
-          upstream_vhost.exchange_exists?(federation_name).should eq false
+          upstream_vhost.queue_exists?(federation_name).should be_false
+          upstream_vhost.exchange_exists?(federation_name).should be_false
         end
       end
     end
@@ -548,11 +548,11 @@ describe LavinMQ::Federation::Upstream do
           downstream_ex = ch.exchange("downstream_ex", "topic")
           link = upstream.link(vhost.exchange(downstream_ex.name))
           wait_for { link.state.running? }
-          upstream_vhost.queue_exists?(federation_name).should eq true
-          upstream_vhost.exchange_exists?(federation_name).should eq true
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
           upstream.close # broker shutdown path — must not delete upstream resources
-          upstream_vhost.queue_exists?(federation_name).should eq true
-          upstream_vhost.exchange_exists?(federation_name).should eq true
+          upstream_vhost.queue_exists?(federation_name).should be_true
+          upstream_vhost.exchange_exists?(federation_name).should be_true
         end
       end
     end

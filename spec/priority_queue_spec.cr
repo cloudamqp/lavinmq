@@ -469,7 +469,7 @@ describe LavinMQ::AMQP::PriorityQueue do
         q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
         msg = q.get(no_ack: false)
         msg = msg.should_not be_nil
-        msg.redelivered.should eq false
+        msg.redelivered.should be_false
       end
     end
   end
