@@ -97,14 +97,14 @@ js: $(JS)
 .PHONY: deps
 deps: js lib views
 
-lib/ameba/bin/ameba: lib/ameba
-	crystal build lib/ameba/src/cli.cr -o $@
+bin/ameba: lib/ameba | bin
+	crystal build lib/ameba/bin/ameba.cr -o $@
 
-lib/ameba:
+lib/ameba: shard.yml shard.lock
 	shards install
 
 .PHONY: lint
-lint: lib/ameba/bin/ameba
+lint: bin/ameba
 	$< src/ spec/
 
 .PHONY: lint-js
