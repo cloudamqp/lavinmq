@@ -11,7 +11,7 @@ module LavinMQ::AMQP
     getter new_messages = ::Channel(Bool).new
     property max_length : Int64?
     property max_length_bytes : Int64?
-    property max_age : Time::Span | Time::MonthSpan | Nil
+    property max_age : (Time::Span | Time::MonthSpan)?
     getter last_offset : Int64
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg

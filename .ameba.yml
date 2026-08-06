@@ -66,8 +66,5 @@ Lint/UnusedRescueVariable: # 12 problems
 Style/RedundantSelf: # 12 problems
   Enabled: false
 
-Style/VerboseNilType: # 9 problems
-  Enabled: false
-
 Style/RedundantNilInControlExpression: # 8 problems
   Enabled: false

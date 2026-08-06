@@ -58,12 +58,12 @@ module LavinMQ
         property iat : Int64?
         property nbf : Int64?
         property iss : String?
-        property aud : String | Array(String) | Nil
+        property aud : (String | Array(String))?
         property sub : String?
         property scope : String?
         property resource_access : Hash(String, ResourceRoles)?
 
-        def initialize(*, @exp : Int64? = nil, @iat : Int64? = nil, @nbf : Int64? = nil, @iss : String? = nil, @aud : String | Array(String) | Nil = nil, @sub : String? = nil, @scope : String? = nil, @resource_access : Hash(String, ResourceRoles)? = nil)
+        def initialize(*, @exp : Int64? = nil, @iat : Int64? = nil, @nbf : Int64? = nil, @iss : String? = nil, @aud : (String | Array(String))? = nil, @sub : String? = nil, @scope : String? = nil, @resource_access : Hash(String, ResourceRoles)? = nil)
           @json_unmapped = {} of String => JSON::Any
         end
 
