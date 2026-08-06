@@ -171,9 +171,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
       isr_key = "#{prefix}/isr"
       stale_etcd = LavinMQ::Etcd.new(cluster.endpoints)
       current_etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      stale_lease = nil
-      current_lease = nil
-
       begin
         config = LavinMQ::Config.new
         config.clustering = true
@@ -198,7 +195,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
           elected.close
         end
         sl.release
-        stale_lease = nil
 
         select
         when elected.receive
