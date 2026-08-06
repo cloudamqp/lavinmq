@@ -86,17 +86,6 @@ Lint/VoidOutsideLib: # 1 problem
 # Kept enabled so they still guard the rest of the tree; only the files that
 # regressed are excluded.
 
-
-Style/RedundantReturn: # 10 problems
-  Excluded:
-  - src/lavinmq/amqp/connection_factory.cr
-  - src/lavinmq/amqp/consumer.cr
-  - src/lavinmq/amqp/stream/stream_consumer.cr
-  - src/lavinmq/amqp/stream/stream_message_store.cr
-  - src/lavinmq/http/controller/vhost-limits.cr
-  - src/lavinmq/http/handler/auth_handler.cr
-  - src/lavinmq/mqtt/connection_factory.cr
-
 Lint/UselessAssign: # 6 problems
   Excluded:
   - spec/control_socket_spec.cr

@@ -120,7 +120,7 @@ module LavinMQ
             @new_message_available.set(false) # Reset the flag
           when @notify_closed.receive
           end
-          return true
+          true
         end
       end
 

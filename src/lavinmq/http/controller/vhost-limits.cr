@@ -64,7 +64,7 @@ module LavinMQ
         end
 
         def self_if_limited : VHostLimitsView?
-          return self if @vhost.max_connections || @vhost.max_queues
+          self if @vhost.max_connections || @vhost.max_queues
         end
 
         def details_tuple
