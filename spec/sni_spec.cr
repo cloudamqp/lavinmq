@@ -242,8 +242,6 @@ describe OpenSSL::SSL::Context::Server do
       received_hostname = hostname
       if hostname == "alt.example.com"
         alt_ctx
-      else
-        nil
       end
     end
 
@@ -279,8 +277,6 @@ describe "SNI end-to-end" do
     default_ctx.on_server_name do |hostname|
       if sni_host = sni_manager.get_host(hostname)
         sni_host.amqp_tls_context
-      else
-        nil
       end
     end
 

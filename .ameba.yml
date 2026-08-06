@@ -71,6 +71,3 @@ Style/VerboseNilType: # 9 problems
 
 Style/RedundantNilInControlExpression: # 8 problems
   Enabled: false
-
-Lint/ElseNil: # 6 problems
-  Enabled: false
