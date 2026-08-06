@@ -586,10 +586,10 @@ module LavinMQ
       orphan_count = positions.size - valid.size
       return if orphan_count.zero?
 
-      @log.warn {
+      @log.warn do
         "Msgs/acks files for segment #{seg} are out of sync (possibly because of " \
         "an unclean shutdown). Removing #{orphan_count} orphaned ack position(s)."
-      }
+      end
 
       if valid.empty?
         @deleted.delete(seg)

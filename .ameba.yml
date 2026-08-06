@@ -77,6 +77,3 @@ Lint/ElseNil: # 6 problems
 
 Lint/AssignmentInCallArgument: # 6 problems
   Enabled: false
-
-Style/MultilineCurlyBlock: # 5 problems
-  Enabled: false

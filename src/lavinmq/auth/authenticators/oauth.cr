@@ -17,14 +17,20 @@ module LavinMQ
         claims = @token_verifier.parse_token(String.new(context.password))
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, @token_verifier)
       rescue ex : JWT::PasswordFormatError
-        Log.debug { "skipping authentication for user \"#{context.username}\": " \
-                    "password is not a JWT token" }
+        Log.debug do
+          "skipping authentication for user \"#{context.username}\": " \
+          "password is not a JWT token"
+        end
       rescue ex : JWT::DecodeError
-        Log.debug { "authentication failed for user \"#{context.username}\": " \
-                    "Could not decode token - #{ex.message}" }
+        Log.debug do
+          "authentication failed for user \"#{context.username}\": " \
+          "Could not decode token - #{ex.message}"
+        end
       rescue ex : JWT::VerificationError
-        Log.debug { "authentication failed for user \"#{context.username}\": " \
-                    "Token verification failed - #{ex.message}" }
+        Log.debug do
+          "authentication failed for user \"#{context.username}\": " \
+          "Token verification failed - #{ex.message}"
+        end
       rescue ex : Exception
         Log.error(exception: ex) { "authentication failed for user \"#{context.username}\": #{ex.message}" }
       end
