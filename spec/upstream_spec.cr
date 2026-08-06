@@ -558,14 +558,14 @@ describe LavinMQ::Federation::Upstream do
     end
 
     {% for descr, v in {nil: nil, empty: ""} %}
-    describe "when @exchange is {{descr}}" do
+    describe "when @exchange is {{ descr }}" do
       it "should use downstream exchange name as upstream exchange" do
         with_amqp_server do |s|
           vhost = s.vhosts["/"]
 
           vhost.declare_exchange("ex1", "topic", true, false)
 
-          upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{v}})
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{ v }})
           link1 = upstream.link(vhost.exchange("ex1"))
 
           link1.@upstream_exchange.should eq "ex1"

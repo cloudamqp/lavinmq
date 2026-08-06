@@ -34,19 +34,3 @@ Documentation/DocumentationAdmonition:
 # also cover USR1/USR2/SEGV, so they're Unix-only anyway.
 Lint/SignalTrap:
   Enabled: false
-
-# ---------------------------------------------------------------------------
-# Ameba 1.6.4 -> 1.7.0-dev upgrade backlog (291 problems)
-#
-# Ameba 1.6.4 doesn't compile on Crystal 1.21, so the dependency tracks master
-# until 1.7.0 is released. Everything below is pre-existing code that the newer
-# ameba flags; none of it is Crystal 1.21 related. Parked here so there is one
-# place to work through in follow-up PRs.
-# Run `ameba --only <Rule>` for details on any single entry.
-# ---------------------------------------------------------------------------
-
-# Rules that don't exist in 1.6.4 at all (254 problems).
-# Disabled wholesale -- these have never run against this code base.
-
-Lint/WhitespaceAroundMacroExpression: # 46 problems
-  Enabled: false
