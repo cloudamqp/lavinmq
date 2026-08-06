@@ -34,7 +34,8 @@ module LavinMQ
             parse_permissions(pull)
           when "tags"
             @tags = Tag.parse_list(pull.read_string)
-          else nil
+          else
+            pull.skip # unknown keys must still be consumed, or read_object fails
           end
         end
         raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -140,7 +141,7 @@ module LavinMQ
             when "config" then config = Regex.from_json(pull)
             when "read"   then read = Regex.from_json(pull)
             when "write"  then write = Regex.from_json(pull)
-            else               nil
+            else               pull.skip
             end
           end
           @permissions[vhost] = {config: config, read: read, write: write}
