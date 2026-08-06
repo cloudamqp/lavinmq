@@ -98,7 +98,6 @@ module LavinMQ
         (@prefetch / 2).ceil.to_i
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def open_channel
         @ch.try &.close
         conn = @conn || raise "Connection not established"

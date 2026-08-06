@@ -219,7 +219,6 @@ module LavinMQ
         vhosts.to_a
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/metrics" do |context, _|
           context.response.content_type = "text/plain"

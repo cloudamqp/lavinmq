@@ -81,15 +81,3 @@ Lint/SignalTrap: # 3 problems
 
 Lint/VoidOutsideLib: # 1 problem
   Enabled: false
-
-# Rules that already ran under 1.6.4 but detect more in 1.7.0-dev (37 problems).
-# Kept enabled so they still guard the rest of the tree; only the files that
-# regressed are excluded.
-
-Lint/UnneededDisableDirective: # 5 problems
-  Excluded:
-  - src/lavinmq/amqp/argument/dead_lettering.cr
-  - src/lavinmq/amqp/queue/queue.cr
-  - src/lavinmq/http/controller/prometheus.cr
-  - src/lavinmq/http/controller/static.cr
-  - src/lavinmq/shovel/amqp_source.cr
