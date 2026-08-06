@@ -140,49 +140,10 @@ module LavinMQ::AMQP
     private def message_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        select
-        when @consumers_empty.when_true.receive
-          @log.debug { "Consumers empty" }
-        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
-          @log.debug { "Idle timeout while waiting for consumers empty, stopping fiber" }
-          break
-        end
-
-        select
-        when @msg_store.empty.when_false.receive
-          @log.debug { "Message store not empty" }
-        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
-          @log.debug { "Idle timeout while waiting for messages, stopping fiber" }
-          break
-        end
-
+        break unless wait_for_consumers_empty
+        break unless wait_for_messages
         next unless @consumers.empty?
-        if ttl = time_to_message_expiration
-          @log.debug { "Next message TTL: #{ttl}" }
-          select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive # might be empty now (from basic get)
-            @log.debug { "Message store is empty" }
-          when @consumers_empty.when_false.receive
-            @log.debug { "Got consumers" }
-          when timeout ttl
-            @log.debug { "Message TTL reached" }
-            expire_messages
-          end
-        else
-          # first message in queue should not be expired
-          # wait for empty queue or TTL change
-          select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive
-            @log.debug { "Msg store is empty" }
-          when timeout EXPIRE_FIBER_IDLE_THRESHOLD
-            @log.debug { "Idle timeout while no messages need expiring, stopping fiber" }
-            break
-          end
-        end
+        break unless wait_for_message_expiration
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -192,6 +153,63 @@ module LavinMQ::AMQP
     ensure
       @message_expire_fiber_active.set(false, :release)
       ensure_expire_fiber # restart if msg arrived during teardown
+    end
+
+    # The wait_for_* helpers below return false once the fiber has been idle
+    # long enough to stop, and true when the loop should keep going.
+
+    private def wait_for_consumers_empty : Bool
+      select
+      when @consumers_empty.when_true.receive
+        @log.debug { "Consumers empty" }
+        true
+      when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+        @log.debug { "Idle timeout while waiting for consumers empty, stopping fiber" }
+        false
+      end
+    end
+
+    private def wait_for_messages : Bool
+      select
+      when @msg_store.empty.when_false.receive
+        @log.debug { "Message store not empty" }
+        true
+      when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+        @log.debug { "Idle timeout while waiting for messages, stopping fiber" }
+        false
+      end
+    end
+
+    private def wait_for_message_expiration : Bool
+      if ttl = time_to_message_expiration
+        @log.debug { "Next message TTL: #{ttl}" }
+        select
+        when @message_ttl_change.receive
+          @log.debug { "Message TTL changed" }
+        when @msg_store.empty.when_true.receive # might be empty now (from basic get)
+          @log.debug { "Message store is empty" }
+        when @consumers_empty.when_false.receive
+          @log.debug { "Got consumers" }
+        when timeout ttl
+          @log.debug { "Message TTL reached" }
+          expire_messages
+        end
+        true
+      else
+        # first message in queue should not be expired
+        # wait for empty queue or TTL change
+        select
+        when @message_ttl_change.receive
+          @log.debug { "Message TTL changed" }
+          true
+        when @msg_store.empty.when_true.receive
+          @log.debug { "Msg store is empty" }
+          true
+        when timeout EXPIRE_FIBER_IDLE_THRESHOLD
+          @log.debug { "Idle timeout while no messages need expiring, stopping fiber" }
+          false
+        end
+      end
     end
 
     getter name, arguments, vhost
