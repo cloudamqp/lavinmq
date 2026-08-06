@@ -30,6 +30,11 @@ Lint/NotNil:
 Documentation/DocumentationAdmonition:
   Enabled: false
 
+# `Process.on_terminate` only buys Windows portability, and the signal traps
+# also cover USR1/USR2/SEGV, so they're Unix-only anyway.
+Lint/SignalTrap:
+  Enabled: false
+
 # ---------------------------------------------------------------------------
 # Ameba 1.6.4 -> 1.7.0-dev upgrade backlog (291 problems)
 #
@@ -74,7 +79,4 @@ Lint/AssignmentInCallArgument: # 6 problems
   Enabled: false
 
 Style/MultilineCurlyBlock: # 5 problems
-  Enabled: false
-
-Lint/SignalTrap: # 3 problems
   Enabled: false
