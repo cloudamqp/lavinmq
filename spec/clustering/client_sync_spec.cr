@@ -3,6 +3,85 @@ require "lz4"
 
 module ClientSyncSpec
   extend ClusteringSpecHelper
+  # `extend` only copies methods, not the module's nested types.
+  alias TestClient = ClusteringSpecHelper::TestClient
+
+  # Runs one file-list comparison pass against a leader offering `leader_files`,
+  # with `resync` picking the reconnect variant (see TestClient).
+  def self.sync_with_leader(client : TestClient, leader_files : Hash(String, String), resync = false)
+    server_io, client_io = UNIXSocket.pair
+    lz4_reader = Compress::LZ4::Reader.new(client_io)
+    done = Channel(Nil).new
+    spawn do
+      simulate_leader(server_io, leader_files)
+      done.send nil
+    end
+    if resync
+      client.resync_files_public(client_io, lz4_reader)
+    else
+      client.sync_files_public(client_io, lz4_reader)
+    end
+    select
+    when done.receive
+    when timeout(1.second)
+      raise "leader fiber timed out"
+    end
+  ensure
+    server_io.try &.close
+    client_io.try &.close
+  end
+
+  # One replication record: a negative length appends, a positive one replaces.
+  def self.write_record(lz4 : Compress::LZ4::Writer, filename : String, len : Int64, bytes : Bytes)
+    lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+    lz4.write filename.to_slice
+    lz4.write_bytes len, IO::ByteFormat::LittleEndian
+    lz4.write bytes
+    lz4.flush
+  end
+
+  # Bytes the follower acks for a whole record: framing plus payload.
+  def self.record_size(filename : String, payload_size : Int) : Int64
+    (sizeof(Int32) + filename.bytesize + sizeof(Int64) + payload_size).to_i64
+  end
+
+  def self.read_acks(io : IO, target : Int64)
+    io.read_timeout = 2.seconds
+    acked = 0i64
+    while acked < target
+      acked += io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+    end
+    acked.should eq target
+  end
+
+  # follow() was never called in this harness, so satisfy close's follower-done
+  # handshake ourselves.
+  def self.close_client(client : TestClient)
+    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+    client.close
+  end
+
+  def self.persisted_checksums(data_dir : String) : Hash(String, String)
+    path = File.join(data_dir, "checksums.sha1")
+    return Hash(String, String).new unless File.exists?(path)
+    File.read_lines(path).to_h do |line|
+      hash, _, filename = line.partition(" *")
+      {filename, hash} # a later line wins, as in Checksums#restore
+    end
+  end
+
+  # Every line in checksums.sha1 must be the hash of what's on disk right now:
+  # one that isn't makes the next sync throw the file away and re-fetch it from
+  # the leader. Returns them for further assertions.
+  def self.checksums_matching_disk(data_dir : String) : Hash(String, String)
+    checksums = persisted_checksums(data_dir)
+    checksums.each do |filename, hash|
+      path = File.join(data_dir, filename)
+      File.exists?(path).should be_true, "checksum for missing file #{filename}"
+      hash.should eq Digest::SHA1.digest(File.read(path)).hexstring
+    end
+    checksums
+  end
 
   describe LavinMQ::Clustering::Client do
     describe "stream_changes" do
@@ -615,6 +694,227 @@ module ClientSyncSpec
           checksums_file = File.join(data_dir, "checksums.sha1")
           File.exists?(checksums_file).should be_true
           File.read(checksums_file).should contain "queue1/messages.dat"
+        end
+      end
+    end
+
+    # A digest that didn't start at byte 0 of the file covers only the bytes it
+    # saw, so persisting it as that file's checksum makes the next sync mismatch
+    # and re-fetch a file the follower already has.
+    describe "checksums persisted on close" do
+      it "persists no checksum for a file appended to after sync" do
+        with_datadir do |data_dir|
+          filename = "queue1/msgs.0000000001"
+          Dir.mkdir_p File.join(data_dir, "queue1")
+          File.write File.join(data_dir, filename), "hello"
+
+          client = make_client(data_dir)
+          # Sync first, so the file's pre-append hash is known and persisted.
+          sync_with_leader(client, {filename => "hello"})
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          payload = " world"
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+
+          client_socket.close
+          close_client(client)
+
+          File.read(File.join(data_dir, filename)).should eq "hello world"
+          # Dropped when the append arrived, so the next sync re-hashes the file
+          # locally instead of trusting the hash of just the appended bytes.
+          checksums_matching_disk(data_dir).has_key?(filename).should be_false
+        end
+      end
+
+      it "persists the checksum of a file it created by appending" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          # The file doesn't exist locally, so the digest sees all of it — over
+          # both records.
+          filename = "queue1/msgs.0000000001"
+          {"abc", "def"}.each do |payload|
+            write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+            read_acks(leader_io, record_size(filename, payload.bytesize))
+          end
+
+          client_socket.close
+          close_client(client)
+
+          File.read(File.join(data_dir, filename)).should eq "abcdef"
+          checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("abcdef").hexstring
+        end
+      end
+
+      it "persists the checksum of a replaced file" do
+        with_datadir do |data_dir|
+          filename = "definitions.amqp"
+          File.write File.join(data_dir, filename), "old content"
+
+          client = make_client(data_dir)
+          sync_with_leader(client, {filename => "old content"})
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          content = "brand new content"
+          write_record(lz4_writer, filename, content.bytesize.to_i64, content.to_slice)
+          read_acks(leader_io, record_size(filename, content.bytesize))
+
+          client_socket.close
+          close_client(client)
+
+          checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest(content).hexstring
+        end
+      end
+
+      # The digest of an aborted replace covers content that was never installed,
+      # so it must not become the file's checksum; the old file is still on disk
+      # and keeps its own (matching) hash.
+      it "keeps the old checksum when a replace never completes" do
+        with_datadir do |data_dir|
+          filename = "definitions.amqp"
+          File.write File.join(data_dir, filename), "old content"
+
+          client = make_client(data_dir)
+          sync_with_leader(client, {filename => "old content"})
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          stream_done = Channel(Nil).new(1)
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          ensure
+            stream_done.send nil
+          end
+
+          # Announce twice the bytes we send, then hang up: the replace writes a
+          # partial .tmp file and raises before renaming it into place.
+          content = "new content"
+          write_record(lz4_writer, filename, (content.bytesize * 2).to_i64, content.to_slice)
+          leader_io.close
+
+          select
+          when stream_done.receive
+          when timeout(2.seconds)
+            fail "stream fiber did not exit"
+          end
+
+          close_client(client)
+
+          File.read(File.join(data_dir, filename)).should eq "old content"
+          checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("old content").hexstring
+        end
+      end
+
+      # checksums.sha1 is carried across restarts wholesale (restore, then store
+      # at shutdown), so a line for a file that's been deleted would never leave
+      # it again.
+      it "drops the checksum of a file the sync deleted" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "gone_from_leader"
+          payload = "data"
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          read_acks(leader_io, record_size(filename, payload.bytesize))
+          client_socket.close
+
+          # Reconnect to a leader that no longer has the file: the sync sweeps it.
+          sync_with_leader(client, {} of String => String, resync: true)
+          File.exists?(File.join(data_dir, filename)).should be_false
+
+          close_client(client)
+          checksums_matching_disk(data_dir).has_key?(filename).should be_false
+        end
+      end
+    end
+
+    # The open append handles and running digests belong to one connection: a
+    # sync deletes and re-fetches local files that don't match the leader, so
+    # anything held over from the previous connection can describe an inode
+    # that's no longer at that path.
+    describe "state carried across a re-sync" do
+      it "appends to the file the re-sync installed, not the replaced inode" do
+        with_datadir do |data_dir|
+          filename = "queue1/msgs.0000000001"
+          Dir.mkdir_p File.join(data_dir, "queue1")
+          File.write File.join(data_dir, filename), "old"
+
+          client = make_client(data_dir)
+          sync_with_leader(client, {filename => "old"})
+
+          # Stream an append, which leaves an open handle on the current inode.
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          write_record(lz4_writer, filename, -1i64, "A".to_slice)
+          read_acks(leader_io, record_size(filename, 1))
+          File.read(File.join(data_dir, filename)).should eq "oldA"
+          client_socket.close
+
+          # Reconnect to a leader whose copy differs: the sync unlinks our file
+          # and re-fetches it, so the path now points at a new inode.
+          sync_with_leader(client, {filename => "new"}, resync: true)
+          File.read(File.join(data_dir, filename)).should eq "new"
+
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn(name: "client stream_changes after resync") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          write_record(lz4_writer, filename, -1i64, "B".to_slice)
+          read_acks(leader_io, record_size(filename, 1))
+
+          # A stale handle would have sent this into the unlinked inode, where
+          # it's invisible — and acked it as durable.
+          File.read(File.join(data_dir, filename)).should eq "newB"
+
+          client_socket.close
+          close_client(client)
+          checksums_matching_disk(data_dir)
         end
       end
     end
