@@ -36,7 +36,7 @@ module LavinMQ
             connack io, false, Protocol::Connack::ReturnCode.new(ex.return_code)
           end
           socket.close
-        rescue ex : ::IO::EOFError
+        rescue ::IO::EOFError
           socket.close
         rescue ex
           logger.warn { "Received invalid Connect packet: #{ex.inspect}" }

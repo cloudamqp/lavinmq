@@ -324,11 +324,11 @@ module LavinMQ
           @followers << follower # Starts in Syncing state
         end
         sync_and_serve(follower)
-      rescue ex : AuthenticationError
+      rescue AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
         Log.warn { ex.message }
-      rescue ex : IO::EOFError
+      rescue IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
         Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }

@@ -59,7 +59,7 @@ module LavinMQ
             @server.users
               .add_permission(u.name, vhost.name, Regex.new(config), Regex.new(read), Regex.new(write))
             context.response.status_code = is_update ? 204 : 201
-          rescue ex : ArgumentError
+          rescue ArgumentError
             bad_request(context, "Permissions must be valid Regex")
           end
         end

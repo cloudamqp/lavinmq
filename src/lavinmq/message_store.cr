@@ -638,7 +638,7 @@ module LavinMQ
         next if deleted?(seg, pos)
         @bytesize += bytesize
         @size += 1
-      rescue ex : IO::EOFError
+      rescue IO::EOFError
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
