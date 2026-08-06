@@ -117,8 +117,10 @@ module LavinMQ
               break
             when event = @state_changed.receive?
               break if stop_link?(event)
-              @log.debug { "#wait_before_reconnect @state_changed.received? triggerd " \
-                           "@state_changed.closed?=#{@state_changed.closed?}" }
+              @log.debug do
+                "#wait_before_reconnect @state_changed.received? triggerd " \
+                "@state_changed.closed?=#{@state_changed.closed?}"
+              end
             end
           end
         end
