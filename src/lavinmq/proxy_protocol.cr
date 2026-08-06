@@ -31,8 +31,6 @@ module LavinMQ
         ProxyProtocol::V1.parse(io)
       elsif header_prefix?(peeked, ProxyProtocol::V2::Signature.to_slice)
         ProxyProtocol::V2.parse(io)
-      else
-        nil
       end
     ensure
       io.read_timeout = nil
