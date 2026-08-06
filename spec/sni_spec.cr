@@ -129,22 +129,22 @@ describe LavinMQ::Config do
 
     # Create a test config file
     config_content = <<-INI
-    [main]
-    data_dir = /tmp/lavinmq-sni-spec
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
 
-    [sni:example.com]
-    tls_cert = spec/resources/server_certificate.pem
-    tls_key = spec/resources/server_key.pem
-    tls_min_version = 1.2
-    tls_verify_peer = false
+      [sni:example.com]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_min_version = 1.2
+      tls_verify_peer = false
 
-    [sni:mtls.example.com]
-    tls_cert = spec/resources/server_certificate.pem
-    tls_key = spec/resources/server_key.pem
-    tls_verify_peer = true
-    tls_ca_cert = spec/resources/ca_certificate.pem
-    http_tls_verify_peer = false
-    INI
+      [sni:mtls.example.com]
+      tls_cert = spec/resources/server_certificate.pem
+      tls_key = spec/resources/server_key.pem
+      tls_verify_peer = true
+      tls_ca_cert = spec/resources/ca_certificate.pem
+      http_tls_verify_peer = false
+      INI
 
     config_file = File.tempname("lavinmq", ".ini")
     File.write(config_file, config_content)
@@ -189,17 +189,17 @@ describe LavinMQ::Config do
     config.data_dir = "/tmp/lavinmq-sni-spec"
 
     config_content = <<-INI
-    [main]
-    data_dir = /tmp/lavinmq-sni-spec
+      [main]
+      data_dir = /tmp/lavinmq-sni-spec
 
-    [sni:*.example.com]
-    tls_cert = spec/resources/wildcard_example_certificate.pem
-    tls_key = spec/resources/wildcard_example_key.pem
+      [sni:*.example.com]
+      tls_cert = spec/resources/wildcard_example_certificate.pem
+      tls_key = spec/resources/wildcard_example_key.pem
 
-    [sni:test.example.com]
-    tls_cert = spec/resources/foobar_localhost_certificate.pem
-    tls_key = spec/resources/foobar_localhost_key.pem
-    INI
+      [sni:test.example.com]
+      tls_cert = spec/resources/foobar_localhost_certificate.pem
+      tls_key = spec/resources/foobar_localhost_key.pem
+      INI
 
     config_file = File.tempname("lavinmq", ".ini")
     File.write(config_file, config_content)
