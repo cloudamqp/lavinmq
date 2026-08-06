@@ -59,7 +59,6 @@ module LavinMQ::AMQP
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
 
-        # ameba:disable Metrics/CyclomaticComplexity
         def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           return routed.call unless dlx = (msg.dlx || dlx())

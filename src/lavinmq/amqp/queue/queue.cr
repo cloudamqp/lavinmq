@@ -622,7 +622,6 @@ module LavinMQ::AMQP
       publish_internal(msg)
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
