@@ -756,17 +756,17 @@ describe LavinMQ::Config do
 
   describe "tcp_proxy_protocol" do
     {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
-      it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do
+      it "sets tcp_proxy_protocol to {{ expected }} when value is {{ value }}" do
         config_file = File.tempfile do |file|
           file.print <<-CONFIG
                 [amqp]
-                tcp_proxy_protocol = {{value}}
+                tcp_proxy_protocol = {{ value }}
               CONFIG
         end
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
-        config.tcp_proxy_protocol?.should eq {{expected}}
+        config.tcp_proxy_protocol?.should eq {{ expected }}
       end
     {% end %}
   end
