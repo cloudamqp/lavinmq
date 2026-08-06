@@ -210,6 +210,29 @@ describe LavinMQ::Server do
       end
     end
 
+    it "should ignore unknown keys in users.json" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "alan",
+              "password_hash": "",
+              "hashing_algorithm": null,
+              "tags": "",
+              "permissions": {"/": {"config": ".*", "read": ".*", "write": ".*", "future": 1}},
+              "future_field": {"nested": [1, 2]}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["alan"]?
+        u.should_not be_nil
+        u.not_nil!.permissions["/"][:config].should eq /.*/
+      end
+    end
+
     it "should reload successfully after a passwordless user was created via the HTTP API" do
       with_http_server do |http, s|
         response = http.put("/api/users/alan", body: %({"password_hash": ""}))
