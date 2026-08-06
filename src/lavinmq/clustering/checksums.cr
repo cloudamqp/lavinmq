@@ -27,7 +27,7 @@ module LavinMQ
         File.rename(tmp, checksums_path)
         @checksum_file.close
         @checksum_file = f
-        Log.info { "Wrote #{self.size} checksums to disk" }
+        Log.info { "Wrote #{size} checksums to disk" }
       end
 
       # Set in memory AND persist immediately by appending one line, so hashing
@@ -55,7 +55,7 @@ module LavinMQ
         # next clean store must not reload these (possibly stale) hashes.
         # Truncate rather than delete so @checksum_file stays valid for #append.
         @checksum_file.truncate(0)
-        Log.info { "Restored #{self.size} checksums from disk" }
+        Log.info { "Restored #{size} checksums from disk" }
       rescue File::NotFoundError
         Log.info { "Checksums not found" }
       end

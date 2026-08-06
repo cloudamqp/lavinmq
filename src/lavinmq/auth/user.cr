@@ -50,7 +50,7 @@ module LavinMQ
 
       def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
         pwd = hash_password(password, hash_algorithm)
-        self.new(name, pwd, tags)
+        new(name, pwd, tags)
       end
 
       def self.hash_password(password, hash_algorithm)
@@ -91,7 +91,7 @@ module LavinMQ
       def self.create_hidden_user(name)
         password = Random::Secure.urlsafe_base64(32)
         password_hash = hash_password(password, "sha256")
-        user = self.new(name, password_hash, [Tag::Administrator])
+        user = new(name, password_hash, [Tag::Administrator])
         user.plain_text_password = password
         user
       end

@@ -19,7 +19,7 @@ module LavinMQ
         no_wait: true,
         arguments: arguments
       )
-      self.make(vhost, frame)
+      make(vhost, frame)
     end
   end
 end

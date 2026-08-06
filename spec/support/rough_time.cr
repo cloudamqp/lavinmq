@@ -43,9 +43,9 @@ module RoughTime
   end
 
   def self.paused(&)
-    self.pause
+    pause
     yield self
   ensure
-    self.resume
+    resume
   end
 end
