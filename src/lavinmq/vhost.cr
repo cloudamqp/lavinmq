@@ -541,7 +541,7 @@ module LavinMQ
       FileUtils.rm_rf @data_dir
     end
 
-    def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
+    def apply_policies(resources : Array(Queue | Exchange)? = nil)
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       if r = resources

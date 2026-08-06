@@ -244,7 +244,7 @@ module LavinMQ::AMQP
       end
     end
 
-    private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
+    private def parse_max_age(value) : (Time::Span | Time::MonthSpan)?
       return if value.nil?
       if str = value.as?(String)
         if match = str.match(/\A(\d+)([YMDhms])\z/)

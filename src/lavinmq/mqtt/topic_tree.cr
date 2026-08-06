@@ -28,11 +28,11 @@ module LavinMQ
         end
       end
 
-      def []?(topic : String) : (TEntity | Nil)
+      def []?(topic : String) : TEntity?
         self[StringTokenIterator.new(topic, '/')]?
       end
 
-      def []?(topic : StringTokenIterator) : (TEntity | Nil)
+      def []?(topic : StringTokenIterator) : TEntity?
         current = topic.next
         if topic.next?
           return unless @sublevels.has_key?(current)
