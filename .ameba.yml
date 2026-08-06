@@ -48,9 +48,6 @@ Lint/SignalTrap:
 # Rules that don't exist in 1.6.4 at all (254 problems).
 # Disabled wholesale -- these have never run against this code base.
 
-Style/MultilineStringLiteral: # 79 problems
-  Enabled: false
-
 Lint/WhitespaceAroundMacroExpression: # 46 problems
   Enabled: false
 

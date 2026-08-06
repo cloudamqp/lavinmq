@@ -200,28 +200,30 @@ describe LavinMQ::HTTP::Server do
 
     it "imports users" do
       with_http_server do |http, s|
-        body = %({
-        "users":[{
-          "name":"sha256",
-          "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
-          "hashing_algorithm":"rabbit_password_hashing_sha256","tags":[]
-        },
-        {
-          "name":"sha512",
-          "password_hash":"wiwLjmFjJauaeABIerBxpPx2548gydUaqj9wpxyeio7+gmye+/KuGaLeAqrV1Tx1pk6bwYGR0gHMx+whOqxD6Q",
-          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":[]
-        },
-        {
-          "name":"bcrypt",
-          "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-          "hashing_algorithm":"Bcrypt","tags":[]
-        },
-        {
-          "name":"md5",
-          "password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==",
-          "hashing_algorithm":"rabbit_password_hashing_md5","tags":[]
-        }]
-      })
+        body = <<-JSON
+          {
+            "users":[{
+              "name":"sha256",
+              "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
+              "hashing_algorithm":"rabbit_password_hashing_sha256","tags":[]
+            },
+            {
+              "name":"sha512",
+              "password_hash":"wiwLjmFjJauaeABIerBxpPx2548gydUaqj9wpxyeio7+gmye+/KuGaLeAqrV1Tx1pk6bwYGR0gHMx+whOqxD6Q",
+              "hashing_algorithm":"rabbit_password_hashing_sha512","tags":[]
+            },
+            {
+              "name":"bcrypt",
+              "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+              "hashing_algorithm":"Bcrypt","tags":[]
+            },
+            {
+              "name":"md5",
+              "password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==",
+              "hashing_algorithm":"rabbit_password_hashing_md5","tags":[]
+            }]
+          }
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         {"sha256", "sha512", "bcrypt", "md5"}.each do |name|
@@ -365,24 +367,26 @@ describe LavinMQ::HTTP::Server do
         s.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
         s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
         s.vhosts["/"].declare_queue("import_q1", false, true)
-        body = %({ "bindings": [
-        {
-          "source": "import_x1",
-          "vhost": "/",
-          "destination": "import_x2",
-          "destination_type": "exchange",
-          "routing_key": "r.k2",
-          "arguments": {}
-        },
-        {
-          "source": "import_x1",
-          "vhost": "/",
-          "destination": "import_q1",
-          "destination_type": "queue",
-          "routing_key": "rk",
-          "arguments": {}
-        }
-      ]})
+        body = <<-JSON
+          { "bindings": [
+            {
+              "source": "import_x1",
+              "vhost": "/",
+              "destination": "import_x2",
+              "destination_type": "exchange",
+              "routing_key": "r.k2",
+              "arguments": {}
+            },
+            {
+              "source": "import_x1",
+              "vhost": "/",
+              "destination": "import_q1",
+              "destination_type": "queue",
+              "routing_key": "rk",
+              "arguments": {}
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
@@ -405,15 +409,17 @@ describe LavinMQ::HTTP::Server do
     it "imports permissions" do
       with_http_server do |http, s|
         s.users.create("u1", "")
-        body = %({ "permissions": [
-        {
-          "user": "u1",
-          "vhost": "/",
-          "configure": "c",
-          "write": "w",
-          "read": "r"
-        }
-      ]})
+        body = <<-JSON
+          { "permissions": [
+            {
+              "user": "u1",
+              "vhost": "/",
+              "configure": "c",
+              "write": "w",
+              "read": "r"
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         s.users["u1"].permissions["/"][:write].should eq(/w/)
@@ -422,18 +428,20 @@ describe LavinMQ::HTTP::Server do
 
     it "imports policies" do
       with_http_server do |http, s|
-        body = %({ "policies": [
-        {
-          "name": "import_p1",
-          "vhost": "/",
-          "apply-to": "queues",
-          "priority": 1,
-          "pattern": "^.*",
-          "definition": {
-            "x-max-length": 10
-          }
-        }
-      ]})
+        body = <<-JSON
+          { "policies": [
+            {
+              "name": "import_p1",
+              "vhost": "/",
+              "apply-to": "queues",
+              "priority": 1,
+              "pattern": "^.*",
+              "definition": {
+                "x-max-length": 10
+              }
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         s.vhosts["/"].policies.has_key?("import_p1").should be_true
@@ -442,19 +450,21 @@ describe LavinMQ::HTTP::Server do
 
     it "imports parameters" do
       with_http_server do |http, s|
-        body = %({ "parameters": [
-          {
-            "name": "import_shovel_param",
-            "component": "shovel",
-            "vhost": "/",
-            "value": {
-              "src-uri": "#{s.amqp_server.url}",
-              "src-queue": "shovel_will_declare_q1",
-              "dest-uri": "#{s.amqp_server.url}",
-              "dest-queue": "shovel_will_declare_q1"
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "import_shovel_param",
+              "component": "shovel",
+              "vhost": "/",
+              "value": {
+                "src-uri": "#{s.amqp_server.url}",
+                "src-queue": "shovel_will_declare_q1",
+                "dest-uri": "#{s.amqp_server.url}",
+                "dest-queue": "shovel_will_declare_q1"
+              }
             }
-          }
-        ]})
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         # Because we run shovels in a new Fiber we have to make sure the shovel is not started
@@ -475,30 +485,32 @@ describe LavinMQ::HTTP::Server do
         # overflows Int8 and raises while parsing. Entries are validated up front,
         # so a malformed entry makes the whole import a clean no-op: the shovel
         # before it is neither applied in memory nor written to disk.
-        body = %({ "parameters": [
-          {
-            "name": "regression_shovel_2073",
-            "component": "shovel",
-            "vhost": "/",
-            "value": {
-              "src-uri": "#{s.amqp_server.url}",
-              "src-queue": "regression_q_2073",
-              "dest-uri": "#{s.amqp_server.url}",
-              "dest-queue": "regression_q_2073"
+        body = <<-JSON
+          { "parameters": [
+            {
+              "name": "regression_shovel_2073",
+              "component": "shovel",
+              "vhost": "/",
+              "value": {
+                "src-uri": "#{s.amqp_server.url}",
+                "src-queue": "regression_q_2073",
+                "dest-uri": "#{s.amqp_server.url}",
+                "dest-queue": "regression_q_2073"
+              }
+            },
+            {
+              "name": "regression_op_2073",
+              "component": "operator_policy",
+              "vhost": "/",
+              "value": {
+                "pattern": "^.*",
+                "apply-to": "queues",
+                "priority": 999,
+                "definition": { "max-length": 10 }
+              }
             }
-          },
-          {
-            "name": "regression_op_2073",
-            "component": "operator_policy",
-            "vhost": "/",
-            "value": {
-              "pattern": "^.*",
-              "apply-to": "queues",
-              "priority": 999,
-              "definition": { "max-length": 10 }
-            }
-          }
-        ]})
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         vhost = s.vhosts["/"]
@@ -513,24 +525,26 @@ describe LavinMQ::HTTP::Server do
         # A valid policy followed by one with priority > 127, which overflows Int8
         # while parsing. The whole import is a clean no-op: the first policy is
         # neither applied in memory nor written to disk.
-        body = %({ "policies": [
-          {
-            "name": "regression_policy_2073",
-            "vhost": "/",
-            "pattern": "^.*",
-            "apply-to": "queues",
-            "priority": 1,
-            "definition": { "max-length": 10 }
-          },
-          {
-            "name": "regression_bad_policy_2073",
-            "vhost": "/",
-            "pattern": "^.*",
-            "apply-to": "queues",
-            "priority": 999,
-            "definition": { "max-length": 10 }
-          }
-        ]})
+        body = <<-JSON
+          { "policies": [
+            {
+              "name": "regression_policy_2073",
+              "vhost": "/",
+              "pattern": "^.*",
+              "apply-to": "queues",
+              "priority": 1,
+              "definition": { "max-length": 10 }
+            },
+            {
+              "name": "regression_bad_policy_2073",
+              "vhost": "/",
+              "pattern": "^.*",
+              "apply-to": "queues",
+              "priority": 999,
+              "definition": { "max-length": 10 }
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         vhost = s.vhosts["/"]
@@ -542,12 +556,14 @@ describe LavinMQ::HTTP::Server do
 
     it "imports global parameters" do
       with_http_server do |http, s|
-        body = %({ "global_parameters": [
-        {
-          "name": "global_p1",
-          "value": {}
-        }
-      ]})
+        body = <<-JSON
+          { "global_parameters": [
+            {
+              "name": "global_p1",
+              "value": {}
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         s.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
@@ -579,13 +595,15 @@ describe LavinMQ::HTTP::Server do
 
     it "should return sensible error for invalid password hash" do
       with_http_server do |http, _|
-        body = %({
-          "users": [{
-            "name": "testuser",
-            "password_hash": "invalid_hash",
-            "tags": "administrator"
-          }]
-        })
+        body = <<-JSON
+          {
+            "users": [{
+              "name": "testuser",
+              "password_hash": "invalid_hash",
+              "tags": "administrator"
+            }]
+          }
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 400
         error_body = JSON.parse(response.body)
@@ -876,24 +894,26 @@ describe LavinMQ::HTTP::Server do
         s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
         s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
         s.vhosts["/"].declare_queue("import_q1", false, true)
-        body = %({ "bindings": [
-        {
-          "source": "import_x1",
-          "vhost": "/",
-          "destination": "import_x2",
-          "destination_type": "exchange",
-          "routing_key": "r.k2",
-          "arguments": {}
-        },
-        {
-          "source": "import_x1",
-          "vhost": "/",
-          "destination": "import_q1",
-          "destination_type": "queue",
-          "routing_key": "rk",
-          "arguments": {}
-        }
-      ]})
+        body = <<-JSON
+          { "bindings": [
+            {
+              "source": "import_x1",
+              "vhost": "/",
+              "destination": "import_x2",
+              "destination_type": "exchange",
+              "routing_key": "r.k2",
+              "arguments": {}
+            },
+            {
+              "source": "import_x1",
+              "vhost": "/",
+              "destination": "import_q1",
+              "destination_type": "queue",
+              "routing_key": "rk",
+              "arguments": {}
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
@@ -915,18 +935,20 @@ describe LavinMQ::HTTP::Server do
 
     it "imports policies" do
       with_http_server do |http, s|
-        body = %({ "policies": [
-        {
-          "name": "import_p1",
-          "vhost": "/",
-          "apply-to": "queues",
-          "priority": 1,
-          "pattern": "^.*",
-          "definition": {
-            "x-max-length": 10
-          }
-        }
-      ]})
+        body = <<-JSON
+          { "policies": [
+            {
+              "name": "import_p1",
+              "vhost": "/",
+              "apply-to": "queues",
+              "priority": 1,
+              "pattern": "^.*",
+              "definition": {
+                "x-max-length": 10
+              }
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
         s.vhosts["/"].policies.has_key?("import_p1").should be_true
@@ -1071,13 +1093,15 @@ describe LavinMQ::HTTP::Server do
   it "should update existing user on import" do
     with_http_server do |http, s|
       name = "bcryptuser"
-      body = %({
-      "users":[{
-        "name":"#{name}",
-        "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-        "hashing_algorithm":"Bcrypt","tags":[]
-      }]
-    })
+      body = <<-JSON
+        {
+          "users":[{
+            "name":"#{name}",
+            "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+            "hashing_algorithm":"Bcrypt","tags":[]
+          }]
+        }
+        JSON
 
       response = http.post("/api/definitions", body: body)
       response.status_code.should eq 200
@@ -1087,13 +1111,15 @@ describe LavinMQ::HTTP::Server do
       ok = u.not_nil!.password.not_nil!.verify "hej"
       {u.name, ok}.should eq({name, true})
 
-      update_body = %({
-      "users":[{
-        "name":"#{name}",
-        "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
-        "hashing_algorithm":"Bcrypt","tags":[]
-      }]
-    })
+      update_body = <<-JSON
+        {
+          "users":[{
+            "name":"#{name}",
+            "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
+            "hashing_algorithm":"Bcrypt","tags":[]
+          }]
+        }
+        JSON
       response = http.post("/api/definitions", body: update_body)
       response.status_code.should eq 200
 
@@ -1116,13 +1142,15 @@ describe LavinMQ::HTTP::Server do
 
   it "should be able to import delayed exchanges created in LavinMQ (issue #743)" do
     with_http_server do |http, s|
-      body = %({
-        "type": "direct",
-        "durable": true,
-        "internal": false,
-        "auto_delete": false,
-        "delayed": true
-      })
+      body = <<-JSON
+        {
+          "type": "direct",
+          "durable": true,
+          "internal": false,
+          "auto_delete": false,
+          "delayed": true
+        }
+        JSON
       http.put("/api/exchanges/%2f/test-delayed", body: body)
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
