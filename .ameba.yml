@@ -78,6 +78,3 @@ Style/MultilineCurlyBlock: # 5 problems
 
 Lint/SignalTrap: # 3 problems
   Enabled: false
-
-Lint/VoidOutsideLib: # 1 problem
-  Enabled: false
