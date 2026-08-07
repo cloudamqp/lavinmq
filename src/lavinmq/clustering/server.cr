@@ -197,25 +197,38 @@ module LavinMQ
         snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
-          # The cache holds full-size hashes; a capped pass must recompute.
-          cached_hash = caps ? nil : @file_index.shared { |_files, checksums| checksums[path]? }
-          if cached_hash
+          cap = caps ? caps[path]? || 0i64 : nil
+          if cached_hash = cached_hash?(path, cap)
             yield({path, cached_hash})
           else
             filename = File.join(@data_dir, path)
             begin
+              hashed_size = 0i64
               File.open(filename) do |f|
                 size = mfile ? mfile.size : f.size.to_i64
-                size = Math.min(size, caps[path]? || 0i64) if caps
+                size = Math.min(size, cap) if cap
+                hashed_size = size.to_i64
                 sha1.update IO::Sized.new(f, size)
               end
               hash = sha1.final
               sha1.reset
-              @file_index.lock { |_files, checksums| checksums[path] = hash } unless caps
+              @file_index.lock { |_files, checksums| checksums.set(path, hash, hashed_size) } unless caps
               yield({path, hash})
             rescue File::NotFoundError
               next # File disappeared since we took the snapshot, just skip it.
             end
+          end
+        end
+      end
+
+      # Reuse a cached hash only when its recorded coverage fits: exactly
+      # `cap` bytes for a capped pass, any coverage otherwise. Checking
+      # a cap against the file's current size instead would race local writes
+      # that haven't invalidated the cache yet.
+      private def cached_hash?(path : String, cap : Int64?) : Bytes?
+        @file_index.shared do |_files, checksums|
+          if entry = checksums[path]?
+            entry.hash if cap.nil? || entry.size == cap
           end
         end
       end

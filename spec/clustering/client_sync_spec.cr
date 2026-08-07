@@ -61,27 +61,31 @@ module ClientSyncSpec
     client.close
   end
 
-  def self.persisted_checksums(data_dir : String) : Hash(String, String)
+  def self.persisted_checksums(data_dir : String) : Hash(String, {String, String})
     path = File.join(data_dir, "checksums.sha1")
-    return Hash(String, String).new unless File.exists?(path)
+    return Hash(String, {String, String}).new unless File.exists?(path)
     File.read_lines(path).to_h do |line|
-      hash, _, filename = line.partition(" *")
-      {filename, hash} # a later line wins, as in Checksums#restore
+      hash, _, rest = line.partition(" ")
+      size, _, filename = rest.partition(" *")
+      {filename, {hash, size}} # a later line wins, as in Checksums#restore
     end
   end
 
-  # Every line in checksums.sha1 must be the hash of what's on disk right now:
-  # one that isn't makes the next sync throw the file away and re-fetch it from
-  # the leader. Returns them for further assertions.
+  # Every line in checksums.sha1 must be the hash and size of what's on disk
+  # right now: one that isn't makes the next sync throw the file away and
+  # re-fetch it from the leader. Returns the hashes for further assertions.
   def self.checksums_matching_disk(data_dir : String) : Hash(String, String)
-    checksums = persisted_checksums(data_dir)
-    checksums.each do |filename, hash|
+    persisted_checksums(data_dir).to_h do |filename, (hash, size)|
       path = File.join(data_dir, filename)
       File.exists?(path).should be_true, "checksum for missing file #{filename}"
-      hash.should eq Digest::SHA1.digest(File.read(path)).hexstring
+      content = File.read(path)
+      hash.should eq Digest::SHA1.digest(content).hexstring
+      size.should eq content.bytesize.to_s
+      {filename, hash}
     end
-    checksums
   end
+
+  alias Entry = LavinMQ::Clustering::Checksums::Entry
 
   describe LavinMQ::Clustering::Client do
     describe "stream_changes" do
@@ -365,12 +369,12 @@ module ClientSyncSpec
           client = make_client(data_dir)
           client.hash_local_files_public
 
-          client.@checksums["queue1/messages.dat"]?.should eq Digest::SHA1.digest("a")
-          client.@checksums["definitions.amqp"]?.should eq Digest::SHA1.digest("b")
+          client.@checksums["queue1/messages.dat"]?.should eq Entry.new(Digest::SHA1.digest("a"), 1i64)
+          client.@checksums["definitions.amqp"]?.should eq Entry.new(Digest::SHA1.digest("b"), 1i64)
           # Persisted too, so a crash before the sync doesn't waste the work.
           checksums_file = File.read(File.join(data_dir, "checksums.sha1"))
-          checksums_file.should contain "#{Digest::SHA1.digest("a").hexstring} *queue1/messages.dat"
-          checksums_file.should contain "#{Digest::SHA1.digest("b").hexstring} *definitions.amqp"
+          checksums_file.should contain "#{Digest::SHA1.digest("a").hexstring} 1 *queue1/messages.dat"
+          checksums_file.should contain "#{Digest::SHA1.digest("b").hexstring} 1 *definitions.amqp"
         end
       end
 
@@ -392,12 +396,12 @@ module ClientSyncSpec
           File.write File.join(data_dir, "cached.dat"), "original"
           client = make_client(data_dir)
           cached = Digest::SHA1.digest("cached")
-          client.@checksums.append("cached.dat", cached)
+          client.@checksums.append("cached.dat", cached, 8i64)
 
           client.hash_local_files_public
 
           client.files_hashed.should eq 0
-          client.@checksums["cached.dat"]?.should eq cached
+          client.@checksums["cached.dat"]?.should eq Entry.new(cached, 8i64)
         end
       end
 
@@ -413,7 +417,7 @@ module ClientSyncSpec
           client.hash_local_files_public
 
           client.@checksums["unreadable.dat"]?.should be_nil
-          client.@checksums["readable.dat"]?.should eq Digest::SHA1.digest("yep")
+          client.@checksums["readable.dat"]?.should eq Entry.new(Digest::SHA1.digest("yep"), 3i64)
         end
       end
 
@@ -629,7 +633,7 @@ module ClientSyncSpec
           checksums_file = File.join(data_dir, "checksums.sha1")
           File.exists?(checksums_file).should be_true
           expected = Digest::SHA1.digest(content).hexstring
-          File.read(checksums_file).should contain "#{expected} *queue1/messages.dat"
+          File.read(checksums_file).should contain "#{expected} #{content.bytesize} *queue1/messages.dat"
         end
       end
 
@@ -660,7 +664,7 @@ module ClientSyncSpec
           checksums_file = File.join(data_dir, "checksums.sha1")
           File.exists?(checksums_file).should be_true
           expected = Digest::SHA1.digest(content).hexstring
-          File.read(checksums_file).should contain "#{expected} *queue1/messages.dat"
+          File.read(checksums_file).should contain "#{expected} #{content.bytesize} *queue1/messages.dat"
         end
       end
 
