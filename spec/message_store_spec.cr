@@ -63,6 +63,9 @@ class SpyReplicator
   def flush_isr : Nil
   end
 
+  def request_sync : Nil
+  end
+
   def wait_for_followers : Nil
   end
 

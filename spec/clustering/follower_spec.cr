@@ -689,8 +689,11 @@ module FollowerSpec
         spawn { follower.ack_loop }
 
         follower.request_sync
-        # flush_loop counts the record as it writes it
-        wait_for { follower.lag_in_bytes == record_size }
+        # Counted before request_sync returns, not when flush_loop writes it:
+        # wait_for_confirm snapshots @sent_bytes, so a record counted later
+        # could be missing from the snapshot and the fence skipped — the
+        # follower would be confirmed against bytes it never persisted.
+        follower.lag_in_bytes.should eq record_size
 
         confirmed = Channel(Bool).new(1)
         spawn { confirmed.send follower.wait_for_confirm }

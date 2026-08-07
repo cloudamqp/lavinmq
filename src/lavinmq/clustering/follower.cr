@@ -159,10 +159,7 @@ module LavinMQ
       private def flush_loop
         while request = @flush_requested.receive?
           @write_lock.synchronize do
-            unless request.empty?
-              @sent_bytes.add(request.bytesize)
-              @lz4.write request
-            end
+            @lz4.write request unless request.empty?
             @lz4.flush
           rescue IO::Error | Socket::Error
           end
@@ -186,6 +183,7 @@ module LavinMQ
       # Never touches the socket, so it's safe from the publish confirm loop's
       # isolated thread (see flush_loop).
       def request_sync : Nil
+        @sent_bytes.add(SYNC_CONTROL_PACKET.bytesize)
         @flush_requested.send(SYNC_CONTROL_PACKET)
       rescue ::Channel::ClosedError
         # Dead follower; wait_for_confirm returns false instead of waiting.

@@ -90,7 +90,7 @@ module LavinMQ
       # follower sockets itself — their fds belong to the default execution
       # context's event loop (see Follower#flush_loop).
       if Config.instance.sync?
-        @replicator.try &.followers.each &.request_sync
+        @replicator.try &.request_sync
         begin
           sync
         rescue ex

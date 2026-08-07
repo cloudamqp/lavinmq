@@ -433,6 +433,15 @@ module LavinMQ
         end
       end
 
+      # Ask every in-sync follower to persist what's been replicated to it (see
+      # Follower#request_sync). Only synced followers: a syncing one has no
+      # flush_loop draining its requests yet, and the request would block. The
+      # request itself may block, so it's made outside @lock — #followers
+      # returns its own array.
+      def request_sync : Nil
+        followers.each &.request_sync
+      end
+
       # Block until every in-sync follower has acked everything replicated so
       # far, so a durable operation may be acknowledged to a client: once
       # this returns, every node etcd lists as a failover candidate has the

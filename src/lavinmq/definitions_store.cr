@@ -394,8 +394,11 @@ module LavinMQ
         # returns (Declare-Ok etc.), so like a publish confirm it must be
         # durable on every in-sync follower first — otherwise a leader crash
         # could elect a follower lacking the acknowledged change. A follower
-        # that doesn't ack within its deadline is disconnected and its ISR
-        # removal committed before this returns.
+        # acks bytes it has received, so it's asked to persist them first and
+        # the wait covers that request's ack too. A follower that doesn't ack
+        # within its deadline is disconnected and its ISR removal committed
+        # before this returns.
+        @replicator.try &.request_sync
         @replicator.try &.wait_for_followers
       end
       if dirty

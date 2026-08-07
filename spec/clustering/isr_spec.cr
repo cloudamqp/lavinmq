@@ -65,6 +65,38 @@ private def sync_follower_with_stream(server, port, id : Int32) : {TCPSocket, Co
   {io, lz4}
 end
 
+# Acks every replicated record like a real follower — the leader's durable
+# operations block until it does — and counts the $ctrl/sync records it saw.
+# The count is bumped before the ack is written, so once a leader operation has
+# returned, the records it fenced on are already counted here: specs can assert
+# on #syncs without waiting.
+private class AckingFollower
+  @syncs = Atomic(Int32).new(0)
+
+  def initialize(@io : TCPSocket, @lz4 : Compress::LZ4::Reader)
+    spawn(name: "isr acking follower") { read_loop }
+  end
+
+  def syncs : Int32
+    @syncs.get
+  end
+
+  private def read_loop : Nil
+    loop do
+      filename_len = @lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+      next if filename_len.zero?
+      filename = @lz4.read_string(filename_len)
+      len = @lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+      @lz4.skip(len.abs) unless len.zero?
+      @syncs.add(1) if filename == LavinMQ::Clustering::SYNC_CONTROL_PATH
+      acked = (sizeof(Int32) + filename_len + sizeof(Int64) + len.abs).to_i64
+      @io.write_bytes acked, IO::ByteFormat::LittleEndian
+    end
+  rescue IO::Error
+    # socket closed at spec end
+  end
+end
+
 describe LavinMQ::Clustering::Server do
   describe "ISR maintenance on follower disconnect" do
     it "removes a follower that was behind from the ISR immediately, before the next write" do
@@ -309,34 +341,53 @@ describe LavinMQ::Clustering::Server do
           client_io = io
           wait_for { server.followers.any? &.id.== follower_id }
 
-          # Ack like a real follower (the declare and confirm below wait for it)
-          # and report the sync requests.
-          sync_requested = Channel(Nil).new(1)
-          spawn(name: "isr sync request follower") do
-            loop do
-              filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
-              next if filename_len.zero?
-              filename = lz4.read_string(filename_len)
-              len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
-              lz4.skip(len.abs) unless len.zero?
-              acked = (sizeof(Int32) + filename_len + sizeof(Int64) + len.abs).to_i64
-              io.write_bytes acked, IO::ByteFormat::LittleEndian
-              sync_requested.try_send(nil) if filename == LavinMQ::Clustering::SYNC_CONTROL_PATH
-            end
-          rescue IO::Error
-            # socket closed at spec end
-          end
+          follower = AckingFollower.new(io, lz4)
 
+          # The declare fences too, so count only what the publish adds.
           q = ch.queue("isr_sync_request", durable: true)
+          before = follower.syncs
+
           q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
 
-          # The confirm waited for every sent byte to be acked, the sync
-          # request included, so it has arrived by now.
-          select
-          when sync_requested.receive
-          when timeout(2.seconds)
-            fail "the publish confirm never asked the follower to persist"
-          end
+          # The confirm waited for every sent byte to be acked, the sync record
+          # included, so the follower has necessarily counted it by now.
+          (follower.syncs - before).should be > 0
+        end
+      end
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    # A durable definition change is acknowledged (Declare-Ok) once its frame is
+    # fsynced locally and acked by every in-sync follower — and an ack only
+    # means persisted if a sync record precedes it, exactly like a publish
+    # confirm. Without the request the Declare-Ok would go out while the
+    # follower holds the frame in its page cache only.
+    it "asks in-sync followers to persist a durable declare before acknowledging it" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr declare sync request spec")
+
+      follower_id = 12
+      client_io = nil.as(TCPSocket?)
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          io, lz4 = sync_follower_with_stream(server, tcp_server.local_address.port, follower_id)
+          client_io = io
+          wait_for { server.followers.any? &.id.== follower_id }
+
+          follower = AckingFollower.new(io, lz4)
+          ch.queue("isr_declare_sync_request", durable: true)
+
+          # The declare waited for every sent byte to be acked, the sync record
+          # included, so the follower has necessarily counted it by now.
+          follower.syncs.should be > 0
         end
       end
     ensure
