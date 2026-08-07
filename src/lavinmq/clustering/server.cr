@@ -198,7 +198,7 @@ module LavinMQ
         sha1 = Digest::SHA1.new
         snapshot.each do |path, mfile|
           cap = caps ? caps[path]? || 0i64 : nil
-          if cached_hash = cached_hash(path, cap)
+          if cached_hash = cached_hash?(path, cap)
             yield({path, cached_hash})
           else
             filename = File.join(@data_dir, path)
@@ -222,19 +222,13 @@ module LavinMQ
       end
 
       # Reuse a cached hash only when its recorded coverage fits: exactly
-      # `cap` bytes for a capped pass, any known coverage otherwise. Checking
+      # `cap` bytes for a capped pass, any coverage otherwise. Checking
       # a cap against the file's current size instead would race local writes
-      # that haven't invalidated the cache yet. A sizeless entry (restored
-      # from an old-format file) is never reused, so the uncapped pass
-      # recomputes it and it gains a size a later capped pass can trust.
-      private def cached_hash(path : String, cap : Int64?) : Bytes?
+      # that haven't invalidated the cache yet.
+      private def cached_hash?(path : String, cap : Int64?) : Bytes?
         @file_index.shared do |_files, checksums|
           if entry = checksums[path]?
-            if cap
-              entry.hash if entry.size == cap
-            elsif entry.size
-              entry.hash
-            end
+            entry.hash if cap.nil? || entry.size == cap
           end
         end
       end

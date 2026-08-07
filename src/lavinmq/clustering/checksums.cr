@@ -3,10 +3,8 @@ module LavinMQ
     class Checksums
       Log = LavinMQ::Log.for "clustering.checksums"
 
-      # `size` is the number of bytes the hash covers. Only entries restored
-      # from an old-format checksums.sha1 lack it; callers must treat those
-      # as unusable until recomputed.
-      record Entry, hash : Bytes, size : Int64?
+      # `size` is the number of bytes the hash covers.
+      record Entry, hash : Bytes, size : Int64
 
       @checksums = Hash(String, Entry).new
       # Always-open handle to checksums.sha1, kept open across rewrites so
@@ -52,11 +50,12 @@ module LavinMQ
           loop do
             hash = f.read_string(40).hexbytes
             rest = f.read_line
-            if rest.starts_with?(" *") # sizeless format: "<hash> *<path>"
-              @checksums[rest[2..]] = Entry.new(hash, nil)
-            elsif idx = rest.index(" *", 1) # sized format: "<hash> <size> *<path>"
-              size = rest[1...idx].to_i64?
-              @checksums[rest[idx + 2..]] = Entry.new(hash, size)
+            # Line format: "<hash> <size> *<path>". Old-format lines without a
+            # size are dropped; a hash with unknown coverage is unusable.
+            if idx = rest.index(" *", 1)
+              if size = rest[1...idx].to_i64?
+                @checksums[rest[idx + 2..]] = Entry.new(hash, size)
+              end
             end
           rescue IO::EOFError
             break
@@ -94,11 +93,7 @@ module LavinMQ
       end
 
       private def line(path : String, entry : Entry) : String
-        if size = entry.size
-          "#{entry.hash.hexstring} #{size} *#{path}"
-        else
-          "#{entry.hash.hexstring} *#{path}"
-        end
+        "#{entry.hash.hexstring} #{entry.size} *#{path}"
       end
 
       private def checksums_path : String

@@ -87,14 +87,14 @@ describe LavinMQ::Clustering::Checksums do
     end
   end
 
-  it "restores old-format entries without a covered size" do
+  it "drops old-format entries without a covered size on restore" do
     with_datadir do |data_dir|
       hash = Digest::SHA1.digest("hello")
       File.write File.join(data_dir, "checksums.sha1"), "#{hash.hexstring} *q/msgs.0000000001\n"
 
       checksums = LavinMQ::Clustering::Checksums.new(data_dir)
       checksums.restore
-      checksums["q/msgs.0000000001"]?.should eq LavinMQ::Clustering::Checksums::Entry.new(hash, nil)
+      checksums["q/msgs.0000000001"]?.should be_nil
     end
   end
 end
