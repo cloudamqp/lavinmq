@@ -197,3 +197,6 @@ module LavinMQ::AMQP
     end
   end
 end
+
+# Required after the module: Queue includes DeadLettering, so a top require would break the include.
+require "../queue/queue"
