@@ -1,7 +1,7 @@
 require "lz4"
 require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
-require "../../src/lavinmq/clustering/etcd_coordinator"
+require "../../src/lavinmq/clustering/etcd_backend"
 
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper

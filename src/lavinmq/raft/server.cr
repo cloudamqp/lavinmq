@@ -1,0 +1,340 @@
+require "raft"
+require "../bool_channel"
+require "./cluster_command"
+require "./cluster_state"
+require "./cluster_state_machine"
+require "./peer_address"
+
+module LavinMQ::Raft
+  class Server
+    Log = LavinMQ::Log.for "raft.server"
+
+    GROUP_ID = 0_u64
+
+    @started = false
+    @stop_signal = ::Channel(Nil).new
+    @tick_done = ::Channel(Nil).new
+    @stopping = false
+    # Backpressure buffer; run_on_tick callers block when full. Tick fiber drains.
+    @actions = ::Channel({-> Bool, ::Channel(Bool)}).new(64)
+    # {log index, term proposed under, reply}. Tick-fiber-only. Resolved each
+    # tick iteration: committed-under-our-term => true, overwritten/lost => false.
+    @commit_waiters = [] of Tuple(UInt64, UInt64, ::Channel(Bool))
+    # Parsed peer addresses, rebuilt once per configuration change (on the tick
+    # fiber) and read cross-fiber by the follow-leader path. Replaced wholesale
+    # under the lock so readers always see a consistent snapshot.
+    @peer_addresses_lock = Mutex.new
+    @peer_addresses = {} of UInt64 => PeerAddress
+    # Snapshot of the last applied configuration's peers (full list, incl. self),
+    # kept under @peer_addresses_lock so readers on other fibers (HTTP metrics
+    # scrape, boot decision) get a consistent view instead of racing @node.peers,
+    # which the tick fiber mutates. Replaced wholesale; never mutated in place.
+    @peers_snapshot = [] of ::Raft::Peer
+    # Voter node ids from the last applied configuration, kept under the same
+    # lock for the same reason: hand_off_leadership reads it off the tick fiber
+    # (the campaign fiber), so it must not iterate @node.voters live — that
+    # selects over @node's peer array while the tick fiber replaces it wholesale
+    # during a membership change, a torn read that can crash.
+    @voters_snapshot = [] of UInt64
+    @on_leader_change : Proc(UInt64?, Nil)?
+    @on_configuration_change : Proc(Array(::Raft::Peer), Nil)?
+    @last_observed_leader_id : UInt64? = nil
+
+    getter node_id : Int32
+    getter state_machine : ClusterStateMachine
+    getter is_leader : BoolChannel
+
+    def initialize(
+      @data_dir : String,
+      @advertised_address : String,
+      @transport : ::Raft::Transport,
+      @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext::Concurrent.new("raft"),
+    )
+      @node_id = load_or_generate_node_id
+      metrics = ::Raft::Metrics.new(node_id: @node_id.to_u64, group_id: GROUP_ID)
+      @state_machine = ClusterStateMachine.new
+      @is_leader = BoolChannel.new(false)
+      config = ::Raft::Config.new
+      config.data_dir = File.join(@data_dir, "raft")
+      Dir.mkdir_p(config.data_dir)
+      @node = ::Raft::Node(ClusterCommand).new(
+        id: @node_id.to_u64,
+        peers: [] of ::Raft::NodeID,
+        config: config,
+        state_machine: @state_machine,
+        metrics: metrics,
+        group_id: GROUP_ID,
+        address: @advertised_address,
+      )
+      @transport.register_channel(GROUP_ID, @node.inbox)
+      wire_callbacks
+    end
+
+    def start : Nil
+      return if @started
+      @started = true
+      # recover_state restores @node.peers from disk but never fires
+      # on_configuration_applied, so a restarted node would come up with an
+      # empty peer-address cache and never resolve the leader to follow. Seed
+      # it from the restored config. (Fresh nodes have no peers yet; they get
+      # populated via on_configuration_applied when they join/bootstrap.)
+      cache_peer_addresses(@node.peers)
+      @execution_context.spawn(name: "Raft::Server#tick_loop") { tick_loop }
+    end
+
+    def stop : Nil
+      return if @stopping
+      @stopping = true
+      @stop_signal.close
+      @tick_done.receive? if @started
+      @actions.close
+      while item = @actions.receive? # drain buffered actions: reply false so callers unblock
+        item[1].send(false) rescue nil
+      end
+      @is_leader.close
+    end
+
+    def bootstrap : Bool
+      run_on_tick { @node.bootstrap }
+    end
+
+    # Adds a node as a learner. raft.cr auto-promotes it to a voter once it has
+    # caught up with the leader's log (see Node#maybe_promote_learner), so no
+    # explicit promotion call is needed.
+    def add_server(node_id : Int32, address : String) : Bool
+      run_on_tick { @node.add_server(node_id.to_u64, address) }
+    end
+
+    def propose(cmd : ClusterCommand) : Bool
+      run_on_tick { @node.propose(cmd) }
+    end
+
+    # Propose a command and block until it is confirmed committed under the
+    # term it was proposed in. Returns false if we are not leader, lose
+    # leadership before it commits, the slot is overwritten by a new leader,
+    # or the server is stopping. Use this when the write must be durable
+    # (e.g. ISR updates); use `propose` when local append is enough.
+    def propose_committed(cmd : ClusterCommand) : Bool
+      committed = ::Channel(Bool).new(1)
+      appended =
+        begin
+          run_on_tick do
+            if @node.propose(cmd)
+              @commit_waiters << {@node.log.last_index, @node.current_term, committed}
+              true
+            else
+              false
+            end
+          end
+        rescue # run_on_tick raises "stopping" if stop() began; treat as not-committed
+          false
+        end
+      return false unless appended
+      select
+      when ok = committed.receive
+        ok
+      when @is_leader.when_false.receive? # lost leadership (nil-safe if closed at shutdown)
+        false
+      end
+    end
+
+    # Hand raft leadership to `target`. Returns false when this node is not
+    # leader, the target is not a known voter, or the target is this node.
+    def transfer_leadership(to target : Int32) : Bool
+      run_on_tick { @node.transfer_leadership(to: target.to_u64) }
+    end
+
+    # Marshal a mutating Node call onto the tick fiber's thread.
+    # NOTE: callbacks fired by the tick fiber (on_role_change,
+    # on_configuration_applied) MUST NOT call back into this method — the tick
+    # fiber would be blocked waiting on its own actions channel. Deadlock.
+    private def run_on_tick(&block : -> Bool) : Bool
+      raise "Raft::Server not started" unless @started
+      raise "Raft::Server stopping" if @stopping
+      reply = ::Channel(Bool).new(1)
+      begin
+        @actions.send({block, reply})
+      rescue ::Channel::ClosedError
+        raise "Raft::Server stopping"
+      end
+      reply.receive
+    end
+
+    def leader_id : UInt64?
+      @node.leader_id
+    end
+
+    def on_leader_change(&block : UInt64? ->) : Nil
+      @on_leader_change = block
+    end
+
+    # Fires when the cluster configuration is applied (membership or a peer's
+    # advertised address changed), with the applied peer set. The follow-leader
+    # path uses this to (re)establish replication once a leader's address is
+    # known — a freshly-joined follower learns leader_id from a heartbeat before
+    # the configuration entry carrying that leader's address is applied.
+    def on_configuration_change(&block : Array(::Raft::Peer) ->) : Nil
+      @on_configuration_change = block
+    end
+
+    # The underlying Raft node. Exposed so the HTTP admin handler can
+    # interact with it directly. Not stable public API; treat as developer
+    # surface only.
+    def node : ::Raft::Node(ClusterCommand)
+      @node
+    end
+
+    # A consistent snapshot of the peers in the last applied configuration,
+    # captured on the tick fiber and replaced wholesale under the lock — safe to
+    # read from any fiber (HTTP metrics scrape, boot decision) without racing
+    # @node.peers (which the tick fiber mutates). Reflects the last applied
+    # config; a membership change in flight may not be visible yet.
+    def peers : Array(::Raft::Peer)
+      @peer_addresses_lock.synchronize { @peers_snapshot }
+    end
+
+    # The node ids in the last applied voting set (learners excluded). A
+    # consistent snapshot captured on the tick fiber, safe to read from any
+    # fiber — see @voters_snapshot. Reflects the last applied configuration.
+    def voters : Array(UInt64)
+      @peer_addresses_lock.synchronize { @voters_snapshot }
+    end
+
+    def state : ClusterState
+      @state_machine.state
+    end
+
+    def isr : Set(Int32)
+      @state_machine.isr
+    end
+
+    private def tick_loop : Nil
+      # FIXME: `timeout(50.ms)` in `select` only fires when no other case is
+      # ready. Under sustained inbox/actions load (e.g. a future per-queue
+      # data-plane Node), @node.tick would be starved and the node would miss
+      # heartbeats / election timeouts. For the current low-frequency
+      # metadata inbox this is harmless. When a high-frequency Raft node
+      # lands, replace this with a dedicated tick-timer fiber sending on a
+      # buffered(1) channel that competes fairly with the other select cases.
+      loop do
+        select
+        when msg = @node.inbox.receive
+          @node.step(msg)
+        when item = @actions.receive
+          action, reply = item
+          begin
+            reply.send(action.call)
+          rescue ex
+            # Don't crash the tick fiber on an action's exception; surface false
+            # to the caller (semantically "didn't happen") and log.
+            reply.send(false)
+            Log.error(exception: ex) { "action raised in tick loop: #{ex.message}" }
+          end
+        when @stop_signal.receive?
+          break
+        when timeout(50.milliseconds)
+          @node.tick
+        end
+        @node.take_messages.each do |target_id, outbound|
+          @transport.outbox.send({target_id, outbound})
+        end
+        resolve_commit_waiters
+        current_leader = @node.leader_id
+        unless current_leader == @last_observed_leader_id
+          @last_observed_leader_id = current_leader
+          @on_leader_change.try &.call(current_leader)
+        end
+      end
+    rescue ::Channel::ClosedError
+    ensure
+      @commit_waiters.each { |_index, _term, ch| ch.send(false) rescue nil }
+      @commit_waiters.clear
+      @node.close
+      @tick_done.close
+    end
+
+    # Runs on the tick fiber. Lost leadership => fail all (can't commit our
+    # proposals). Else resolve any whose index has applied: true iff the slot
+    # still holds the term we proposed under (else a newer leader overwrote it).
+    private def resolve_commit_waiters : Nil
+      return if @commit_waiters.empty?
+      leader = @node.role.leader?
+      applied = @node.last_applied
+      @commit_waiters.reject! do |index, term, ch|
+        if !leader
+          ch.send(false) rescue nil
+          true
+        elsif applied >= index
+          ch.send(@node.log.term_at(index) == term) rescue nil
+          true
+        else
+          false
+        end
+      end
+    end
+
+    private def wire_callbacks : Nil
+      @node.on_role_change do |_old_role, new_role|
+        @is_leader.set(new_role.leader?)
+      end
+      @node.on_configuration_applied do |peers|
+        cache_peer_addresses(peers)
+        # Addresses are now known; let the follow-leader path reconcile (it may
+        # have learned leader_id before this config carried the leader address).
+        @on_configuration_change.try &.call(peers)
+      end
+    end
+
+    # Parse each peer's address once (membership changes are rare), register the
+    # transport route, and cache the parsed form for the follow-leader path to
+    # reuse. Called from on_configuration_applied and, for restarted nodes whose
+    # config came from recover_state (no callback), once at startup.
+    private def cache_peer_addresses(peers : Array(::Raft::Peer)) : Nil
+      addresses = {} of UInt64 => PeerAddress
+      peers.each do |peer|
+        next if peer.id == @node_id || peer.address.empty?
+        addr = PeerAddress.parse?(peer.address)
+        next if addr.nil?
+        addresses[peer.id] = addr
+        host, port = addr.raft_endpoint
+        @transport.register_peer(peer.id, host, port)
+      end
+      # Equivalent to @node.voters (which selects voter? over @node.peers), but
+      # computed here from the applied config on the tick/start fiber so off-tick
+      # readers never touch @node.
+      voters = peers.compact_map { |peer| peer.id if peer.voter? }
+      @peer_addresses_lock.synchronize do
+        @peer_addresses = addresses
+        @peers_snapshot = peers.dup # snapshot taken on the tick/start fiber; safe
+        @voters_snapshot = voters
+      end
+    end
+
+    # The parsed address of a configured peer, or nil if unknown. Reflects the
+    # last applied configuration. Safe to call from any fiber.
+    def peer_address(node_id : UInt64) : PeerAddress?
+      @peer_addresses_lock.synchronize { @peer_addresses[node_id]? }
+    end
+
+    private def load_or_generate_node_id : Int32
+      Dir.mkdir_p(@data_dir)
+      path = File.join(@data_dir, ".clustering_id")
+      begin
+        content = File.read(path).strip
+        # A corrupt or partially-written id must fail loudly with a clear
+        # message — regenerating would silently give this node a new identity
+        # and drop it out of the cluster. `to_i32?` returns nil (rather than
+        # raising an opaque ArgumentError) on an empty or non-base-36 file.
+        content.to_i32?(36) ||
+          raise "Invalid cluster id #{content.inspect} in #{path}: expected a base-36 integer"
+      rescue File::NotFoundError
+        # 1..Int32::MAX, never 0: raft.cr treats node id 0 as "no node / no
+        # leader", so a generated 0 would collide with that sentinel.
+        id = Random::Secure.rand(1..Int32::MAX)
+        File.write(path, id.to_s(36))
+        Log.info { "Generated new clustering id #{id}" }
+        id
+      end
+    end
+  end
+end
