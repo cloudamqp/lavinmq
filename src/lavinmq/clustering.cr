@@ -6,6 +6,15 @@ module LavinMQ
   module Clustering
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
 
+    # Records with this filename prefix carry an instruction for the follower
+    # instead of file data. Reserved: never a real path, so nothing under it is
+    # created on disk or tracked in any file/checksum map.
+    CONTROL_PREFIX = "$ctrl/"
+
+    # Asks the follower to make everything replicated so far durable. Empty
+    # body, hence routed by prefix before the length is interpreted.
+    SYNC_CONTROL_PATH = "#{CONTROL_PREFIX}sync"
+
     class Error < Exception; end
 
     class InvalidStartHeaderError < Error

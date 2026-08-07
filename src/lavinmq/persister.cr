@@ -84,19 +84,21 @@ module LavinMQ
       end
       return unless acks
 
-      # Ask each follower's flush fiber to push the pending replicated bytes,
-      # so they persist and ack them while our own syncfs runs. Only a
-      # request: this loop runs on an isolated thread and must never write
-      # the follower sockets itself — their fds belong to the default
-      # execution context's event loop (see Follower#flush_loop).
-      @replicator.try &.followers.each &.request_flush
+      # Ask each follower to push the pending replicated bytes and make them
+      # durable, so they persist and ack them while our own syncfs runs. Only a
+      # request: this loop runs on an isolated thread and must never write the
+      # follower sockets itself — their fds belong to the default execution
+      # context's event loop (see Follower#flush_loop).
       if Config.instance.sync?
+        @replicator.try &.followers.each &.request_sync
         begin
           sync
         rescue ex
           Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
           exit 1
         end
+      else
+        @replicator.try &.followers.each &.request_flush
       end
       # Block until every in-sync follower has acked the replicated bytes and
       # any ISR shrink is committed to the coordinator, so a confirm means

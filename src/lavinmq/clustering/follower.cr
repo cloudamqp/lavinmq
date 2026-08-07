@@ -28,6 +28,16 @@ module LavinMQ
       # sync lock forever.
       SYNC_WRITE_TIMEOUT = 60.seconds
 
+      # A whole $ctrl/sync record: filename framing plus a zero length, no
+      # body. Built once so a request can hand it over as a plain slice.
+      SYNC_CONTROL_PACKET = begin
+        io = IO::Memory.new
+        io.write_bytes SYNC_CONTROL_PATH.bytesize.to_i32, IO::ByteFormat::LittleEndian
+        io.write SYNC_CONTROL_PATH.to_slice
+        io.write_bytes 0i64 # empty body (endian-agnostic)
+        io.to_slice
+      end
+
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
       # Wakes the publish-confirm waiter on each ack; closed (never replaced)
@@ -35,9 +45,9 @@ module LavinMQ
       # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
       # Wakes flush_loop; capacity 1 so a burst of requests coalesces into one
-      # flush. Closed when ack_loop ends, stopping flush_loop. Carries Bool
-      # (not Nil) so receive? distinguishes a request (true) from close (nil).
-      @flush_requested = ::Channel(Bool).new(1)
+      # flush. Closed when ack_loop ends, stopping flush_loop. A `Bytes.empty` asks for
+      # a flush, a slice for a record to write first.
+      @flush_requested = ::Channel(Bytes).new(1)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -140,15 +150,6 @@ module LavinMQ
         @ack_notify.closed?
       end
 
-      # Flush the LZ4 buffer so pending bytes reach the follower without
-      # waiting for the ack_loop's 100ms flush timeout. Write errors are
-      # swallowed: a broken socket is detected by ack_loop, which closes
-      # @ack_notify so a wait_for_confirm waiter still unblocks.
-      private def flush : Nil
-        @write_lock.synchronize { @lz4.flush }
-      rescue IO::Error | Socket::Error
-      end
-
       # Flushes on behalf of request_flush callers. Runs in its own fiber,
       # spawned by ack_loop on the default execution context: the publish
       # confirm loop runs on an isolated thread and must not write the socket
@@ -156,8 +157,15 @@ module LavinMQ
       # (ack_loop keeps a read pending on it), and a write that blocks from
       # another context raises instead of waiting.
       private def flush_loop
-        while @flush_requested.receive?
-          flush
+        while request = @flush_requested.receive?
+          @write_lock.synchronize do
+            unless request.empty?
+              @sent_bytes.add(request.bytesize)
+              @lz4.write request
+            end
+            @lz4.flush
+          rescue IO::Error | Socket::Error
+          end
         end
       end
 
@@ -165,8 +173,22 @@ module LavinMQ
       # and never touches the socket, so it's safe to call from any execution
       # context (see flush_loop).
       def request_flush : Nil
-        @flush_requested.try_send(true)
+        @flush_requested.try_send(Bytes.empty)
       rescue ::Channel::ClosedError
+      end
+
+      # Ask the follower to make everything replicated so far durable: hands a
+      # $ctrl/sync record to flush_loop, which counts, writes and flushes it.
+      # A plain flush can't tell the follower the leader is fencing on the data;
+      # this record does, and its ack is what a publish confirm waits for.
+      #
+      # A blocking send, not try_send: a dropped record silently skips the fence.
+      # Never touches the socket, so it's safe from the publish confirm loop's
+      # isolated thread (see flush_loop).
+      def request_sync : Nil
+        @flush_requested.send(SYNC_CONTROL_PACKET)
+      rescue ::Channel::ClosedError
+        # Dead follower; wait_for_confirm returns false instead of waiting.
       end
 
       # Block until the follower has acked at least the bytes already sent at

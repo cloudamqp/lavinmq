@@ -36,6 +36,13 @@ end
 # Drives the clustering handshake + two full-sync passes (requesting no files)
 # so the follower reaches the Synced state on the leader.
 private def sync_follower(server, port, id : Int32) : TCPSocket
+  sync_follower_with_stream(server, port, id).first
+end
+
+# As sync_follower, but also returns the LZ4 reader, positioned at the start of
+# the change stream: the leader keeps one LZ4 frame per connection, so a spec
+# reading replicated records must keep using this reader.
+private def sync_follower_with_stream(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
   io.write LavinMQ::Clustering::Start
   io.write_bytes server.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
@@ -55,7 +62,7 @@ private def sync_follower(server, port, id : Int32) : TCPSocket
     io.write_bytes 0i32 # request no files
     io.flush
   end
-  io
+  {io, lz4}
 end
 
 describe LavinMQ::Clustering::Server do
@@ -284,6 +291,61 @@ describe LavinMQ::Clustering::Server do
   end
 
   describe "publish confirms against the ISR" do
+    # An append alone doesn't tell the follower the leader is fencing confirms
+    # on it, so the confirm loop says so with a $ctrl/sync record.
+    it "asks in-sync followers to persist replicated data before confirming a publish" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "isr sync request spec")
+
+      follower_id = 11
+      client_io = nil.as(TCPSocket?)
+      with_amqp_server(replicator: server) do |s|
+        with_channel(s) do |ch|
+          io, lz4 = sync_follower_with_stream(server, tcp_server.local_address.port, follower_id)
+          client_io = io
+          wait_for { server.followers.any? &.id.== follower_id }
+
+          # Ack like a real follower (the declare and confirm below wait for it)
+          # and report the sync requests.
+          sync_requested = Channel(Nil).new(1)
+          spawn(name: "isr sync request follower") do
+            loop do
+              filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+              next if filename_len.zero?
+              filename = lz4.read_string(filename_len)
+              len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+              lz4.skip(len.abs) unless len.zero?
+              acked = (sizeof(Int32) + filename_len + sizeof(Int64) + len.abs).to_i64
+              io.write_bytes acked, IO::ByteFormat::LittleEndian
+              sync_requested.try_send(nil) if filename == LavinMQ::Clustering::SYNC_CONTROL_PATH
+            end
+          rescue IO::Error
+            # socket closed at spec end
+          end
+
+          q = ch.queue("isr_sync_request", durable: true)
+          q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
+
+          # The confirm waited for every sent byte to be acked, the sync
+          # request included, so it has arrived by now.
+          select
+          when sync_requested.receive
+          when timeout(2.seconds)
+            fail "the publish confirm never asked the follower to persist"
+          end
+        end
+      end
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
     it "flushes a dirty ISR before delivering a publish confirm" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)

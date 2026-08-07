@@ -41,6 +41,7 @@ After bulk sync, the leader streams changes in real-time:
 - **Appends** — bytes to append to data files (message segments, definitions)
 - **Deletes** — files that have been removed
 - **Rewrites** — files that have been completely rewritten (e.g., compacted definitions)
+- **Control records** — instructions rather than file data, e.g. a request to make everything replicated so far durable before the leader confirms a publish
 
 Data is compressed with LZ4 during replication.
 

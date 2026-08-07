@@ -173,7 +173,109 @@ module ClientSyncSpec
 
           acked.should eq framing + payload.bytesize
           client.syncs_started.should eq 0
+          client.syncfs_calls.should eq 0 # a skipped sync isn't counted either
           File.read(File.join(data_dir, filename)).should eq payload
+          client_socket.close
+        end
+      end
+
+      # Reported next to the streamed bytes: the ratio shows how much data each
+      # sync covers.
+      it "counts syncfs calls and logs them with the streamed bytes" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "synced_stream_file"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          control = LavinMQ::Clustering::SYNC_CONTROL_PATH
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, control, 0i64, Bytes.empty)
+          streamed = record_size(filename, payload.bytesize) + record_size(control, 0)
+          # The sync record is acked once handled, i.e. once its sync has run.
+          read_acks(leader_io, streamed)
+
+          syncs = client.syncfs_calls
+          syncs.should be > 0
+          syncs.should eq client.syncs_started # only the syncs actually performed
+          client.stream_stats_message_public
+            .should eq "Total streamed bytes: #{streamed}, syncfs calls: #{syncs}"
+          client_socket.close
+        end
+      end
+
+      # An instruction, not file data: nothing is written to disk or tracked for
+      # its path. Its bytes are still counted as sent by the leader, which waits
+      # for them to be acked, so skipping it would stall every publish confirm.
+      it "acks a $ctrl/sync record without creating a file for it" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          control = LavinMQ::Clustering::SYNC_CONTROL_PATH
+          filename = "after_control"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, control, 0i64, Bytes.empty)
+          # A record after the control one proves the stream stayed aligned.
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+
+          read_acks(leader_io, record_size(control, 0) + record_size(filename, payload.bytesize))
+
+          File.read(File.join(data_dir, filename)).should eq payload
+          File.exists?(File.join(data_dir, control)).should be_false
+          Dir.exists?(File.join(data_dir, "$ctrl")).should be_false
+          close_client(client)
+          # Not tracked as a file either, so no checksum is persisted for it
+          persisted_checksums(data_dir).keys.should eq [filename]
+          client_socket.close
+        end
+      end
+
+      # An instruction from a newer leader must be skipped, payload and all,
+      # rather than kill the stream or lose its alignment.
+      it "drains and acks an unknown control record" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          unknown = "#{LavinMQ::Clustering::CONTROL_PREFIX}from_the_future"
+          body = "instruction payload"
+          filename = "after_unknown_control"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, unknown, body.bytesize.to_i64, body.to_slice)
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+
+          read_acks(leader_io, record_size(unknown, body.bytesize) + record_size(filename, payload.bytesize))
+
+          File.read(File.join(data_dir, filename)).should eq payload
+          File.exists?(File.join(data_dir, unknown)).should be_false
           client_socket.close
         end
       end
@@ -920,15 +1022,15 @@ module ClientSyncSpec
     end
 
     describe "#close" do
-      # Regression: close used to wait only for the follow loop, then close
-      # the data dir fd while the ack-sending fiber could still be draining
-      # buffered acks — each preceded by a syncfs on that fd. The resulting
-      # EBADF made the follower Log.fatal and exit 1 in the middle of a
-      # graceful shutdown or a promotion to leader.
-      it "waits for the ack loop's pending syncs before closing the data dir fd" do
+      # Regression: close used to wait only for the follow loop, then tear the
+      # data dir down while a syncfs on @data_dir_fd could still be running. The
+      # resulting EBADF made the follower Log.fatal and exit 1 in the middle of a
+      # graceful shutdown or a promotion to leader. Syncs are requested by the
+      # leader as control records, so close waits for those (see #control).
+      it "waits for an in-flight control action before closing the data dir fd" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
-          client.sync_delay = 50.milliseconds
+          client.sync_delay = 200.milliseconds # still syncing when close starts
           client_socket, leader_io = FakeSocket.pair
           lz4_reader = Compress::LZ4::Reader.new(client_socket)
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
@@ -936,37 +1038,49 @@ module ClientSyncSpec
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
+          rescue IO::Error | Channel::ClosedError
+            # socket closed at spec end, or acks closed by close
           end
 
-          # Stream a small append so acks start flowing and the ack loop
-          # enters its (slowed) sync.
-          filename = "ack_file"
-          payload = "data"
-          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          lz4_writer.write filename.to_slice
-          lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          lz4_writer.write payload.to_slice
-          lz4_writer.flush
-          wait_for { client.syncs_started > 0 }
-
-          # Keep acks arriving while close runs, so a sync is in flight or
-          # pending throughout the shutdown.
-          spawn(name: "ack feeder") do
-            20.times do
-              client.@acks.send(1i64)
-              sleep 10.milliseconds
-            end
-          rescue Channel::ClosedError
-            # close drained and closed the channel
-          end
+          write_record(lz4_writer, LavinMQ::Clustering::SYNC_CONTROL_PATH, 0i64, Bytes.empty)
+          wait_for { client.syncs_started > 0 } # the sync is now in its delay
 
           # follow() was never called in this harness, so satisfy close's
           # follower-done handshake ourselves.
           spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
           client.close
 
-          sleep 200.milliseconds # let any straggler sync run after close returned
+          # A sync that ran to completion counted itself; one that woke up to a
+          # closed fd flagged it instead.
+          wait_for { client.syncfs_calls > 0 || client.synced_on_closed_fd? }
+          client.synced_on_closed_fd?.should be_false
+          client_socket.close
+          leader_io.close
+        end
+      end
+
+      # The other half of the guard: a control record read after close must skip
+      # its action rather than sync a closed (or reused) fd.
+      it "skips a control action requested after close" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error | Channel::ClosedError
+          end
+
+          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+          client.close
+
+          write_record(lz4_writer, LavinMQ::Clustering::SYNC_CONTROL_PATH, 0i64, Bytes.empty)
+          # The record is read and counted, but its action is skipped.
+          wait_for { client.@streamed_bytes > 0 }
+          client.syncs_started.should eq 0
           client.synced_on_closed_fd?.should be_false
           client_socket.close
           leader_io.close

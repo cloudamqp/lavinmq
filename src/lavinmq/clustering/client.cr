@@ -27,7 +27,7 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @data_dir_lock : DataDirLock
-      @closed = false
+      @closed = Atomic(Bool).new(false)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -37,6 +37,8 @@ module LavinMQ
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       @streamed_bytes = 0_u64
+      # syncfs(2) calls made
+      @syncfs_calls = 0_u64
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -45,10 +47,12 @@ module LavinMQ
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
-      # Tracks the ack-sending fiber: #close must wait for it to finish before
-      # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
-      # it sends — even acks still buffered in @acks after the stream ends.
+      # Tracks the ack-sending fiber, so #close lets it drain the acks still
+      # buffered in @acks after the stream ends before it shuts the client down.
       @ack_loops = WaitGroup.new
+      # Tracks control actions in flight, so #close waits for one to finish
+      # before tearing down the state it may touch (see #control).
+      @controls = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -121,7 +125,7 @@ module LavinMQ
         end
         loop do
           hash_local_files
-          return if @closed
+          return if @closed.get
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
@@ -132,7 +136,7 @@ module LavinMQ
         rescue ex : IO::Error
           lz4.try &.close
           socket.try &.close
-          break if @closed
+          break if @closed.get
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
         end
@@ -325,7 +329,7 @@ module LavinMQ
           Log.info { "Calculating checksums for #{files.size} local files" }
           log_limiter = RateLimiter.new(2.seconds)
           files.each do |path|
-            break if @closed
+            break if @closed.get
             filename = relative_path(path)
             next if @checksums[filename]?
             hash_file(filename, path)
@@ -447,6 +451,13 @@ module LavinMQ
           # it tells the leader the deletion is durable — so it's only acked
           # once the deletion has been applied.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          # Routed before the length is interpreted: a control record's empty
+          # body would read as a delete. Acked once handled, like a delete.
+          if filename.starts_with?(CONTROL_PREFIX)
+            control(filename, len, lz4)
+            ack(framing + len.abs)
+            next
+          end
           case len
           when .negative? # append bytes to file
             ack(framing)
@@ -462,6 +473,41 @@ module LavinMQ
       ensure
         @acks.close
         log_loop_done.try &.close
+      end
+
+      # Apply a control record: nothing is written to disk or tracked for its
+      # path. An unknown instruction (a newer leader) is skipped, payload and
+      # all, rather than fatal, so the stream stays aligned.
+      #
+      # Counted in @controls so #close can't tear down the data dir under a
+      # running action. The @closed check sits inside that window: either close
+      # got there first and we skip the action, or we're counted and it waits
+      # for us. Skipping is safe — close has already closed the socket, so the
+      # leader has dropped us from the ISR and no confirm waits on our ack.
+      private def control(command, len, lz4) : Nil
+        @controls.add
+        skip_payload(len, lz4)
+        return if @closed.get
+        case command
+        when SYNC_CONTROL_PATH
+          Log.debug { "Sync requested" }
+          sync_to_disk
+        else
+          Log.warn { "Ignoring unknown control record #{command}" }
+        end
+      ensure
+        @controls.done
+      end
+
+      # Read and discard a record's payload; the caller acks it as a whole.
+      private def skip_payload(len : Int64, lz4) : Nil
+        remaining = len.abs
+        buffer = uninitialized UInt8[BUFFER_SIZE]
+        while remaining > 0
+          read = lz4.read(buffer.to_slice[0, Math.min(BUFFER_SIZE, remaining)])
+          raise IO::EOFError.new if read.zero?
+          remaining -= read
+        end
       end
 
       private def append(filename, len, lz4)
@@ -598,8 +644,8 @@ module LavinMQ
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
-          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
+          Fiber.yield
         end
       rescue Channel::ClosedError
       rescue IO::Error
@@ -608,8 +654,8 @@ module LavinMQ
 
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
-        return unless @config.sync?
-
+        # We dont need to return here, sync is controlled by leader...?
+        # return unless @config.sync?
         sync_data_dir
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
@@ -619,6 +665,7 @@ module LavinMQ
       end
 
       private def sync_data_dir : Nil
+        @syncfs_calls &+= 1
         {% if flag?(:linux) %}
           ret = LibC.syncfs(@data_dir_fd)
           raise IO::Error.from_errno("syncfs") if ret != 0
@@ -627,19 +674,20 @@ module LavinMQ
         {% end %}
       end
 
-      # Logs the streamed byte count until #stream_changes closes the done
-      # channel (or the client is closed), so the fiber doesn't outlive the
-      # stream that spawned it.
       private def log_streamed_bytes_loop(done : Channel(Nil))
         loop do
           select
           when done.receive?
             break
-          when timeout(30.seconds)
-            break if @closed
-            Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          when timeout(5.seconds)
+            break if @closed.get
+            Log.info { stream_stats_message }
           end
         end
+      end
+
+      private def stream_stats_message : String
+        "Total streamed bytes: #{@streamed_bytes}, syncfs calls: #{@syncfs_calls}"
       end
 
       private def authenticate(socket)
@@ -657,8 +705,7 @@ module LavinMQ
       end
 
       def close
-        return if @closed
-        @closed = true
+        return if @closed.swap(true)
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
@@ -674,14 +721,17 @@ module LavinMQ
         when timeout(5.seconds)
           Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
         end
-        # The ack loop keeps draining acks buffered in @acks even after the
-        # channel is closed, syncing to disk before each send. Wait for it to
-        # finish before closing @data_dir_fd below, or its syncfs would hit a
-        # closed (or worse, reused) fd and the process would exit 1 mid
-        # shutdown/promotion. Closing @acks is normally done by stream_changes,
-        # but do it here too in case the follower loop is stuck.
+        # Let the ack loop drain the acks buffered in @acks after the stream
+        # ended. Closing @acks is normally done by stream_changes, but do it here
+        # too in case the follower loop is stuck.
         @acks.close
         @ack_loops.wait
+        # Nothing below may run while a control action does: a syncfs would hit a
+        # closed (or worse, reused) @data_dir_fd and the process would exit 1 mid
+        # shutdown/promotion, and the checksums would be stored from under it.
+        # The follower loop's exit above normally covers this; the wait matters
+        # when it timed out instead (see #control).
+        @controls.wait
         # Finalize all pending checksums
         finalize_digests
         @checksums.store
