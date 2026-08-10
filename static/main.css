@@ -609,8 +609,9 @@ button {
 
 .tb-card {
   padding: 0;
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-separator);
 }
 
 .login-card {
@@ -642,10 +643,12 @@ button {
 
   &.form-card-title {
     font-size: 1rem;
-    line-height: 1.25rem;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--color-border-primary);
+    line-height: 1.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border-separator);
     margin-bottom: 0;
+    background-color: var(--color-bg-tr-hover);
+    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   &.has-badge {
@@ -684,6 +687,8 @@ button {
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--color-border-primary);
   margin-bottom: 0;
+  background-color: var(--color-bg-tr-hover);
+  border-radius: 0.75rem 0.75rem 0 0;
 }
 
 .login-form {
@@ -860,6 +865,7 @@ footer .logo {
   padding: 2rem 1.5rem;
   align-items: center;
   background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-separator);
 }
 
 #overview>div:first-child {
