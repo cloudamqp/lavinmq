@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.2] - 2026-08-11
+
+This patch release makes clustering full sync faster and more robust by pre-calculating and persisting follower checksums, fixes wrong checksums for files appended to mid-content, clears stale follower file handles before resync, and fixes an unacked message count underflow in the HTTP API. LavinMQ is now built with Crystal 1.21.
+
+### Fixed
+
+- Persist follower checksums incrementally during full sync, so an interrupted follower doesn't rehash all files on reconnect [#1834](https://github.com/cloudamqp/lavinmq/pull/1834)
+- Pre-calculate follower checksums before connecting to the leader, shortening the time the leader's full-sync lock is held [#2164](https://github.com/cloudamqp/lavinmq/pull/2164)
+- Reuse cached checksums in the capped full sync pass [#2165](https://github.com/cloudamqp/lavinmq/pull/2165)
+- Fix wrong checksums for files appended to mid-content [#2167](https://github.com/cloudamqp/lavinmq/pull/2167)
+- Clear stale clustering follower file handles before resync [#2161](https://github.com/cloudamqp/lavinmq/pull/2161)
+- Stop the follower log fiber when streaming stops [#2166](https://github.com/cloudamqp/lavinmq/pull/2166)
+- Don't double-decrement the unacked message count when an HTTP API basic get partially fails [#2168](https://github.com/cloudamqp/lavinmq/pull/2168)
+
+### Changed
+
+- Build with Crystal 1.21 [#2170](https://github.com/cloudamqp/lavinmq/pull/2170)
+- Use amq-protocol 1.3.1 [#2154](https://github.com/cloudamqp/lavinmq/pull/2154)
+
 ## [2.9.1] - 2026-07-01
 
 This patch release fixes OAuth2/OIDC management UI login for stricter identity providers, adds authorization checks to the shovel management endpoints, and resolves a stream consumer-offset overflow, clustered startup bind failures and several connection-handling issues.
