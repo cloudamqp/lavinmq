@@ -187,7 +187,7 @@ index 6aea41d..02190a4 100644
  			x2, err := rmqc.GetVhost(vh)
  			Ω(x2).Should(BeNil())
 -			Ω(err).Should(Equal(ErrorResponse{404, "Object Not Found", "Not Found"}))
-+			Ω(err).Should(Equal(ErrorResponse{403, "access_refused", "Access refused"}))
++			Ω(err).Should(Equal(ErrorResponse{404, "Object Not Found", "Vhost rabbit/hole2 does not exist"}))
  		})
  	})
  
