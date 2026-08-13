@@ -16,6 +16,13 @@ module LavinMQ
     enum ProtocolVersion : UInt8
       V3_1   = 3
       V3_1_1 = 4
+
+      def name
+        case self
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
+        end
+      end
     end
 
     class Client < LavinMQ::Client
@@ -61,10 +68,7 @@ module LavinMQ
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
-        @protocol = case protocol_version
-                    in .v3_1?   then "MQTT 3.1"
-                    in .v3_1_1? then "MQTT 3.1.1"
-                    end
+        @protocol = protocol_version.name
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
