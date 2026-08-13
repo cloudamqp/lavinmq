@@ -49,6 +49,7 @@ module LavinMQ
           user,
           self,
           packet.client_id,
+          ProtocolVersion.from_value(packet.version),
           packet.clean_session?,
           packet.keepalive,
           packet.will)

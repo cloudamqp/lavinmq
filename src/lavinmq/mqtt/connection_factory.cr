@@ -80,7 +80,8 @@ module LavinMQ
           packet.keepalive,
           packet.username,
           packet.password,
-          packet.will)
+          packet.will,
+          packet.version)
       end
     end
   end
