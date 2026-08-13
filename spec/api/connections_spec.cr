@@ -57,9 +57,18 @@ describe LavinMQ::HTTP::ConnectionsController do
       end
     end
 
-    it "should return 403 if vhosts does not exist" do
+    it "should return 404 if vhosts does not exist and user is admin" do
       with_http_server do |http, _|
         response = http.get("/api/vhosts/vhost/connections")
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should return 403 if vhosts does not exist and user is not admin" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/vhosts/nonexisting", headers: hdrs)
         response.status_code.should eq 403
       end
     end
