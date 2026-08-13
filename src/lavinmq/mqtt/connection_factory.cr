@@ -81,7 +81,8 @@ module LavinMQ
           packet.keepalive,
           packet.username,
           packet.password,
-          packet.will)
+          packet.will,
+          packet.version)
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil
