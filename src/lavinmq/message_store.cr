@@ -173,6 +173,27 @@ module LavinMQ
       end
     end
 
+    # Non-destructive iteration over every message currently in the store
+    # (ready and in-flight), skipping acked positions. Reads straight from the
+    # mmap'd segments via slices so it neither consumes messages nor disturbs
+    # the @rfile read cursor. Requeued messages still live in their segments and
+    # are not marked deleted, so the segment walk yields them too.
+    def each(& : BytesMessage ->) : Nil
+      raise ClosedError.new if @closed
+      @segments.each do |seg, mfile|
+        pos = 4u32
+        size = mfile.size.to_u32
+        while pos < size
+          ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+          break if ts.zero? # rest of the segment is zero padding
+          msg = BytesMessage.from_bytes(mfile.to_slice + pos)
+          yield msg unless deleted?(seg, pos)
+          pos += msg.bytesize
+        end
+        Fiber.yield
+      end
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]

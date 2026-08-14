@@ -809,6 +809,195 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    it "drops a duplicate while the original is delivered but unacked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-inflight-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          sq = s.vhosts["/"].queue(queue_name)
+          # deliver but do NOT ack: the message is in-flight, not in the ready store
+          q1.get(no_ack: false).not_nil!
+          wait_for { sq.message_count.zero? }
+          # duplicate is still dropped because the in-flight message keeps the key
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          sq.dedup_count.should eq 1
+          sq.message_count.should eq 0
+        end
+      end
+    end
+
+    it "accepts the same key again once the original has expired" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-expire-queue"
+          ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          headers = LavinMQ::AMQP::Table.new({"x-deduplication-header" => "msg1"})
+          expiring = LavinMQ::AMQP::Properties.new(headers: headers, expiration: "50")
+          persistent = LavinMQ::AMQP::Properties.new(headers: headers)
+          sq = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue)
+          ch.default_exchange.publish_confirm("body", queue_name, props: expiring)
+          # wait for the message to expire out and its dedup key to be released
+          wait_for { sq.message_count.zero? && sq.@dedup_cache.not_nil!.@store.empty? }
+          # same key is accepted again now that the original has expired
+          ch.default_exchange.publish_confirm("body", queue_name, props: persistent)
+          wait_for { sq.message_count == 1 }
+          sq.dedup_count.should eq 0
+        end
+      end
+    end
+
+    it "accepts the same key again once the original has been dead-lettered" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          src_name = "dedup-dl-src"
+          dlq_name = "dedup-dl-dlq"
+          ch.queue(src_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication"   => true,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => dlq_name,
+          }))
+          dlq = ch.queue(dlq_name)
+          headers = LavinMQ::AMQP::Table.new({"x-deduplication-header" => "msg1"})
+          expiring = LavinMQ::AMQP::Properties.new(headers: headers, expiration: "50")
+          persistent = LavinMQ::AMQP::Properties.new(headers: headers)
+          src = s.vhosts["/"].queue(src_name).as(LavinMQ::AMQP::Queue)
+          ch.default_exchange.publish_confirm("body", src_name, props: expiring)
+          # message is dead-lettered out of the source, releasing its dedup key
+          wait_for { dlq.get(no_ack: true) }
+          wait_for { src.message_count.zero? && src.@dedup_cache.not_nil!.@store.empty? }
+          # same key is accepted again on the source queue
+          ch.default_exchange.publish_confirm("body", src_name, props: persistent)
+          wait_for { src.message_count == 1 }
+          src.dedup_count.should eq 0
+        end
+      end
+    end
+
+    it "does not leave a phantom key when a publish is rejected by overflow" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-overflow-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-max-length"            => 1_i64,
+            "x-overflow"              => "reject-publish",
+          }))
+          props_a = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "A",
+          }))
+          props_b = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "B",
+          }))
+          sq = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue)
+          ch.default_exchange.publish_confirm("a", queue_name, props: props_a).should be_true
+          # B is rejected by overflow, so its key must not be recorded
+          ch.default_exchange.publish_confirm("b", queue_name, props: props_b).should be_false
+          # drain A so there is room again
+          q1.get(no_ack: false).not_nil!.ack
+          wait_for { sq.message_count.zero? }
+          # B is accepted now — it was never phantomed by the rejected publish
+          ch.default_exchange.publish_confirm("b", queue_name, props: props_b).should be_true
+          sq.dedup_count.should eq 0
+        end
+      end
+    end
+
+    it "accepts the same key again after the queue is purged" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-purge-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          sq = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue)
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          q1.purge
+          wait_for { sq.message_count.zero? }
+          # purge released the dedup key, so the same key is accepted again
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          wait_for { sq.message_count == 1 }
+          sq.dedup_count.should eq 0
+        end
+      end
+    end
+
+    it "rebuilds the dedup index from persisted messages after a restart" do
+      with_amqp_server do |s|
+        queue_name = "dedup-restart-queue"
+        props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+          "x-deduplication-header" => "msg1",
+        }))
+        with_channel(s) do |ch|
+          ch.queue(queue_name, durable: true, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          ch.default_exchange.publish_confirm("body",
+            queue_name, props: AMQP::Client::Properties.new(delivery_mode: 2_u8, headers: AMQP::Client::Arguments.new({
+            "x-deduplication-header" => "msg1",
+          })))
+        end
+        s.restart
+        sq = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Queue)
+        # rebuild restores the persisted message's key into the index
+        wait_for { sq.@dedup_cache.not_nil!.@store.includes?("msg1".as(AMQ::Protocol::Field)) }
+        with_channel(s) do |ch|
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+        end
+        sq.dedup_count.should eq 1
+        sq.message_count.should eq 1
+      end
+    end
+
+    it "ignores the removed x-cache-size/x-cache-ttl arguments" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("dedup-legacy-args", durable: true, auto_delete: false,
+          arguments: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 700,
+            "x-cache-ttl"             => 800,
+          }))
+        effective = vhost.queue("dedup-legacy-args").details_tuple[:effective_arguments]
+        effective.should contain "x-message-deduplication"
+        effective.should_not contain "x-cache-size"
+        effective.should_not contain "x-cache-ttl"
+      end
+    end
+
+    it "accepts the same key again once the original has been consumed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-reuse-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          # duplicate dropped while the original is still in the queue
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          msg = q1.get(no_ack: false).not_nil!
+          msg.ack
+          wait_for { s.vhosts["/"].queue(queue_name).message_count.zero? }
+          # same key is accepted again now that the original has left the queue
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          wait_for { s.vhosts["/"].queue(queue_name).message_count == 1 }
+        end
+      end
+    end
   end
 
   describe "unacked_bytesize" do
@@ -849,8 +1038,6 @@ describe LavinMQ::AMQP::Queue do
       {"x-delivery-limit": 500},
       {"x-consumer-timeout": 600},
       {"x-single-active-consumer": true},
-      {"x-message-deduplication": true, "x-cache-size": 700},
-      {"x-message-deduplication": true, "x-cache-ttl": 800},
       {"x-message-deduplication": true, "x-deduplication-header": "foo"},
     }
     arguments.each do |args|

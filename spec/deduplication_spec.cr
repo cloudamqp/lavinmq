@@ -45,6 +45,31 @@ describe LavinMQ::Deduplication do
       end
     end
   end
+
+  describe LavinMQ::Deduplication::SetCache do
+    it "insert? returns true the first time and false for a duplicate" do
+      cache = LavinMQ::Deduplication::SetCache(String).new
+      cache.insert?("a").should be_true
+      cache.insert?("a").should be_false
+    end
+
+    it "delete makes a key insertable again" do
+      cache = LavinMQ::Deduplication::SetCache(String).new
+      cache.insert?("a")
+      cache.delete("a")
+      cache.contains?("a").should be_false
+      cache.insert?("a").should be_true
+    end
+
+    it "clear removes all keys" do
+      cache = LavinMQ::Deduplication::SetCache(String).new
+      cache.insert?("a")
+      cache.insert?("b")
+      cache.clear
+      cache.contains?("a").should be_false
+      cache.contains?("b").should be_false
+    end
+  end
 end
 
 class MockCache < LavinMQ::Deduplication::Cache(AMQ::Protocol::Field)
@@ -61,12 +86,31 @@ class MockCache < LavinMQ::Deduplication::Cache(AMQ::Protocol::Field)
     @counter["insert"] << {key.as(String), ttl}
   end
 
+  def delete(key)
+    @counter["delete"] << {key.as(String), nil}
+  end
+
+  def clear
+  end
+
   def calls(key : String)
     @counter[key]
   end
 end
 
 describe LavinMQ::Deduplication::Deduper do
+  describe "dedup_key" do
+    it "returns the dedup header value, or nil when absent" do
+      deduper = LavinMQ::Deduplication::Deduper.new(MockCache.new)
+      with_header = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+        "x-deduplication-header" => "msg1",
+      }))
+      without = LavinMQ::AMQP::Properties.new
+      deduper.dedup_key(LavinMQ::Message.new("ex", "rk", "body", with_header)).should eq "msg1"
+      deduper.dedup_key(LavinMQ::Message.new("ex", "rk", "body", without)).should be_nil
+    end
+  end
+
   describe "duplicate?" do
     it "should return false if \"x-deduplication-header\" is missing (no identifier, always unique)" do
       mock = MockCache.new
