@@ -460,23 +460,30 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "applies a relaxed max-age when a policy is edited to a larger value", tags: "slow" do
+    it "applies a relaxed max-age when a policy is edited to a larger value" do
       with_amqp_server do |s|
         s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
         with_channel(s) do |ch|
           args = {"x-queue-type": "stream"}
-          q = ch.queue("stream-max-age-relax", args: AMQP::Client::Arguments.new(args))
-          data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          2.times { q.publish_confirm data }
-          sleep 1.1.seconds
-          q.publish_confirm data
-          q.message_count.should eq 1
-          s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
+          ch.queue("stream-max-age-relax", args: AMQP::Client::Arguments.new(args))
           stream = s.vhosts["/"].queue("stream-max-age-relax").as(LavinMQ::AMQP::Stream)
+          wait_for { stream.stream_msg_store.max_age == 1.second }
+          s.vhosts["/"].add_policy("max", "stream-max-age-relax", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
           wait_for { stream.stream_msg_store.max_age == 1.hour }
-          sleep 1.1.seconds
-          q.publish_confirm data
-          q.message_count.should eq 2
+        end
+      end
+    end
+
+    it "clears max-age when a policy is deleted" do
+      with_amqp_server do |s|
+        s.vhosts["/"].add_policy("max", "stream-max-age-delete", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          ch.queue("stream-max-age-delete", args: AMQP::Client::Arguments.new(args))
+          stream = s.vhosts["/"].queue("stream-max-age-delete").as(LavinMQ::AMQP::Stream)
+          wait_for { stream.stream_msg_store.max_age == 1.second }
+          s.vhosts["/"].delete_policy("max")
+          wait_for { stream.stream_msg_store.max_age.nil? }
         end
       end
     end
