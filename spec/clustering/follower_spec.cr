@@ -648,9 +648,9 @@ module FollowerSpec
   end
 
   describe "#control" do
-    packet_size = LavinMQ::Clustering::SyncControlPacket::RECORD.bytesize.to_i64
+    packet_size = LavinMQ::Clustering::SyncControlPacket.new.bytesize
 
-    it "sends a $ctrl/sync record with an empty body, without waiting for the ack-loop fallback flush" do
+    it "sends a sync record with an empty body, without waiting for the ack-loop fallback flush" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
@@ -672,7 +672,7 @@ module FollowerSpec
         # Must arrive via control_loop, well before ack_loop's 100ms fallback
         select
         when record = received.receive
-          record.should eq({LavinMQ::Clustering::SyncControlPacket::PATH, 0i64})
+          record.should eq({LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s, 0i64})
         when timeout(50.milliseconds)
           fail "the packet's record was not flushed to the follower"
         end
@@ -719,7 +719,7 @@ module FollowerSpec
 
         select
         when filename = received.receive
-          filename.should eq LavinMQ::Clustering::SyncControlPacket::PATH
+          filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
         when timeout(50.milliseconds)
           fail "the flush packet did not push the record to the follower"
         end
@@ -855,7 +855,7 @@ module FollowerSpec
 
         select
         when filename = received.receive
-          filename.should eq LavinMQ::Clustering::SyncControlPacket::PATH
+          filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
         when timeout(500.milliseconds)
           fail "the sync record never reached the wire"
         end
@@ -906,7 +906,7 @@ module FollowerSpec
         2.times do
           select
           when filename = records.receive
-            filename.should eq LavinMQ::Clustering::SyncControlPacket::PATH
+            filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
           when timeout(500.milliseconds)
             fail "a packet did not get a record of its own"
           end

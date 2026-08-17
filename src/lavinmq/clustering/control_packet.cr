@@ -9,25 +9,24 @@ module LavinMQ
     # Whoever takes a packet must #done it exactly once, whether or not it got
     # as far as #to_io: one dropped without a #done hangs its waiter forever.
     abstract struct ControlPacket
-      # Records whose path starts with this carry an instruction, not file data.
-      # Never a real path, so nothing under it is created on disk or tracked.
-      PREFIX = "$ctrl/"
+      # The symbol of every packet that can be sent. A record whose filename
+      # starts with one carries that instruction instead of file data; what
+      # follows the symbol is the instruction's argument.
+      SYMBOLS = {SyncControlPacket::SYMBOL}
 
-      # True for a record that carries an instruction rather than file data,
-      # whether or not this build knows the instruction: an unknown one must
-      # still be recognised as a control record and skipped, not read as a
-      # delete of its path. Which instruction it is, .from_str answers.
+      # True for a record that carries an instruction rather than file data.
+      # Which instruction it is, .from_str answers.
       def self.control?(path : String) : Bool
-        path.starts_with?(PREFIX)
+        SYMBOLS.includes? path[0]?
       end
 
-      # The packet a received record's path stands for, nil for an instruction
-      # only a newer leader knows. Deliberately returns the narrow union of the
+      # The packet a received record's filename stands for, nil for a symbol
+      # this build doesn't know. Deliberately returns the narrow union of the
       # packets with a wire form, not ControlPacket?, so a `case ... in` on it
       # stops compiling when a new one is added (see Client#control).
       def self.from_str(str : String)
-        case str
-        when SyncControlPacket::PATH then SyncControlPacket.new
+        case str[0]?
+        when SyncControlPacket::SYMBOL then SyncControlPacket.new(str[1..])
         end
       end
 
@@ -72,33 +71,34 @@ module LavinMQ
       end
     end
 
-    # Asks the follower to make everything replicated so far durable. It fsyncs
-    # before acking this record (see Client#control), so this ack — unlike an
-    # ordinary one, which only means received and applied — means persisted.
+    # Asks the follower to make replicated writes durable: the file `path`
+    # names, or the whole filesystem when it names a directory — the empty path
+    # being the data dir itself. The follower syncs before acking this record
+    # (see Client#control), so this ack — unlike an ordinary one, which only
+    # means received and applied — means persisted.
     #
     # No waiter of its own: the queue is FIFO, so waiting for a FlushPacket
     # queued after it covers this record too. Must always be followed by one, or
     # it sits in the compressor until ack_loop's fallback flush.
     struct SyncControlPacket < ControlPacket
-      # Names this instruction on the wire; the empty body means the record is
-      # routed by prefix before its length is interpreted.
-      PATH = "#{PREFIX}sync"
+      # Names this instruction on the wire; `path` follows it as the argument.
+      SYMBOL = '$'
 
-      # The whole record: filename framing plus a zero length, no body.
-      RECORD = begin
-        io = IO::Memory.new
-        io.write_bytes PATH.bytesize.to_i32, IO::ByteFormat::LittleEndian
-        io.write PATH.to_slice
-        io.write_bytes 0i64 # empty body (endian-agnostic)
-        io.to_slice
+      getter path : String
+
+      def initialize(@path : String = "")
       end
 
       def bytesize : Int64
-        RECORD.bytesize.to_i64
+        (sizeof(Int32) + SYMBOL.bytesize + @path.bytesize + sizeof(Int64)).to_i64
       end
 
+      # Written symbol-then-path rather than from a joined string, so sending
+      # one allocates nothing.
       def to_io(io : IO) : Nil
-        io.write RECORD
+        io.write_bytes (SYMBOL.bytesize + @path.bytesize).to_i32, IO::ByteFormat::LittleEndian
+        io << SYMBOL << @path
+        io.write_bytes 0i64 # empty body (endian-agnostic)
       end
     end
   end

@@ -3,45 +3,52 @@ require "../../src/lavinmq/clustering/control_packet"
 
 module ControlPacketSpec
   describe LavinMQ::Clustering::ControlPacket do
-    # Answers "is this an instruction?" where .from_str answers "which one?" —
-    # so a record only a newer leader knows is still recognised as a control
-    # record, rather than read as a delete of its path.
+    symbol = LavinMQ::Clustering::SyncControlPacket::SYMBOL
+
+    # Answers "is this an instruction?" where .from_str answers "which one?".
     describe ".control?" do
-      it "is true for any $ctrl/ record, known or not" do
-        LavinMQ::Clustering::ControlPacket
-          .control?(LavinMQ::Clustering::SyncControlPacket::PATH).should be_true
-        LavinMQ::Clustering::ControlPacket
-          .control?("#{LavinMQ::Clustering::ControlPacket::PREFIX}from_the_future").should be_true
+      it "is true for a record named by a symbol, with or without an argument" do
+        LavinMQ::Clustering::ControlPacket.control?(symbol.to_s).should be_true
+        LavinMQ::Clustering::ControlPacket.control?("#{symbol}vhost_dir/msgs.0000001").should be_true
       end
 
       it "is false for a replicated file path" do
-        LavinMQ::Clustering::ControlPacket.control?("queue_dir/msgs.0000001").should be_false
+        LavinMQ::Clustering::ControlPacket.control?("vhost_dir/msgs.0000001").should be_false
+        LavinMQ::Clustering::ControlPacket.control?("").should be_false
       end
     end
 
     describe ".from_str" do
-      it "returns the packet a record's path stands for" do
-        LavinMQ::Clustering::ControlPacket.from_str(LavinMQ::Clustering::SyncControlPacket::PATH)
-          .should be_a LavinMQ::Clustering::SyncControlPacket
+      it "returns the packet the symbol stands for, with the rest as its path" do
+        packet = LavinMQ::Clustering::ControlPacket.from_str("#{symbol}vhost_dir/msgs.0000001")
+        packet.should be_a LavinMQ::Clustering::SyncControlPacket
+        packet.as(LavinMQ::Clustering::SyncControlPacket).path.should eq "vhost_dir/msgs.0000001"
       end
 
-      # A newer leader's instruction: the follower skips it rather than dying,
-      # so the stream stays aligned (see Client#control).
-      it "returns nil for an unknown instruction" do
-        LavinMQ::Clustering::ControlPacket
-          .from_str("#{LavinMQ::Clustering::ControlPacket::PREFIX}from_the_future").should be_nil
+      # The empty path names the data dir itself: sync the whole filesystem.
+      it "returns an empty path for a bare symbol" do
+        LavinMQ::Clustering::ControlPacket.from_str(symbol.to_s)
+          .as(LavinMQ::Clustering::SyncControlPacket).path.should eq ""
+      end
+
+      it "returns nil for a symbol this build doesn't know" do
+        LavinMQ::Clustering::ControlPacket.from_str("%from_the_future").should be_nil
+        LavinMQ::Clustering::ControlPacket.from_str("vhost_dir/msgs.0000001").should be_nil
       end
     end
 
-    # Both sides of the wire agree on the path because they share the packet:
+    # Both sides of the wire agree on the format because they share the packet:
     # what the leader writes is what the follower parses back.
     it "parses back the record it writes" do
       io = IO::Memory.new
-      LavinMQ::Clustering::SyncControlPacket.new.to_io(io)
+      packet = LavinMQ::Clustering::SyncControlPacket.new("vhost_dir/msgs.0000001")
+      packet.to_io(io)
+      io.size.should eq packet.bytesize # what's counted as sent is what's written
+
       io.rewind
       len = io.read_bytes(Int32, IO::ByteFormat::LittleEndian)
       LavinMQ::Clustering::ControlPacket.from_str(io.read_string(len))
-        .should be_a LavinMQ::Clustering::SyncControlPacket
+        .as(LavinMQ::Clustering::SyncControlPacket).path.should eq "vhost_dir/msgs.0000001"
       io.read_bytes(Int64, IO::ByteFormat::LittleEndian).should eq 0 # empty body
     end
   end

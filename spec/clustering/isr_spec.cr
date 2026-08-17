@@ -66,7 +66,7 @@ private def sync_follower_with_stream(server, port, id : Int32) : {TCPSocket, Co
 end
 
 # Acks every replicated record like a real follower — the leader's durable
-# operations block until it does — and counts the $ctrl/sync records it saw.
+# operations block until it does — and counts the sync records it saw.
 # The count is bumped before the ack, so a returned leader operation implies its
 # records are counted here and specs can assert on #syncs without waiting.
 private class AckingFollower
@@ -87,7 +87,7 @@ private class AckingFollower
       filename = @lz4.read_string(filename_len)
       len = @lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
       @lz4.skip(len.abs) unless len.zero?
-      @syncs.add(1) if filename == LavinMQ::Clustering::SyncControlPacket::PATH
+      @syncs.add(1) if filename.starts_with?(LavinMQ::Clustering::SyncControlPacket::SYMBOL)
       acked = (sizeof(Int32) + filename_len + sizeof(Int64) + len.abs).to_i64
       @io.write_bytes acked, IO::ByteFormat::LittleEndian
     end
@@ -323,7 +323,7 @@ describe LavinMQ::Clustering::Server do
 
   describe "publish confirms against the ISR" do
     # An append alone doesn't tell the follower the leader is fencing confirms
-    # on it, so the confirm loop says so with a $ctrl/sync record.
+    # on it, so the confirm loop says so with a sync record.
     it "asks in-sync followers to persist replicated data before confirming a publish" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)

@@ -455,7 +455,7 @@ module LavinMQ
           # Routed before the length is interpreted: a control record's empty
           # body would read as a delete. Acked once handled, like a delete.
           # Control records carry no body, so the framing is the whole record —
-          # and a $ctrl/ record that does carry one is not an instruction this
+          # and a control record that does carry one is not an instruction this
           # build can act on, so it falls through and is consumed as file data
           # rather than desyncing the stream.
           if len.zero? && ControlPacket.control?(filename)
@@ -497,10 +497,10 @@ module LavinMQ
         return if @closed.get
         @controls.add
         begin
-          case ControlPacket.from_str(command)
+          case packet = ControlPacket.from_str(command)
           in SyncControlPacket
-            Log.debug { "Sync requested" }
-            sync_to_disk
+            Log.debug { "Sync requested: #{packet.path}" }
+            sync_to_disk(packet.path)
           in Nil
             Log.warn { "Ignoring unknown control record #{command}" }
           end
@@ -633,7 +633,7 @@ module LavinMQ
 
       # Concatenate as many acks as possible to generate few TCP packets.
       # Nothing is synced here: an ack means received and applied, and durability
-      # is fenced by the leader's $ctrl/sync records (see #control). The
+      # is fenced by the leader's sync records (see #control). The
       # Fiber.yield lets a batch grow — the stream-reading fiber gets to queue
       # more acks before we drain the channel again.
       private def send_ack_loop(acks, socket)
@@ -650,13 +650,21 @@ module LavinMQ
         socket.close rescue nil
       end
 
-      # Make all replicated writes durable. Only runs on request: the leader asks
-      # with a $ctrl/sync record, acked once this returns, and that ack is what
-      # tells it the data is persisted here.
-      private def sync_to_disk : Nil
+      # Make replicated writes durable. Only runs on request: the leader asks
+      # with a $ record, acked once this returns, and that ack is what tells it
+      # the data is persisted here.
+      #
+      # A file we have open is fsynced on its own; anything else — a directory,
+      # the empty path (the data dir), a file we only ever replaced — falls back
+      # to the whole filesystem, which can never sync too little.
+      private def sync_to_disk(path : String) : Nil
         # We dont need to return here, sync is controlled by leader...?
         # return unless @config.sync?
-        sync_data_dir
+        if file = @files[path]?
+          file.fsync
+        else
+          sync_data_dir
+        end
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
         # from the in-sync set and stops confirming publishes on our acks.
