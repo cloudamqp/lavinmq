@@ -21,6 +21,7 @@ module LavinMQ
     # follower only reaches the in-sync set after a full_sync that includes
     # every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
+    @syncfs_lock = Mutex.new # serialize all syncfs syscalls
 
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -36,16 +37,23 @@ module LavinMQ
     private def syncfs_timeout_loop
       loop do
         @syncfs_ok.receive # syncfs is about to run
-        select
-        when @syncfs_ok.receive # syncfs completed
-          next
-        when timeout 10.seconds # syncfs blocked for too long
-          Log.fatal { "syncfs(2) is blocked" }
-          exit 1
-        end
+        wait_for_syncfs
       rescue Channel::ClosedError
         break
       end
+    end
+
+    private def wait_for_syncfs : Nil
+      select
+      when @syncfs_ok.receive     # syncfs completed
+      when timeout syncfs_timeout # syncfs blocked for too long
+        Log.fatal { "syncfs(2) is blocked" }
+        exit 1
+      end
+    end
+
+    protected def syncfs_timeout : Time::Span
+      10.seconds
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
@@ -63,15 +71,23 @@ module LavinMQ
     end
 
     def sync : Nil
-      @syncfs_ok.send nil
+      @syncfs_lock.synchronize do
+        @syncfs_ok.send nil
+        begin
+          sync_data_dir
+        ensure
+          @syncfs_ok.send nil
+        end
+      end
+    end
+
+    protected def sync_data_dir : Nil
       {% if flag?(:linux) %}
         ret = LibC.syncfs(@data_dir_fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
       {% else %}
         LibC.sync
       {% end %}
-    ensure
-      @syncfs_ok.send nil
     end
 
     def close : Nil
