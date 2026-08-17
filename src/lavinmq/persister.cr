@@ -21,7 +21,8 @@ module LavinMQ
     # follower only reaches the in-sync set after a full_sync that includes
     # every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
-    @syncfs_lock = Mutex.new # serialize all syncfs syscalls
+    @syncfs_lock = Mutex.new # serialize all syncfs syscalls, and guard @closed/@syncfs_ok/@data_dir_fd teardown
+    getter? closed = false
 
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -72,6 +73,10 @@ module LavinMQ
 
     def sync : Nil
       @syncfs_lock.synchronize do
+        # Persister is closing (or closed) on another fiber: @syncfs_ok and
+        # @data_dir_fd may already be torn down (see #close), so bail out
+        # instead of sending on a closed channel or syncing a closed fd.
+        return if @closed
         @syncfs_ok.send nil
         begin
           sync_data_dir
@@ -106,8 +111,15 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain_pending_acks
-      LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-      @syncfs_ok.close # close the syncfs timeout loop
+      # Take the same lock `sync` uses so this can't race a concurrent (or
+      # about-to-start) sync() call: either it's already in flight and holds
+      # the lock — we wait for it to finish before tearing anything down —
+      # or it hasn't started yet and will see @closed and bail out below.
+      @syncfs_lock.synchronize do
+        @closed = true
+        LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+        @syncfs_ok.close # close the syncfs timeout loop
+      end
     end
 
     private def drain_pending_acks

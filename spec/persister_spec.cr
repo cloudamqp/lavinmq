@@ -59,4 +59,35 @@ describe LavinMQ::Persister do
   ensure
     persister.try &.close
   end
+
+  it "does not race when close runs while a sync is in flight" do
+    persister = BlockingPersister.new(LavinMQ::Config.instance.data_dir)
+    sync_result = Channel(Exception?).new(1)
+
+    spawn do
+      persister.sync
+      sync_result.send nil
+    rescue ex
+      sync_result.send ex
+    end
+    persister.sync_started.receive
+
+    # close's fd/@syncfs_ok teardown (in publish_confirm_loop's rescue) must
+    # queue behind @syncfs_lock, held by the in-flight sync above, instead of
+    # tearing down while that sync is still using @data_dir_fd/@syncfs_ok.
+    persister.close
+    # give the close-teardown fiber (a separate OS thread) a real chance to
+    # run while our sync is still blocked mid-syscall, holding the lock —
+    # without this, the race below is timing-dependent and rarely triggers.
+    sleep 50.milliseconds
+
+    persister.release_sync.send nil
+    sync_result.receive.should be_nil
+
+    wait_for { persister.closed? }
+
+    # A sync call arriving after the persister is fully closed must be a
+    # silent no-op — never a Channel::ClosedError from the closed @syncfs_ok.
+    persister.sync
+  end
 end
