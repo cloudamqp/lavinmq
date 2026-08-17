@@ -430,6 +430,17 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      # Used on both the leader (Persister) and a follower (Clustering::Client)
+      # to bound how long a blocked syncfs(2) is tolerated before exiting so a
+      # standby node can take over. Only enforced while clustering is enabled:
+      # a standalone node has no follower to fail over to, so it logs instead
+      # of exiting (see Persister#wait_for_syncfs).
+      @[CliOpt("", "--clustering-syncfs-timeout=SECONDS",
+        "Seconds to tolerate a blocked syncfs(2) before exiting (default: 10)", section: "clustering")]
+      @[IniOpt(ini_name: syncfs_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SYNCFS_TIMEOUT")]
+      property clustering_syncfs_timeout : Time::Span = 10.seconds
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

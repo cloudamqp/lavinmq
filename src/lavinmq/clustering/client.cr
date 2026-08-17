@@ -61,6 +61,14 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
         raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
+        @syncfs_ok = Channel(Nil).new(2) # 2 slots: one for syncfs start, one for syncfs end
+        # A follower only exists while clustering, so unlike the leader's
+        # Persister (which also runs standalone) there's no case where dying
+        # on a blocked syncfs doesn't help: staying an unresponsive follower
+        # forever is strictly worse than exiting so the leader drops it from
+        # the in-sync set. See Persister#syncfs_timeout_loop for the same
+        # start/end signal protocol.
+        Fiber::ExecutionContext::Isolated.new("clustering syncfs timeout loop") { syncfs_timeout_loop }
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
@@ -611,7 +619,12 @@ module LavinMQ
       private def sync_to_disk : Nil
         return unless @config.sync?
 
-        sync_data_dir
+        @syncfs_ok.send nil
+        begin
+          sync_data_dir
+        ensure
+          @syncfs_ok.send nil
+        end
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
         # from the in-sync set and stops confirming publishes on our acks.
@@ -619,13 +632,35 @@ module LavinMQ
         exit 1
       end
 
-      private def sync_data_dir : Nil
+      protected def sync_data_dir : Nil
         {% if flag?(:linux) %}
           ret = LibC.syncfs(@data_dir_fd)
           raise IO::Error.from_errno("syncfs") if ret != 0
         {% else %}
           LibC.sync
         {% end %}
+      end
+
+      private def syncfs_timeout_loop
+        loop do
+          @syncfs_ok.receive # syncfs is about to run
+          wait_for_syncfs
+        rescue Channel::ClosedError
+          break
+        end
+      end
+
+      private def wait_for_syncfs : Nil
+        select
+        when @syncfs_ok.receive     # syncfs completed
+        when timeout syncfs_timeout # syncfs blocked for too long
+          Log.fatal { "syncfs(2) is blocked, exiting so the leader can drop this follower" }
+          exit 1
+        end
+      end
+
+      protected def syncfs_timeout : Time::Span
+        Config.instance.clustering_syncfs_timeout
       end
 
       # Logs the streamed byte count until #stream_changes closes the done
@@ -687,6 +722,10 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+        # @ack_loops.wait above guarantees sync_to_disk (the only caller of
+        # sync_data_dir) has fully finished, so this can't race an in-flight
+        # start/end signal pair the way Persister#close has to guard against.
+        @syncfs_ok.close # close the syncfs timeout loop
         @data_dir_lock.release
         @metrics_server.try &.close
       end

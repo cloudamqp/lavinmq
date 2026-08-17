@@ -48,13 +48,21 @@ module LavinMQ
       select
       when @syncfs_ok.receive     # syncfs completed
       when timeout syncfs_timeout # syncfs blocked for too long
-        Log.fatal { "syncfs(2) is blocked" }
+        unless @replicator
+          # No follower to fail over to — dying doesn't help availability, it
+          # just turns a slow disk into a full outage. Log and keep waiting.
+          Log.error { "syncfs(2) is blocked" }
+          @syncfs_ok.receive # wait for the real completion so it isn't later
+          # mistaken for the *next* call's start signal (see #sync)
+          return
+        end
+        Log.fatal { "syncfs(2) is blocked, exiting so a follower can take over" }
         exit 1
       end
     end
 
     protected def syncfs_timeout : Time::Span
-      10.seconds
+      Config.instance.clustering_syncfs_timeout
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
