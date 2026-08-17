@@ -12,7 +12,7 @@ module LavinMQ
       # The symbol of every packet that can be sent. A record whose filename
       # starts with one carries that instruction instead of file data; what
       # follows the symbol is the instruction's argument.
-      SYMBOLS = {SyncControlPacket::SYMBOL}
+      SYMBOLS = {SyncPacket::SYMBOL}
 
       # True for a record that carries an instruction rather than file data.
       # Which instruction it is, .from_str answers.
@@ -26,7 +26,7 @@ module LavinMQ
       # stops compiling when a new one is added (see Client#control).
       def self.from_str(str : String)
         case str[0]?
-        when SyncControlPacket::SYMBOL then SyncControlPacket.new(str[1..])
+        when SyncPacket::SYMBOL then SyncPacket.new(str[1..])
         end
       end
 
@@ -80,7 +80,7 @@ module LavinMQ
     # No waiter of its own: the queue is FIFO, so waiting for a FlushPacket
     # queued after it covers this record too. Must always be followed by one, or
     # it sits in the compressor until ack_loop's fallback flush.
-    struct SyncControlPacket < ControlPacket
+    struct SyncPacket < ControlPacket
       # Names this instruction on the wire; `path` follows it as the argument.
       SYMBOL = '$'
 

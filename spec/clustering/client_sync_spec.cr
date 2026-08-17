@@ -197,7 +197,7 @@ module ClientSyncSpec
           rescue IO::Error
           end
 
-          control = LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
+          control = LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
           write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
           write_record(lz4_writer, control, 0i64, Bytes.empty)
           streamed = record_size(filename, payload.bytesize) + record_size(control, 0)
@@ -224,7 +224,7 @@ module ClientSyncSpec
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
             Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
 
-          control = LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
+          control = LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
           filename = "after_control"
           payload = "replicated bytes"
 
@@ -293,7 +293,7 @@ module ClientSyncSpec
 
           filename = "vhost_dir/one_file"
           payload = "replicated bytes"
-          file_sync = "#{LavinMQ::Clustering::SyncControlPacket::SYMBOL}#{filename}"
+          file_sync = "#{LavinMQ::Clustering::SyncPacket::SYMBOL}#{filename}"
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
@@ -325,7 +325,7 @@ module ClientSyncSpec
           dir = "vhost_dir"
           filename = File.join(dir, "a_file")
           payload = "replicated bytes"
-          dir_sync = "#{LavinMQ::Clustering::SyncControlPacket::SYMBOL}#{dir}"
+          dir_sync = "#{LavinMQ::Clustering::SyncPacket::SYMBOL}#{dir}"
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
@@ -1103,7 +1103,7 @@ module ClientSyncSpec
             # socket closed at spec end, or acks closed by close
           end
 
-          write_record(lz4_writer, LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s, 0i64, Bytes.empty)
+          write_record(lz4_writer, LavinMQ::Clustering::SyncPacket::SYMBOL.to_s, 0i64, Bytes.empty)
           wait_for { client.syncs_started > 0 } # the sync is now in its delay
 
           # follow() was never called in this harness, so satisfy close's
@@ -1138,7 +1138,7 @@ module ClientSyncSpec
           spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
           client.close
 
-          write_record(lz4_writer, LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s, 0i64, Bytes.empty)
+          write_record(lz4_writer, LavinMQ::Clustering::SyncPacket::SYMBOL.to_s, 0i64, Bytes.empty)
           # The record is read and counted, but its action is skipped.
           wait_for { client.@streamed_bytes > 0 }
           client.syncs_started.should eq 0

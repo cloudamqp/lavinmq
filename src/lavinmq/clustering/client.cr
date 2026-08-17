@@ -498,7 +498,7 @@ module LavinMQ
         @controls.add
         begin
           case packet = ControlPacket.from_str(command)
-          in SyncControlPacket
+          in SyncPacket
             Log.debug { "Sync requested: #{packet.path}" }
             sync_to_disk(packet.path)
           in Nil

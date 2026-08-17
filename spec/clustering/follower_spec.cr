@@ -13,7 +13,7 @@ end
 # What Clustering::Server#request_sync queues: the record, then the flush that
 # puts it on the socket and releases `wg`.
 private def request_sync(follower, wg : WaitGroup)
-  follower.control LavinMQ::Clustering::SyncControlPacket.new
+  follower.control LavinMQ::Clustering::SyncPacket.new
   follower.control LavinMQ::Clustering::FlushPacket.new(wg)
 end
 
@@ -648,7 +648,7 @@ module FollowerSpec
   end
 
   describe "#control" do
-    packet_size = LavinMQ::Clustering::SyncControlPacket.new.bytesize
+    packet_size = LavinMQ::Clustering::SyncPacket.new.bytesize
 
     it "sends a sync record with an empty body, without waiting for the ack-loop fallback flush" do
       with_datadir do |data_dir|
@@ -672,7 +672,7 @@ module FollowerSpec
         # Must arrive via control_loop, well before ack_loop's 100ms fallback
         select
         when record = received.receive
-          record.should eq({LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s, 0i64})
+          record.should eq({LavinMQ::Clustering::SyncPacket::SYMBOL.to_s, 0i64})
         when timeout(50.milliseconds)
           fail "the packet's record was not flushed to the follower"
         end
@@ -703,7 +703,7 @@ module FollowerSpec
           # socket closed at spec end
         end
 
-        follower.control LavinMQ::Clustering::SyncControlPacket.new
+        follower.control LavinMQ::Clustering::SyncPacket.new
         # Written and counted, but not pushed: well inside ack_loop's 100ms
         # fallback flush, the follower must have seen nothing.
         select
@@ -719,7 +719,7 @@ module FollowerSpec
 
         select
         when filename = received.receive
-          filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
+          filename.should eq LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
         when timeout(50.milliseconds)
           fail "the flush packet did not push the record to the follower"
         end
@@ -855,7 +855,7 @@ module FollowerSpec
 
         select
         when filename = received.receive
-          filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
+          filename.should eq LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
         when timeout(500.milliseconds)
           fail "the sync record never reached the wire"
         end
@@ -906,7 +906,7 @@ module FollowerSpec
         2.times do
           select
           when filename = records.receive
-            filename.should eq LavinMQ::Clustering::SyncControlPacket::SYMBOL.to_s
+            filename.should eq LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
           when timeout(500.milliseconds)
             fail "a packet did not get a record of its own"
           end

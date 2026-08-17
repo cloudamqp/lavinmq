@@ -187,7 +187,7 @@ module LavinMQ
 
       # Block until the follower has acked at least the bytes already sent at
       # call time. An ack means received and applied, not durable; a caller that
-      # needs durability queues a SyncControlPacket first, whose bytes are then
+      # needs durability queues a SyncPacket first, whose bytes are then
       # part of the count waited for here (see Clustering::Client#control).
       # Requests a flush first so the pending bytes reach the follower without
       # waiting for the ack_loop's 100ms flush timeout.

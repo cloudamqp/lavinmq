@@ -168,7 +168,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         fail "request_sync never released the waiter"
       end
 
-      synced.lag_in_bytes.should eq LavinMQ::Clustering::SyncControlPacket.new.bytesize
+      synced.lag_in_bytes.should eq LavinMQ::Clustering::SyncPacket.new.bytesize
       syncing.lag_in_bytes.should eq 0
     ensure
       sock_a.try &.close

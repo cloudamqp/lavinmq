@@ -443,7 +443,7 @@ module LavinMQ
       # be passed to make this method synchronous.
       def request_sync(wg : WaitGroup? = nil) : Nil
         followers.each do |f|
-          f.control SyncControlPacket.new
+          f.control SyncPacket.new
           f.control FlushPacket.new(wg)
         end
       end
