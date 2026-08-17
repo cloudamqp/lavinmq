@@ -25,9 +25,27 @@ module LavinMQ
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
       raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
+      @syncfs_ok = Channel(Nil).new(2) # 2 slots: one for syncfs start, one for syncfs end
       # Run on a dedicated thread so the blocking syncfs(2) syscall only stalls
       # this thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
+      # Timeout and exit process if syncfs doesn't respond in time
+      Fiber::ExecutionContext::Isolated.new("syncfs timeout loop") { syncfs_timeout_loop }
+    end
+
+    private def syncfs_timeout_loop
+      loop do
+        @syncfs_ok.receive # syncfs is about to run
+        select
+        when @syncfs_ok.receive # syncfs completed
+          next
+        when timeout 10.seconds # syncfs blocked for too long
+          Log.fatal { "syncfs(2) is blocked" }
+          exit 1
+        end
+      rescue Channel::ClosedError
+        break
+      end
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
@@ -45,12 +63,15 @@ module LavinMQ
     end
 
     def sync : Nil
+      @syncfs_ok.send nil
       {% if flag?(:linux) %}
         ret = LibC.syncfs(@data_dir_fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
       {% else %}
         LibC.sync
       {% end %}
+    ensure
+      @syncfs_ok.send nil
     end
 
     def close : Nil
@@ -70,6 +91,7 @@ module LavinMQ
       # but not yet confirmed before exiting.
       drain_pending_acks
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+      @syncfs_ok.close # close the syncfs timeout loop
     end
 
     private def drain_pending_acks
