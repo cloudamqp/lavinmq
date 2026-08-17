@@ -5,7 +5,7 @@ module ControlPacketSpec
   describe LavinMQ::Clustering::ControlPacket do
     describe ".from_str" do
       it "returns the packet a record's path stands for" do
-        LavinMQ::Clustering::ControlPacket.from_str(LavinMQ::Clustering::SYNC_CONTROL_PATH)
+        LavinMQ::Clustering::ControlPacket.from_str(LavinMQ::Clustering::SyncControlPacket::PATH)
           .should be_a LavinMQ::Clustering::SyncControlPacket
       end
 

@@ -87,7 +87,7 @@ private class AckingFollower
       filename = @lz4.read_string(filename_len)
       len = @lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
       @lz4.skip(len.abs) unless len.zero?
-      @syncs.add(1) if filename == LavinMQ::Clustering::SYNC_CONTROL_PATH
+      @syncs.add(1) if filename == LavinMQ::Clustering::SyncControlPacket::PATH
       acked = (sizeof(Int32) + filename_len + sizeof(Int64) + len.abs).to_i64
       @io.write_bytes acked, IO::ByteFormat::LittleEndian
     end

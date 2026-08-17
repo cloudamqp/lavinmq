@@ -7,12 +7,9 @@ module LavinMQ
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
 
     # Records with this prefix carry an instruction, not file data. Never a real
-    # path, so nothing under it is created on disk or tracked.
+    # path, so nothing under it is created on disk or tracked. Which instruction
+    # is named by the rest of the path — see ControlPacket.from_str.
     CONTROL_PREFIX = "$ctrl/"
-
-    # Asks the follower to make everything replicated so far durable. Empty
-    # body, hence routed by prefix before the length is interpreted.
-    SYNC_CONTROL_PATH = "#{CONTROL_PREFIX}sync"
 
     class Error < Exception; end
 

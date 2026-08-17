@@ -15,7 +15,7 @@ module LavinMQ
       # stops compiling when a new one is added (see Client#control).
       def self.from_str(str : String)
         case str
-        when SYNC_CONTROL_PATH then SyncControlPacket.new
+        when SyncControlPacket::PATH then SyncControlPacket.new
         end
       end
 
@@ -68,21 +68,25 @@ module LavinMQ
     # queued after it covers this record too. Must always be followed by one, or
     # it sits in the compressor until ack_loop's fallback flush.
     struct SyncControlPacket < ControlPacket
-      # A whole $ctrl/sync record: filename framing plus a zero length, no body.
-      PACKET = begin
+      # Names this instruction on the wire; the empty body means the record is
+      # routed by prefix before its length is interpreted.
+      PATH = "#{CONTROL_PREFIX}sync"
+
+      # The whole record: filename framing plus a zero length, no body.
+      RECORD = begin
         io = IO::Memory.new
-        io.write_bytes SYNC_CONTROL_PATH.bytesize.to_i32, IO::ByteFormat::LittleEndian
-        io.write SYNC_CONTROL_PATH.to_slice
+        io.write_bytes PATH.bytesize.to_i32, IO::ByteFormat::LittleEndian
+        io.write PATH.to_slice
         io.write_bytes 0i64 # empty body (endian-agnostic)
         io.to_slice
       end
 
       def bytesize : Int64
-        PACKET.bytesize.to_i64
+        RECORD.bytesize.to_i64
       end
 
       def to_io(io : IO) : Nil
-        io.write PACKET
+        io.write RECORD
       end
     end
   end
