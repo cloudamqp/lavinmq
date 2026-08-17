@@ -9,6 +9,16 @@ module LavinMQ
     # Whoever takes a packet must #done it exactly once, whether or not it got
     # as far as #to_io: one dropped without a #done hangs its waiter forever.
     abstract struct ControlPacket
+      # The packet a received record's path stands for, nil for an instruction
+      # only a newer leader knows. Deliberately returns the narrow union of the
+      # packets with a wire form, not ControlPacket?, so a `case ... in` on it
+      # stops compiling when a new one is added (see Client#control).
+      def self.from_str(str : String)
+        case str
+        when SYNC_CONTROL_PATH then SyncControlPacket.new
+        end
+      end
+
       # How many bytes #to_io writes. Counted into the follower's sent-byte
       # total at the position the record occupies on the wire.
       abstract def bytesize : Int64

@@ -2,6 +2,7 @@ require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
 require "./checksums"
+require "./control_packet"
 require "./proxy"
 require "lz4"
 require "http/server"
@@ -493,11 +494,11 @@ module LavinMQ
         return if @closed.get
         @controls.add
         begin
-          case command
-          when SYNC_CONTROL_PATH
+          case ControlPacket.from_str(command)
+          in SyncControlPacket
             Log.debug { "Sync requested" }
             sync_to_disk
-          else
+          in Nil
             Log.warn { "Ignoring unknown control record #{command}" }
           end
         ensure
