@@ -39,9 +39,9 @@ private def sync_follower(server, port, id : Int32) : TCPSocket
   sync_follower_with_stream(server, port, id).first
 end
 
-# As sync_follower, but also returns the LZ4 reader, positioned at the start of
-# the change stream: the leader keeps one LZ4 frame per connection, so a spec
-# reading replicated records must keep using this reader.
+# As sync_follower, but also returns the LZ4 reader positioned at the start of
+# the change stream. The leader keeps one LZ4 frame per connection, so a spec
+# reading records must keep using this reader.
 private def sync_follower_with_stream(server, port, id : Int32) : {TCPSocket, Compress::LZ4::Reader}
   io = TCPSocket.new("localhost", port)
   io.write LavinMQ::Clustering::Start
@@ -67,9 +67,8 @@ end
 
 # Acks every replicated record like a real follower — the leader's durable
 # operations block until it does — and counts the $ctrl/sync records it saw.
-# The count is bumped before the ack is written, so once a leader operation has
-# returned, the records it fenced on are already counted here: specs can assert
-# on #syncs without waiting.
+# The count is bumped before the ack, so a returned leader operation implies its
+# records are counted here and specs can assert on #syncs without waiting.
 private class AckingFollower
   @syncs = Atomic(Int32).new(0)
 
@@ -349,8 +348,8 @@ describe LavinMQ::Clustering::Server do
 
           q.publish_confirm("m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)).should be_true
 
-          # The confirm waited for every sent byte to be acked, the sync record
-          # included, so the follower has necessarily counted it by now.
+          # The confirm waited for every sent byte, the sync record included, so
+          # the follower has necessarily counted it by now.
           (follower.syncs - before).should be > 0
         end
       end
@@ -361,11 +360,9 @@ describe LavinMQ::Clustering::Server do
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
 
-    # A durable definition change is acknowledged (Declare-Ok) once its frame is
-    # fsynced locally and acked by every in-sync follower — and an ack only
-    # means persisted if a sync record precedes it, exactly like a publish
-    # confirm. Without the request the Declare-Ok would go out while the
-    # follower holds the frame in its page cache only.
+    # Like a publish confirm: the Declare-Ok goes out once the frame is fsynced
+    # locally and acked by every in-sync follower, and an ack only means
+    # persisted if a sync record precedes it.
     it "asks in-sync followers to persist a durable declare before acknowledging it" do
       data_dir = LavinMQ::Config.instance.data_dir
       Dir.mkdir_p(data_dir)
@@ -385,8 +382,8 @@ describe LavinMQ::Clustering::Server do
           follower = AckingFollower.new(io, lz4)
           ch.queue("isr_declare_sync_request", durable: true)
 
-          # The declare waited for every sent byte to be acked, the sync record
-          # included, so the follower has necessarily counted it by now.
+          # The declare waited for every sent byte, the sync record included, so
+          # the follower has necessarily counted it by now.
           follower.syncs.should be > 0
         end
       end

@@ -1,4 +1,6 @@
 require "../mfile"
+require "./control_packet"
+require "wait_group"
 
 module LavinMQ
   module Clustering
@@ -23,12 +25,19 @@ module LavinMQ
       # Persister#wait_for_followers).
       abstract def isr_dirty? : Bool
       abstract def flush_isr : Nil
-      # Ask every in-sync follower to make everything replicated so far
-      # durable. Paired with #wait_for_followers: a follower acks received
-      # bytes, so only the ack of this request means they're persisted. Called
-      # once the operation is dispatched and locally fsynced, before the wait,
-      # so the followers persist while the leader does.
-      abstract def request_sync : Nil
+      # Push the bytes replicated so far to every in-sync follower. Never blocks.
+      abstract def request_flush : Nil
+      # Ask every in-sync follower to make everything replicated so far durable.
+      # Paired with #wait_for_followers: a follower acks received bytes, so only
+      # the ack of this request means they're persisted. Called once the
+      # operation is dispatched and locally fsynced, before the wait, so the
+      # followers persist while the leader does.
+      #
+      # `wg` is released per follower once the record is on its socket. Wait for
+      # it before #wait_for_followers: unless the record is counted in the
+      # follower's sent-byte total first, an append written ahead of it can
+      # carry that follower's acks past the target on its own.
+      abstract def request_sync(wg : WaitGroup) : Nil
       # Block until every in-sync follower has acked everything replicated so
       # far, then commit any pending ISR change. Called after a durable
       # operation has been dispatched and locally fsynced, before it is

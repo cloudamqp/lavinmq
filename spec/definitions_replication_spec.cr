@@ -81,7 +81,11 @@ class DefinitionsSpyReplicator
   def flush_isr : Nil
   end
 
-  def request_sync : Nil
+  def request_flush : Nil
+    @calls << :request_flush
+  end
+
+  def request_sync(wg : WaitGroup) : Nil
     @calls << :request_sync
   end
 
@@ -120,10 +124,9 @@ describe LavinMQ::DefinitionsStore do
     spy.violations.should be_empty
   end
 
-  # A follower acks bytes it has received, so the wait that gates the client's
-  # Declare-Ok only means "durable on every in-sync follower" if a sync request
-  # went out first. It must also come after the dispatch, or it would fence
-  # everything except the frame being acknowledged.
+  # A follower acks bytes it received, so the wait gating the Declare-Ok only
+  # means durable if a sync request went out first — and after the dispatch, or
+  # it would fence everything except the frame being acknowledged.
   it "fences followers on a durable definition change: dispatch, request sync, then wait" do
     spy = DefinitionsSpyReplicator.new
     with_amqp_server(replicator: spy) do |s|

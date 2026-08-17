@@ -43,6 +43,8 @@ After bulk sync, the leader streams changes in real-time:
 - **Rewrites** — files that have been completely rewritten (e.g., compacted definitions)
 - **Control records** — instructions rather than file data, e.g. a request to make everything replicated so far durable before the leader confirms a publish
 
+A follower acks the byte count of every record it has received and applied. An ack on its own does not mean the data is on disk — durability is fenced by the sync control record, and it is that record's ack the leader waits for before confirming a publish or acknowledging a durable definition change.
+
 Data is compressed with LZ4 during replication.
 
 ### What Gets Replicated

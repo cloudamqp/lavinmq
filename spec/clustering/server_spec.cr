@@ -102,6 +102,83 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 
+  describe "#request_flush" do
+    it "pushes buffered bytes to synced followers" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      fi = FakeFileIndex.new(data_dir)
+      sock, client = FakeSocket.pair
+      follower = LavinMQ::Clustering::Follower.new(sock, data_dir, fi)
+      follower.mark_synced!
+      server.@followers << follower
+      spawn { follower.ack_loop }
+
+      path = File.join(data_dir, "request_flush_seg")
+      File.write(path, "")
+      server.register_file(path)
+      # Small enough to stay in the LZ4 writer's buffer (auto_flush is off);
+      # only a flush moves it to the socket.
+      server.append_bytes(path, "hello world".to_slice, 0i64)
+
+      server.request_flush
+
+      client.read_timeout = 1.second
+      buf = uninitialized UInt8[256]
+      client.read(buf.to_slice).should be > 0
+    ensure
+      sock.try &.close
+      client.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "#request_sync" do
+    it "hands the record to synced followers only, releasing the waiter for each" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        NullCoordinator.new,
+        0)
+      fi = FakeFileIndex.new(data_dir)
+      sock_a, client_a = FakeSocket.pair
+      sock_b, client_b = FakeSocket.pair
+      synced = LavinMQ::Clustering::Follower.new(sock_a, data_dir, fi)
+      syncing = LavinMQ::Clustering::Follower.new(sock_b, data_dir, fi)
+      synced.mark_synced!
+      server.@followers << synced << syncing # syncing left in Syncing state
+      spawn { synced.ack_loop }
+
+      wg = WaitGroup.new
+      server.request_sync(wg)
+      # A syncing follower has no control_loop to write the record, so handing
+      # it one would strand the waiter.
+      released = Channel(Nil).new(1)
+      spawn do
+        wg.wait
+        released.send nil
+      end
+      select
+      when released.receive
+      when timeout(2.seconds)
+        fail "request_sync never released the waiter"
+      end
+
+      synced.lag_in_bytes.should eq LavinMQ::Clustering::SyncControlPacket::PACKET.bytesize
+      syncing.lag_in_bytes.should eq 0
+    ensure
+      sock_a.try &.close
+      client_a.try &.close
+      sock_b.try &.close
+      client_b.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
   describe "#each_follower broken-follower cleanup" do
     it "removes a synced follower whose dispatch raises a socket error" do
       data_dir = LavinMQ::Config.instance.data_dir

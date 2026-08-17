@@ -10,6 +10,13 @@ private def read_data_size(io) : Int64
   io.read_bytes Int64, IO::ByteFormat::LittleEndian
 end
 
+# What Clustering::Server#request_sync queues: the record, then the flush that
+# puts it on the socket and releases `wg`.
+private def request_sync(follower, wg : WaitGroup)
+  follower.control LavinMQ::Clustering::SyncControlPacket.new
+  follower.control LavinMQ::Clustering::FlushPacket.new(wg)
+end
+
 module FollowerSpec
   # FakeFileIndex and FakeSocket live in spec/support/fake_follower.cr so the
   # clustering server spec can reuse them.
@@ -597,10 +604,10 @@ module FollowerSpec
   end
 
   describe "#request_flush" do
-    # Regression: @flush_requested was a Channel(Nil), and receive? returns
-    # nil both for a delivered message and for a closed channel, so
-    # flush_loop exited on the first request without ever flushing — every
-    # confirm then waited for ack_loop's 100ms fallback flush instead.
+    # Regression: the control queue was a Channel(Nil), and receive? returns
+    # nil both for a delivered message and for a closed channel, so the loop
+    # exited on the first request without ever flushing — every confirm then
+    # waited for ack_loop's 100ms fallback flush instead.
     it "pushes buffered bytes to the follower without waiting for the ack-loop fallback flush" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
@@ -626,7 +633,7 @@ module FollowerSpec
         end
 
         follower.request_flush
-        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
+        # Must arrive via control_loop, well before ack_loop's 100ms fallback
         select
         when payload = received.receive
           payload.should eq "hello world"
@@ -640,7 +647,9 @@ module FollowerSpec
     end
   end
 
-  describe "#request_sync" do
+  describe "#control" do
+    packet_size = LavinMQ::Clustering::SyncControlPacket::PACKET.bytesize.to_i64
+
     it "sends a $ctrl/sync record with an empty body, without waiting for the ack-loop fallback flush" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
@@ -658,14 +667,14 @@ module FollowerSpec
           # socket closed at spec end
         end
 
-        follower.request_sync
+        request_sync follower, WaitGroup.new
 
-        # Must arrive via flush_loop, well before ack_loop's 100ms fallback
+        # Must arrive via control_loop, well before ack_loop's 100ms fallback
         select
         when record = received.receive
           record.should eq({LavinMQ::Clustering::SYNC_CONTROL_PATH, 0i64})
         when timeout(50.milliseconds)
-          fail "request_sync did not flush the sync record to the follower"
+          fail "the packet's record was not flushed to the follower"
         end
 
         # The control path is not a file; nothing may be created for it
@@ -676,39 +685,43 @@ module FollowerSpec
       end
     end
 
-    # The whole point of the record: waiting for its ack is what makes an ack
-    # mean "persisted" rather than just "received".
-    it "counts the sync record as sent, so wait_for_confirm waits for its ack" do
+    # What makes the flush packet worth waiting for: nothing else pushes the
+    # record out, so a waiter it releases knows the record is on the socket.
+    it "leaves the record in the compressor until a flush packet follows it" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        record_size = LavinMQ::Clustering::Follower::SYNC_CONTROL_PACKET.bytesize.to_i64
-
         spawn { follower.ack_loop }
 
-        follower.request_sync
-        # Counted before request_sync returns, not when flush_loop writes it:
-        # wait_for_confirm snapshots @sent_bytes, so a record counted later
-        # could be missing from the snapshot and the fence skipped — the
-        # follower would be confirmed against bytes it never persisted.
-        follower.lag_in_bytes.should eq record_size
-
-        confirmed = Channel(Bool).new(1)
-        spawn { confirmed.send follower.wait_for_confirm }
-        select
-        when confirmed.receive
-          fail "wait_for_confirm returned before the follower acked the sync"
-        when timeout(100.milliseconds)
+        received = Channel(String).new(1)
+        spawn do
+          client_lz4 = Compress::LZ4::Reader.new(client_socket)
+          received.send read_filename(client_lz4)
+        rescue IO::Error
+          # socket closed at spec end
         end
 
-        client_socket.write_bytes record_size, IO::ByteFormat::LittleEndian
+        follower.control LavinMQ::Clustering::SyncControlPacket.new
+        # Written and counted, but not pushed: well inside ack_loop's 100ms
+        # fallback flush, the follower must have seen nothing.
         select
-        when ok = confirmed.receive
-          ok.should be_true
-        when timeout(1.second)
-          fail "wait_for_confirm did not return after the sync was acked"
+        when filename = received.receive
+          fail "the record reached the wire without a flush packet: #{filename}"
+        when timeout(50.milliseconds)
+        end
+        follower.lag_in_bytes.should eq packet_size
+
+        wg = WaitGroup.new
+        follower.control LavinMQ::Clustering::FlushPacket.new(wg)
+        wg.wait # released once the flush has run, so the record is out
+
+        select
+        when filename = received.receive
+          filename.should eq LavinMQ::Clustering::SYNC_CONTROL_PATH
+        when timeout(50.milliseconds)
+          fail "the flush packet did not push the record to the follower"
         end
       ensure
         follower_socket.try &.close
@@ -716,23 +729,117 @@ module FollowerSpec
       end
     end
 
-    # The record shares the flush channel's single slot with plain flush
-    # requests. Dropping it when that slot is taken would silently skip the
-    # fence: nothing tells the follower to sync, yet the confirm goes out.
-    it "does not drop the record when a flush request is already pending" do
+    # The invariant the fence rests on: a byte count is only a position in the
+    # stream if every record is counted where it is written. Counting one when
+    # it's *requested* puts it in the total ahead of appends that reach the wire
+    # first, and those appends alone can then satisfy wait_for_confirm's target.
+    it "counts the record only once written, not when requested" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
 
-        # No ack_loop yet, so nothing drains the channel: this takes the slot.
-        follower.request_flush
-
-        requested = Channel(Nil).new(1)
         spawn do
-          follower.request_sync
-          requested.send nil
+          client_lz4 = Compress::LZ4::Reader.new(client_socket)
+          loop do
+            read_filename(client_lz4)
+            read_data_size(client_lz4)
+          end
+        rescue IO::Error
+          # socket closed at spec end
         end
+
+        # No ack_loop yet, so there is no control_loop to write the packet.
+        wg = WaitGroup.new
+        request_sync follower, wg
+        follower.lag_in_bytes.should eq 0
+
+        written = Channel(Nil).new(1)
+        spawn do
+          wg.wait
+          written.send nil
+        end
+
+        spawn { follower.ack_loop }
+
+        select
+        when written.receive
+        when timeout(500.milliseconds)
+          fail "the packet's waiter was not released after it was written"
+        end
+        follower.lag_in_bytes.should eq packet_size
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # Consequence of counting at the write: the record's bytes sit after
+    # everything written before it, so acking those can't satisfy a target
+    # taken once the record is out.
+    it "is not satisfied by acks for bytes written before the record" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        spawn do
+          client_lz4 = Compress::LZ4::Reader.new(client_socket)
+          loop do
+            read_filename(client_lz4)
+            size = read_data_size(client_lz4)
+            client_lz4.skip(size.abs)
+          end
+        rescue IO::Error
+          # socket closed at spec end
+        end
+
+        # Written (and counted) before the packet, which is still queued.
+        append_size = follower.append("#{data_dir}/file", Bytes.new(1024))
+        append_size.should be > packet_size # or the ack below couldn't overshoot
+
+        wg = WaitGroup.new
+        request_sync follower, wg
+        spawn { follower.ack_loop }
+        wg.wait
+
+        confirmed = Channel(Bool).new(1)
+        spawn { confirmed.send follower.wait_for_confirm }
+
+        client_socket.write_bytes append_size, IO::ByteFormat::LittleEndian
+        select
+        when confirmed.receive
+          fail "wait_for_confirm was satisfied by the append written before the record"
+        when timeout(100.milliseconds)
+        end
+
+        client_socket.write_bytes packet_size, IO::ByteFormat::LittleEndian
+        select
+        when ok = confirmed.receive
+          ok.should be_true
+        when timeout(1.second)
+          fail "wait_for_confirm did not return after the record was acked"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # A full queue may drop a plain flush request — the packets in it flush
+    # those bytes anyway. It may not drop a packet: nothing would tell the
+    # follower to sync, yet the confirm would go out.
+    it "does not drop the packet when the control queue is full" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # No ack_loop yet, so nothing drains the queue: these take every slot.
+        LavinMQ::Clustering::Follower::CONTROL_QUEUE_CAPACITY.times { follower.request_flush }
+
+        wg = WaitGroup.new
+        spawn { request_sync follower, wg }
 
         received = Channel(String).new(1)
         spawn do
@@ -752,12 +859,153 @@ module FollowerSpec
         when timeout(500.milliseconds)
           fail "the sync record never reached the wire"
         end
-        select
-        when requested.receive
-        when timeout(500.milliseconds)
-          fail "request_sync never returned"
+        follower.lag_in_bytes.should eq packet_size
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # Every packet gets its own record, so a second request can't be satisfied
+    # by a record already on the wire.
+    it "writes a record per packet, counting each one" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        records = Channel(String).new(2)
+        spawn do
+          client_lz4 = Compress::LZ4::Reader.new(client_socket)
+          loop do
+            filename = read_filename(client_lz4)
+            read_data_size(client_lz4)
+            records.send filename
+          end
+        rescue IO::Error
+          # socket closed at spec end
         end
-        follower.lag_in_bytes.should eq LavinMQ::Clustering::Follower::SYNC_CONTROL_PACKET.bytesize
+
+        spawn { follower.ack_loop }
+
+        wg = WaitGroup.new
+        2.times { request_sync follower, wg }
+
+        written = Channel(Nil).new(1)
+        spawn do
+          wg.wait
+          written.send nil
+        end
+
+        select
+        when written.receive
+        when timeout(500.milliseconds)
+          fail "not every packet released its waiter"
+        end
+
+        2.times do
+          select
+          when filename = records.receive
+            filename.should eq LavinMQ::Clustering::SYNC_CONTROL_PATH
+          when timeout(500.milliseconds)
+            fail "a packet did not get a record of its own"
+          end
+        end
+        follower.lag_in_bytes.should eq packet_size * 2
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # A waiter is released per follower, so one that will never write the packet
+    # has to say so — or the publish confirm loop blocks on it forever.
+    it "releases the waiter of a packet queued for a dead follower" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        follower.close
+        follower.dead?.should be_true
+
+        wg = WaitGroup.new
+        request_sync follower, wg
+
+        released = Channel(Nil).new(1)
+        spawn do
+          wg.wait
+          released.send nil
+        end
+        select
+        when released.receive
+        when timeout(500.milliseconds)
+          fail "a packet queued for a dead follower never released its waiter"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "releases the waiters of packets still queued when the follower is closed" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # Queued while there is no control_loop to carry it out, then released
+        # by close's drain rather than by a write.
+        wg = WaitGroup.new
+        request_sync follower, wg
+
+        released = Channel(Nil).new(1)
+        spawn do
+          wg.wait
+          released.send nil
+        end
+
+        follower.close
+
+        select
+        when released.receive
+        when timeout(500.milliseconds)
+          fail "closing the follower stranded a queued packet's waiter"
+        end
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # Once the follower is closed no control_loop will free a slot, so a packet
+    # waiting for one has to fail — and fail released, not stranded.
+    it "releases the waiter of a packet still waiting for a slot when the follower is closed" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+
+        # No ack_loop, so nothing drains the queue: these take every slot and
+        # the packet below has to wait for one.
+        LavinMQ::Clustering::Follower::CONTROL_QUEUE_CAPACITY.times { follower.request_flush }
+
+        wg = WaitGroup.new
+        released = Channel(Nil).new(1)
+        spawn do
+          request_sync follower, wg
+          wg.wait
+          released.send nil
+        end
+        sleep 50.milliseconds # let the sender block on the full queue
+
+        follower.close
+
+        select
+        when released.receive
+        when timeout(500.milliseconds)
+          fail "closing the follower stranded a packet blocked on the channel"
+        end
       ensure
         follower_socket.try &.close
         client_socket.try &.close

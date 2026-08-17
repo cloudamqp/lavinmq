@@ -1,4 +1,5 @@
 require "./file_index"
+require "./control_packet"
 require "../config"
 require "../rate_limiter"
 require "socket"
@@ -28,15 +29,8 @@ module LavinMQ
       # sync lock forever.
       SYNC_WRITE_TIMEOUT = 60.seconds
 
-      # A whole $ctrl/sync record: filename framing plus a zero length, no
-      # body. Built once so a request can hand it over as a plain slice.
-      SYNC_CONTROL_PACKET = begin
-        io = IO::Memory.new
-        io.write_bytes SYNC_CONTROL_PATH.bytesize.to_i32, IO::ByteFormat::LittleEndian
-        io.write SYNC_CONTROL_PATH.to_slice
-        io.write_bytes 0i64 # empty body (endian-agnostic)
-        io.to_slice
-      end
+      # Packets that may be queued before a sender waits for control_loop.
+      CONTROL_QUEUE_CAPACITY = 5
 
       @acked_bytes = Atomic(Int64).new(0)
       @sent_bytes = Atomic(Int64).new(0)
@@ -44,10 +38,11 @@ module LavinMQ
       # when ack_loop ends, which doubles as the follower's death signal (see
       # #dead?).
       @ack_notify = ::Channel(Nil).new(1)
-      # Wakes flush_loop; capacity 1 so a burst of requests coalesces into one
-      # flush. Closed when ack_loop ends, stopping flush_loop. A `Bytes.empty` asks for
-      # a flush, a slice for a record to write first.
-      @flush_requested = ::Channel(Bytes).new(1)
+      # Instructions for control_loop, in order. Closed when ack_loop ends;
+      # packets already buffered are still delivered (receive? only reports a
+      # closed channel once the buffer is empty), so nothing queued is lost.
+      # Carries a struct, never nil, so a nil from receive? means close.
+      @control_packets = ::Channel(ControlPacket).new(CONTROL_QUEUE_CAPACITY)
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
@@ -95,7 +90,7 @@ module LavinMQ
 
       def ack_loop(ack_timeout : Time::Span = ACK_TIMEOUT)
         @running.add
-        @running.spawn(name: "Clustering follower flush loop") { flush_loop }
+        @running.spawn(name: "Clustering follower control loop") { control_loop }
         # Tighten the write timeout for the streaming phase; full_sync relaxed it
         # to SYNC_WRITE_TIMEOUT for the bulk transfer.
         @socket.write_timeout = ACK_TIMEOUT
@@ -137,7 +132,7 @@ module LavinMQ
         # socket closed
       ensure
         @ack_notify.close      # unblock any waiter; this follower is gone
-        @flush_requested.close # stop flush_loop
+        @control_packets.close # stop control_loop
         @running.done
       end
 
@@ -150,48 +145,52 @@ module LavinMQ
         @ack_notify.closed?
       end
 
-      # Flushes on behalf of request_flush callers. Runs in its own fiber,
-      # spawned by ack_loop on the default execution context: the publish
-      # confirm loop runs on an isolated thread and must not write the socket
-      # itself — the socket's fd belongs to the default context's event loop
-      # (ack_loop keeps a read pending on it), and a write that blocks from
-      # another context raises instead of waiting.
-      private def flush_loop
-        while request = @flush_requested.receive?
+      # Carries out queued control packets. Runs in its own fiber, spawned by
+      # ack_loop on the default execution context: the socket's fd belongs to
+      # that context's event loop (ack_loop keeps a read pending on it), and a
+      # write that blocks from another context raises instead of waiting — so
+      # callers queue packets rather than write themselves.
+      private def control_loop
+        while packet = @control_packets.receive?
           @write_lock.synchronize do
-            @lz4.write request unless request.empty?
-            @lz4.flush
+            # Counted before writing: #done may release a waiter that then
+            # snapshots @sent_bytes at once.
+            @sent_bytes.add packet.bytesize
+            packet.to_io(@lz4)
           rescue IO::Error | Socket::Error
+            # ack_loop detects the broken socket and closes @ack_notify, so a
+            # wait_for_confirm waiter still unblocks.
+          ensure
+            packet.done # ours to release once taken, written or not
           end
         end
       end
 
-      # Ask flush_loop to push buffered bytes to the follower. Never blocks
-      # and never touches the socket, so it's safe to call from any execution
-      # context (see flush_loop).
+      # Push buffered bytes to the follower. Droppable: carries no waiter, and
+      # the packets that filled the queue flush those bytes anyway.
       def request_flush : Nil
-        @flush_requested.try_send(Bytes.empty)
+        @control_packets.try_send(FlushPacket.new)
       rescue ::Channel::ClosedError
       end
 
-      # Ask the follower to make everything replicated so far durable: hands a
-      # $ctrl/sync record to flush_loop, which counts, writes and flushes it.
-      # A plain flush can't tell the follower the leader is fencing on the data;
-      # this record does, and its ack is what a publish confirm waits for.
-      #
-      # A blocking send, not try_send: a dropped record silently skips the fence.
-      # Never touches the socket, so it's safe from the publish confirm loop's
-      # isolated thread (see flush_loop).
-      def request_sync : Nil
-        @sent_bytes.add(SYNC_CONTROL_PACKET.bytesize)
-        @flush_requested.send(SYNC_CONTROL_PACKET)
+      # Queue a packet that must land, so a blocking send — dropping it would
+      # hang its waiter and skip whatever it fences. Waits only for control_loop
+      # to free a slot and never touches the socket, so any execution context may
+      # call it (see control_loop).
+      def control(packet : ControlPacket) : Nil
+        packet.add
+        @control_packets.send(packet)
       rescue ::Channel::ClosedError
         # Dead follower; wait_for_confirm returns false instead of waiting.
+        packet.done
       end
 
       # Block until the follower has acked at least the bytes already sent at
-      # call time. Requests a flush first so the pending bytes reach the
-      # follower without waiting for the ack_loop's 100ms flush timeout.
+      # call time. An ack means received and applied, not durable; a caller that
+      # needs durability queues a SyncControlPacket first, whose bytes are then
+      # part of the count waited for here (see Clustering::Client#control).
+      # Requests a flush first so the pending bytes reach the follower without
+      # waiting for the ack_loop's 100ms flush timeout.
       # Returns true if the bytes were acked, false if the follower
       # disconnected. A follower that stops acking is disconnected by
       # ack_loop, which closes @ack_notify and unblocks us here.
@@ -396,7 +395,13 @@ module LavinMQ
         # must still read as dead and unblock any wait_for_confirm waiter,
         # or a publish confirm could hang on it forever.
         @ack_notify.close
-        @flush_requested.close
+        @control_packets.close
+        # A packet buffered with no control_loop to carry it out is released
+        # here; a closed channel still hands out what's in its buffer. Nothing
+        # races us: @running.wait above means control_loop is gone.
+        while packet = @control_packets.receive?
+          packet.done
+        end
       end
 
       def to_json(json : JSON::Builder)

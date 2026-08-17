@@ -4,6 +4,7 @@ require "./event_type"
 require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
+require "wait_group"
 
 module LavinMQ
   class DefinitionsStore
@@ -34,11 +35,11 @@ module LavinMQ
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
-        # The caller acknowledges the change right after this returns (a
-        # Declare-Ok, an import response), so a leader crash must not be able to
-        # elect a follower lacking it. An ack alone means received, hence the
-        # sync request first (see Replicator#request_sync).
-        @replicator.try &.request_sync
+        # The change is acknowledged right after this returns (Declare-Ok, an
+        # import response), so a leader crash must not elect a follower lacking
+        # it. An ack alone means received, hence the sync request first — and the
+        # wait for it before the acks (see Replicator#request_sync).
+        WaitGroup.wait { |wg| @replicator.try &.request_sync(wg) }
         @replicator.try &.wait_for_followers
       end
     end

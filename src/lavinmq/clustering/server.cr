@@ -433,13 +433,19 @@ module LavinMQ
         end
       end
 
-      # Ask every in-sync follower to persist what's been replicated to it (see
-      # Follower#request_sync). Only synced followers: a syncing one has no
-      # flush_loop draining its requests yet, and the request would block. The
-      # request itself may block, so it's made outside @lock — #followers
-      # returns its own array.
-      def request_sync : Nil
-        followers.each &.request_sync
+      # Flush all synced followers io. A waitgroup can be passed to make
+      # this method synchronous.
+      def request_flush(wg : WaitGroup? = nil) : Nil
+        followers.each &.control(FlushPacket.new(wg))
+      end
+
+      # Send a sync frame to all followers. IO will be flushed. A waitgroup can
+      # be passed to make this method synchronous.
+      def request_sync(wg : WaitGroup? = nil) : Nil
+        followers.each do |f|
+          f.control SyncControlPacket.new
+          f.control FlushPacket.new(wg)
+        end
       end
 
       # Block until every in-sync follower has acked everything replicated so

@@ -48,10 +48,10 @@ module LavinMQ
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
       # Tracks the ack-sending fiber, so #close lets it drain the acks still
-      # buffered in @acks after the stream ends before it shuts the client down.
+      # buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
       # Tracks control actions in flight, so #close waits for one to finish
-      # before tearing down the state it may touch (see #control).
+      # before tearing down the state it touches (see #control).
       @controls = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
@@ -447,9 +447,9 @@ module LavinMQ
           # are acked up front and the payload is acked incrementally as it's
           # written (see stream_with_checksum), so a single large action keeps
           # the leader's progress deadline reset instead of going silent until
-          # it's done. For a delete the framing is the entire record — acking
-          # it tells the leader the deletion is durable — so it's only acked
-          # once the deletion has been applied.
+          # it's done. For a delete the framing is the entire record, so it's
+          # only acked once the deletion has been applied: an ack may only cover
+          # records the follower has already carried out.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
           # Routed before the length is interpreted: a control record's empty
           # body would read as a delete. Acked once handled, like a delete.
@@ -479,24 +479,30 @@ module LavinMQ
       # path. An unknown instruction (a newer leader) is skipped, payload and
       # all, rather than fatal, so the stream stays aligned.
       #
-      # Counted in @controls so #close can't tear down the data dir under a
-      # running action. The @closed check sits inside that window: either close
-      # got there first and we skip the action, or we're counted and it waits
-      # for us. Skipping is safe — close has already closed the socket, so the
-      # leader has dropped us from the ISR and no confirm waits on our ack.
+      # A running action is counted in @controls so #close can't tear down the
+      # state it touches. @closed is checked before the count, not inside it:
+      # close sets @closed before it reaches @controls.wait, so a false reading
+      # means our #add lands before that wait. Counting first would let an #add
+      # land after the waiter woke, which makes WaitGroup#wait raise on a
+      # positive counter and aborts close halfway.
+      #
+      # Skipping is safe: close has closed the socket, so the leader dropped us
+      # from the ISR and no confirm waits on our ack.
       private def control(command, len, lz4) : Nil
-        @controls.add
         skip_payload(len, lz4)
         return if @closed.get
-        case command
-        when SYNC_CONTROL_PATH
-          Log.debug { "Sync requested" }
-          sync_to_disk
-        else
-          Log.warn { "Ignoring unknown control record #{command}" }
+        @controls.add
+        begin
+          case command
+          when SYNC_CONTROL_PATH
+            Log.debug { "Sync requested" }
+            sync_to_disk
+          else
+            Log.warn { "Ignoring unknown control record #{command}" }
+          end
+        ensure
+          @controls.done
         end
-      ensure
-        @controls.done
       end
 
       # Read and discard a record's payload; the caller acks it as a whole.
@@ -589,8 +595,8 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          # The record's final ack tells the leader the replace is durable, so
-          # it must not be sent while the new content only exists as the .tmp
+          # The record's final ack tells the leader the replace has been applied,
+          # so it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           f.rename f.path[0..-5]
@@ -633,11 +639,10 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent unless sync is disabled:
-      # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # Nothing is synced here: an ack means received and applied, and durability
+      # is fenced by the leader's $ctrl/sync records (see #control). The
+      # Fiber.yield lets a batch grow — the stream-reading fiber gets to queue
+      # more acks before we drain the channel again.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
@@ -652,7 +657,9 @@ module LavinMQ
         socket.close rescue nil
       end
 
-      # Make all replicated writes durable before acking the leader.
+      # Make all replicated writes durable. Only runs on request: the leader asks
+      # with a $ctrl/sync record, acked once this returns, and that ack is what
+      # tells it the data is persisted here.
       private def sync_to_disk : Nil
         # We dont need to return here, sync is controlled by leader...?
         # return unless @config.sync?
@@ -727,10 +734,9 @@ module LavinMQ
         @acks.close
         @ack_loops.wait
         # Nothing below may run while a control action does: a syncfs would hit a
-        # closed (or worse, reused) @data_dir_fd and the process would exit 1 mid
-        # shutdown/promotion, and the checksums would be stored from under it.
-        # The follower loop's exit above normally covers this; the wait matters
-        # when it timed out instead (see #control).
+        # closed (or worse, reused) @data_dir_fd and exit 1 mid promotion. The
+        # follower loop's exit above normally covers it; this wait matters when
+        # that timed out instead (see #control).
         @controls.wait
         # Finalize all pending checksums
         finalize_digests

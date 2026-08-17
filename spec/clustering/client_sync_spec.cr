@@ -214,8 +214,8 @@ module ClientSyncSpec
       end
 
       # An instruction, not file data: nothing is written to disk or tracked for
-      # its path. Its bytes are still counted as sent by the leader, which waits
-      # for them to be acked, so skipping it would stall every publish confirm.
+      # its path. The leader still counts its bytes as sent and waits for the
+      # ack, so skipping it would stall every publish confirm.
       it "acks a $ctrl/sync record without creating a file for it" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
@@ -1024,9 +1024,8 @@ module ClientSyncSpec
     describe "#close" do
       # Regression: close used to wait only for the follow loop, then tear the
       # data dir down while a syncfs on @data_dir_fd could still be running. The
-      # resulting EBADF made the follower Log.fatal and exit 1 in the middle of a
-      # graceful shutdown or a promotion to leader. Syncs are requested by the
-      # leader as control records, so close waits for those (see #control).
+      # EBADF made the follower Log.fatal and exit 1 mid shutdown or promotion.
+      # Syncs come from the leader as control records, so close waits for those.
       it "waits for an in-flight control action before closing the data dir fd" do
         with_datadir do |data_dir|
           client = make_client(data_dir)

@@ -6,9 +6,8 @@ module LavinMQ
   module Clustering
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
 
-    # Records with this filename prefix carry an instruction for the follower
-    # instead of file data. Reserved: never a real path, so nothing under it is
-    # created on disk or tracked in any file/checksum map.
+    # Records with this prefix carry an instruction, not file data. Never a real
+    # path, so nothing under it is created on disk or tracked.
     CONTROL_PREFIX = "$ctrl/"
 
     # Asks the follower to make everything replicated so far durable. Empty
