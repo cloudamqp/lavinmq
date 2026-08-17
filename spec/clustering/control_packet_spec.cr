@@ -3,6 +3,22 @@ require "../../src/lavinmq/clustering/control_packet"
 
 module ControlPacketSpec
   describe LavinMQ::Clustering::ControlPacket do
+    # Answers "is this an instruction?" where .from_str answers "which one?" —
+    # so a record only a newer leader knows is still recognised as a control
+    # record, rather than read as a delete of its path.
+    describe ".control?" do
+      it "is true for any $ctrl/ record, known or not" do
+        LavinMQ::Clustering::ControlPacket
+          .control?(LavinMQ::Clustering::SyncControlPacket::PATH).should be_true
+        LavinMQ::Clustering::ControlPacket
+          .control?("#{LavinMQ::Clustering::ControlPacket::PREFIX}from_the_future").should be_true
+      end
+
+      it "is false for a replicated file path" do
+        LavinMQ::Clustering::ControlPacket.control?("queue_dir/msgs.0000001").should be_false
+      end
+    end
+
     describe ".from_str" do
       it "returns the packet a record's path stands for" do
         LavinMQ::Clustering::ControlPacket.from_str(LavinMQ::Clustering::SyncControlPacket::PATH)
@@ -13,7 +29,7 @@ module ControlPacketSpec
       # so the stream stays aligned (see Client#control).
       it "returns nil for an unknown instruction" do
         LavinMQ::Clustering::ControlPacket
-          .from_str("#{LavinMQ::Clustering::CONTROL_PREFIX}from_the_future").should be_nil
+          .from_str("#{LavinMQ::Clustering::ControlPacket::PREFIX}from_the_future").should be_nil
       end
     end
 

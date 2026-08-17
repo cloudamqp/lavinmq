@@ -6,11 +6,6 @@ module LavinMQ
   module Clustering
     Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
 
-    # Records with this prefix carry an instruction, not file data. Never a real
-    # path, so nothing under it is created on disk or tracked. Which instruction
-    # is named by the rest of the path — see ControlPacket.from_str.
-    CONTROL_PREFIX = "$ctrl/"
-
     class Error < Exception; end
 
     class InvalidStartHeaderError < Error

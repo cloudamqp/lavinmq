@@ -9,6 +9,18 @@ module LavinMQ
     # Whoever takes a packet must #done it exactly once, whether or not it got
     # as far as #to_io: one dropped without a #done hangs its waiter forever.
     abstract struct ControlPacket
+      # Records whose path starts with this carry an instruction, not file data.
+      # Never a real path, so nothing under it is created on disk or tracked.
+      PREFIX = "$ctrl/"
+
+      # True for a record that carries an instruction rather than file data,
+      # whether or not this build knows the instruction: an unknown one must
+      # still be recognised as a control record and skipped, not read as a
+      # delete of its path. Which instruction it is, .from_str answers.
+      def self.control?(path : String) : Bool
+        path.starts_with?(PREFIX)
+      end
+
       # The packet a received record's path stands for, nil for an instruction
       # only a newer leader knows. Deliberately returns the narrow union of the
       # packets with a wire form, not ControlPacket?, so a `case ... in` on it
@@ -70,7 +82,7 @@ module LavinMQ
     struct SyncControlPacket < ControlPacket
       # Names this instruction on the wire; the empty body means the record is
       # routed by prefix before its length is interpreted.
-      PATH = "#{CONTROL_PREFIX}sync"
+      PATH = "#{PREFIX}sync"
 
       # The whole record: filename framing plus a zero length, no body.
       RECORD = begin

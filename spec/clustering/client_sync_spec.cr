@@ -249,9 +249,10 @@ module ClientSyncSpec
         end
       end
 
-      # An instruction from a newer leader must be skipped, payload and all,
-      # rather than kill the stream or lose its alignment.
-      it "drains and acks an unknown control record" do
+      # An instruction from a newer leader must be ignored rather than kill the
+      # stream or lose its alignment. Control records carry no body, so there is
+      # nothing to drain — the record is its framing.
+      it "acks an unknown control record without acting on it" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
           client_socket, leader_io = FakeSocket.pair
@@ -259,8 +260,7 @@ module ClientSyncSpec
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
             Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
 
-          unknown = "#{LavinMQ::Clustering::CONTROL_PREFIX}from_the_future"
-          body = "instruction payload"
+          unknown = "#{LavinMQ::Clustering::ControlPacket::PREFIX}from_the_future"
           filename = "after_unknown_control"
           payload = "replicated bytes"
 
@@ -269,11 +269,12 @@ module ClientSyncSpec
           rescue IO::Error
           end
 
-          write_record(lz4_writer, unknown, body.bytesize.to_i64, body.to_slice)
+          write_record(lz4_writer, unknown, 0i64, Bytes.empty)
           write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
 
-          read_acks(leader_io, record_size(unknown, body.bytesize) + record_size(filename, payload.bytesize))
+          read_acks(leader_io, record_size(unknown, 0) + record_size(filename, payload.bytesize))
 
+          # The record after it arrived intact, so the stream stayed aligned.
           File.read(File.join(data_dir, filename)).should eq payload
           File.exists?(File.join(data_dir, unknown)).should be_false
           client_socket.close

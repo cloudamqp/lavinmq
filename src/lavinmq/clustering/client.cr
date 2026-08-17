@@ -454,9 +454,13 @@ module LavinMQ
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
           # Routed before the length is interpreted: a control record's empty
           # body would read as a delete. Acked once handled, like a delete.
-          if filename.starts_with?(CONTROL_PREFIX)
-            control(filename, len, lz4)
-            ack(framing + len.abs)
+          # Control records carry no body, so the framing is the whole record —
+          # and a $ctrl/ record that does carry one is not an instruction this
+          # build can act on, so it falls through and is consumed as file data
+          # rather than desyncing the stream.
+          if len.zero? && ControlPacket.control?(filename)
+            control(filename)
+            ack(framing)
             next
           end
           case len
@@ -476,9 +480,9 @@ module LavinMQ
         log_loop_done.try &.close
       end
 
-      # Apply a control record: nothing is written to disk or tracked for its
-      # path. An unknown instruction (a newer leader) is skipped, payload and
-      # all, rather than fatal, so the stream stays aligned.
+      # Apply a control record: nothing is read from the stream, written to disk
+      # or tracked for its path. An unknown instruction (a newer leader) is
+      # ignored rather than fatal.
       #
       # A running action is counted in @controls so #close can't tear down the
       # state it touches. @closed is checked before the count, not inside it:
@@ -489,8 +493,7 @@ module LavinMQ
       #
       # Skipping is safe: close has closed the socket, so the leader dropped us
       # from the ISR and no confirm waits on our ack.
-      private def control(command, len, lz4) : Nil
-        skip_payload(len, lz4)
+      private def control(command : String) : Nil
         return if @closed.get
         @controls.add
         begin
@@ -503,17 +506,6 @@ module LavinMQ
           end
         ensure
           @controls.done
-        end
-      end
-
-      # Read and discard a record's payload; the caller acks it as a whole.
-      private def skip_payload(len : Int64, lz4) : Nil
-        remaining = len.abs
-        buffer = uninitialized UInt8[BUFFER_SIZE]
-        while remaining > 0
-          read = lz4.read(buffer.to_slice[0, Math.min(BUFFER_SIZE, remaining)])
-          raise IO::EOFError.new if read.zero?
-          remaining -= read
         end
       end
 
