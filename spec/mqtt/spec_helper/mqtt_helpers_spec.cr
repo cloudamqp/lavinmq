@@ -56,12 +56,12 @@ module MqttHelpers
 
   def with_client_io(server)
     socket = with_client_socket(server)
-    MQTT::Protocol::IO.new(socket)
+    MQTT::Protocol::IO::V3.new(socket)
   end
 
   def with_client_io(server, &)
     with_client_socket(server) do |io|
-      with MqttHelpers yield MQTT::Protocol::IO.new(io)
+      with MqttHelpers yield MQTT::Protocol::IO::V3.new(io)
     end
   end
 

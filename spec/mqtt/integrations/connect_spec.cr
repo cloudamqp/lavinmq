@@ -138,6 +138,20 @@ module MqttSpecs
           end
         end
 
+        it "negotiates the protocol version from CONNECT and replies with a v5 CONNACK" do
+          with_server do |server|
+            with_client_socket(server) do |socket|
+              io = MQTT::Protocol::IO::V5.new(socket)
+              # A v5 CONNECT must be answered with a v5-framed CONNACK; if the
+              # broker kept v3 framing the reply would be unparseable here.
+              connack = connect(io, version: MQTT::Protocol::Version::V5)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
+            end
+          end
+        end
+
         # pending "for invalid credentials" do
         #   auth = SpecAuth.new({"a" => {password: "b", acls: ["a", "a/b", "/", "/a"] of String}})
         #   with_server(auth: auth) do |server|
@@ -157,7 +171,7 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               temp_io = IO::Memory.new
-              temp_mqtt_io = MQTT::Protocol::IO.new(temp_io)
+              temp_mqtt_io = MQTT::Protocol::IO::V3.new(temp_io)
               connect(temp_mqtt_io, expect_response: false)
               temp_io.rewind
               connect_pkt = temp_io.to_slice
@@ -230,16 +244,19 @@ module MqttSpecs
         it "for password flag set without username flag set [MQTT-3.1.2-22]" do
           with_server do |server|
             with_client_io(server) do |io|
+              # The shard forbids constructing a v3 password-without-username
+              # CONNECT, so craft the malformed packet: build a valid
+              # username+password CONNECT and clear the username flag (bit 7),
+              # leaving the password flag set.
               connect = MQTT::Protocol::Connect.new(
                 client_id: "client_id",
                 clean_session: true,
                 keepalive: 30u16,
-                username: nil,
+                username: "valid_user",
                 password: "valid_password".to_slice,
                 will: nil
               ).to_slice
-              # Set password flag
-              connect[9] |= 0b0100_0000
+              connect[9] &= 0b0111_1111
               io.write_bytes_raw connect
 
               # Verify that connection is closed [MQTT-3.1.4-1]

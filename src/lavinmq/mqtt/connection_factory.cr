@@ -20,8 +20,13 @@ module LavinMQ
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
-          io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
+          # CONNECT carries the protocol version on the wire, so bootstrap with a
+          # v3 IO and reframe to the negotiated version (v3.1 / v3.1.1 / v5) for
+          # every subsequent packet. Keeping the v3 boot IO in scope lets the
+          # rescue below still answer a parse-time Connect error with a CONNACK.
+          io = Protocol::IO::V3.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
+            io = io.reframe(packet.version)
             logger.trace { "recv #{packet.inspect}" }
             user, broker = authenticate(io, packet)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?

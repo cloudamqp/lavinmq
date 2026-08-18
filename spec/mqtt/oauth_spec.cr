@@ -9,7 +9,7 @@ module MqttSpecs
     it "allows connection with wildcard vhost permissions" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO::V3.new(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # OAuthUser with wildcard vhost "*" should match default vhost "/"
@@ -41,7 +41,7 @@ module MqttSpecs
     it "allows connection with exact vhost permissions" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO::V3.new(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
@@ -71,7 +71,7 @@ module MqttSpecs
     it "cleans up OAuthUser on disconnect" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO::V3.new(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
