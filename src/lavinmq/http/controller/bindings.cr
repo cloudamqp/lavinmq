@@ -31,11 +31,13 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
-            arr = e.bindings_details.select { |db| db.destination == q }
+            # `e` is the virtual exchange type, so `bindings_details` may be either an
+            # AMQP or MQTT array; collect into one array so the default binding can be prepended.
+            arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
+            e.bindings_details.each { |db| arr << db if db.destination == q }
             if e.name.empty?
               binding_key = BindingKey.new(q.name)
-              default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
-              arr.unshift(default_binding)
+              arr.unshift(AMQP::BindingDetails.new("", q.vhost.name, binding_key, q))
             end
             page(context, arr)
           end
