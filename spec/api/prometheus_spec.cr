@@ -347,22 +347,22 @@ describe LavinMQ::HTTP::PrometheusController do
           should_eventually(eq(2)) do
             raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
             parsed = PrometheusSpecHelper.parse_prometheus(raw)
-            delivered = parsed.find { |m|
+            delivered = parsed.find do |m|
               m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            }
+            end
             delivered.not_nil![:value]
           end
 
           should_eventually(eq(2)) do
             raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
             parsed = PrometheusSpecHelper.parse_prometheus(raw)
-            acked = parsed.find { |m|
+            acked = parsed.find do |m|
               m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
                 m[:attrs]["queue"] == "test_detailed_counters" &&
                 m[:attrs]["vhost"] == "/"
-            }
+            end
             acked.not_nil![:value]
           end
         end
