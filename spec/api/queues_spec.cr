@@ -595,6 +595,222 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
 
+  describe "POST /api/queues/vhost/name/peek" do
+    it "should peek messages without consuming them" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q1")
+          server_q = s.vhosts["/"].queue("peek_q1")
+          q.publish "m1"
+          q.publish "m2"
+          q.publish "m3"
+          wait_for { server_q.message_count == 3 }
+          body = %({ "offset": 0, "count": 10, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q1/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 3
+          messages.map(&.["payload"].as_s).should eq ["m1", "m2", "m3"]
+          messages.each(&.["state"].as_s.should(eq("ready")))
+          server_q.message_count.should eq 3
+        end
+      end
+    end
+
+    it "should support offset and count windowing" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q2")
+          server_q = s.vhosts["/"].queue("peek_q2")
+          5.times { |i| q.publish "m#{i}" }
+          wait_for { server_q.message_count == 5 }
+          body = %({ "offset": 1, "count": 2, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q2/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.map(&.["payload"].as_s).should eq ["m1", "m2"]
+          server_q.message_count.should eq 5
+        end
+      end
+    end
+
+    it "should peek unacked messages when state is unacked" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q3")
+          server_q = s.vhosts["/"].queue("peek_q3")
+          3.times { |i| q.publish "m#{i}" }
+          wait_for { server_q.message_count == 3 }
+          # Consume but do not ack, leaving the messages unacked.
+          ch.prefetch 10
+          q.subscribe(no_ack: false) { }
+          wait_for { server_q.unacked_count == 3 }
+
+          # Default state is ready: no ready messages, returns []
+          body = %({ "offset": 0, "count": 10, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q3/peek", body: body)
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.size.should eq 0
+
+          # state unacked: returns the 3 unacked messages from offset 0
+          body = %({ "offset": 0, "count": 10, "state": "unacked", "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q3/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 3
+          messages.each(&.["state"].as_s.should(eq("unacked")))
+          messages.map(&.["payload"].as_s).sort!.should eq ["m0", "m1", "m2"]
+
+          # offset applies within the unacked set
+          body = %({ "offset": 2, "count": 10, "state": "unacked" })
+          response = http.post("/api/queues/%2f/peek_q3/peek", body: body)
+          JSON.parse(response.body).as_a.size.should eq 1
+        end
+      end
+    end
+
+    it "should return empty array for empty queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("peek_q4")
+          body = %({ "offset": 0, "count": 1, "encoding": "auto" })
+          response = http.post("/api/queues/%2f/peek_q4/peek", body: body)
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.should be_empty
+        end
+      end
+    end
+
+    it "should validate count and offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("peek_q5")
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": -1, "count": 1}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": 0, "count": 0}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"offset": 0, "count": 1001}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"count": 1, "state": "acked"}))
+          response.status_code.should eq 400
+          response = http.post("/api/queues/%2f/peek_q5/peek", body: %({"count": 1, "truncate": -1}))
+          response.status_code.should eq 400
+        end
+      end
+    end
+
+    it "should return 404 for unknown queue" do
+      with_http_server do |http, _s|
+        response = http.post("/api/queues/%2f/peek_gone/peek", body: %({"count": 1}))
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should refuse peeking queues that are not running, but allow paused" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q10")
+          server_q = s.vhosts["/"].queue("peek_q10")
+          q.publish "m1"
+          wait_for { server_q.message_count == 1 }
+
+          server_q.pause!
+          response = http.post("/api/queues/%2f/peek_q10/peek", body: %({"count": 1}))
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.size.should eq 1
+
+          server_q.close
+          response = http.post("/api/queues/%2f/peek_q10/peek", body: %({"count": 1}))
+          response.status_code.should eq 403
+        end
+      end
+    end
+
+    it "should peek unacked messages held by basic_get" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q9")
+          server_q = s.vhosts["/"].queue("peek_q9")
+          q.publish "taken"
+          wait_for { server_q.message_count == 1 }
+          q.get(no_ack: false).not_nil!
+          wait_for { server_q.unacked_count == 1 }
+
+          body = %({"count": 10, "state": "unacked"})
+          response = http.post("/api/queues/%2f/peek_q9/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 1
+          messages[0]["payload"].as_s.should eq "taken"
+          server_q.unacked_count.should eq 1
+        end
+      end
+    end
+
+    it "should show requeued messages as redelivered ready messages" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q6")
+          server_q = s.vhosts["/"].queue("peek_q6")
+          q.publish "m1"
+          wait_for { server_q.message_count == 1 }
+          msg = q.get(no_ack: false).not_nil!
+          msg.reject(requeue: true)
+          wait_for { server_q.message_count == 1 }
+          response = http.post("/api/queues/%2f/peek_q6/peek", body: %({"count": 10}))
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.size.should eq 1
+          messages[0]["state"].as_s.should eq "ready"
+          messages[0]["redelivered"].as_bool.should be_true
+          server_q.message_count.should eq 1
+        end
+      end
+    end
+
+    it "should peek priority queues, highest priority first" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-max-priority" => 5})
+          q = ch.queue("peek_q8", args: args)
+          server_q = s.vhosts["/"].queue("peek_q8")
+          q.publish_confirm "low", props: AMQP::Client::Properties.new(priority: 1_u8)
+          q.publish_confirm "high", props: AMQP::Client::Properties.new(priority: 5_u8)
+          wait_for { server_q.message_count == 2 }
+
+          # empty peek first, this segfaulted when peek_step ran on the
+          # composite store whose @rfile is uninitialized
+          response = http.post("/api/queues/%2f/peek_q8/peek", body: %({"count": 10, "offset": 2}))
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.should be_empty
+
+          response = http.post("/api/queues/%2f/peek_q8/peek", body: %({"count": 10}))
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages.map(&.["payload"].as_s).should eq ["high", "low"]
+          server_q.message_count.should eq 2
+        end
+      end
+    end
+
+    it "should truncate payload but report full payload size" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("peek_q7")
+          server_q = s.vhosts["/"].queue("peek_q7")
+          q.publish "abcdefghij"
+          wait_for { server_q.message_count == 1 }
+          body = %({"count": 1, "truncate": 4})
+          response = http.post("/api/queues/%2f/peek_q7/peek", body: body)
+          response.status_code.should eq 200
+          messages = JSON.parse(response.body).as_a
+          messages[0]["payload"].as_s.should eq "abcd"
+          messages[0]["payload_bytes"].as_i.should eq 10
+        end
+      end
+    end
+  end
+
   describe "PUT /api/queues/vhost/name/pause" do
     it "should pause the queue" do
       with_http_server do |http, s|

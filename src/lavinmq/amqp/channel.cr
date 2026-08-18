@@ -753,6 +753,13 @@ module LavinMQ
         tag
       end
 
+      # Safe traversal from other fibers, @unacked is mutated under the lock
+      def each_unacked(& : Unack -> Nil) : Nil
+        @unack_lock.synchronize do
+          @unacked.each { |u| yield u }
+        end
+      end
+
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
       def check_consumer_timeout
         @unack_lock.synchronize do

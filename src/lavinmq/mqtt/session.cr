@@ -3,6 +3,7 @@ require "./protocol"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
+require "../peekable"
 require "../sortable_json"
 require "./client"
 require "../policy"
@@ -18,6 +19,7 @@ module LavinMQ
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
+      include Peekable
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
@@ -134,15 +136,14 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
-        unless clean_session?
-          @msg_store_lock.synchronize do
+        @msg_store_lock.synchronize do
+          unless clean_session?
             @unacked.values.each do |sp|
               @msg_store.requeue(sp)
             end
           end
+          @unacked.clear
         end
-
-        @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
         @has_capacity.set(true)
@@ -234,7 +235,7 @@ module LavinMQ
                 @deliver_count.add(1, :relaxed)
                 @deliver_get_count.add(1, :relaxed)
               end
-              @unacked[id] = sp
+              @msg_store_lock.synchronize { @unacked[id] = sp }
               @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -291,7 +292,7 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
+        if sp = @msg_store_lock.synchronize { @unacked.delete(id) }
           begin
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)
@@ -370,6 +371,29 @@ module LavinMQ
         count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
         count
+      end
+
+      # Non-destructive peek at messages delivered to the client but not yet acked.
+      def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
+        return if count <= 0
+
+        max = offset.to_i64 + count
+        sps = Array(SegmentPosition).new
+        @msg_store_lock.synchronize do
+          @unacked.each_value do |sp|
+            break if sps.size >= max
+            sps << sp
+          end
+        end
+
+        yielded = 0
+        sps.each.skip(offset).each do |sp|
+          break if yielded >= count
+          if message = peek_copy(sp, redelivered: false, max_body: max_body)
+            block.call(message)
+            yielded += 1
+          end
+        end
       end
 
       def in_use? : Bool

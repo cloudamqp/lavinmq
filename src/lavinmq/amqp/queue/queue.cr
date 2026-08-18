@@ -10,6 +10,7 @@ require "../../error"
 require "./state"
 require "./event"
 require "../../message_store"
+require "../../peekable"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
@@ -24,6 +25,7 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include SortableJSON
     include QueueStats
+    include Peekable
 
     include ArgumentTarget
     include Argument::DeadLettering
@@ -907,6 +909,35 @@ module LavinMQ::AMQP
         end
       end
       result.concat(@basic_get_unacked.to_a)
+    end
+
+    # Non-destructive peek at messages delivered to clients but not yet acked,
+    # both consumer deliveries and basic_get:s.
+    def peek_unacked(offset : Int32, count : Int32, max_body : Int32, &block : PeekedMessage -> Nil) : Nil
+      return if @closed || count <= 0
+
+      max = offset.to_i64 + count
+      sps = [] of SegmentPosition
+      @vhost.connections.each do |client|
+        next unless client.is_a?(Client)
+        client.channels.each do |ch|
+          break if sps.size >= max
+          ch.each_unacked do |u|
+            break if sps.size >= max
+            sps << u.sp if u.queue == self
+          end
+        end
+        break if sps.size >= max
+      end
+
+      yielded = 0
+      sps.each.skip(offset).each do |sp|
+        break if yielded >= count
+        if message = peek_copy(sp, redelivered: false, max_body: max_body)
+          block.call(message)
+          yielded += 1
+        end
+      end
     end
 
     private def with_delivery_count_header(env) : Envelope?

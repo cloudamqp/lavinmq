@@ -173,6 +173,71 @@ module LavinMQ
       end
     end
 
+    PEEK_SCAN_LIMIT = 100
+
+    record PeekStep, seg : UInt32?, pos : UInt32, skipped : Int32, message : PeekedMessage?, done : Bool, store : Int32 = 0
+
+    def peek_requeued(offset : Int32, max : Int32) : {Array(SegmentPosition), Int32}
+      raise ClosedError.new if @closed
+      sps = Array(SegmentPosition).new
+      i = 0
+      @requeued.each do |sp|
+        break if sps.size >= max
+        sps << sp if i >= offset
+        i += 1
+      end
+      {sps, @requeued.size.to_i32}
+    end
+
+    # One bounded scan step (max PEEK_SCAN_LIMIT messages) from the previous
+    # step's cursor, or the read head when `prev` is nil, so the caller can
+    # release the store lock between steps. Skips acked positions and up to
+    # `skip` live messages, returning a copy of the next live message and the
+    # new cursor.
+    def peek_step(prev : PeekStep?, skip : Int32, max_body : Int32) : PeekStep # ameba:disable Metrics/CyclomaticComplexity
+      raise ClosedError.new if @closed
+      if prev && (prev_seg = prev.seg)
+        cur_seg, cur_pos = prev_seg, prev.pos
+      else
+        cur_seg, cur_pos = @rfile_id, @rfile.pos.to_u32
+      end
+      skipped = 0
+      scanned = 0
+      loop do
+        if mfile = @segments[cur_seg]?
+          slice = mfile.to_slice
+          file_size = slice.size.to_u32
+          while cur_pos + 8 <= file_size
+            return PeekStep.new(cur_seg, cur_pos, skipped, nil, false) if scanned >= PEEK_SCAN_LIMIT
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, slice[cur_pos, 8])
+            break if ts.zero? # rest of the segment is preallocated space
+            begin
+              msg = BytesMessage.from_bytes(slice + cur_pos)
+            rescue
+              break
+            end
+            scanned += 1
+            bytesize = msg.bytesize.to_u32
+            unless deleted?(cur_seg, cur_pos)
+              if skipped < skip
+                skipped += 1
+              else
+                message = PeekedMessage.new(msg, max_body, redelivered: false)
+                return PeekStep.new(cur_seg, cur_pos + bytesize, skipped, message, false)
+              end
+            end
+            cur_pos += bytesize
+          end
+        end
+        if next_seg = @segments.each_key.find { |id| id > cur_seg }
+          cur_seg = next_seg
+          cur_pos = 4_u32
+        else
+          return PeekStep.new(cur_seg, cur_pos, skipped, nil, true)
+        end
+      end
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
