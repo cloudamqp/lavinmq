@@ -35,6 +35,7 @@ dependencies:
     github: 84codes/lz4.cr
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
+    branch: feat/mqtt5
 
 development_dependencies:
   ameba:
