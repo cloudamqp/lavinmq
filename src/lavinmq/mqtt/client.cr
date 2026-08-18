@@ -11,20 +11,6 @@ require "../stats"
 
 module LavinMQ
   module MQTT
-    # Protocol level from the CONNECT packet:
-    # level 3 is MQTT 3.1 (MQIsdp), level 4 is MQTT 3.1.1 (MQTT).
-    enum ProtocolVersion : UInt8
-      V3_1   = 3
-      V3_1_1 = 4
-
-      def name
-        case self
-        in .v3_1?   then "MQTT 3.1"
-        in .v3_1_1? then "MQTT 3.1.1"
-        end
-      end
-    end
-
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
@@ -34,7 +20,6 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
-      @protocol : String
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -64,11 +49,9 @@ module LavinMQ
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
-                     protocol_version : ProtocolVersion,
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
-        @protocol = protocol_version.name
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -91,6 +74,14 @@ module LavinMQ
         "mqtt-client-#{@client_id}"
       end
 
+      private def protocol_name : String
+        case @io.version
+        when .v5?   then "MQTT 5.0"
+        when .v3_1? then "MQTT 3.1"
+        else             "MQTT 3.1.1"
+        end
+      end
+
       private def read_loop
         received_bytes = 0_u32
         socket = @io.io
@@ -100,8 +91,8 @@ module LavinMQ
         end
         loop do
           @log.trace { "waiting for packet" }
-          packet = read_and_handle_packet
-          if (received_bytes &+= packet.bytesize) > Config.instance.yield_each_received_bytes
+          packet, bytesize = read_and_handle_packet
+          if (received_bytes &+= bytesize) > Config.instance.yield_each_received_bytes
             received_bytes = 0_u32
             Fiber.yield
           end
@@ -143,8 +134,9 @@ module LavinMQ
       def read_and_handle_packet
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
-        @recv_oct_count.add(packet.bytesize, :relaxed)
-        vhost.add_recv_bytes(packet.bytesize.to_u64)
+        bytesize = @io.bytesize(packet)
+        @recv_oct_count.add(bytesize, :relaxed)
+        vhost.add_recv_bytes(bytesize.to_u64)
 
         case packet
         when Protocol::Publish     then recieve_publish(packet)
@@ -152,18 +144,19 @@ module LavinMQ
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
-        when Protocol::Disconnect  then return packet
+        when Protocol::Disconnect  then return {packet, bytesize}
         else                            raise "received unexpected packet: #{packet}"
         end
-        packet
+        {packet, bytesize}
       end
 
       def send(packet)
         @lock.synchronize do
           @io.write_packet(packet)
           @io.flush
-          @send_oct_count.add(packet.bytesize, :relaxed)
-          vhost.add_send_bytes(packet.bytesize.to_u64)
+          bytesize = @io.bytesize(packet)
+          @send_oct_count.add(bytesize, :relaxed)
+          vhost.add_send_bytes(bytesize.to_u64)
         end
         case packet
         when Protocol::Publish
@@ -222,7 +215,7 @@ module LavinMQ
         {
           vhost:             @broker.vhost.name,
           user:              @user.name,
-          protocol:          @protocol,
+          protocol:          protocol_name,
           client_id:         @client_id,
           name:              @name,
           timeout:           @keepalive,
@@ -290,7 +283,7 @@ module LavinMQ
       end
 
       private def close_socket
-        socket = @io
+        socket = @io.io
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end
