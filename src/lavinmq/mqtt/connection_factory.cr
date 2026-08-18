@@ -23,27 +23,26 @@ module LavinMQ
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
-          # CONNECT carries the protocol version on the wire, so bootstrap with a
-          # v3 IO and reframe to the negotiated version (v3.1 / v3.1.1 / v5) for
-          # every subsequent packet. Keeping the v3 boot IO in scope lets the
-          # rescue below still answer a parse-time Connect error with a CONNACK.
+          # CONNECT carries the protocol version on the wire; read_connect
+          # bootstraps with a v3 IO and hands back one reframed to the negotiated
+          # version (v3.1 / v3.1.1 / v5) for every subsequent packet. It only
+          # rebinds io on success, so the v3 boot IO survives a parse error and
+          # the rescue below can still answer with a CONNACK.
           io = Protocol::IO::V3.new(socket, @config.mqtt_max_packet_size)
-          if packet = io.read_packet.as?(Protocol::Connect)
-            io = io.reframe(packet.version)
-            logger.trace { "recv #{packet.inspect}" }
-            user, broker = authenticate(io, packet)
-            # A client that sends an empty client id gets one assigned; a v5
-            # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].
-            assigned_client_id = nil
-            if packet.client_id.empty?
-              packet = with_assigned_client_id(packet, user.name)
-              assigned_client_id = packet.client_id
-            end
-            validate_client_id!(packet.client_id, user.name)
-            session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-            connack io, session_present, Protocol::Connack::ReturnCode::Accepted, assigned_client_id
-            broker.run_client(io, connection_info, user, packet)
+          packet, io = io.read_connect
+          logger.trace { "recv #{packet.inspect}" }
+          user, broker = authenticate(io, packet)
+          # A client that sends an empty client id gets one assigned; a v5
+          # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].
+          assigned_client_id = nil
+          if packet.client_id.empty?
+            assigned_client_id = generated_client_id(user.name)
+            packet = packet.copy_with(client_id: assigned_client_id)
           end
+          validate_client_id!(packet.client_id, user.name)
+          session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+          connack io, session_present, Protocol::Connack::ReturnCode::Accepted, assigned_client_id
+          broker.run_client(io, connection_info, user, packet)
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
           if io
@@ -121,24 +120,12 @@ module LavinMQ
         {user, broker}
       end
 
-      # Returns a copy of the CONNECT with a server-generated client id filled in
-      # (Connect is an immutable struct, so the id can't be set in place). Used
-      # when the client sends an empty client id.
-      def with_assigned_client_id(packet, username : String)
-        client_id = case @config.mqtt_client_id_validation
-                    in .none?     then Random::Secure.base64(32)
-                    in .username? then username
-                    end
-        # Preserve the negotiated version and the client's CONNECT properties;
-        # only the client id changes.
-        Protocol::Connect.new(client_id,
-          packet.clean_session?,
-          packet.keepalive,
-          packet.username,
-          packet.password,
-          packet.will,
-          packet.version,
-          packet.properties)
+      # A server-generated client id for a client that connected without one.
+      private def generated_client_id(username : String) : String
+        case @config.mqtt_client_id_validation
+        in .none?     then Random::Secure.base64(32)
+        in .username? then username
+        end
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil
