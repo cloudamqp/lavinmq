@@ -1179,7 +1179,7 @@ footer .logo {
       margin-top: 1rem;
       border-top: 1px solid var(--color-border-separator);
       a {
-        background-image: var(--icon-http-api); 
+        background-image: var(--icon-http-api);
         margin-top: 0.5rem;
       }
     }
@@ -1293,7 +1293,7 @@ footer .logo {
         }
 
         li:not(.menu-group) a {
-          justify-content: center; 
+          justify-content: center;
           background-position: center center;
           padding: 1.25rem;
         }
@@ -1553,7 +1553,6 @@ th.group.last {
   background-color: inherit;
   position: relative;
   padding-right: 10px;
-  z-index: 1000;
   color: var(--color-text-muted);
 
   &:hover {
@@ -1970,7 +1969,7 @@ fieldset.inline {
   text-decoration: none;
   text-align: center;
   font-weight: bold;
-} 
+}
 
 .pagination .page-item.disabled a {
   cursor: default;
