@@ -17,7 +17,7 @@ module LavinMQ
         0
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         if q = @vhost.queue?(routing_key)
           yield q
         end

@@ -11,6 +11,7 @@ require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
 require "digest/sha1"
 require "./amqp/queue"
+require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
@@ -419,7 +420,7 @@ module LavinMQ
       definitions.fsync
     end
 
-    def queue_bindings(queue : Queue) : Array(BindingDetails)
+    def queue_bindings(queue : Queue)
       definitions.queue_bindings(queue)
     end
 
