@@ -106,7 +106,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `connection_churn_metrics` | Connection open/close totals |
 | `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
 | `channel_metrics` | Per-channel metrics |
-| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
 
