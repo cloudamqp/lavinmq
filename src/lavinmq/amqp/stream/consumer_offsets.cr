@@ -44,7 +44,7 @@ module LavinMQ::AMQP
     def last_offset_by_tag(consumer_tag)
       if pos = @positions[consumer_tag]?
         tx = @mfile.to_slice(pos, 8)
-        return IO::ByteFormat::LittleEndian.decode(Int64, tx)
+        IO::ByteFormat::LittleEndian.decode(Int64, tx)
       end
     end
 
