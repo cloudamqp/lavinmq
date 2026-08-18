@@ -233,10 +233,9 @@ module LavinMQ::AMQP
       # drop_overflow mutates the store, so take @msg_store_lock like other
       # store access; it can run concurrently with publishes/consumes.
       @msg_store_lock.synchronize do
-        if max_age = parse_max_age(@arguments["x-max-age"]?)
-          stream_msg_store.max_age = max_age
-          @effective_args << "x-max-age"
-        end
+        max_age = parse_max_age(@arguments["x-max-age"]?)
+        stream_msg_store.max_age = max_age
+        @effective_args << "x-max-age" if max_age
         # Propagate limits set by super to stream_msg_store
         stream_msg_store.max_length = @max_length
         stream_msg_store.max_length_bytes = @max_length_bytes
