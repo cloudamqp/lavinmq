@@ -927,6 +927,38 @@ module DeadLetteringSpec
         end
       end
 
+      it "should not route to BCC in a later dead lettering hop when dead-letter-routing-key was set" do
+        # BCC is stripped from delivered messages, so a surviving BCC header is
+        # only observable through a second dead lettering hop without a routing
+        # key, where it would fan out to bcc_q.
+        qargs = {
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "dlq2",
+        }
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
+          dlq2 = ch.queue("dlq2", args: AMQP::Client::Arguments.new({
+            "x-dead-letter-exchange" => "dlx_exchange",
+          }))
+          bcc_q = ch.queue("bcc_q")
+          bcc_q.bind("dlx_exchange", bcc_q.name)
+          dlq.bind("dlx_exchange", dlq2.name)
+
+          props = AMQ::Protocol::Properties.new(
+            headers: AMQ::Protocol::Table.new({"BCC" => [bcc_q.name] of AMQ::Protocol::Field})
+          )
+          publish_n(1, q, props: props)
+          get1(bcc_q) # BCC fans out on the original publish
+
+          get1(q, &.nack(requeue: false))
+          get1(dlq2, &.nack(requeue: false))
+
+          dlq_msg = get1(dlq)
+          dlq_msg.properties.headers.try(&.["BCC"]?).should be_nil
+          bcc_q.message_count.should eq 0
+        end
+      end
+
       pending "dead_letter_headers_BCC" do
         # with_amqp_server do |s|
         #  with_channel(s) do |ch|
