@@ -11,10 +11,10 @@ require "../stats"
 
 module LavinMQ
   module MQTT
-    # Raised by a packet handler when the client violates the protocol in a way
-    # that must tear the connection down with a reason code. Caught centrally in
-    # Client#read_loop, which sends a v5 DISCONNECT carrying the reason (v3 has
-    # no server DISCONNECT, so it just closes).
+    # Raised by a packet handler when the connection must be torn down with a
+    # reason code. Caught centrally in Client#read_loop, which sends a v5
+    # DISCONNECT carrying the reason (v3 has no server DISCONNECT, so it just
+    # closes).
     class ProtocolViolation < Exception
       getter reason : Protocol::Disconnect::ReasonCode
 
@@ -118,7 +118,10 @@ module LavinMQ
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(Protocol::Disconnect)
-            @log.debug { "Received disconnect" }
+            @log.debug { "Received disconnect: #{packet.reason_code}" }
+            # Only reason 0x00 discards the will [MQTT-3.14.4-3]. 0x04
+            # (DisconnectWithWillMessage) and every error code publish it.
+            publish_will unless packet.reason_code.normal_disconnection?
             break
           end
         end
@@ -244,18 +247,40 @@ module LavinMQ
         validate_v5_publish!(packet)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-          close_socket
-          return
+          return refuse_publish(packet)
         end
-        @broker.publish(packet)
+        matched = @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(Protocol::PubAck.new(packet_id))
+          # 0x10 lets the publisher see that nothing was subscribed (3.4.2.1).
+          # The shard drops the reason tail on v3, so no version branch here.
+          reason = matched.zero? ? Protocol::PubAck::ReasonCode::NoMatchingSubscribers : Protocol::PubAck::ReasonCode::Success
+          send(Protocol::PubAck.new(packet_id, reason))
+        end
+      end
+
+      # An unauthorized PUBLISH gets a reason code instead of a bare TCP close:
+      # PUBACK 0x87 when there is an ack to carry it, otherwise a server
+      # DISCONNECT 0x87 (spec 3.3.4). v3 has no way to say why, so it just closes.
+      private def refuse_publish(packet : Protocol::Publish) : Nil
+        unless @io.version.v5?
+          close_socket
+          return
+        end
+        if packet.qos > 0 && (packet_id = packet.packet_id)
+          send(Protocol::PubAck.new(packet_id, Protocol::PubAck::ReasonCode::NotAuthorized))
+        else
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::NotAuthorized)
         end
       end
 
       def recieve_puback(packet : Protocol::PubAck)
+        # A non-success PUBACK still terminates the QoS 1 delivery (3.4.2.1), so
+        # the message is acked either way and the code is purely diagnostic.
+        unless packet.reason_code.success?
+          @log.warn { "PUBACK for packet id #{packet.packet_id} with reason #{packet.reason_code}" }
+        end
         @broker.sessions[@client_id].ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
@@ -280,7 +305,14 @@ module LavinMQ
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-            close_socket
+            # A v3 SUBACK can only say 0x00-0x02 or 0x80, so v3 keeps closing
+            # without an explanation.
+            if @io.version.v5?
+              codes = Array.new(packet.topic_filters.size, Protocol::SubAck::ReasonCode::NotAuthorized)
+              send(Protocol::SubAck.new(codes, packet.packet_id))
+            else
+              close_socket
+            end
             return
           end
         end
