@@ -27,6 +27,9 @@ module LavinMQ
     # its first write after a sync (see MFile#mark_needs_msync!), so this
     # stays a handful of entries per drain.
     @dirty_files : Sync::Exclusive(Array(MFile)) = Sync::Exclusive.new(Array(MFile).new, :unchecked)
+    # Fibers blocked in #sync (tx.commit), each waiting on its own channel to
+    # be closed by the drain that made their writes durable.
+    @sync_waiters : Sync::Exclusive(Array(::Channel(Nil))) = Sync::Exclusive.new(Array(::Channel(Nil)).new, :unchecked)
 
     def initialize(@replicator : Clustering::Replicator? = nil)
       # Run on a dedicated thread so the blocking msync(2) syscalls only stall
@@ -58,12 +61,21 @@ module LavinMQ
       @dirty_files.lock { |files| files << mfile }
     end
 
-    # Make all writes since the last sync durable on this node and on every
+    # Block until all writes so far are durable on this node and on every
     # in-sync follower. Used by tx.commit, so commit-ok carries the same
-    # durability guarantee as a publish confirm: the data is msynced here and
-    # fsynced (via the dispatched fsync requests) on every node that could be
-    # promoted on failover.
+    # durability guarantee as a publish confirm — and it's released by the
+    # same drain: the publish confirm loop is the only thread that msyncs,
+    # so tx commits never sync concurrently with it, they wait for it.
     def sync : Nil
+      waiter = ::Channel(Nil).new
+      @sync_waiters.lock { |waiters| waiters << waiter }
+      @publish_confirm_requested.try_send true
+      waiter.receive?
+    rescue ::Channel::ClosedError
+      # Persister closed (shutdown); the loop thread is gone, so syncing
+      # inline can't race it. Only the wake above raises — a waiter the final
+      # drain picked up is signaled by close, not by an exception — so the
+      # writes still need to be made durable here.
       sync_dirty_files
       @replicator.try &.wait_for_followers
     end
@@ -74,16 +86,17 @@ module LavinMQ
 
     private def publish_confirm_loop
       loop do
-        # Wake on the first request, then sync + confirm everything pending.
-        # While msync runs, new requests accumulate in @pending_acks and are
-        # flushed by the next iteration — batching emerges without any delay.
+        # Wake on the first request, then sync + release everything pending.
+        # While msync runs, new requests accumulate in @pending_acks and
+        # @sync_waiters and are flushed by the next iteration — batching
+        # emerges without any delay.
         @publish_confirm_requested.receive
-        drain_pending_acks
+        drain
       end
     rescue ::Channel::ClosedError
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
-      drain_pending_acks
+      drain
     end
 
     private def sync_dirty_files : Nil
@@ -131,7 +144,7 @@ module LavinMQ
       end
     end
 
-    private def drain_pending_acks
+    private def drain
       acks : Hash(AMQP::Channel, UInt64)? = nil
       @pending_acks.replace do |current|
         if current.empty?
@@ -141,7 +154,16 @@ module LavinMQ
           Hash(AMQP::Channel, UInt64).new
         end
       end
-      return unless acks
+      waiters : Array(::Channel(Nil))? = nil
+      @sync_waiters.replace do |current|
+        if current.empty?
+          current
+        else
+          waiters = current
+          Array(::Channel(Nil)).new
+        end
+      end
+      return unless acks || waiters
 
       sync_dirty_files
       # Ask each follower's flush fiber to push the pending replicated bytes,
@@ -160,7 +182,11 @@ module LavinMQ
       # expires and the process exits.
       @replicator.try &.wait_for_followers
 
-      acks.each do |channel, msgid|
+      # Everything is durable: unblock the tx commits first (their connection
+      # fibers send the CommitOk themselves), then hand the confirm acks to
+      # the channels' confirm writer fibers.
+      waiters.try &.each &.close
+      acks.try &.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
       end
     end
