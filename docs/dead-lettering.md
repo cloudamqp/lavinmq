@@ -73,4 +73,4 @@ A `rejected` reason in the death history breaks cycle detection — if a message
 
 Dead-lettered messages are routed directly to the matching queues on the dead-letter exchange, bypassing exchange-level features like delayed delivery and consistent hashing. The DLX and DLRK headers (`x-dead-letter-exchange`, `x-dead-letter-routing-key`) are stripped from the message before routing.
 
-If a `x-dead-letter-routing-key` is set, CC and BCC headers are ignored for routing (but maintained on the message).
+If a `x-dead-letter-routing-key` is set, CC and BCC headers are removed from the dead-lettered message and not used for routing; the new routing key supersedes them. The original CC routing keys are still recorded in the `x-death` entry's `routing-keys`. If no routing key is set, the message is also routed to the CC and BCC destinations.
