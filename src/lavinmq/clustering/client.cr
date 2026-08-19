@@ -658,8 +658,6 @@ module LavinMQ
       # the empty path (the data dir), a file we only ever replaced — falls back
       # to the whole filesystem, which can never sync too little.
       private def sync_to_disk(path : String) : Nil
-        # We dont need to return here, sync is controlled by leader...?
-        # return unless @config.sync?
         if file = @files[path]?
           file.fsync
         else
