@@ -634,6 +634,23 @@ describe LavinMQ::Config do
     end
   end
 
+  describe "clustering_syncfs_timeout" do
+    it "rejects non-positive values" do
+      [0, -10].each do |seconds|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            syncfs_timeout = #{seconds}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /clustering_syncfs_timeout/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
   describe "reload" do
     it "keeps the running config when the new config has an invalid value" do
       config_file = File.tempfile("lavinmq-config", ".ini")
