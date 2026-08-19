@@ -638,8 +638,8 @@ module LavinMQ
       @send_oct_count.add(bytes, :relaxed)
     end
 
-    def sync : Nil
-      @persister.sync
+    def enqueue_tx_commit(channel : AMQP::Channel) : Nil
+      @persister.enqueue_tx_commit(channel)
     end
 
     private def definitions : DefinitionsStore

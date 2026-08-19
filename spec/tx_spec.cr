@@ -68,6 +68,46 @@ describe "Transactions" do
         end
       end
     end
+
+    it "commits quickly (no batching delay)" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.tx_select
+          q = ch.queue
+          q.publish "msg"
+          start = Time.instant
+          ch.tx_commit
+          duration = Time.instant - start
+          duration.should be < 100.milliseconds
+        end
+      end
+    end
+
+    it "commits from multiple channels concurrently without blocking each other" do
+      # Tx::CommitOk is sent asynchronously via the same batching loop as
+      # publish confirms (see Persister#enqueue_tx_commit); this exercises
+      # concurrent commits from many channels being drained together without
+      # cross-talk or deadlock.
+      with_amqp_server do |s|
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        n = 20
+        channels = Array.new(n) { conn.channel }
+        queues = channels.map_with_index { |ch, i| ch.queue("tx_concurrent_#{i}") }
+        done = Channel(Nil).new(n)
+        channels.each_with_index do |ch, i|
+          spawn do
+            ch.tx_select
+            queues[i].publish "msg"
+            ch.tx_commit
+            done.send nil
+          end
+        end
+        n.times { done.receive }
+        queues.each(&.message_count.should(eq(1)))
+      ensure
+        conn.try &.close(no_wait: false)
+      end
+    end
   end
 
   describe "acks" do
