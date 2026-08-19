@@ -15,7 +15,7 @@ about 80% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 18 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 19 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, and gets a spec-correct
@@ -41,22 +41,36 @@ This is what makes our deferrals legal rather than broken.
 
 | Property advertised in CONNACK | Value | Enforcement on use | Adv. | Enf. |
 |---|---|---|---|---|
-| `maximum_qos` | `1` | QoS 2 PUBLISH -> DISCONNECT `0x9B` QoSNotSupported | [x] | [x] |
+| `maximum_qos` | `1` | QoS 2 PUBLISH -> DISCONNECT `0x9B` QoSNotSupported | [x] | [~] |
 | `topic_alias_maximum` | `0` | PUBLISH with a Topic Alias -> DISCONNECT `0x94` TopicAliasInvalid | [x] | [x] |
 | `subscription_identifier_available` | `0` | SUBSCRIBE with a Subscription Identifier -> DISCONNECT `0xA1` | [x] | [x] |
 | `shared_subscription_available` | `0` | `$share/...` filter -> DISCONNECT `0x9E` | [x] | [x] |
 | `retain_available` | `1` | supported (LavinMQ has a retain store) | [x] | n/a |
 | `wildcard_subscription_available` | `1` | supported | [x] | n/a |
-| `maximum_packet_size` | `Config#mqtt_max_packet_size` | oversized inbound rejected by the codec; oversized outbound dropped | [x] | [x] |
+| `maximum_packet_size` | `Config#mqtt_max_packet_size` | oversized inbound rejected by the codec; oversized outbound dropped | [x] | [~] |
 | `receive_maximum` | omitted (default 65535) | **not enforced** - see limitations | [x] | [ ] |
 
 Plus: enhanced authentication (the AUTH-packet flow, [MQTT-4.12]) is rejected at
 CONNECT with CONNACK reason `0x8C` BadAuthenticationMethod, before
 username/password auth runs so the reason is accurate.
 
-Everything in this table is implemented and spec'd. **The advertise/enforce
-matrix is complete** - this was the largest single risk in the project and it is
-closed.
+**Two rows are `[~]`, not `[x]`** - the enforcement exists but does not cover
+every path the spec requires:
+
+- `maximum_qos`: inbound PUBLISH is checked in `client.cr#validate_v5_publish!`,
+  but the **Will QoS is not**. `Connect.from_io` accepts any `will_qos < 3`, and
+  nothing rejects a Will at QoS 2, so a v5 CONNECT that asks for one is accepted
+  where spec 3.1.2.6 wants CONNACK `0x9B`. The QoS is clamped at delivery in
+  `session.cr#build_packet`, so nothing breaks - but we accepted a connection we
+  advertised we could not serve.
+- `maximum_packet_size`: only the outbound **PUBLISH** path checks it
+  (`session.cr#exceeds_max_packet_size?`). [MQTT-3.1.2-24] covers *every* packet
+  the server sends, and a client may legally advertise any limit >= 1, so a very
+  small limit already gets an oversized capability CONNACK, and a SUBSCRIBE with
+  many filters gets an oversized SUBACK.
+
+Both are tracked as item I. Everything else in the table is implemented and
+spec'd, which was the largest single risk in the project.
 
 ### Deliberately out of scope for the first release
 
@@ -469,6 +483,54 @@ still uses `StringTokenIterator`, unlike the publish-path subscription tree.
   now pinned to `IO::V3` (section 7), so there is no load-testing path for v5
   at all. Optional, not a blocker.
 
+### I. Review findings
+
+Parked from a full-branch review on 2026-08-19, ordered by severity. All were
+introduced on this branch, so they are ours to fix before the PR.
+
+- **Poison message via `mqtt.message_expiry_interval`.**
+  `publish_headers.cr#restore` does `i.to_u32` on a value read from an AMQP
+  header. `restore` is *not* only fed headers written by `store`:
+  `definitions_store.cr:217` resolves a bind target as
+  `@queues[name]? || @sessions[name]?`, so an AMQP client can bind
+  `mqtt.<client_id>` to `amq.topic` and publish
+  `mqtt.message_expiry_interval = -1_i32`. `.as?(Int)` succeeds, `to_u32` raises
+  `OverflowError` inside `build_packet`, the SP is requeued and re-raised, and
+  `deliver_loop` force-closes the subscriber - which re-poisons on reconnect, so
+  the queue can never drain. Every other field is nil-safe via `.as?`; this one
+  is not. Fix with `to_u32?`, and route every four-byte-int property through one
+  `fetch_u32?` helper so the next property added cannot get it wrong.
+  `response_topic` is also restored without wildcard validation.
+- **`packet.topic` allocates on the publish hot path.** The shard bump changed
+  `Publish#topic` from a stored `String` to `String.new(@topic)` per call (3.7,
+  and the shard says "hold the result or use `topic_bytes` on hot paths").
+  `exchange.cr#publish` calls it twice, three times with retain, so every MQTT
+  publish now allocates 2-3 throwaway Strings where `main` allocated none. Hoist
+  to a local. Documenting the cost in 3.7 did not prevent it - consider renaming
+  the getter to `topic_string` before the 1.0 tag so the cost is visible at the
+  call site.
+- **Will QoS 2 is accepted despite `maximum_qos = 1`** - section 2, first `[~]`
+  row.
+- **Maximum Packet Size is only enforced for outbound PUBLISH** - section 2,
+  second `[~]` row. `Client#send` is the single outbound choke point and is the
+  place to put it, so no future packet type can forget it.
+- **`session.cr`'s QoS>0 `rescue` can drive `@unacked_*` negative.** It
+  unconditionally subtracts, but the matching `add` calls sit *after* the
+  `exceeds_max_packet_size?` early-`next`, and `build_packet` (see the poison
+  message above) raises before them. Masked today only because `client=` resets
+  the counters. Move the `add` before the `begin`, or subtract only what was
+  added.
+- **`client.cr#protocol_name` lost a compiler check.** The removed
+  `ProtocolVersion` enum used `case/in`, so a new member was a compile error;
+  the replacement's `else "MQTT 3.1.1"` would silently mislabel a future
+  version in the management UI. `Version` has exactly three members, so
+  `case/in` restores exhaustiveness for free.
+- **`PublishHeaders.restore` runs for v3 subscribers too.** `build_packet` is
+  version-blind, so a v3-only deployment pays six `Table#fetch` linear scans
+  plus a `PublishProperties` construction per delivery, for properties
+  `IO::V3#write_properties` then discards. The session already reaches into the
+  client for `max_packet_size`; the negotiated version could come the same way.
+
 ---
 
 ## 6. Known limitations to state at release
@@ -481,7 +543,7 @@ the docs, not in a bug tracker.
   client's advertised Receive Maximum, and we do not advertise our own (so
   clients assume the 65535 default). LavinMQ has its own
   `Config#max_inflight_messages` cap instead. This is the one line in the
-  compliance table with an unticked enforcement column.
+  compliance table with a fully unticked enforcement column.
 - **Topic aliases unsupported** in both directions.
 - **Shared subscriptions unsupported.**
 - **Subscription identifiers unsupported.**
@@ -559,7 +621,9 @@ apt-installable.
 
 ## 8. Sequencing to ship
 
-1. Finish B / D / E (F and G in parallel, different people).
+1. Finish B / D / E (F and G in parallel, different people). The poison-message
+   and hot-path-allocation findings in I should land before the PR regardless of
+   who takes the feature work.
 2. External smoke test against a real v5 client.
 3. Tag the shard release (`1.0`), with 3.7's breaking changes in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
