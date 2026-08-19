@@ -82,7 +82,11 @@ describe LavinMQ::AMQP::Server do
       amqp_server.close
       restart_server(server)
       amqp_server = LavinMQ::AMQP::Server.new(server)
-      tcp_server = TCPServer.new("127.0.0.1", port)
+      tcp_server = 100.times do |i|
+        break TCPServer.new("127.0.0.1", port)
+      rescue Socket::BindError
+        sleep 10.milliseconds
+      end || raise "Address already in use 127.0.0.1:#{port}"
       amqp_server.bind_tcp(tcp_server)
       spawn(name: "amqp restart replacement listen spec") { amqp_server.listen }
       wait_for { amqp_server.@listeners.includes?(tcp_server) }
