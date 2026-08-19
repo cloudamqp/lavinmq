@@ -289,7 +289,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property segment_size : Int32 = 8 * 1024**2 # bytes
 
-      @[CliOpt("", "--no-sync", "Disable sync/syncfs to the data dir, leaving durability to the OS (unsafe, but speeds up e.g. CI)", ->(_v : String) { false }, section: "options")]
+      @[CliOpt("", "--no-sync", "Disable fsync/msync of data files, leaving durability to the OS (unsafe, but speeds up e.g. CI)", ->(_v : String) { false }, section: "options")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_SYNC")]
       property? sync : Bool = true

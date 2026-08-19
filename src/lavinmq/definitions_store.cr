@@ -35,7 +35,10 @@ module LavinMQ
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
-        @replicator.try &.wait_for_followers
+        if replicator = @replicator
+          replicator.fsync_files [@definitions_file_path]
+          replicator.wait_for_followers
+        end
       end
     end
 
@@ -393,10 +396,15 @@ module LavinMQ
         # The caller acknowledges the change to the client right after this
         # returns (Declare-Ok etc.), so like a publish confirm it must be
         # durable on every in-sync follower first — otherwise a leader crash
-        # could elect a follower lacking the acknowledged change. A follower
-        # that doesn't ack within its deadline is disconnected and its ISR
-        # removal committed before this returns.
-        @replicator.try &.wait_for_followers
+        # could elect a follower lacking the acknowledged change. The fsync
+        # request makes the followers persist the file before acking it, and
+        # wait_for_followers blocks until they have. A follower that doesn't
+        # ack within its deadline is disconnected and its ISR removal
+        # committed before this returns.
+        if replicator = @replicator
+          replicator.fsync_files [@definitions_file_path]
+          replicator.wait_for_followers
+        end
       end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

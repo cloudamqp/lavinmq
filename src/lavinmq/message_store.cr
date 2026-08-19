@@ -4,6 +4,7 @@ require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
+require "./persister"
 require "./bool_channel"
 require "./message_store/requeued_store"
 
@@ -29,12 +30,14 @@ module LavinMQ
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, persister : Persister? = nil, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
+      # Non-durable queues need no msync either.
+      @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -339,6 +342,10 @@ module LavinMQ
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      # Marked dirty only after the replication dispatch: once this file is in
+      # a sync's dirty set, every marked write is already on the wire ahead of
+      # the `$` fsync request that must cover it (see Persister#mark_dirty).
+      @persister.try &.mark_dirty(wfile)
       @segment_msg_count[wfile_id] += 1
       sp
     end

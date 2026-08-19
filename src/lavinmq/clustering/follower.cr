@@ -3,6 +3,7 @@ require "../config"
 require "../rate_limiter"
 require "socket"
 require "wait_group"
+require "sync/exclusive"
 
 module LavinMQ
   module Clustering
@@ -41,6 +42,10 @@ module LavinMQ
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
+      # Fsync requests queued by request_fsync, written to the stream by
+      # flush_loop (the socket must only be written from the default
+      # execution context).
+      @pending_fsyncs : Sync::Exclusive(Array(String)) = Sync::Exclusive.new(Array(String).new, :unchecked)
       # Per-file byte offset that this follower already received via full_sync
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
@@ -155,8 +160,48 @@ module LavinMQ
       # another context raises instead of waiting.
       private def flush_loop
         while @flush_requested.receive?
+          send_pending_fsyncs
           flush
         end
+      end
+
+      # Write the `$`-prefixed zero-length records enqueued by request_fsync.
+      # Write errors are swallowed like in #flush; the lag counted up front by
+      # request_fsync makes ack_loop's deadline evict the follower if the
+      # records never reach it.
+      private def send_pending_fsyncs : Nil
+        paths = nil
+        @pending_fsyncs.replace do |pending|
+          if pending.empty?
+            pending
+          else
+            paths = pending
+            Array(String).new
+          end
+        end
+        return unless paths
+        @write_lock.synchronize do
+          paths.each do |path|
+            @lz4.write_bytes (1 + path.bytesize).to_i32, IO::ByteFormat::LittleEndian
+            @lz4.write_byte '$'.ord.to_u8
+            @lz4.write path.to_slice
+            @lz4.write_bytes 0i64 # fsync request marker (endian-agnostic)
+          end
+        end
+      rescue IO::Error | Socket::Error
+      end
+
+      # Ask the follower to fsync `paths` (data-dir-relative); it acks the
+      # records only once the fsyncs completed. The records are written by
+      # flush_loop — never here — so any execution context may call this (the
+      # publish confirm loop runs on an isolated thread). The lag is counted
+      # immediately so a wait_for_confirm issued right after this covers the
+      # records even before they hit the stream.
+      def request_fsync(paths : Array(String)) : Nil
+        lag_size = paths.sum(0i64) { |p| (sizeof(Int32) + 1 + p.bytesize + sizeof(Int64)).to_i64 }
+        @sent_bytes.add(lag_size)
+        @pending_fsyncs.lock(&.concat(paths))
+        request_flush
       end
 
       # Ask flush_loop to push buffered bytes to the follower. Never blocks
