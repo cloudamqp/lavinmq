@@ -3,28 +3,28 @@
 Status and design doc for the MQTT 5.0 work in LavinMQ, spanning both this repo
 and the `mqtt-protocol.cr` shard.
 
-Last reconciled against the code: **2026-08-18**.
+Last reconciled against the code: **2026-08-19**.
 
 ---
 
 ## 1. TL;DR
 
 MQTT 5.0 spans two repos. The **wire codec is done**; the **broker semantics are
-about 70% done**.
+about 80% done**.
 
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 16 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 18 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
-intact, and gets a spec-correct rejection for every feature we don't implement.
-What is missing is the *session-lifecycle* half of v5: PUBACK reason codes,
-DISCONNECT handling, session expiry, will properties and will delay,
-subscription options.
+intact, gets an accurate reason code on every ack, and gets a spec-correct
+rejection for every feature we don't implement. What is missing is the rest of
+the *session-lifecycle* half of v5: session expiry, will properties and will
+delay, subscription options.
 
-**Rebased onto `main` (`77c9ceb2`) and verified green on 2026-08-18: 2083
-examples, 0 failures, lint and format clean.** See section 7.
+**On `main` (`77c9ceb2`) and verified green on 2026-08-19: 2093 examples,
+0 failures, lint and format clean.** See section 7.
 
 ---
 
@@ -361,15 +361,33 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
 - Per-topic reason codes, `Success` vs `NoSubscriptionExisted`;
   `Session#unsubscribe` now returns a Bool to drive that [MQTT-3.11.3]
 
-**Specs:** 24 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
-unsubscribe), plus the existing v3 suite adapted to the new shard API.
+**PUBACK / ack reason codes**
+- `NoMatchingSubscribers` (`0x10`) when the publish matched no session;
+  `Exchange#publish` already returned the match count [MQTT-3.4.2.1]
+- `NotAuthorized` (`0x87`) instead of a silent `close_socket`, via
+  `client.cr#refuse_publish`. QoS > 0 gets a PUBACK and keeps the connection;
+  QoS 0 has no ack, so it gets a server DISCONNECT `0x87` (spec 3.3.4)
+- SUBSCRIBE denial likewise answers a SUBACK of per-filter `NotAuthorized`
+- Inbound non-`Success` PUBACK is logged and still acks the message: a refused
+  QoS 1 delivery is finished, not retried [MQTT-3.4.2.1]
+
+**Client DISCONNECT**
+- The reason code is honoured: only `0x00` discards the will, so `0x04`
+  (Disconnect with Will Message) and every error code publish it
+  [MQTT-3.14.4-3]. We send nothing back - the receiver just closes
+  [MQTT-3.14.4-2]
+
+**Specs:** 34 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
+unsubscribe, puback/disconnect), plus the existing v3 suite adapted to the new
+shard API.
 
 ---
 
 ## 5. What is left
 
 Ordered roughly easiest-first. **B and D are independent of each other and of
-everything else** - these are the two clean hand-offs.
+everything else** - these are the two clean hand-offs. (C is done; see
+section 4.)
 
 ### B. Honor subscription options
 
@@ -385,16 +403,6 @@ store. Pure LavinMQ behaviour, no shard work, well-bounded.
   instead of clearing it.
 - Files: `broker.cr#subscribe`, `session.cr#build_packet`, `client.cr#recieve_subscribe`.
 
-### C. PUBACK + DISCONNECT
-
-- **PUBACK v5**: `client.cr:254` still sends a bare `PubAck.new(packet_id)`.
-  Needs a reason code and properties. Inbound PUBACK reason codes are ignored.
-- **Client DISCONNECT**: the packet is returned from `read_and_handle_packet`
-  unparsed. v5 needs its reason code read, and specifically reason `0x04`
-  ("Disconnect with Will Message") must **publish** the will, whereas a normal
-  `0x00` disconnect suppresses it. Today every clean disconnect suppresses it.
-- Files: `client.cr` (`recieve_puback`, `read_loop` DISCONNECT branch, `publish_will`).
-
 ### D. Session expiry
 
 v5 replaces the clean-session boolean with Clean Start + Session Expiry
@@ -402,8 +410,11 @@ Interval. We read `ConnectProperties#maximum_packet_size` and nothing else;
 `session_expiry_interval` is ignored, and DISCONNECT can also carry a new
 expiry value. Sessions are still clean-session-or-forever.
 
-Touches session lifecycle, so it pairs naturally with C (shared DISCONNECT
-path) or with whoever knows `sessions.cr` best.
+C landed the DISCONNECT reason-code path, so the packet is now inspected in
+`read_loop`; reading `DisconnectProperties#session_expiry_interval` there is the
+natural next step. That also brings [MQTT-3.14.2]: a non-zero expiry on
+DISCONNECT when CONNECT sent zero is a Protocol Error (`0x82`), which we cannot
+enforce until the CONNECT value is stored.
 
 - Files: `connection_factory.cr`, `broker.cr#add_client`, `sessions.cr`, `session.cr`.
 
@@ -449,7 +460,9 @@ still uses `StringTokenIterator`, unlike the publish-path subscription tree.
   matching `spec/mqtt/integrations/*_spec.cr` and delete the v5 file. **Except**
   the advertise-and-reject compliance matrix, which stays as its own standing
   file. Nothing has been merged back yet: connect, subscribe, unsubscribe,
-  publish, puback/disconnect all outstanding.
+  publish and puback/disconnect are all outstanding. The DISCONNECT/will
+  examples in `puback_disconnect_spec.cr` belong next to
+  `integrations/will_spec.cr`, not `publish_spec.cr`.
 - Consider moving `build_server_capabilities` into `consts.cr` or making it a
   constant, to make it obvious it is static.
 - Consider adding a v5 mode to the `lavinmqperf mqtt` throughput tool. It is
@@ -474,6 +487,16 @@ the docs, not in a bug tracker.
 - **Subscription identifiers unsupported.**
 - **Enhanced authentication unsupported.**
 - **Will delay interval ignored** (wills fire immediately).
+- **Payload Format Indicator is not validated.** Spec 3.3.2.3.2 only says a
+  server MAY check that a payload declared as UTF-8 really is, so we never
+  answer `0x99` PayloadFormatInvalid. Validating means a String allocation plus
+  a UTF-8 scan on the publish hot path for an optional check.
+- **No Reason Strings or User Properties on ack packets.** [MQTT-3.1.2-29]
+  makes them illegal on anything but PUBLISH / CONNACK / DISCONNECT when the
+  client set Request Problem Information to 0, and we never send them, so
+  `request_problem_information` needs no plumbing.
+- **UNSUBSCRIBE is not permission checked** (it never was, on v3 either), so
+  UNSUBACK never carries `0x87` NotAuthorized.
 - v5 PUBLISH properties are carried in `mqtt.*` AMQP headers and are **not**
   mapped onto AMQP-native properties, so an AMQP consumer of an MQTT-published
   message sees them as headers.
@@ -495,14 +518,18 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-08-18** on `9e2f53f9`, rebased onto `main` `77c9ceb2`:
+**LavinMQ, measured 2026-08-19** after the PUBACK/DISCONNECT work, on `main`
+`77c9ceb2`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **233 examples, 0 failures, 0 errors, 0 pending** (16.8s) |
-| `make test TAGS=~etcd` | **2083 examples, 0 failures, 0 errors, 9 pending** (2:41) |
-| `make lint` | 399 inspected, 0 failures |
+| `make test SPEC=spec/mqtt` | **248 examples, 0 failures, 0 errors, 0 pending** (18.0s) |
+| `make test TAGS=~etcd` | **2093 examples, 0 failures, 0 errors, 9 pending** (2:35) |
+| `make lint` | 400 inspected, 0 failures |
 | `crystal tool format --check` | clean |
+
+(The previous reconciliation recorded 233 for `spec/mqtt`; the full-suite delta
+is exactly the 10 new examples, so that figure was mistyped, not a lost spec.)
 
 The 9 pending are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
@@ -532,7 +559,7 @@ apt-installable.
 
 ## 8. Sequencing to ship
 
-1. Finish B / C / D / E (F and G in parallel, different people).
+1. Finish B / D / E (F and G in parallel, different people).
 2. External smoke test against a real v5 client.
 3. Tag the shard release (`1.0`), with 3.7's breaking changes in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
