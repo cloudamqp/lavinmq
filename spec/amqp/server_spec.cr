@@ -82,7 +82,7 @@ describe LavinMQ::AMQP::Server do
       amqp_server.close
       restart_server(server)
       amqp_server = LavinMQ::AMQP::Server.new(server)
-      tcp_server = 100.times do |i|
+      tcp_server = 100.times do
         break TCPServer.new("127.0.0.1", port)
       rescue Socket::BindError
         sleep 10.milliseconds

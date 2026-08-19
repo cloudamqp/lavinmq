@@ -48,7 +48,7 @@ describe LavinMQ::MQTT::Server do
       mqtt_server.close
       restart_server(server)
       mqtt_server = LavinMQ::MQTT::Server.new(server)
-      tcp_server = 100.times do |i|
+      tcp_server = 100.times do
         break TCPServer.new("127.0.0.1", port)
       rescue Socket::BindError
         sleep 10.milliseconds
