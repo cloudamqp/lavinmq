@@ -719,7 +719,6 @@ module LavinMQ
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
-        @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)
         select
@@ -737,8 +736,7 @@ module LavinMQ
         # follower loop's exit above normally covers it; this wait matters when
         # that timed out instead (see #control).
         @controls.wait
-        # Finalize all pending checksums
-        finalize_digests
+        reset_file_state
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
         @data_dir_lock.release
