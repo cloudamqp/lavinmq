@@ -55,7 +55,7 @@ module MqttSpecs
           end
 
           # Publish messages that will be stored for the subscriber
-          2.times { |i| publish(pubio, topic: "a/b", payload: i.to_s.to_slice, qos: 0u8) }
+          2.times { |i| publish(pubio, topic: "a/b", payload: i.to_s.to_slice, qos: 1u8) }
 
           # Let the subscriber connect and read the messages, but don't ack. Then unsubscribe.
           # We must read the Publish packets before unsubscribe, else the "suback" will be stuck.
@@ -72,7 +72,7 @@ module MqttSpecs
           end
 
           # Publish more messages
-          2.times { |i| publish(pubio, topic: "a/b", payload: (2 + i).to_s.to_slice, qos: 0u8) }
+          2.times { |i| publish(pubio, topic: "a/b", payload: (2 + i).to_s.to_slice, qos: 1u8) }
 
           # Now, if unsubscribed worked, the last two publish packets shouldn't be held for the
           # session. Read the two we expect, then test that there is nothing more to read.

@@ -246,5 +246,32 @@ module MqttSpecs
         end
       end
     end
+
+    it "delivers at the minimum of publish and subscription qos [MQTT-3.8.4-8]" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("test/topic", 1)], packet_id: 1u16)
+
+          with_client_socket(server) do |pub_socket|
+            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
+            publish(pub, topic: "test/topic", qos: 0u8)
+            publish(pub, topic: "test/topic", qos: 1u8, packet_id: 2u16)
+          end
+
+          # The qos1 subscription must not upgrade the qos0 publish, so the first
+          # delivery carries no packet id and is not ackable.
+          first = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          first.qos.should eq(0u8)
+          first.packet_id.should be_nil
+          second = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
+          second.qos.should eq(1u8)
+          second.packet_id.should_not be_nil
+          puback(sub, second.packet_id)
+        end
+      end
+    end
   end
 end
