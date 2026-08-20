@@ -238,14 +238,20 @@ module LavinMQ
               end
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet, sp.bytesize
-              record_delivery(env.redelivered, no_ack)
-              @unacked[id] = sp
-              @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
+              begin
+                yield packet, sp.bytesize
+                record_delivery(env.redelivered, no_ack)
+                @unacked[id] = sp
+                @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
+              rescue ex # roll back only what this block added
+                # Scoped tightly on purpose: build_packet above can raise, and
+                # subtracting a count that was never added goes negative.
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                raise ex
+              end
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
               raise ex
             end
           end

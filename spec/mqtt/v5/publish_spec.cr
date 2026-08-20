@@ -273,5 +273,39 @@ module MqttSpecs
         end
       end
     end
+    it "delivers a message whose mqtt.* header is out of range instead of poisoning the queue" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+
+          # An AMQP client can bind mqtt.<client-id> to amq.topic and publish
+          # anything, so a header `store` would never write must not raise inside
+          # build_packet - that requeues and re-raises, force-closing the
+          # subscriber, which re-poisons on reconnect.
+          headers = LavinMQ::AMQP::Table.new({
+            "mqtt.message_expiry_interval" => -1_i32,
+            "mqtt.response_topic"          => "reply/#",
+          })
+          props = LavinMQ::AMQP::Properties.new(headers: headers, delivery_mode: 1u8)
+          body = "poison"
+          msg = LavinMQ::Message.new(RoughTime.unix_ms, LavinMQ::MQTT::EXCHANGE, "a/b",
+            props, body.bytesize.to_u64, ::IO::Memory.new(body))
+          server.vhosts["/"].session("mqtt.sub").publish(msg)
+
+          delivered = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::Publish)
+          delivered.payload.should eq("poison".to_slice)
+          delivered.properties.message_expiry_interval.should be_nil
+          delivered.properties.response_topic.should be_nil
+          puback(io, delivered.packet_id)
+          pingpong(io)
+
+          session = server.vhosts["/"].session("mqtt.sub")
+          session.unacked_count.should eq 0
+          session.message_count.should eq 0
+        end
+      end
+    end
   end
 end
