@@ -90,11 +90,13 @@ module LavinMQ
         "mqtt-client-#{@client_id}"
       end
 
+      # Exhaustive `case/in` on purpose: a new Version member must be a compile
+      # error here, not silently reported as 3.1.1 in the management UI.
       private def protocol_name : String
         case @io.version
-        when .v5?   then "MQTT 5.0"
-        when .v3_1? then "MQTT 3.1"
-        else             "MQTT 3.1.1"
+        in .v5?     then "MQTT 5.0"
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
         end
       end
 
