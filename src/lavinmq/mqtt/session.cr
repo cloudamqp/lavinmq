@@ -33,7 +33,11 @@ module LavinMQ
 
       getter name : String
       getter vhost : VHost
-      getter? auto_delete
+
+      # Seconds the session outlives its connection [MQTT-3.1.2.11.2]. 0 means it
+      # ends when the connection closes, UInt32::MAX means it never expires.
+      # Single source for durable?/auto_delete? so the three cannot drift.
+      getter session_expiry_interval : UInt32
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
@@ -48,9 +52,12 @@ module LavinMQ
 
       protected def initialize(@vhost : VHost,
                                @name : String,
-                               @auto_delete = false,
+                               auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = ARGUMENTS)
         @arguments = arguments
+        # Must precede any durable? use below: it decides the data dir, the
+        # replicator and the message store's durability.
+        @session_expiry_interval = self.class.expiry_from(arguments, auto_delete)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 
@@ -87,6 +94,22 @@ module LavinMQ
         @arguments
       end
 
+      # The argument wins when present. Read as a plain Int and bounds-checked
+      # rather than cast: it can come from an AMQP client declaring the queue by
+      # hand, in any int type.
+      #
+      # Without it, fall back to what the declare flag meant before Session
+      # Expiry Interval existed - auto_delete was clean_session, so a durable
+      # session meant "keep forever". That covers both a definitions file written
+      # by an older LavinMQ and a caller declaring a session directly.
+      protected def self.expiry_from(arguments : ::AMQ::Protocol::Table,
+                                     auto_delete : Bool) : UInt32
+        if i = arguments[SESSION_EXPIRY_ARG]?.as?(Int)
+          return i.to_u32 if i >= 0 && i <= UInt32::MAX
+        end
+        auto_delete ? 0u32 : UInt32::MAX
+      end
+
       def close : Bool
         return false if @closed.swap(true)
         @has_capacity.close
@@ -108,8 +131,25 @@ module LavinMQ
         true
       end
 
-      def clean_session?
-        @auto_delete
+      def auto_delete? : Bool
+        @session_expiry_interval.zero?
+      end
+
+      # A reconnecting client may name a different interval, and so may its
+      # DISCONNECT [MQTT-3.14.2.2.2]. Kept in @arguments too so it persists.
+      #
+      # Only ever narrows to 0 (a resumed session always had a non-zero interval,
+      # and [MQTT-3.14.2] forbids 0 -> non-zero on DISCONNECT), and a 0 interval
+      # is followed by deletion. That matters because durable? is baked into the
+      # message store's data dir and durability at construction and cannot be
+      # re-derived here.
+      def session_expiry_interval=(interval : UInt32) : Nil
+        return if interval == @session_expiry_interval
+        @session_expiry_interval = interval
+        # clone, never mutate: @arguments may be the shared ARGUMENTS constant.
+        args = @arguments.clone
+        args[SESSION_EXPIRY_ARG] = interval
+        @arguments = args
       end
 
       private def deliver_loop
@@ -143,7 +183,7 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
-        unless clean_session?
+        if durable?
           @msg_store_lock.synchronize do
             @unacked.values.each do |sp|
               @msg_store.requeue(sp)
@@ -163,7 +203,7 @@ module LavinMQ
       end
 
       def durable?
-        !clean_session?
+        !@session_expiry_interval.zero?
       end
 
       def subscribe(tf, qos)
@@ -423,7 +463,7 @@ module LavinMQ
       end
 
       def match?(durable, exclusive, auto_delete, arguments) : Bool
-        durable? == durable && @auto_delete == auto_delete
+        durable? == durable && auto_delete? == auto_delete
       end
 
       def unacked_messages
@@ -444,7 +484,7 @@ module LavinMQ
           name:                         @name,
           durable:                      durable?,
           exclusive:                    false,
-          auto_delete:                  @auto_delete,
+          auto_delete:                  auto_delete?,
           arguments:                    NamedTuple.new, # "empty" AMQP::Table
           consumers:                    consumer_count,
           vhost:                        @vhost.name,

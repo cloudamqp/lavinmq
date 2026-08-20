@@ -39,6 +39,10 @@ module LavinMQ
       end
 
       getter? clean_session
+
+      # The interval named on CONNECT. Kept because [MQTT-3.14.2] makes a
+      # non-zero interval on DISCONNECT a Protocol Error when this one was 0.
+      getter session_expiry_interval : UInt32
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
@@ -74,7 +78,8 @@ module LavinMQ
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil,
-                     @max_packet_size : UInt32? = nil)
+                     @max_packet_size : UInt32? = nil,
+                     @session_expiry_interval : UInt32 = 0u32)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"

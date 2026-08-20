@@ -30,11 +30,25 @@ module LavinMQ
         @vhost.register_exchange(@exchange)
       end
 
-      def session_present?(client_id : String, clean_session) : Bool
-        return false if clean_session
+      # Clean Start = 1 always reports no session, because the stored one is about
+      # to be discarded [MQTT-3.1.2-4].
+      #
+      # The auto_delete? guard is for takeover: this runs before add_client, so a
+      # 0-interval session belonging to a still-connected client is visible here,
+      # and that session is ended by the takeover rather than resumed (3.1.4).
+      def session_present?(client_id : String, clean_start) : Bool
+        return false if clean_start
         session = sessions[client_id]? || return false
-        return false if session.clean_session?
-        true
+        !session.auto_delete?
+      end
+
+      # v3 has no expiry property, so its clean-session bit carries both meanings:
+      # 1 ends the session with the connection, 0 keeps it forever, which is what
+      # LavinMQ has always done. v5 reads the property, absent meaning 0
+      # [MQTT-3.1.2-11].
+      private def session_expiry_interval(packet : Protocol::Connect) : UInt32
+        return packet.clean_session? ? 0u32 : UInt32::MAX unless packet.version.v5?
+        packet.properties.session_expiry_interval || 0u32
       end
 
       def add_client(io, connection_info, user, packet) : Client
@@ -52,13 +66,20 @@ module LavinMQ
           packet.clean_session?,
           packet.keepalive,
           packet.will,
-          packet.properties.maximum_packet_size)
-        if client.clean_session?
+          packet.properties.maximum_packet_size,
+          session_expiry_interval(packet))
+        # Clean Start and the expiry are separate inputs: the first decides
+        # whether to discard the stored session, the second how long the session
+        # this connection ends up with will outlive it.
+        if packet.clean_session?
           sessions[client.client_id]?.try &.delete
         else
-          # If an existing session exists, reuse it. If no session exists
-          # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          # Reuse an existing session, adopting this connection's interval. No
+          # session yet means it is created on first subscribe.
+          if session = sessions[client.client_id]?
+            session.session_expiry_interval = client.session_expiry_interval
+            session.client = client
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -80,7 +101,7 @@ module LavinMQ
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
-            session.delete if session.clean_session?
+            session.delete if session.auto_delete?
           end
         end
         @clients.delete(client_id) if @clients[client_id]? == client
