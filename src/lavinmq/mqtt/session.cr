@@ -24,6 +24,13 @@ module LavinMQ
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
       EFFECTIVE_ARGS = {"x-queue-type"}
 
+      # Per-instance, not the ARGUMENTS constant: definitions_store persists a
+      # session as a Queue::Declare frame carrying this table, so it is the only
+      # place session state can survive a restart. Never mutated, so sharing the
+      # constant as the default is safe - but it MUST keep x-queue-type, or
+      # QueueFactory rebuilds the session as a plain AMQP queue on the next boot.
+      @arguments : AMQP::Table
+
       getter name : String
       getter vhost : VHost
       getter? auto_delete
@@ -42,7 +49,8 @@ module LavinMQ
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
-                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                               arguments : ::AMQ::Protocol::Table = ARGUMENTS)
+        @arguments = arguments
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 
@@ -76,7 +84,7 @@ module LavinMQ
       end
 
       def arguments : AMQP::Table
-        ARGUMENTS
+        @arguments
       end
 
       def close : Bool
