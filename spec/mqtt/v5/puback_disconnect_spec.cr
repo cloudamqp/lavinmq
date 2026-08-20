@@ -74,7 +74,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub|
             connect(pub, client_id: "publisher")
-            publish(pub, topic: "a/b", qos: 0u8)
+            publish(pub, topic: "a/b", qos: 1u8)
             disconnect(pub)
           end
 
