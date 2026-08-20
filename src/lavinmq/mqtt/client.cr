@@ -31,6 +31,13 @@ module LavinMQ
       # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
       # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
       getter max_packet_size : UInt32?
+
+      # The negotiated protocol version. Session reads it to skip v5-only work
+      # for a v3 subscriber, the same way it reads max_packet_size.
+      def version : Protocol::Version
+        @io.version
+      end
+
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
