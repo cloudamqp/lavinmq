@@ -15,7 +15,7 @@ about 80% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 21 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 26 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, and gets a spec-correct
@@ -23,7 +23,7 @@ rejection for every feature we don't implement. What is missing is the rest of
 the *session-lifecycle* half of v5: session expiry, will properties and will
 delay, subscription options.
 
-**On `main` (`77c9ceb2`) and verified green on 2026-08-20: 2098 examples,
+**On `main` (`77c9ceb2`) and verified green on 2026-08-20: 2105 examples,
 0 failures, lint and format clean.** See section 7.
 
 ---
@@ -417,11 +417,31 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
   client-sent PINGRESP and an AUTH packet on a plain connection. v5 now gets
   DISCONNECT `0x82` and the log gets one WARN line; v3 still just closes.
 
-**Specs:** 33 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
-unsubscribe, puback/disconnect), plus the existing v3 suite adapted to the new
-shard API. (The previous reconciliation said 34 before three examples were added,
-so that figure was wrong by four; 33 is measured from
-`make test SPEC=spec/mqtt/v5`.)
+**Robustness and hot path** (item I)
+- `PublishHeaders.restore` tolerates any AMQP header. Four-byte ints go through
+  one `fetch_u32?` and `response_topic` through `fetch_topic?`
+  ([MQTT-3.3.2-14], wildcards dropped). Previously `to_u32` on a negative
+  `mqtt.message_expiry_interval` raised inside `build_packet`, which requeued and
+  re-raised, force-closed the subscriber and re-poisoned on reconnect - an AMQP
+  client can reach this by binding `mqtt.<client-id>` to `amq.topic`, since
+  `definitions_store.cr` resolves a bind target as
+  `@queues[name]? || @sessions[name]?`.
+- `Session#get_packet`'s QoS>0 rescue is split in two: the inner one rolls back
+  the `@unacked_*` counters it incremented, the outer one requeues. It used to
+  subtract unconditionally, so a raise from `build_packet` drove both counters
+  negative.
+- `Exchange#publish` holds the decoded topic in a local instead of calling
+  `packet.topic` two or three times (3.7: the getter allocates per call).
+- `Session#build_packet` skips the property restore for a v3 subscriber, whose
+  `IO::V3#write_properties` discards them anyway. The version is read off the
+  client the same way `max_packet_size` already is.
+- `Client#protocol_name` is an exhaustive `case/in` again, so a new `Version`
+  member is a compile error rather than a silent "MQTT 3.1.1".
+
+**Specs:** 34 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
+unsubscribe, puback/disconnect) plus `spec/mqtt/publish_headers_spec.cr`, on top
+of the existing v3 suite adapted to the new shard API. Both figures are measured;
+an earlier reconciliation's "34 v5 examples" predated four of them and was wrong.
 
 ---
 
@@ -516,48 +536,23 @@ still uses `StringTokenIterator`, unlike the publish-path subscription tree.
 Parked from a full-branch review on 2026-08-19, ordered by severity. All were
 introduced on this branch, so they are ours to fix before the PR.
 
-- **Poison message via `mqtt.message_expiry_interval`.**
-  `publish_headers.cr#restore` does `i.to_u32` on a value read from an AMQP
-  header. `restore` is *not* only fed headers written by `store`:
-  `definitions_store.cr:217` resolves a bind target as
-  `@queues[name]? || @sessions[name]?`, so an AMQP client can bind
-  `mqtt.<client_id>` to `amq.topic` and publish
-  `mqtt.message_expiry_interval = -1_i32`. `.as?(Int)` succeeds, `to_u32` raises
-  `OverflowError` inside `build_packet`, the SP is requeued and re-raised, and
-  `deliver_loop` force-closes the subscriber - which re-poisons on reconnect, so
-  the queue can never drain. Every other field is nil-safe via `.as?`; this one
-  is not. Fix with `to_u32?`, and route every four-byte-int property through one
-  `fetch_u32?` helper so the next property added cannot get it wrong.
-  `response_topic` is also restored without wildcard validation.
-- **`packet.topic` allocates on the publish hot path.** The shard bump changed
-  `Publish#topic` from a stored `String` to `String.new(@topic)` per call (3.7,
-  and the shard says "hold the result or use `topic_bytes` on hot paths").
-  `exchange.cr#publish` calls it twice, three times with retain, so every MQTT
-  publish now allocates 2-3 throwaway Strings where `main` allocated none. Hoist
-  to a local. Documenting the cost in 3.7 did not prevent it - consider renaming
-  the getter to `topic_string` before the 1.0 tag so the cost is visible at the
-  call site.
+**Five of the seven are fixed** on 2026-08-20 - the poison message and its
+`@unacked_*` corruption, the hot-path allocation, `protocol_name` exhaustiveness,
+and the v3 property restore. See section 4. The two that remain are both
+enforcement gaps already tracked as the `[~]` rows in section 2:
+
 - **Will QoS 2 is accepted despite `maximum_qos = 1`** - section 2, first `[~]`
-  row.
+  row. `Connect.from_io` accepts any `will_qos < 3` and nothing rejects a Will at
+  QoS 2, where spec 3.1.2.6 wants CONNACK `0x9B`. Confirmed from outside by the
+  interop run.
 - **Maximum Packet Size is only enforced for outbound PUBLISH** - section 2,
   second `[~]` row. `Client#send` is the single outbound choke point and is the
   place to put it, so no future packet type can forget it.
-- **`session.cr`'s QoS>0 `rescue` can drive `@unacked_*` negative.** It
-  unconditionally subtracts, but the matching `add` calls sit *after* the
-  `exceeds_max_packet_size?` early-`next`, and `build_packet` (see the poison
-  message above) raises before them. Masked today only because `client=` resets
-  the counters. Move the `add` before the `begin`, or subtract only what was
-  added.
-- **`client.cr#protocol_name` lost a compiler check.** The removed
-  `ProtocolVersion` enum used `case/in`, so a new member was a compile error;
-  the replacement's `else "MQTT 3.1.1"` would silently mislabel a future
-  version in the management UI. `Version` has exactly three members, so
-  `case/in` restores exhaustiveness for free.
-- **`PublishHeaders.restore` runs for v3 subscribers too.** `build_packet` is
-  version-blind, so a v3-only deployment pays six `Table#fetch` linear scans
-  plus a `PublishProperties` construction per delivery, for properties
-  `IO::V3#write_properties` then discards. The session already reaches into the
-  client for `max_packet_size`; the negotiated version could come the same way.
+
+One follow-up the fixes did not take: the shard's `Publish#topic` still allocates
+per call, and documenting that in 3.7 did not stop a consumer from calling it
+three times on the hot path. Renaming it to `topic_string` before the 1.0 tag
+would make the cost visible at the call site.
 
 ### J. External interop findings
 
@@ -638,19 +633,21 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-08-20** after the J1/J2 fixes, on `main` `77c9ceb2`:
+**LavinMQ, measured 2026-08-20** after the J1/J2 and item I fixes, on `main`
+`77c9ceb2`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **253 examples, 0 failures, 0 errors, 0 pending** (24.9s) |
-| `make test TAGS=~etcd` | **2098 examples, 0 failures, 0 errors, 9 pending** (2:38) |
-| `make lint` | 400 inspected, 0 failures |
+| `make test SPEC=spec/mqtt` | **260 examples, 0 failures, 0 errors, 0 pending** |
+| `make test TAGS=~etcd` | **2105 examples, 0 failures, 0 errors, 9 pending** (2:38) |
+| `make lint` | 401 inspected, 0 failures |
 | `crystal tool format --check` | clean |
 
-(The +5 over the previous 248/2093 is exactly the five examples added with J1 and
-J2 - two v3 QoS-minimum regressions, one v5 QoS-minimum, two v5 unexpected-packet.
-An earlier reconciliation recorded 233 for `spec/mqtt`; that figure was mistyped,
-not a lost spec.)
+(The +12 over the 248/2093 of 2026-08-19 is exactly the twelve examples added
+since: five with J1/J2 - two v3 QoS-minimum, one v5 QoS-minimum, two v5
+unexpected-packet - and seven with item I - six `PublishHeaders.restore` unit
+examples and one end-to-end poison-message example. An earlier reconciliation
+recorded 233 for `spec/mqtt`; that figure was mistyped, not a lost spec.)
 
 The 9 pending are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
@@ -706,14 +703,15 @@ denying a topic.
 
 ## 8. Sequencing to ship
 
-1. Finish B / D / E (F and G in parallel, different people). The poison-message
+1. Finish B / D / E (F and G in parallel, different people). ~~The poison-message
    and hot-path-allocation findings in I should land before the PR regardless of
-   who takes the feature work.
+   who takes the feature work.~~ Done 2026-08-20, along with three of the other
+   five; only the two section 2 `[~]` enforcement gaps remain in I.
 2. ~~External smoke test against a real v5 client.~~ Done 2026-08-19, see
    section 7 and `MQTT5-INTEROP.md`. Re-run it once B/D/E/F land - the same
-   harness grades them. It has **not** been re-run since the J1/J2 fixes; the
-   interop doc's delivery-QoS and DISCONNECT `0x82` rows are the expectations to
-   confirm when it is.
+   harness grades them. It has **not** been re-run since the J1/J2 and item I
+   fixes; the interop doc's delivery-QoS and DISCONNECT `0x82` rows are the
+   expectations to confirm when it is.
 3. Tag the shard release (`1.0`), with 3.7's breaking changes in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
 5. Merge back the v5 specs (section H).
