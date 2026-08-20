@@ -178,7 +178,12 @@ module LavinMQ
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
         when Protocol::Disconnect  then return {packet, bytesize}
-        else                            raise "received unexpected packet: #{packet}"
+        else
+          # Every remaining decodable type is either server-to-client only or
+          # illegal after CONNECT (a second CONNECT is [MQTT-3.1.0-2]), so this
+          # is the client's protocol error, not an internal one to backtrace.
+          @log.debug { "Unexpected packet: #{packet.inspect}" }
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
         end
         {packet, bytesize}
       end
