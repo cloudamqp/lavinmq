@@ -54,9 +54,15 @@ module ClusteringSpecHelper
     # Files the leader asked us to fsync via `$` records (recorded even when
     # sync is disabled).
     getter fsync_requests = Array(String).new
+    getter parent_dirs_fsynced = Array(String).new
 
     private def fsync_file(filename : String) : Nil
       @fsync_requests << filename
+      super
+    end
+
+    private def fsync_parent_dir(path : String) : Nil
+      @parent_dirs_fsynced << File.dirname(path) if @config.sync?
       super
     end
   end
