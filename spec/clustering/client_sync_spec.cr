@@ -177,7 +177,171 @@ module ClientSyncSpec
 
           acked.should eq framing + payload.bytesize
           client.syncs_started.should eq 0
+          client.syncfs_calls.should eq 0 # a skipped sync isn't counted either
           File.read(File.join(data_dir, filename)).should eq payload
+          client_socket.close
+        end
+      end
+
+      # Reported next to the streamed bytes: the ratio shows how much data each
+      # sync covers.
+      it "counts syncfs calls and logs them with the streamed bytes" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "synced_stream_file"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          control = LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, control, 0i64, Bytes.empty)
+          streamed = record_size(filename, payload.bytesize) + record_size(control, 0)
+          # The sync record is acked once handled, i.e. once its sync has run.
+          read_acks(leader_io, streamed)
+
+          syncs = client.syncfs_calls
+          syncs.should be > 0
+          syncs.should eq client.syncs_started # only the syncs actually performed
+          client.stream_stats_message_public
+            .should eq "Total streamed bytes: #{streamed}, syncfs calls: #{syncs}"
+          client_socket.close
+        end
+      end
+
+      # An instruction, not file data: nothing is written to disk or tracked for
+      # its path. The leader still counts its bytes as sent and waits for the
+      # ack, so skipping it would stall every publish confirm.
+      it "acks a sync record without creating a file for it" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          control = LavinMQ::Clustering::SyncPacket::SYMBOL.to_s
+          filename = "after_control"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, control, 0i64, Bytes.empty)
+          # A record after the control one proves the stream stayed aligned.
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+
+          read_acks(leader_io, record_size(control, 0) + record_size(filename, payload.bytesize))
+
+          File.read(File.join(data_dir, filename)).should eq payload
+          File.exists?(File.join(data_dir, control)).should be_false
+          close_client(client)
+          # Not tracked as a file either, so no checksum is persisted for it
+          persisted_checksums(data_dir).keys.should eq [filename]
+          client_socket.close
+        end
+      end
+
+      # A symbol this build doesn't know isn't a control record at all, so the
+      # record is read as file data — a zero length being a delete of a path
+      # that never existed. Harmless, and the stream stays aligned.
+      it "acks a record with an unknown symbol without creating a file for it" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          unknown = "%from_the_future"
+          filename = "after_unknown_control"
+          payload = "replicated bytes"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, unknown, 0i64, Bytes.empty)
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+
+          read_acks(leader_io, record_size(unknown, 0) + record_size(filename, payload.bytesize))
+
+          # The record after it arrived intact, so the stream stayed aligned.
+          File.read(File.join(data_dir, filename)).should eq payload
+          File.exists?(File.join(data_dir, unknown)).should be_false
+          client.syncfs_calls.should eq 0 # and nothing was synced for it
+          client_socket.close
+        end
+      end
+
+      # `$` + a path: a file the follower has open is fsynced on its own, so a
+      # per-file sync must not reach for syncfs.
+      it "fsyncs just the named file when the sync path names one" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "vhost_dir/one_file"
+          payload = "replicated bytes"
+          file_sync = "#{LavinMQ::Clustering::SyncPacket::SYMBOL}#{filename}"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, file_sync, 0i64, Bytes.empty)
+
+          read_acks(leader_io, record_size(filename, payload.bytesize) + record_size(file_sync, 0))
+
+          client.syncs_started.should eq 0 # the file was fsynced, not the fs
+          File.read(File.join(data_dir, filename)).should eq payload
+          File.exists?(File.join(data_dir, file_sync)).should be_false
+          client_socket.close
+        end
+      end
+
+      # Anything that isn't a file we have open — a directory here — falls back
+      # to the whole filesystem, which can never sync too little.
+      it "syncs the filesystem when the sync path names a directory" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          dir = "vhost_dir"
+          filename = File.join(dir, "a_file")
+          payload = "replicated bytes"
+          dir_sync = "#{LavinMQ::Clustering::SyncPacket::SYMBOL}#{dir}"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, dir_sync, 0i64, Bytes.empty)
+
+          read_acks(leader_io, record_size(filename, payload.bytesize) + record_size(dir_sync, 0))
+
+          client.syncfs_calls.should be > 0
           client_socket.close
         end
       end
@@ -924,15 +1088,14 @@ module ClientSyncSpec
     end
 
     describe "#close" do
-      # Regression: close used to wait only for the follow loop, then close
-      # the data dir fd while the ack-sending fiber could still be draining
-      # buffered acks — each preceded by a syncfs on that fd. The resulting
-      # EBADF made the follower Log.fatal and exit 1 in the middle of a
-      # graceful shutdown or a promotion to leader.
-      it "waits for the ack loop's pending syncs before closing the data dir fd" do
+      # Regression: close used to wait only for the follow loop, then tear the
+      # data dir down while a syncfs on @data_dir_fd could still be running. The
+      # EBADF made the follower Log.fatal and exit 1 mid shutdown or promotion.
+      # Syncs come from the leader as control records, so close waits for those.
+      it "waits for an in-flight control action before closing the data dir fd" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
-          client.sync_delay = 50.milliseconds
+          client.sync_delay = 200.milliseconds # still syncing when close starts
           client_socket, leader_io = FakeSocket.pair
           lz4_reader = Compress::LZ4::Reader.new(client_socket)
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
@@ -940,37 +1103,49 @@ module ClientSyncSpec
 
           spawn(name: "client stream_changes") do
             client.stream_changes_public(client_socket, lz4_reader)
-          rescue IO::Error
+          rescue IO::Error | Channel::ClosedError
+            # socket closed at spec end, or acks closed by close
           end
 
-          # Stream a small append so acks start flowing and the ack loop
-          # enters its (slowed) sync.
-          filename = "ack_file"
-          payload = "data"
-          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          lz4_writer.write filename.to_slice
-          lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          lz4_writer.write payload.to_slice
-          lz4_writer.flush
-          wait_for { client.syncs_started > 0 }
-
-          # Keep acks arriving while close runs, so a sync is in flight or
-          # pending throughout the shutdown.
-          spawn(name: "ack feeder") do
-            20.times do
-              client.@acks.send(1i64)
-              sleep 10.milliseconds
-            end
-          rescue Channel::ClosedError
-            # close drained and closed the channel
-          end
+          write_record(lz4_writer, LavinMQ::Clustering::SyncPacket::SYMBOL.to_s, 0i64, Bytes.empty)
+          wait_for { client.syncs_started > 0 } # the sync is now in its delay
 
           # follow() was never called in this harness, so satisfy close's
           # follower-done handshake ourselves.
           spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
           client.close
 
-          sleep 200.milliseconds # let any straggler sync run after close returned
+          # A sync that ran to completion counted itself; one that woke up to a
+          # closed fd flagged it instead.
+          wait_for { client.syncfs_calls > 0 || client.synced_on_closed_fd? }
+          client.synced_on_closed_fd?.should be_false
+          client_socket.close
+          leader_io.close
+        end
+      end
+
+      # The other half of the guard: a control record read after close must skip
+      # its action rather than sync a closed (or reused) fd.
+      it "skips a control action requested after close" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error | Channel::ClosedError
+          end
+
+          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+          client.close
+
+          write_record(lz4_writer, LavinMQ::Clustering::SyncPacket::SYMBOL.to_s, 0i64, Bytes.empty)
+          # The record is read and counted, but its action is skipped.
+          wait_for { client.@streamed_bytes > 0 }
+          client.syncs_started.should eq 0
           client.synced_on_closed_fd?.should be_false
           client_socket.close
           leader_io.close

@@ -4,6 +4,7 @@ require "./amqp/channel"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "sync/exclusive"
+require "wait_group"
 
 module LavinMQ
   # Owns the filesystem fd used for syncfs(2) and the publish-confirm
@@ -84,19 +85,26 @@ module LavinMQ
       end
       return unless acks
 
-      # Ask each follower's flush fiber to push the pending replicated bytes,
-      # so they persist and ack them while our own syncfs runs. Only a
-      # request: this loop runs on an isolated thread and must never write
-      # the follower sockets itself — their fds belong to the default
-      # execution context's event loop (see Follower#flush_loop).
-      @replicator.try &.followers.each &.request_flush
+      # Ask each follower to push the pending replicated bytes and make them
+      # durable, so they persist while our own syncfs runs. Only a request: this
+      # loop runs on an isolated thread and must never write the follower sockets
+      # itself, their fds belong to the default execution context's event loop
+      # (see Follower#control_loop).
       if Config.instance.sync?
-        begin
-          sync
-        rescue ex
-          Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-          exit 1
+        WaitGroup.wait do |wg|
+          # Sync implies flush. Both are handled by the "control packet" loop
+          # in the follower so we can be sure the sync packet is written before
+          # flush.
+          @replicator.try &.request_sync(wg)
+          begin
+            sync
+          rescue ex
+            Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+            exit 1
+          end
         end
+      else
+        @replicator.try &.request_flush
       end
       # Block until every in-sync follower has acked the replicated bytes and
       # any ISR shrink is committed to the coordinator, so a confirm means

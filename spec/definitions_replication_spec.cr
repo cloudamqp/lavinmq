@@ -7,14 +7,22 @@ require "./spec_helper"
 # stream skips everything below the cut — so a frame sitting in a user-space
 # write buffer at dispatch time would be permanently missing on a follower
 # that joins in that window, even though it gets marked synced.
-class DiskVisibilitySpyReplicator
+#
+# Also records the order of the replication calls a definition change makes, for
+# the follower-fence spec below.
+class DefinitionsSpyReplicator
   include LavinMQ::Clustering::Replicator
 
   getter violations = Array(String).new
   getter dispatched_definitions = 0
+  # Definition dispatches and the calls that fence them, in call order.
+  getter calls = Array(Symbol).new
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
-    @dispatched_definitions += 1 if path.ends_with?("definitions.amqp")
+    if path.ends_with?("definitions.amqp")
+      @dispatched_definitions += 1
+      @calls << :dispatch
+    end
     File.open(path) do |f|
       if f.size < offset + bytes.bytesize
         @violations << "#{path}: dispatched [#{offset}, #{offset + bytes.bytesize}) but only #{f.size} bytes are on disk"
@@ -73,7 +81,16 @@ class DiskVisibilitySpyReplicator
   def flush_isr : Nil
   end
 
+  def request_flush : Nil
+    @calls << :request_flush
+  end
+
+  def request_sync(wg : WaitGroup) : Nil
+    @calls << :request_sync
+  end
+
   def wait_for_followers : Nil
+    @calls << :wait_for_followers
   end
 
   def close
@@ -95,7 +112,7 @@ describe LavinMQ::DefinitionsStore do
   # (and the fstat-based offsets they carried) could be invisible on disk
   # until the next flush/fsync — invisible to a concurrent join cut too.
   it "has definition frames on disk before they are dispatched to followers" do
-    spy = DiskVisibilitySpyReplicator.new
+    spy = DefinitionsSpyReplicator.new
     with_amqp_server(replicator: spy) do |s|
       with_channel(s) do |ch|
         q = ch.queue("disk_visibility_q", durable: true)
@@ -105,5 +122,23 @@ describe LavinMQ::DefinitionsStore do
     end
     spy.dispatched_definitions.should be >= 3 # queue + exchange + binding
     spy.violations.should be_empty
+  end
+
+  # A follower acks bytes it received, so the wait gating the Declare-Ok only
+  # means durable if a sync request went out first — and after the dispatch, or
+  # it would fence everything except the frame being acknowledged.
+  it "fences followers on a durable definition change: dispatch, request sync, then wait" do
+    spy = DefinitionsSpyReplicator.new
+    with_amqp_server(replicator: spy) do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("fence_order_q", durable: true)
+        x = ch.exchange("fence_order_x", "topic", durable: true)
+        q.bind(x.name, "rk")
+      end
+    end
+    fences = Array(Array(Symbol)).new
+    spy.calls.each_with_index { |call, i| fences << spy.calls[i, 3] if call == :dispatch }
+    fences.size.should be >= 3 # queue + exchange + binding
+    fences.each &.should eq [:dispatch, :request_sync, :wait_for_followers]
   end
 end

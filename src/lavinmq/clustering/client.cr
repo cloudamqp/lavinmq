@@ -2,6 +2,7 @@ require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
 require "./checksums"
+require "./control_packet"
 require "./proxy"
 require "lz4"
 require "http/server"
@@ -27,7 +28,7 @@ module LavinMQ
       ACK_BUFFER_CAPACITY = 8192
 
       @data_dir_lock : DataDirLock
-      @closed = false
+      @closed = Atomic(Bool).new(false)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -37,6 +38,8 @@ module LavinMQ
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       @streamed_bytes = 0_u64
+      # syncfs(2) calls made
+      @syncfs_calls = 0_u64
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -45,10 +48,12 @@ module LavinMQ
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
-      # Tracks the ack-sending fiber: #close must wait for it to finish before
-      # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
-      # it sends — even acks still buffered in @acks after the stream ends.
+      # Tracks the ack-sending fiber, so #close lets it drain the acks still
+      # buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
+      # Tracks control actions in flight, so #close waits for one to finish
+      # before tearing down the state it touches (see #control).
+      @controls = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -121,7 +126,7 @@ module LavinMQ
         end
         loop do
           hash_local_files
-          return if @closed
+          return if @closed.get
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
@@ -132,7 +137,7 @@ module LavinMQ
         rescue ex : IO::Error
           lz4.try &.close
           socket.try &.close
-          break if @closed
+          break if @closed.get
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
         end
@@ -325,7 +330,7 @@ module LavinMQ
           Log.info { "Calculating checksums for #{files.size} local files" }
           log_limiter = RateLimiter.new(2.seconds)
           files.each do |path|
-            break if @closed
+            break if @closed.get
             filename = relative_path(path)
             next if @checksums[filename]?
             hash_file(filename, path)
@@ -444,10 +449,21 @@ module LavinMQ
           # are acked up front and the payload is acked incrementally as it's
           # written (see stream_with_checksum), so a single large action keeps
           # the leader's progress deadline reset instead of going silent until
-          # it's done. For a delete the framing is the entire record — acking
-          # it tells the leader the deletion is durable — so it's only acked
-          # once the deletion has been applied.
+          # it's done. For a delete the framing is the entire record, so it's
+          # only acked once the deletion has been applied: an ack may only cover
+          # records the follower has already carried out.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          # Routed before the length is interpreted: a control record's empty
+          # body would read as a delete. Acked once handled, like a delete.
+          # Control records carry no body, so the framing is the whole record —
+          # and a control record that does carry one is not an instruction this
+          # build can act on, so it falls through and is consumed as file data
+          # rather than desyncing the stream.
+          if len.zero? && ControlPacket.control?(filename)
+            control(filename)
+            ack(framing)
+            next
+          end
           case len
           when .negative? # append bytes to file
             ack(framing)
@@ -463,6 +479,35 @@ module LavinMQ
       ensure
         @acks.close
         log_loop_done.try &.close
+      end
+
+      # Apply a control record: nothing is read from the stream, written to disk
+      # or tracked for its path. An unknown instruction (a newer leader) is
+      # ignored rather than fatal.
+      #
+      # A running action is counted in @controls so #close can't tear down the
+      # state it touches. @closed is checked before the count, not inside it:
+      # close sets @closed before it reaches @controls.wait, so a false reading
+      # means our #add lands before that wait. Counting first would let an #add
+      # land after the waiter woke, which makes WaitGroup#wait raise on a
+      # positive counter and aborts close halfway.
+      #
+      # Skipping is safe: close has closed the socket, so the leader dropped us
+      # from the ISR and no confirm waits on our ack.
+      private def control(command : String) : Nil
+        return if @closed.get
+        @controls.add
+        begin
+          case packet = ControlPacket.from_str(command)
+          in SyncPacket
+            Log.debug { "Sync requested: #{packet.path}" }
+            sync_to_disk(packet.path)
+          in Nil
+            Log.warn { "Ignoring unknown control record #{command}" }
+          end
+        ensure
+          @controls.done
+        end
       end
 
       private def append(filename, len, lz4)
@@ -544,8 +589,8 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          # The record's final ack tells the leader the replace is durable, so
-          # it must not be sent while the new content only exists as the .tmp
+          # The record's final ack tells the leader the replace has been applied,
+          # so it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
           f.rename f.path[0..-5]
@@ -588,30 +633,37 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent unless sync is disabled:
-      # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # Nothing is synced here: an ack means received and applied, and durability
+      # is fenced by the leader's sync records (see #control). The
+      # Fiber.yield lets a batch grow — the stream-reading fiber gets to queue
+      # more acks before we drain the channel again.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
-          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
+          Fiber.yield
         end
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
       end
 
-      # Make all replicated writes durable before acking the leader.
-      private def sync_to_disk : Nil
-        return unless @config.sync?
-
-        sync_data_dir
+      # Make replicated writes durable. Only runs on request: the leader asks
+      # with a $ record, acked once this returns, and that ack is what tells it
+      # the data is persisted here.
+      #
+      # A file we have open is fsynced on its own; anything else — a directory,
+      # the empty path (the data dir), a file we only ever replaced — falls back
+      # to the whole filesystem, which can never sync too little.
+      private def sync_to_disk(path : String) : Nil
+        if file = @files[path]?
+          file.fsync
+        else
+          sync_data_dir
+        end
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
         # from the in-sync set and stops confirming publishes on our acks.
@@ -620,6 +672,7 @@ module LavinMQ
       end
 
       private def sync_data_dir : Nil
+        @syncfs_calls &+= 1
         {% if flag?(:linux) %}
           ret = LibC.syncfs(@data_dir_fd)
           raise IO::Error.from_errno("syncfs") if ret != 0
@@ -628,19 +681,20 @@ module LavinMQ
         {% end %}
       end
 
-      # Logs the streamed byte count until #stream_changes closes the done
-      # channel (or the client is closed), so the fiber doesn't outlive the
-      # stream that spawned it.
       private def log_streamed_bytes_loop(done : Channel(Nil))
         loop do
           select
           when done.receive?
             break
-          when timeout(30.seconds)
-            break if @closed
-            Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          when timeout(5.seconds)
+            break if @closed.get
+            Log.info { stream_stats_message }
           end
         end
+      end
+
+      private def stream_stats_message : String
+        "Total streamed bytes: #{@streamed_bytes}, syncfs calls: #{@syncfs_calls}"
       end
 
       private def authenticate(socket)
@@ -658,8 +712,7 @@ module LavinMQ
       end
 
       def close
-        return if @closed
-        @closed = true
+        return if @closed.swap(true)
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
@@ -667,7 +720,6 @@ module LavinMQ
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
-        @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)
         select
@@ -675,16 +727,17 @@ module LavinMQ
         when timeout(5.seconds)
           Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
         end
-        # The ack loop keeps draining acks buffered in @acks even after the
-        # channel is closed, syncing to disk before each send. Wait for it to
-        # finish before closing @data_dir_fd below, or its syncfs would hit a
-        # closed (or worse, reused) fd and the process would exit 1 mid
-        # shutdown/promotion. Closing @acks is normally done by stream_changes,
-        # but do it here too in case the follower loop is stuck.
+        # Let the ack loop drain the acks buffered in @acks after the stream
+        # ended. Closing @acks is normally done by stream_changes, but do it here
+        # too in case the follower loop is stuck.
         @acks.close
         @ack_loops.wait
-        # Finalize all pending checksums
-        finalize_digests
+        # Nothing below may run while a control action does: a syncfs would hit a
+        # closed (or worse, reused) @data_dir_fd and exit 1 mid promotion. The
+        # follower loop's exit above normally covers it; this wait matters when
+        # that timed out instead (see #control).
+        @controls.wait
+        reset_file_state
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
         @data_dir_lock.release

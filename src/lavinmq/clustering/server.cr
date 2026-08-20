@@ -446,6 +446,21 @@ module LavinMQ
         end
       end
 
+      # Flush all synced followers io. A waitgroup can be passed to make
+      # this method synchronous.
+      def request_flush(wg : WaitGroup? = nil) : Nil
+        followers.each &.control(FlushPacket.new(wg))
+      end
+
+      # Send a sync frame to all followers. IO will be flushed. A waitgroup can
+      # be passed to make this method synchronous.
+      def request_sync(wg : WaitGroup? = nil) : Nil
+        followers.each do |f|
+          f.control SyncPacket.new
+          f.control FlushPacket.new(wg)
+        end
+      end
+
       # Block until every in-sync follower has acked everything replicated so
       # far, so a durable operation may be acknowledged to a client: once
       # this returns, every node etcd lists as a failover candidate has the

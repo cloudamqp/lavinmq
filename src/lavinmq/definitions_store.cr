@@ -4,6 +4,7 @@ require "./event_type"
 require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
+require "wait_group"
 
 module LavinMQ
   class DefinitionsStore
@@ -28,13 +29,17 @@ module LavinMQ
       @definitions_deletes = 0
     end
 
-    # Flush buffered definition writes to disk. Used after a bulk operation
-    # (e.g. import) that stored its definitions with fsync: false; the whole
-    # batch is acknowledged after this, so it waits for follower acks like
-    # the per-frame path does.
+    # Make the definitions written so far durable, here and on every in-sync
+    # follower. Called per frame by store_definition, and once for the whole
+    # batch after a bulk import stored its definitions with fsync: false.
     def fsync
       @definitions_lock.synchronize do
         @definitions_file.fsync
+        # The change is acknowledged right after this returns (Declare-Ok, an
+        # import response), so a leader crash must not elect a follower lacking
+        # it. An ack alone means received, hence the sync request first — and the
+        # wait for it before the acks (see Replicator#request_sync).
+        WaitGroup.wait { |wg| @replicator.try &.request_sync(wg) }
         @replicator.try &.wait_for_followers
       end
     end
@@ -388,15 +393,9 @@ module LavinMQ
       # baseline instead of duplicating it.
       @definitions_file.write bytes
       @replicator.try &.append_bytes @definitions_file_path, bytes, offset
+
       if fsync
-        @definitions_file.fsync
-        # The caller acknowledges the change to the client right after this
-        # returns (Declare-Ok etc.), so like a publish confirm it must be
-        # durable on every in-sync follower first — otherwise a leader crash
-        # could elect a follower lacking the acknowledged change. A follower
-        # that doesn't ack within its deadline is disconnected and its ISR
-        # removal committed before this returns.
-        @replicator.try &.wait_for_followers
+        fsync()
       end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

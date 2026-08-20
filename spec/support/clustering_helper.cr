@@ -47,6 +47,15 @@ module ClusteringSpecHelper
     getter syncs_started = 0
     getter? synced_on_closed_fd = false
 
+    # The client's own counter, i.e. what it reports in its stream stats.
+    def syncfs_calls : UInt64
+      @syncfs_calls
+    end
+
+    def stream_stats_message_public : String
+      stream_stats_message
+    end
+
     # Instrumentation for the log-loop lifecycle spec: how many streamed-bytes
     # logging fibers are currently running.
     getter log_loops_running = 0
