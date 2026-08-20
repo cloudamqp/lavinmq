@@ -50,17 +50,40 @@ module LavinMQ
 
       # Rebuild v5 properties from `headers`; returns empty properties when none
       # were stashed.
+      #
+      # `headers` is not necessarily something `store` wrote: an AMQP client can
+      # bind `mqtt.<client-id>` to `amq.topic` and publish arbitrary values. Every
+      # field must therefore degrade to nil rather than raise - a raise here lands
+      # in `Session#get_packet`, which requeues and re-raises, so the message
+      # poisons the queue on every redelivery.
       def self.restore(headers : AMQP::Table?) : Protocol::PublishProperties
         props = Protocol::PublishProperties.new
         return props unless headers
         props.payload_format_indicator = headers[PAYLOAD_FORMAT_INDICATOR]?.as?(Bool)
-        headers[MESSAGE_EXPIRY_INTERVAL]?.as?(Int).try { |i| props.message_expiry_interval = i.to_u32 }
-        props.response_topic = headers[RESPONSE_TOPIC]?.as?(String)
+        props.message_expiry_interval = fetch_u32?(headers, MESSAGE_EXPIRY_INTERVAL)
+        props.response_topic = fetch_topic?(headers, RESPONSE_TOPIC)
         props.correlation_data = headers[CORRELATION_DATA]?.as?(Bytes)
         props.content_type = headers[CONTENT_TYPE]?.as?(String)
         entries = headers[USER_PROPERTIES]?
         props.user_properties = restore_user_properties(entries) if entries.is_a?(Array)
         props
+      end
+
+      # Every four-byte-int property goes through here, so a value outside
+      # UInt32 drops the property instead of raising `OverflowError`. `Int` has
+      # no `to_u32?`, hence the explicit bounds check.
+      private def self.fetch_u32?(headers : AMQP::Table, key : String) : UInt32?
+        i = headers[key]?.as?(Int) || return
+        return unless i >= 0 && i <= UInt32::MAX
+        i.to_u32
+      end
+
+      # A Response Topic must be a topic name, not a filter [MQTT-3.3.2-14], and
+      # nothing validated it on the way in via an AMQP header.
+      private def self.fetch_topic?(headers : AMQP::Table, key : String) : String?
+        topic = headers[key]?.as?(String) || return
+        return if topic.includes?('#') || topic.includes?('+')
+        topic
       end
 
       private def self.restore_user_properties(entries : Array) : Array({String, String})
