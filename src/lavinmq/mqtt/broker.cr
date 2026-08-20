@@ -77,8 +77,11 @@ module LavinMQ
           # Reuse an existing session, adopting this connection's interval. No
           # session yet means it is created on first subscribe.
           if session = sessions[client.client_id]?
-            session.session_expiry_interval = client.session_expiry_interval
+            # Attach first: while the session has a client, wait_for_client
+            # cannot run, so narrowing the interval here can never expire the
+            # session this connection is about to resume.
             session.client = client
+            session.session_expiry_interval = client.session_expiry_interval
           end
         end
         @clients[packet.client_id] = client

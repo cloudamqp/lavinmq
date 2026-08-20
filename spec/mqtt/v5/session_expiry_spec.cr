@@ -114,6 +114,55 @@ module MqttSpecs
       end
     end
 
+    it "deletes the session once the interval elapses", tags: "slow" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+          disconnect(io)
+        end
+
+        server.vhosts["/"].session?("mqtt.sub").should_not be_nil
+        wait_for { server.vhosts["/"].session?("mqtt.sub").nil? }
+      end
+    end
+
+    it "cancels the expiry when the client reconnects", tags: "slow" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+          disconnect(io)
+        end
+
+        with_client_socket(server) do |socket|
+          v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          # Past the interval, but attached the whole time, so the timer the
+          # previous disconnect started must have been cancelled.
+          sleep 1.5.seconds
+          server.vhosts["/"].session?("mqtt.sub").should_not be_nil
+        end
+      end
+    end
+
+    it "restores the interval and restarts the clock after a restart" do
+      # The interval persists via the queue arguments; the deadline deliberately
+      # does not, so a restored session gets its full interval again from boot.
+      with_server(clean_dir: false) do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+          disconnect(io)
+        end
+      end
+
+      with_server do |server|
+        session = server.vhosts["/"].session?("mqtt.sub").should_not be_nil
+        session.session_expiry_interval.should eq 3600u32
+        session.durable?.should be_true
+      end
+    end
+
     it "keeps a v3 non-clean session forever" do
       with_server do |server|
         with_client_io(server) do |io|

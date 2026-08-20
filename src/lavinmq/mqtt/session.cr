@@ -156,9 +156,12 @@ module LavinMQ
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          # Client before store: an offline session has to park on @has_client,
+          # both so the expiry clock runs and so it does not wake on a publish it
+          # cannot deliver.
           client = @client
-          next @has_client.when_true.receive? if client.nil?
+          next wait_for_client if client.nil?
+          next wait_for_messages if @msg_store.empty?
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
@@ -173,6 +176,46 @@ module LavinMQ
           @client.try &.close("Server force closed client")
           self.client = nil
         end
+      end
+
+      # Parks until there is something to deliver. The detach arm matters: on its
+      # own, a park on @msg_store.empty never wakes when the client leaves, so the
+      # loop would never reach the top again to start the expiry clock.
+      private def wait_for_messages : Nil
+        select
+        when @msg_store.empty.when_false.receive?
+        when @has_client.when_false.receive?
+        end
+      end
+
+      # Parks until a client attaches, or until the session expires. This is the
+      # only place the expiry clock runs - exactly the window in which the session
+      # has no connection [MQTT-3.1.2.11.2]. Reattaching cancels the timer, and
+      # the next disconnect enters a fresh select, so the interval is measured
+      # from each disconnect rather than accumulated.
+      private def wait_for_client : Nil
+        ttl = @session_expiry_interval
+        # Unreachable in practice - Broker#remove_client deletes a 0-interval
+        # session - but expiring is the right answer if it is ever reached.
+        return expire if ttl.zero?
+        if ttl == UInt32::MAX
+          @has_client.when_true.receive?
+          return
+        end
+        select
+        when @has_client.when_true.receive?
+        when timeout ttl.seconds
+          expire
+        end
+      end
+
+      # Runs on the session's own fiber. `delete` closes @has_client and the
+      # message store, so deliver_loop's `break if closed?` exits on the next
+      # pass; the re-entrant q.delete from @vhost.delete_queue is a no-op via
+      # @deleted.
+      private def expire : Nil
+        @log.info { "Session expired after #{@session_expiry_interval}s offline" }
+        delete
       end
 
       def client : MQTT::Client?
