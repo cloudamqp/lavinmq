@@ -7,6 +7,7 @@ require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
+require "../../filesystem"
 require "./state"
 require "./event"
 require "../../message_store"
@@ -247,7 +248,7 @@ module LavinMQ::AMQP
         !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused

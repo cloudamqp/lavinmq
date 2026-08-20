@@ -1,4 +1,5 @@
 require "./topic_tree"
+require "../filesystem"
 require "digest/md5"
 
 module LavinMQ
@@ -86,7 +87,8 @@ module LavinMQ
           len = ::IO.copy(body_io, file, size)
           raise ::IO::EOFError.new("Copied only #{len} of #{size} bytes") if len != size
           final_file_path = File.join(@dir, msg_file_name)
-          file.rename(final_file_path)
+          file.fsync
+          FileSystem.durable_rename(file, final_file_path)
           @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
@@ -102,8 +104,8 @@ module LavinMQ
         @index.each do |topic|
           f.puts topic
         end
-        f.flush
-        f.rename @index_file_name
+        f.fsync
+        FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end

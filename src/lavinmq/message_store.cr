@@ -1,4 +1,5 @@
 require "./mfile"
+require "./filesystem"
 require "./segment_position"
 require "./rate_limiter"
 require "log"
@@ -624,7 +625,7 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      File.rename(tmp_path, final_path)
+      FileSystem.durable_rename(tmp_path, final_path)
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the

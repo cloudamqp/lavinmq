@@ -1,6 +1,7 @@
 require "./logger"
 require "./schema"
 require "./event_type"
+require "./filesystem"
 require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
@@ -373,7 +374,7 @@ module LavinMQ
           end
         end
         io.fsync
-        File.rename io.path, @definitions_file_path
+        FileSystem.durable_rename(io, @definitions_file_path)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io

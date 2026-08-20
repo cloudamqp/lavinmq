@@ -240,7 +240,9 @@ module LavinMQ::AMQP
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes offset
       end
+      @consumer_offsets.fsync
       @consumer_offsets.rename(old_consumer_offsets.path)
+      File.open(File.dirname(@consumer_offsets.path), &.fsync)
       @replicator.try &.replace_file(@consumer_offsets)
       old_consumer_offsets.close(truncate_to_size: false)
     end
