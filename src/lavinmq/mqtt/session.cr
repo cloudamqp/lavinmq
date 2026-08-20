@@ -288,7 +288,13 @@ module LavinMQ
         qos = msg.properties.delivery_mode || 0u8
         qos = MAX_QOS if qos > MAX_QOS
         dup = qos.zero? ? false : env.redelivered
-        properties = PublishHeaders.restore(msg.properties.headers)
+        # IO::V3#write_properties discards these, so a v3 subscriber should not
+        # pay six Table#fetch linear scans per delivery to build them.
+        properties = if @client.try(&.version.v5?)
+                       PublishHeaders.restore(msg.properties.headers)
+                     else
+                       Protocol::PublishProperties.new
+                     end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
