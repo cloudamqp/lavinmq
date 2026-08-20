@@ -3,7 +3,7 @@
 Status and design doc for the MQTT 5.0 work in LavinMQ, spanning both this repo
 and the `mqtt-protocol.cr` shard.
 
-Last reconciled against the code: **2026-08-19**.
+Last reconciled against the code: **2026-08-20**.
 
 ---
 
@@ -15,7 +15,7 @@ about 80% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 19 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 21 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, and gets a spec-correct
@@ -23,7 +23,7 @@ rejection for every feature we don't implement. What is missing is the rest of
 the *session-lifecycle* half of v5: session expiry, will properties and will
 delay, subscription options.
 
-**On `main` (`77c9ceb2`) and verified green on 2026-08-19: 2093 examples,
+**On `main` (`77c9ceb2`) and verified green on 2026-08-20: 2098 examples,
 0 failures, lint and format clean.** See section 7.
 
 ---
@@ -77,6 +77,7 @@ spec'd, which was the largest single risk in the project.
 QoS 2 (LavinMQ is QoS 0/1 throughout; PUBREC/PUBREL/PUBCOMP exist in the codec
 only), topic aliases, shared subscriptions, subscription identifiers, enhanced
 auth, will delay. All are advertised as unavailable per the table above.
+Section 9 sketches what QoS 2 would take, as follow-up work after this PR.
 
 ---
 
@@ -391,9 +392,36 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
   [MQTT-3.14.4-3]. We send nothing back - the receiver just closes
   [MQTT-3.14.4-2]
 
-**Specs:** 34 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
+**QoS and packet handling** (both from item J, both pre-existing on v3.1.1)
+- Delivery QoS is `Math.min(publish QoS, subscription QoS)` [MQTT-3.8.4-8] -
+  `exchange.cr#publish`. It was the subscription's QoS alone, so a QoS 0 publish
+  reached a QoS 1 subscriber as QoS 1: LavinMQ then waited for a PUBACK on a
+  fire-and-forget message, counted it against `max_inflight_messages`,
+  redelivered it on reconnect, and stored it for an offline subscriber. Retained
+  replay is unchanged and still delivers at the granted QoS - `broker.cr#subscribe`
+  bypasses `Exchange#publish` because the retain store never kept the publisher's
+  QoS. That is item F, not this.
+
+  The suite had encoded the bug: fourteen examples across `message_qos_spec.cr`,
+  `session_stats_spec.cr`, `various_spec.cr`, `unsubscribe_spec.cr` and this
+  branch's own `v5/puback_disconnect_spec.cr` published at QoS 0 and relied on the
+  upgrade for a packet id to ack, an inflight limit to hit, or an offline-stored
+  message - two of them commented "qos doesnt matter here". They now publish at
+  QoS 1; assertions are unchanged. The example that asserted the old behaviour was
+  titled "[LavinMQ non-normative]", so it had been written down as deliberate.
+- An unexpected packet raises `ProtocolViolation(ProtocolError)` instead of a bare
+  string exception - `client.cr#read_and_handle_packet`. It used to land in
+  `read_loop`'s catch-all `rescue`, which logged at ERROR *with a backtrace* and
+  closed with no DISCONNECT, so any client could fill the log on demand. Nine
+  decodable types reach it, including a second CONNECT [MQTT-3.1.0-2], a
+  client-sent PINGRESP and an AUTH packet on a plain connection. v5 now gets
+  DISCONNECT `0x82` and the log gets one WARN line; v3 still just closes.
+
+**Specs:** 33 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
 unsubscribe, puback/disconnect), plus the existing v3 suite adapted to the new
-shard API.
+shard API. (The previous reconciliation said 34 before three examples were added,
+so that figure was wrong by four; 33 is measured from
+`make test SPEC=spec/mqtt/v5`.)
 
 ---
 
@@ -531,6 +559,29 @@ introduced on this branch, so they are ours to fix before the PR.
   `IO::V3#write_properties` then discards. The session already reaches into the
   client for `max_packet_size`; the negotiated version could come the same way.
 
+### J. External interop findings
+
+Found on 2026-08-19 by running third-party tooling against the branch - the
+Eclipse Paho interoperability suite plus paho-mqtt, mqtt.js and the mosquitto
+clients. See `MQTT5-INTEROP.md` for the harness and how to re-run it. The rest of
+that run was clean: no crashes, and every deferred feature in the section 2 table
+was rejected with the promised reason code, confirmed by an independent
+implementation.
+
+All three lived on lines that predate the branch (`22445e0d`, the original MQTT
+support), so none was a regression. **J1 and J2 are fixed; see section 4.** J3 is
+the other direction of item D and is tracked there.
+
+- **J3. A zero Session Expiry Interval leaks the session** - the other direction
+  of item D, and the operationally sharper one. [MQTT-3.1.2-11]: expiry 0, or
+  absent (the spec default), means the session ends when the connection closes.
+  Clean Start = 0 with expiry 0 instead leaves `mqtt.<client-id>` behind durable
+  and not auto-delete, and delivers messages published while the client was away.
+  The mirror case is the one the Paho suite fails on: Clean Start = 1 with a
+  non-zero expiry - the v5 idiom for "discard any old session, persist this one" -
+  gets a transient session that is dropped at disconnect. Both fall out of D
+  treating clean-start as the only input.
+
 ---
 
 ## 6. Known limitations to state at release
@@ -538,7 +589,14 @@ introduced on this branch, so they are ours to fix before the PR.
 Things we will ship with, deliberately. These belong in the release notes and in
 the docs, not in a bug tracker.
 
-- **QoS 2 unsupported.** Advertised as Maximum QoS 1.
+- **Delivery QoS is now the minimum of the publish and subscription QoS on
+  v3.1.1 too**, not just v5. Spec-correct ([MQTT-3.8.4-6] in 3.1.1) and decided
+  deliberately rather than version-gating the publish hot path, but it is a
+  visible change for existing v3 users: a QoS 0 publish to a QoS 1 subscription
+  is no longer upgraded, so it is no longer stored while that subscriber is
+  offline. A spec titled "[LavinMQ non-normative]" used to assert the old
+  behaviour. **Release note.**
+- **QoS 2 unsupported.** Advertised as Maximum QoS 1. Follow-up work, section 9.
 - **Receive Maximum ignored.** We do not pace QoS 1 inflight against the
   client's advertised Receive Maximum, and we do not advertise our own (so
   clients assume the 65535 default). LavinMQ has its own
@@ -580,18 +638,19 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-08-19** after the PUBACK/DISCONNECT work, on `main`
-`77c9ceb2`:
+**LavinMQ, measured 2026-08-20** after the J1/J2 fixes, on `main` `77c9ceb2`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **248 examples, 0 failures, 0 errors, 0 pending** (18.0s) |
-| `make test TAGS=~etcd` | **2093 examples, 0 failures, 0 errors, 9 pending** (2:35) |
+| `make test SPEC=spec/mqtt` | **253 examples, 0 failures, 0 errors, 0 pending** (24.9s) |
+| `make test TAGS=~etcd` | **2098 examples, 0 failures, 0 errors, 9 pending** (2:38) |
 | `make lint` | 400 inspected, 0 failures |
 | `crystal tool format --check` | clean |
 
-(The previous reconciliation recorded 233 for `spec/mqtt`; the full-suite delta
-is exactly the 10 new examples, so that figure was mistyped, not a lost spec.)
+(The +5 over the previous 248/2093 is exactly the five examples added with J1 and
+J2 - two v3 QoS-minimum regressions, one v5 QoS-minimum, two v5 unexpected-packet.
+An earlier reconciliation recorded 233 for `spec/mqtt`; that figure was mistyped,
+not a lost spec.)
 
 The 9 pending are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
@@ -611,11 +670,37 @@ time. The other three `Packet.from_io(io)` call sites in that file are fine: the
 removed. Nothing else in `src/` or `spec/` constructs the abstract `IO`
 (verified by grep). Committed as `9e2f53f9`.
 
-**Gap worth closing before release:** all byte vectors are self-confirming
-round-trips. Nobody has cross-checked them against a real v5 client
-(`mosquitto_pub -V 5`, paho, MQTTX). That is the test that catches
-"consistently implemented my own wrong format." `mosquitto-clients` is
-apt-installable.
+**External verification, 2026-08-19.** The gap this section used to record - all
+byte vectors being self-confirming round-trips, never checked against a real v5
+client - is closed. The Eclipse Paho interoperability suite, paho-mqtt 2.1.0,
+mqtt.js 5.15.2 and the mosquitto 2.1.2 clients were all run against a debug build
+of `709a9f31`. `MQTT5-INTEROP.md` has the harness, the full result tables and how
+to re-run it; the short version:
+
+- No crashes, hangs or memory errors in ~75 broker starts.
+- The CONNACK capability bytes decode identically in three independent codecs, and
+  every rejection in the section 2 table produced its promised reason code on the
+  wire (`0x9B`, `0x94`, `0x9E`, `0xA1`, `0x8C`, `0x87`, `0x82`).
+- All six v5 PUBLISH properties survive paho -> paho, paho -> mqtt.js,
+  mqtt.js -> paho and mosquitto -> paho. A v5 publisher to a v3.1.1 subscriber
+  drops them cleanly, and the reverse works.
+- Both `[~]` rows in section 2 were confirmed from outside: a Will at QoS 2 is
+  accepted with CONNACK Success, and `maximum-packet-size 5` still gets a 23-byte
+  CONNACK (`maximum-packet-size 12` a 15-byte SUBACK).
+- Items B, D, E, F, the Receive Maximum limitation and shard items N3/O2 each
+  reproduced under a third-party client, so they are all real and correctly
+  described.
+- Three defects were new information: they were item J. J1 (delivery QoS) and J2
+  (unexpected packets) are now fixed, see section 4; J3 belongs to item D.
+
+The unmodified Paho v5 suite cannot grade this broker - 22 of its 27 tests use
+QoS 2 somewhere, and its client ignores our advertised `maximum_qos = 1`, which is
+itself a [MQTT-3.2.2-11] violation on the client's side. We correctly kill those
+connections, after which several tests spin forever on `while len(messages) < 3`.
+A mechanically QoS-clamped copy of the suite is the run worth reading; with QoS 2
+out of the picture the v3.1.1 suite goes 7/9, failing only on `$`-prefixed topics
+matching wildcards (spec 4.7.2 is a SHOULD NOT) and on a test that needs an ACL
+denying a topic.
 
 ---
 
@@ -624,7 +709,11 @@ apt-installable.
 1. Finish B / D / E (F and G in parallel, different people). The poison-message
    and hot-path-allocation findings in I should land before the PR regardless of
    who takes the feature work.
-2. External smoke test against a real v5 client.
+2. ~~External smoke test against a real v5 client.~~ Done 2026-08-19, see
+   section 7 and `MQTT5-INTEROP.md`. Re-run it once B/D/E/F land - the same
+   harness grades them. It has **not** been re-run since the J1/J2 fixes; the
+   interop doc's delivery-QoS and DISCONNECT `0x82` rows are the expectations to
+   confirm when it is.
 3. Tag the shard release (`1.0`), with 3.7's breaking changes in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
 5. Merge back the v5 specs (section H).
@@ -639,6 +728,63 @@ Rebasing this work onto `main` is cheap today, with two standing hazards. The
 `shard.yml` / `shard.lock` v5 pin conflicts as soon as `main` bumps the shard
 again - step 3 above ends that permanently. And `connection_factory.cr#start`
 and `client.cr#details_tuple` are conflict magnets, for the reason in 3.7.
+
+---
+
+## 9. Deferred past this PR
+
+Scope discipline: this branch ships v5 with `maximum_qos = 1` and every deferral
+advertised and rejected per section 2. The items here are follow-up work, opened
+as their own issues once the PR lands. Nothing below blocks it.
+
+### QoS 2 (exactly-once delivery)
+
+The largest single item left in MQTT - bigger than B/D/E/F combined - and a
+*session-state and durability* project rather than a protocol one. Deliberately
+out of scope; see section 2 and the section 6 limitation.
+
+QoS 2 replaces the single PUBACK with a two-phase handshake:
+PUBLISH -> PUBREC -> PUBREL -> PUBCOMP. The exactly-once guarantee comes from the
+receiver remembering **packet ids**, not messages: between PUBREC and PUBREL it
+holds id N, so a re-sent PUBLISH with id N is answered with another PUBREC and not
+delivered a second time. That state must therefore survive a reconnect, because a
+resuming client resends PUBLISH N or PUBREL N depending on where it got to and
+expects an answer from persisted state.
+
+The codec is already done - `PubRec`/`PubRel`/`PubComp` exist in the shard with
+specs. What LavinMQ would need:
+
+1. **Inbound packet-id state per session**, checked on every PUBLISH and surviving
+   reconnect, with the message held *undelivered* until PUBREL. There is no home
+   for it today: `Session` is a `Queue` subclass, and `Exchange#publish` routes
+   straight into queues.
+2. **Outbound two-step state per subscriber** - awaiting PUBREC, then awaiting
+   PUBCOMP - with resend on reconnect. `@unacked` models one ack step, not two in
+   order, and the second must outlive the message body.
+3. **A different QoS carrier.** MQTT QoS currently rides on
+   `properties.delivery_mode`, which has two useful values. QoS 2 has no
+   `delivery_mode` to be.
+4. **A decision on cross-protocol semantics.** AMQP 0-9-1 has no equivalent
+   handshake, so exactly-once could only ever be a promise between two MQTT
+   endpoints.
+
+It also lands *on top of* item D: persisted QoS 2 state without a session lifetime
+is a leak by construction.
+
+Not urgent. The current position is fully spec-legal, and the external run
+confirmed real clients handle it gracefully - mosquitto refused a QoS 2 publish
+client-side off our advertised `maximum_qos = 1` without putting it on the wire.
+The usual answer for users who ask is an idempotent consumer on QoS 1, which is
+cheaper than four round-trips per message.
+
+### Others
+
+- Topic aliases, shared subscriptions, subscription identifiers, enhanced
+  authentication - each advertised as unavailable and rejected today (section 2),
+  each a standalone feature afterwards.
+- `$`-prefixed topics matching wildcard filters (spec 4.7.2, a SHOULD NOT).
+  Pre-existing on v3 as well; the Paho suite flags it. Cheap to fix, but it is a
+  behaviour change for existing v3 users, so it wants its own decision.
 
 ---
 
