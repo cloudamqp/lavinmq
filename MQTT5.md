@@ -15,15 +15,15 @@ about 80% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 26 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 31 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + session expiry + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
-intact, gets an accurate reason code on every ack, and gets a spec-correct
-rejection for every feature we don't implement. What is missing is the rest of
-the *session-lifecycle* half of v5: session expiry, will properties and will
-delay, subscription options.
+intact, gets an accurate reason code on every ack, gets a session whose lifetime
+it controls, and gets a spec-correct rejection for every feature we don't
+implement. What is missing is subscription options, will properties and will
+delay, and properties on retained messages.
 
-**On `main` (`77c9ceb2`) and verified green on 2026-08-20: 2105 examples,
+**On `main` (`77c9ceb2`) and verified green on 2026-08-20: 2121 examples,
 0 failures, lint and format clean.** See section 7.
 
 ---
@@ -299,6 +299,22 @@ trap.
   is redundant. #2139's three specs were kept and pass unchanged (only their
   `version:` arguments moved from `UInt8` to the `Version` enum). **Worth
   mentioning to whoever wrote #2139.**
+- **Session state rides AMQP queue arguments, deliberately but not happily.** A
+  session is persisted as a `Queue::Declare` frame, whose only field that can
+  hold a `UInt32` is `arguments` - so the Session Expiry Interval lives in
+  `x-mqtt-session-expiry`. `Session` had to start keeping per-instance arguments
+  for this; it previously returned a shared constant and silently dropped
+  whatever it was declared with. When the argument is absent the declare's
+  `auto_delete` flag is the fallback, because that is what carried this meaning
+  before - which is what keeps an older definitions file and a direct
+  `declare_queue` working. **Breaking MQTT away from AMQP-shaped persistence is
+  the refactor that removes this**; it is a consequence of how sessions are
+  stored, not a preference.
+- **Session expiry deliberately does not persist a deadline**, only the interval.
+  A restored session therefore starts its full interval from boot. MQTT leaves
+  restart behaviour implementation-defined, and this is the forgiving reading: it
+  never deletes something a client might still want, at the cost of a short
+  interval outliving a long outage.
 - **The v3 wire path is byte-for-byte unchanged.** On v3, properties are ignored
   on the wire, so the v3 CONNACK is identical to before. This is a hard
   constraint: the v3.1.1 suite must stay green throughout.
@@ -417,6 +433,31 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
   client-sent PINGRESP and an AUTH packet on a plain connection. v5 now gets
   DISCONNECT `0x82` and the log gets one WARN line; v3 still just closes.
 
+**Session expiry** (item D, and J3)
+- `Session#session_expiry_interval : UInt32` is the single input to a session's
+  lifetime; `durable?` and `auto_delete?` derive from it. `clean_session?` is
+  gone - it conflated two independent things.
+- Clean Start is a separate, connect-only input: it decides whether to discard
+  the stored session, the interval decides how long the one this connection ends
+  up with outlives it. That makes Clean Start 1 + a non-zero interval
+  expressible, which the old single bit could not represent.
+- Derived once at CONNECT: v5 reads the property, absent meaning 0
+  [MQTT-3.1.2-11]; v3 has no property, so `clean_session=1` is 0 and
+  `clean_session=0` is `UInt32::MAX`. A reconnecting client's interval is
+  adopted by the session it resumes.
+- DISCONNECT can name a new interval [MQTT-3.14.2.2.2], applied before
+  `remove_client` runs, so narrowing to 0 ends the session on that disconnect.
+  Absent there means keep the CONNECT value - the opposite default from CONNECT.
+  Non-zero after a CONNECT of 0 is `0x82` [MQTT-3.14.2], which needs no new code:
+  §3.14.2.2.2 says to answer it as a section 4.13 protocol error, which is exactly
+  what the `ProtocolViolation` handler does, will included.
+- The clock runs in the session's existing `deliver_loop`, not a new fiber - the
+  offline park became a `select` on `@has_client` versus a timeout. Reattaching
+  cancels it, so the interval is measured from each disconnect.
+- `session_present?` keeps an `auto_delete?` guard for takeover: it runs before
+  `add_client`, so a 0-interval session belonging to a still-connected client is
+  visible, and a takeover ends that session rather than resuming it (3.1.4).
+
 **Robustness and hot path** (item I)
 - `PublishHeaders.restore` tolerates any AMQP header. Four-byte ints go through
   one `fetch_u32?` and `response_topic` through `fetch_topic?`
@@ -438,18 +479,18 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
 - `Client#protocol_name` is an exhaustive `case/in` again, so a new `Version`
   member is a compile error rather than a silent "MQTT 3.1.1".
 
-**Specs:** 34 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
-unsubscribe, puback/disconnect) plus `spec/mqtt/publish_headers_spec.cr`, on top
-of the existing v3 suite adapted to the new shard API. Both figures are measured;
-an earlier reconciliation's "34 v5 examples" predated four of them and was wrong.
+**Specs:** 47 examples in `spec/mqtt/v5/` (connect, publish, subscribe,
+unsubscribe, puback/disconnect, session expiry) plus
+`spec/mqtt/publish_headers_spec.cr` and `spec/mqtt/session_spec.cr`, on top of
+the existing v3 suite adapted to the new shard API. All figures here are
+measured, not counted by hand.
 
 ---
 
 ## 5. What is left
 
-Ordered roughly easiest-first. **B and D are independent of each other and of
-everything else** - these are the two clean hand-offs. (C is done; see
-section 4.)
+Ordered roughly easiest-first. **B is independent of everything else** and is
+the clean hand-off. (C, D and all of J are done; see section 4.)
 
 ### B. Honor subscription options
 
@@ -464,21 +505,6 @@ store. Pure LavinMQ behaviour, no shard work, well-bounded.
 - **Retain As Published** - preserve the publisher's retain flag on delivery
   instead of clearing it.
 - Files: `broker.cr#subscribe`, `session.cr#build_packet`, `client.cr#recieve_subscribe`.
-
-### D. Session expiry
-
-v5 replaces the clean-session boolean with Clean Start + Session Expiry
-Interval. We read `ConnectProperties#maximum_packet_size` and nothing else;
-`session_expiry_interval` is ignored, and DISCONNECT can also carry a new
-expiry value. Sessions are still clean-session-or-forever.
-
-C landed the DISCONNECT reason-code path, so the packet is now inspected in
-`read_loop`; reading `DisconnectProperties#session_expiry_interval` there is the
-natural next step. That also brings [MQTT-3.14.2]: a non-zero expiry on
-DISCONNECT when CONNECT sent zero is a Protocol Error (`0x82`), which we cannot
-enforce until the CONNECT value is stored.
-
-- Files: `connection_factory.cr`, `broker.cr#add_client`, `sessions.cr`, `session.cr`.
 
 ### E. Will properties and Will Delay
 
@@ -564,18 +590,8 @@ was rejected with the promised reason code, confirmed by an independent
 implementation.
 
 All three lived on lines that predate the branch (`22445e0d`, the original MQTT
-support), so none was a regression. **J1 and J2 are fixed; see section 4.** J3 is
-the other direction of item D and is tracked there.
-
-- **J3. A zero Session Expiry Interval leaks the session** - the other direction
-  of item D, and the operationally sharper one. [MQTT-3.1.2-11]: expiry 0, or
-  absent (the spec default), means the session ends when the connection closes.
-  Clean Start = 0 with expiry 0 instead leaves `mqtt.<client-id>` behind durable
-  and not auto-delete, and delivers messages published while the client was away.
-  The mirror case is the one the Paho suite fails on: Clean Start = 1 with a
-  non-zero expiry - the v5 idiom for "discard any old session, persist this one" -
-  gets a transient session that is dropped at disconnect. Both fall out of D
-  treating clean-start as the only input.
+support), so none was a regression, and **all three are now fixed** - J1 and J2
+directly, J3 as part of session expiry. See section 4.
 
 ---
 
@@ -584,6 +600,20 @@ the other direction of item D and is tracked there.
 Things we will ship with, deliberately. These belong in the release notes and in
 the docs, not in a bug tracker.
 
+- **A v5 client sending Clean Start 0 with no Session Expiry Interval now gets a
+  session that ends with its connection**, where it used to get one that persisted
+  forever. This is the normative reading of 3.1.2.11.2 - "if the Session Expiry
+  Interval is absent the value 0 is used ... the Session ends when the Network
+  Connection is closed" - and what mosquitto does. Note that the same section
+  contains a *non-normative* aside calling Clean Start 0 with no interval
+  "equivalent to setting CleanSession to 0 in 3.1.1", i.e. persistent. That
+  sentence is the one a user will cite when their session stops persisting, so
+  the decision to follow the normative text is recorded here on purpose. A client
+  that wants the old behaviour sends an explicit interval. v3.1.1 is unaffected.
+  **Release note.**
+- **Session expiry restarts its clock on a broker restart.** The interval
+  persists, the deadline does not, so a session restored from definitions gets
+  its full interval again from boot. MQTT leaves this implementation-defined.
 - **Delivery QoS is now the minimum of the publish and subscription QoS on
   v3.1.1 too**, not just v5. Spec-correct ([MQTT-3.8.4-6] in 3.1.1) and decided
   deliberately rather than version-gating the publish hot path, but it is a
@@ -633,21 +663,23 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-08-20** after the J1/J2 and item I fixes, on `main`
+**LavinMQ, measured 2026-08-20** after J1/J2, item I and item D, on `main`
 `77c9ceb2`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **260 examples, 0 failures, 0 errors, 0 pending** |
-| `make test TAGS=~etcd` | **2105 examples, 0 failures, 0 errors, 9 pending** (2:38) |
-| `make lint` | 401 inspected, 0 failures |
+| `make test SPEC=spec/mqtt` | **276 examples, 0 failures, 0 errors, 0 pending** |
+| `make test TAGS=~etcd` | **2121 examples, 0 failures, 0 errors, 9 pending** |
+| `make lint` | 403 inspected, 0 failures |
 | `crystal tool format --check` | clean |
 
-(The +12 over the 248/2093 of 2026-08-19 is exactly the twelve examples added
-since: five with J1/J2 - two v3 QoS-minimum, one v5 QoS-minimum, two v5
-unexpected-packet - and seven with item I - six `PublishHeaders.restore` unit
-examples and one end-to-end poison-message example. An earlier reconciliation
-recorded 233 for `spec/mqtt`; that figure was mistyped, not a lost spec.)
+(The +28 over the 248/2093 of 2026-08-19 breaks down as five with J1/J2, seven
+with item I, and sixteen with item D - thirteen in `v5/session_expiry_spec.cr`,
+two in the new `session_spec.cr` and one takeover case in `connect_spec.cr`. Two
+of the expiry specs are tagged `slow`: the interval's unit is seconds, so the
+shortest honest test of elapse and of reconnect-cancels-it is one second each. An
+earlier reconciliation recorded 233 for `spec/mqtt`; that figure was mistyped,
+not a lost spec.)
 
 The 9 pending are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
@@ -685,10 +717,11 @@ to re-run it; the short version:
   accepted with CONNACK Success, and `maximum-packet-size 5` still gets a 23-byte
   CONNACK (`maximum-packet-size 12` a 15-byte SUBACK).
 - Items B, D, E, F, the Receive Maximum limitation and shard items N3/O2 each
-  reproduced under a third-party client, so they are all real and correctly
-  described.
+  reproduced under a third-party client, so they were all real and correctly
+  described. D has since been fixed.
 - Three defects were new information: they were item J. J1 (delivery QoS) and J2
-  (unexpected packets) are now fixed, see section 4; J3 belongs to item D.
+  (unexpected packets) are now fixed, and J3 landed with session expiry - see
+  section 4.
 
 The unmodified Paho v5 suite cannot grade this broker - 22 of its 27 tests use
 QoS 2 somewhere, and its client ignores our advertised `maximum_qos = 1`, which is
@@ -703,12 +736,12 @@ denying a topic.
 
 ## 8. Sequencing to ship
 
-1. Finish B / D / E (F and G in parallel, different people). ~~The poison-message
+1. Finish B / E (F and G in parallel, different people). D is done. ~~The poison-message
    and hot-path-allocation findings in I should land before the PR regardless of
    who takes the feature work.~~ Done 2026-08-20, along with three of the other
    five; only the two section 2 `[~]` enforcement gaps remain in I.
 2. ~~External smoke test against a real v5 client.~~ Done 2026-08-19, see
-   section 7 and `MQTT5-INTEROP.md`. Re-run it once B/D/E/F land - the same
+   section 7 and `MQTT5-INTEROP.md`. Re-run it once B/E/F land - the same
    harness grades them. It has **not** been re-run since the J1/J2 and item I
    fixes; the interop doc's delivery-QoS and DISCONNECT `0x82` rows are the
    expectations to confirm when it is.
@@ -737,7 +770,7 @@ as their own issues once the PR lands. Nothing below blocks it.
 
 ### QoS 2 (exactly-once delivery)
 
-The largest single item left in MQTT - bigger than B/D/E/F combined - and a
+The largest single item left in MQTT - bigger than B/E/F combined - and a
 *session-state and durability* project rather than a protocol one. Deliberately
 out of scope; see section 2 and the section 6 limitation.
 
@@ -766,8 +799,9 @@ specs. What LavinMQ would need:
    handshake, so exactly-once could only ever be a promise between two MQTT
    endpoints.
 
-It also lands *on top of* item D: persisted QoS 2 state without a session lifetime
-is a leak by construction.
+It lands *on top of* session expiry, which is now in place - persisted QoS 2
+state without a session lifetime would have been a leak by construction, and the
+interval is what bounds it.
 
 Not urgent. The current position is fully spec-legal, and the external run
 confirmed real clients handle it gracefully - mosquitto refused a QoS 2 publish

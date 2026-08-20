@@ -5,10 +5,10 @@ run found; this file is *how to run it again*. Nothing here is wired into `make`
 or CI on purpose: it needs a built binary, a network clone and a Docker pull, and
 it is a release-gate check, not a per-commit one.
 
-Re-run it after B / D / E / F land - most of the currently failing Paho tests are
-the grading function for exactly those items. The delivery-QoS and DISCONNECT
-`0x82` expectations below were updated when J1/J2 were fixed but have **not** been
-confirmed by a re-run yet.
+Re-run it after B / E / F land - most of the currently failing Paho tests are the
+grading function for exactly those items. The delivery-QoS, DISCONNECT `0x82` and
+session-expiry expectations below were updated as J1/J2, item I and session expiry
+landed, but have **not** been confirmed by a re-run yet.
 
 ## What it exercises that our own specs cannot
 
@@ -592,7 +592,9 @@ comes back. `mos` below is
 | Maximum Packet Size on delivery | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x -D connect maximum-packet-size 40`, then publish 200 bytes | no PUBLISH arrives, connection stays up |
 | Delivery QoS | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x`, then `mosquitto_pub -V 5 -q 0 -t x -m x` | the delivered PUBLISH is QoS **0**, not 1 [MQTT-3.8.4-8]. Repeat with `-V 311` |
 | Will QoS 2 | `interop.py` with `will_set(..., qos=2)` | CONNACK Success today - item I, spec 3.1.2.6 wants `0x9B` |
-| Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | the message arrives, i.e. the session outlived its zero expiry - item J3 |
+| Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | **nothing arrives**: expiry 0 ends the session with the connection [MQTT-3.1.2-11] |
+| Session Expiry non-zero | same with `-x 60` | the message arrives, and `mqtt.c1` is still there between connections |
+| Clean Start 1 + expiry | `... mosquitto_sub -V 5 -C 1 -x 60 -i c2 -q 1 -t x` | old session discarded, new one persists - the case the Paho suite used to fail |
 
 ### Byte-exact cases
 
@@ -636,9 +638,11 @@ Do not read the raw pass count. On 2026-08-19 the numbers were:
 | v3.1.1 as published | 3 | 6 | 0 |
 | v3.1.1 QoS-clamped | **7** | 2 | 0 |
 
-Every v5 failure mapped to a documented item (B, D, E, F, Receive Maximum, shard
-N3/O2), to a correct rejection the test client cannot cope with, or to one of
-these harness assumptions:
+Those numbers are the 2026-08-19 run and have not been refreshed. Every v5 failure
+mapped to a documented item (B, D, E, F, Receive Maximum, shard N3/O2), to a
+correct rejection the test client cannot cope with, or to one of these harness
+assumptions. **D has since landed**, so the session-lifecycle failures in that
+column should pass on a re-run - which is the main reason to do one:
 
 - `test_subscribe_failure` wants an ACL denying `test/nosubscribe`;
   `mqtt.permission_check_enabled` is false by default, so we grant it.
