@@ -31,14 +31,18 @@ module LavinMQ
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
 
+        # `Publish#topic` decodes @topic into a fresh String on every call, so
+        # hold it once: this is the publish hot path.
+        topic = packet.topic
+
         if packet.retain?
-          @retain_store.retain(packet.topic, body, bodysize)
+          @retain_store.retain(topic, body, bodysize)
           body.rewind
         end
 
-        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
+        msg = Message.new(timestamp, EXCHANGE, topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
+        @tree.each_entry(topic) do |queue, qos, _filter|
           # The minimum of the publish and subscription QoS [MQTT-3.8.4-8];
           # the subscription's alone would upgrade a fire-and-forget publish.
           msg.properties.delivery_mode = Math.min(packet.qos, qos)
