@@ -93,7 +93,6 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `max_inflight_messages` | — | — | UInt16 | `65535` | Max unacknowledged messages per session |
 | `max_packet_size` | — | — | UInt32 | `268435455` | Max MQTT packet size (bytes) |
 | `default_vhost` | — | — | String | `/` | Default vhost for MQTT connections |
-| `permission_check_enabled` | — | — | Bool | `false` | Enable coarse ACL checks on MQTT publish/subscribe (read/write on the MQTT exchange). Ignored for MQTT when permission groups exist; topic permissions then govern access |
 | `client_id_validation` | — | — | String | `none` | Validate client_id against the username: `none` or `username` |
 
 ## [mgmt] Section

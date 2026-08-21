@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher
 - MQTT topic permissions: per-client-id, per-topic-filter authorization managed via `/api/permission-groups` [#2126](https://github.com/cloudamqp/lavinmq/pull/2126)
 
+### Removed
+
+- The `permission_check_enabled` MQTT config option; topic permissions replace the coarse per-exchange ACL checks. The option is ignored with a startup warning if still configured [#2126](https://github.com/cloudamqp/lavinmq/pull/2126)
+
 ### Changed
 
 - Persist follower checksums incrementally during full sync, so interrupted syncs can reuse already-computed hashes after restart [#2065](https://github.com/cloudamqp/lavinmq/pull/2065)

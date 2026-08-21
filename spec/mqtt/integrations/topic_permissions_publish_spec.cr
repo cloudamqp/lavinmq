@@ -130,41 +130,5 @@ module MqttSpecs
         end
       end
     end
-
-    it "lets a permission group override the exchange-level ACL when checks are enabled" do
-      with_server do |server|
-        server.users.create("erin", "erin")
-        # config: .*, read: .*, write: ^$ — with checks enabled and no groups,
-        # the coarse ACL would close the connection on publish.
-        server.users.add_permission("erin", "/", /.*/, /.*/, /^$/)
-
-        group = LavinMQ::MQTT::PermissionGroup.new(
-          "chat", "/", ["*"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]
-        )
-        server.vhosts["/"].mqtt_permission_service.put(group)
-
-        LavinMQ::Config.instance.mqtt_permission_check_enabled = true
-        begin
-          with_client_io(server) do |sub_io|
-            connect(sub_io, client_id: "sub", username: "erin", password: "erin".to_slice)
-            subscribe(sub_io, topic_filters: mk_topic_filters({"chat/#", 0}))
-
-            with_client_io(server) do |pub_io|
-              connect(pub_io, client_id: "pub", username: "erin", password: "erin".to_slice)
-              publish(pub_io, topic: "chat/room1", payload: "hi".to_slice, qos: 0u8)
-
-              msg = read_packet(sub_io)
-              msg.should be_a(MQTT::Protocol::Publish)
-              msg.as(MQTT::Protocol::Publish).topic.should eq("chat/room1")
-
-              pub_io.should_not be_closed
-            end
-          end
-        ensure
-          LavinMQ::Config.instance.mqtt_permission_check_enabled = false
-        end
-      end
-    end
   end
 end

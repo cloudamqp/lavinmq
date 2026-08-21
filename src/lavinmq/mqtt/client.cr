@@ -183,18 +183,12 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
-        if @broker.permission_service.in_use?
-          unless @broker.permission_service.can_write?(@client_id, packet.topic)
-            # A rule denial acks and drops; only the coarse ACL below closes the socket.
-            Log.debug { "Publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{packet.topic}'" }
-            if packet.qos > 0 && (packet_id = packet.packet_id)
-              send(Protocol::PubAck.new(packet_id))
-            end
-            return
+        # A denial acks and drops, it never closes the connection.
+        unless @broker.permission_service.can_write?(@client_id, packet.topic)
+          Log.debug { "Publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{packet.topic}'" }
+          if packet.qos > 0 && (packet_id = packet.packet_id)
+            send(Protocol::PubAck.new(packet_id))
           end
-        elsif Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
-          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-          close_socket
           return
         end
         @broker.publish(packet)
@@ -213,13 +207,6 @@ module LavinMQ
       def recieve_subscribe(packet : Protocol::Subscribe)
         # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
         # may subscribe to a filter it cannot read. Mosquitto behaves the same way.
-        if !@broker.permission_service.in_use? && Config.instance.mqtt_permission_check_enabled?
-          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "#{SESSION_PREFIX}#{@client_id}")
-            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-            close_socket
-            return
-          end
-        end
         qos = @broker.subscribe(self, packet.topic_filters)
         send(Protocol::SubAck.new(qos, packet.packet_id))
       end
@@ -266,13 +253,8 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          if @broker.permission_service.in_use?
-            unless @broker.permission_service.can_write?(@client_id, will.topic)
-              Log.debug { "Will publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{will.topic}'" }
-              return
-            end
-          elsif Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
-            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+          unless @broker.permission_service.can_write?(@client_id, will.topic)
+            Log.debug { "Will publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{will.topic}'" }
             return
           end
           @broker.publish(Protocol::Publish.new(

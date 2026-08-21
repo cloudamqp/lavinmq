@@ -244,9 +244,6 @@ module LavinMQ
       @[CliOpt("", "--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)")]
       property metrics_http_port = 15692
 
-      @[IniOpt(ini_name: permission_check_enabled, section: "mqtt")]
-      property? mqtt_permission_check_enabled : Bool = false
-
       @[IniOpt(ini_name: client_id_validation, section: "mqtt", transform: ->MQTT::ClientIdValidation.parse(String))]
       property mqtt_client_id_validation : MQTT::ClientIdValidation = MQTT::ClientIdValidation::None
 

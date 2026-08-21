@@ -92,31 +92,23 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
-| `permission_check_enabled` | `[mqtt]` | `false` | Enable coarse ACL checks on MQTT publish/subscribe. Ignored when permission groups exist; topic permissions then govern access |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
-
-## Permissions
-
-By default, MQTT permission checks are disabled. When `permission_check_enabled` is set to `true`, LavinMQ enforces the standard AMQP ACL model on MQTT operations:
-
-- **PUBLISH** requires write permission on the MQTT exchange
-- **SUBSCRIBE** requires read permission on the MQTT exchange and write permission on the session queue (`mqtt.<client_id>`)
-
-When disabled, any authenticated MQTT client can publish and subscribe to any topic.
 
 ## Topic permissions
 
-Topic permissions give MQTT clients fine-grained, per-topic authorization. Instead of a single read/write grant on the whole MQTT exchange (the standard ACL described above), each client is authorized against a set of MQTT topic filters, so a client can be allowed to publish and subscribe only within its own topic subtree.
+Topic permissions give MQTT clients fine-grained, per-topic authorization: each client is authorized against a set of MQTT topic filters, so a client can be allowed to publish and subscribe only within its own topic subtree.
 
-Topic permissions activate when the first MQTT permission group is created; there is no config flag. With no groups defined, MQTT authorization behaves as described under Permissions above. Once at least one group exists, topic permissions replace the per-operation ACL check for MQTT publish and receive: authorization is decided entirely by the permission groups below, and the feature is default-deny, so a connection may only publish to or receive on topics granted by a matched rule. A user still needs a permission entry on the vhost to establish the connection in the first place.
+Topic permissions activate when the first MQTT permission group is created on the vhost; there is no config flag. With no groups defined, any authenticated MQTT client can publish and subscribe to any topic. Once at least one group exists, the feature is default-deny: a connection may only publish to or receive on topics granted by a matched rule. A user still needs a permission entry on the vhost to establish the connection in the first place.
 
-Because it is default-deny, creating the first group switches every MQTT client to default-deny, members and non-members alike: from that point a client needs a matching rule to publish or receive, and there is no administrator bypass. Deleting the last group restores the behavior described under Permissions.
+Earlier LavinMQ versions had a `permission_check_enabled` config option under `[mqtt]` that applied the AMQP ACL model (read/write on the MQTT exchange) to MQTT operations. That option is removed; topic permissions replace it. If your config still sets it, LavinMQ logs a warning at startup and ignores it.
+
+Because it is default-deny, creating the first group switches every MQTT client to default-deny, members and non-members alike: from that point a client needs a matching rule to publish or receive, and there is no administrator bypass. Deleting the last group restores unrestricted topic access for authenticated clients.
 
 Because group membership is keyed on client id, and a client chooses its own client id at CONNECT time, **these groups only isolate clients from one another when `client_id_validation` is set to something other than `none`.** Under `none`, any authenticated client can present any client id and inherit that client's permissions.
 
 The only mode currently available besides `none` is `username`, which forces the client id to equal the username, so `{client_id}` in a rule is just the username. Because connecting with a client id that is already in use takes over that session (see Session Takeover above), this also means a user can hold exactly one MQTT connection at a time under `username` mode. This makes per-device isolation with distinct client ids per user currently unreachable: a fleet of devices sharing one set of credentials cannot each get their own client id and their own slice of a topic subtree at the same time.
 
-Permission groups are global objects managed via `/api/permission-groups`. A group has a member list and a set of rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
+Permission groups are per-vhost objects managed via `/api/permission-groups/<vhost>/<name>`. A group has a member list and a set of rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
 
 ```json
 {
@@ -131,9 +123,9 @@ Permission groups are global objects managed via `/api/permission-groups`. A gro
 
 Patterns use MQTT wildcards (`+`, `#`) and support the `{client_id}` substitution variable, bound per connection to the client id of the connection being authorized, never another client's. The client id must be a single topic level; if it contains `/`, `+`, or `#`, the affected `{client_id}` rules are skipped for that connection so they cannot widen into another client's subtree.
 
-A SUBSCRIBE to a filter that overlaps no read rule is rejected with a SUBACK failure.
+A SUBSCRIBE is always accepted; read permissions are enforced at delivery, so a subscription to a filter the client cannot read simply receives no messages (matching Mosquitto's behavior).
 
-Read authorization is decided once, when a message is accepted into a session, not when it is delivered from that session to a client. A message accepted while read access was granted is still delivered later even if read is revoked in the meantime; only messages published after the revocation are refused and never delivered. One consequence of this is worth stating plainly because it looks odd when encountered: a client whose read access has just been revoked can be refused a new SUBSCRIBE on a topic filter, while still receiving older messages on that same filter that were already queued in its session from before the revocation.
+Read authorization is decided once, when a message is accepted into a session, not when it is delivered from that session to a client. A message accepted while read access was granted is still delivered later even if read is revoked in the meantime; only messages published after the revocation are refused and never delivered. One consequence of this is worth stating plainly because it looks odd when encountered: a client whose read access has just been revoked stops receiving new messages on a filter, while still receiving older messages on that same filter that were already queued in its session from before the revocation.
 
 ## Authentication
 
