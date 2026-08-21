@@ -6,7 +6,7 @@ require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
-require "../auth/permission_service"
+require "./permission_service"
 
 module LavinMQ
   module MQTT
@@ -23,7 +23,7 @@ module LavinMQ
       # - Handling the retain store
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
-      def initialize(@vhost : VHost, @permission_service : Auth::PermissionService)
+      def initialize(@vhost : VHost, @permission_service : PermissionService)
         @sessions = Sessions.new(@vhost, @permission_service)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)

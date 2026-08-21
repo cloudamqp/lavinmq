@@ -12,30 +12,30 @@ ensure
 end
 
 describe LavinMQCtl::DefinitionsGenerator do
-  it "includes permission groups read from permission_groups.json" do
+  it "includes permission groups read from mqtt_permissions.json" do
     with_data_dir do |data_dir|
-      groups = [{name: "g1", protocol: "mqtt", members: ["*"],
+      groups = [{name: "g1", members: ["*"],
                  rules: [{pattern: "a/#", read: true, write: false}]}]
-      File.write(File.join(data_dir, "permission_groups.json"), groups.to_json)
+      File.write(File.join(data_dir, "mqtt_permissions.json"), groups.to_json)
 
       io = IO::Memory.new
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
       body = JSON.parse(io.to_s)
 
-      body["permission_groups"].as_a.size.should eq 1
-      group = body["permission_groups"][0]
+      body["mqtt_permissions"].as_a.size.should eq 1
+      group = body["mqtt_permissions"][0]
       group["name"].as_s.should eq "g1"
       group["rules"][0]["pattern"].as_s.should eq "a/#"
     end
   end
 
-  it "omits the permission_groups key entirely when the file is absent" do
+  it "omits the mqtt_permissions key entirely when the file is absent" do
     with_data_dir do |data_dir|
       io = IO::Memory.new
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
       body = JSON.parse(io.to_s)
 
-      body.as_h.has_key?("permission_groups").should be_false
+      body.as_h.has_key?("mqtt_permissions").should be_false
     end
   end
 end

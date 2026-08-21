@@ -183,7 +183,7 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
-        if @broker.permission_service.mqtt_in_use?
+        if @broker.permission_service.in_use?
           unless @broker.permission_service.can_write?(@client_id, packet.topic)
             # A rule denial acks and drops; only the coarse ACL below closes the socket.
             Log.debug { "Publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{packet.topic}'" }
@@ -213,7 +213,7 @@ module LavinMQ
       def recieve_subscribe(packet : Protocol::Subscribe)
         # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
         # may subscribe to a filter it cannot read. Mosquitto behaves the same way.
-        if !@broker.permission_service.mqtt_in_use? && Config.instance.mqtt_permission_check_enabled?
+        if !@broker.permission_service.in_use? && Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "#{SESSION_PREFIX}#{@client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             close_socket
@@ -266,7 +266,7 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          if @broker.permission_service.mqtt_in_use?
+          if @broker.permission_service.in_use?
             unless @broker.permission_service.can_write?(@client_id, will.topic)
               Log.debug { "Will publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{will.topic}'" }
               return

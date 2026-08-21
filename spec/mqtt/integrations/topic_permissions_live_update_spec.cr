@@ -9,9 +9,9 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        server.permission_service.put(LavinMQ::Auth::PermissionGroup.new(
-          "g", "mqtt", ["*"],
-          [LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
+        server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+          "g", ["*"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -23,9 +23,9 @@ module MqttSpecs
             publish(pub_io, topic: "chat/1", payload: "one".to_slice, qos: 0u8)
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
-            server.permission_service.put(LavinMQ::Auth::PermissionGroup.new(
-              "g", "mqtt", ["*"],
-              [LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: false)]))
+            server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+              "g", ["*"],
+              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
             ping(pub_io)
@@ -42,9 +42,9 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        server.permission_service.put(LavinMQ::Auth::PermissionGroup.new(
-          "g", "mqtt", ["*"],
-          [LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
+        server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+          "g", ["*"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -56,9 +56,9 @@ module MqttSpecs
             publish(pub_io, topic: "chat/1", payload: "one".to_slice, qos: 0u8)
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
-            server.permission_service.put(LavinMQ::Auth::PermissionGroup.new(
-              "g", "mqtt", ["*"],
-              [LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: false, write: true)]))
+            server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+              "g", ["*"],
+              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: false, write: true)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
             ping(pub_io)

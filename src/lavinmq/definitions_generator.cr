@@ -52,8 +52,8 @@ class LavinMQCtl
                 end
               end
             end
-            if groups = permission_groups
-              json.field("permission_groups") do
+            if groups = mqtt_permissions
+              json.field("mqtt_permissions") do
                 json.array do
                   groups.each(&.to_json(json))
                 end
@@ -180,11 +180,11 @@ class LavinMQCtl
 
     # Unlike the other data files, absence is meaningful here: no permission
     # groups have ever been created, which is the common case, so the
-    # generated definitions omit the "permission_groups" key entirely
+    # generated definitions omit the "mqtt_permissions" key entirely
     # (matching how the online exporter behaves with no groups) rather than
     # emitting an empty array.
-    private def permission_groups
-      File.open("permission_groups.json") { |f| JSON.parse(f) }.as_a
+    private def mqtt_permissions
+      File.open("mqtt_permissions.json") { |f| JSON.parse(f) }.as_a
     rescue File::NotFoundError
       nil
     end

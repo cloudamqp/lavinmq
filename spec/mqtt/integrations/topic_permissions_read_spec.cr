@@ -11,22 +11,20 @@ module MqttSpecs
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
         # alice has read on chat/alice/#; writer has write on everything
-        group = LavinMQ::Auth::PermissionGroup.new(
+        group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-read",
-          "mqtt",
           ["alice"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
           ]
         )
         server.permission_service.put(group)
 
-        writer_group = LavinMQ::Auth::PermissionGroup.new(
+        writer_group = LavinMQ::MQTT::PermissionGroup.new(
           "writer-all",
-          "mqtt",
           ["writer"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
           ]
         )
         server.permission_service.put(writer_group)
@@ -66,23 +64,21 @@ module MqttSpecs
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
         # alice: read-only on chat/alice/#
-        group = LavinMQ::Auth::PermissionGroup.new(
+        group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-read",
-          "mqtt",
           ["alice"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
           ]
         )
         server.permission_service.put(group)
 
         # seeder/seeder2: write on everything so they can seed retained messages
-        writer_group = LavinMQ::Auth::PermissionGroup.new(
+        writer_group = LavinMQ::MQTT::PermissionGroup.new(
           "seeder-write-all",
-          "mqtt",
           ["seeder", "seeder2"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
           ]
         )
         server.permission_service.put(writer_group)

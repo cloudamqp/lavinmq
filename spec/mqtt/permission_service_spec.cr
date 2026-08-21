@@ -1,28 +1,28 @@
 require "../spec_helper"
-require "../../src/lavinmq/auth/permission_service"
+require "../../src/lavinmq/mqtt/permission_service"
 
-private def group(name, members, rules, protocol = "mqtt")
-  LavinMQ::Auth::PermissionGroup.new(name, protocol, members, rules)
+private def group(name, members, rules)
+  LavinMQ::MQTT::PermissionGroup.new(name, members, rules)
 end
 
 private def rule(pattern, read = false, write = false)
-  LavinMQ::Auth::PermissionGroup::Rule.new(pattern, read: read, write: write)
+  LavinMQ::MQTT::PermissionGroup::Rule.new(pattern, read: read, write: write)
 end
 
 private def with_service(&)
   data_dir = File.tempname
   Dir.mkdir_p data_dir
   begin
-    yield LavinMQ::Auth::PermissionService.new(data_dir, nil)
+    yield LavinMQ::MQTT::PermissionService.new(data_dir, nil)
   ensure
     FileUtils.rm_rf data_dir
   end
 end
 
-describe LavinMQ::Auth::PermissionService do
+describe LavinMQ::MQTT::PermissionService do
   it "allows everything with no groups" do
     with_service do |service|
-      service.mqtt_in_use?.should be_false
+      service.in_use?.should be_false
       service.can_write?("c1", "a/b").should be_true
     end
   end
@@ -32,10 +32,7 @@ describe LavinMQ::Auth::PermissionService do
       expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
         service.put(group("g", ["*"], [rule("a/#/b", write: true)]))
       end
-      expect_raises(ArgumentError, /Unsupported protocol/) do
-        service.put(group("g", ["*"], [rule("a/#", write: true)], protocol: "amqp"))
-      end
-      service.mqtt_in_use?.should be_false
+      service.in_use?.should be_false
     end
   end
 
@@ -102,7 +99,7 @@ describe LavinMQ::Auth::PermissionService do
       service.can_read?("c2", "a/b").should be_false
       service.delete("g")
       service.can_read?("c2", "a/b").should be_true
-      service.mqtt_in_use?.should be_false
+      service.in_use?.should be_false
     end
   end
 
@@ -121,58 +118,56 @@ describe LavinMQ::Auth::PermissionService do
     data_dir = File.tempname
     Dir.mkdir_p data_dir
     begin
-      first = LavinMQ::Auth::PermissionService.new(data_dir, nil)
+      first = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
       first.put(group("g", ["c1"], [rule("a/#", write: true)]))
 
-      second = LavinMQ::Auth::PermissionService.new(data_dir, nil)
-      second.mqtt_in_use?.should be_true
+      second = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+      second.in_use?.should be_true
       second.can_write?("c1", "a/b").should be_true
     ensure
       FileUtils.rm_rf data_dir
     end
   end
 
-  it "tolerates invalid or non-mqtt groups loaded from disk" do
+  it "tolerates invalid patterns loaded from disk" do
     data_dir = File.tempname
     Dir.mkdir_p data_dir
     begin
-      File.write File.join(data_dir, "permission_groups.json"), <<-JSON
+      File.write File.join(data_dir, "mqtt_permissions.json"), <<-JSON
         [
-          {"name":"amqp_group","protocol":"amqp","members":["*"],"rules":[{"pattern":"a/#","read":true,"write":true}]},
-          {"name":"g","protocol":"mqtt","members":["c1"],"rules":[{"pattern":"bad/#/x","write":true},{"pattern":"ok/#","write":true}]}
+          {"name":"g","members":["c1"],"rules":[{"pattern":"bad/#/x","write":true},{"pattern":"ok/#","write":true}]}
         ]
         JSON
-      service = LavinMQ::Auth::PermissionService.new(data_dir, nil)
-      service.mqtt_in_use?.should be_true
+      service = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+      service.in_use?.should be_true
       service.can_write?("c1", "ok/x").should be_true
       service.can_write?("c1", "bad/y/x").should be_false
-      service.can_write?("c2", "a/b").should be_false
     ensure
       FileUtils.rm_rf data_dir
     end
   end
 
-  it "leaves mqtt_in_use? false for a group with rules but no members" do
+  it "leaves in_use? false for a group with rules but no members" do
     with_service do |service|
       service.put(group("g", Array(String).new, [rule("a/#", read: true)]))
-      service.mqtt_in_use?.should be_false
+      service.in_use?.should be_false
       service.can_read?("c1", "a/b").should be_true
     end
   end
 
-  it "leaves mqtt_in_use? false for a group with an empty rules array" do
+  it "leaves in_use? false for a group with an empty rules array" do
     with_service do |service|
-      service.put(group("g", ["*"], [] of LavinMQ::Auth::PermissionGroup::Rule))
-      service.mqtt_in_use?.should be_false
+      service.put(group("g", ["*"], [] of LavinMQ::MQTT::PermissionGroup::Rule))
+      service.in_use?.should be_false
     end
   end
 
-  it "flips mqtt_in_use? true when an empty-rules group gains a valid rule" do
+  it "flips in_use? true when an empty-rules group gains a valid rule" do
     with_service do |service|
-      service.put(group("g", ["*"], [] of LavinMQ::Auth::PermissionGroup::Rule))
-      service.mqtt_in_use?.should be_false
+      service.put(group("g", ["*"], [] of LavinMQ::MQTT::PermissionGroup::Rule))
+      service.in_use?.should be_false
       service.put(group("g", ["*"], [rule("a/#", read: true)]))
-      service.mqtt_in_use?.should be_true
+      service.in_use?.should be_true
     end
   end
 

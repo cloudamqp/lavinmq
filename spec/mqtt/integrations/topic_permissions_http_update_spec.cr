@@ -17,8 +17,8 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {protocol: "mqtt", members: ["*"],
-                  rules: [{pattern: "chat/#", read: true, write: true}]}.to_json
+        create = {members: ["*"],
+                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
         http.put("/api/permission-groups/g", body: create).status_code.should eq 201
 
         with_client_io(server) do |sub_io|
@@ -32,8 +32,8 @@ module MqttSpecs
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
             # Same group name, rule replaced: write revoked, read kept.
-            update = {protocol: "mqtt", members: ["*"],
-                      rules: [{pattern: "chat/#", read: true, write: false}]}.to_json
+            update = {members: ["*"],
+                      rules:   [{pattern: "chat/#", read: true, write: false}]}.to_json
             http.put("/api/permission-groups/g", body: update).status_code.should eq 204
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
@@ -50,8 +50,8 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {protocol: "mqtt", members: ["*"],
-                  rules: [{pattern: "chat/#", read: true, write: true}]}.to_json
+        create = {members: ["*"],
+                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
         http.put("/api/permission-groups/g", body: create).status_code.should eq 201
 
         # Durable session subscribes at QoS 1, then goes away.
@@ -64,8 +64,8 @@ module MqttSpecs
 
         # Read revoked while the session has no attached client. Write kept so the
         # publisher can still send.
-        update = {protocol: "mqtt", members: ["*"],
-                  rules: [{pattern: "chat/#", read: false, write: true}]}.to_json
+        update = {members: ["*"],
+                  rules:   [{pattern: "chat/#", read: false, write: true}]}.to_json
         http.put("/api/permission-groups/g", body: update).status_code.should eq 204
 
         with_client_io(server) do |pub_io|
@@ -88,8 +88,8 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {protocol: "mqtt", members: ["*"],
-                  rules: [{pattern: "chat/#", read: true, write: true}]}.to_json
+        create = {members: ["*"],
+                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
         http.put("/api/permission-groups/g", body: create).status_code.should eq 201
 
         # Durable session subscribes at QoS 1, then goes away.
@@ -109,8 +109,8 @@ module MqttSpecs
         end
 
         # Read revoked only now, after the message was already accepted.
-        update = {protocol: "mqtt", members: ["*"],
-                  rules: [{pattern: "chat/#", read: false, write: true}]}.to_json
+        update = {members: ["*"],
+                  rules:   [{pattern: "chat/#", read: false, write: true}]}.to_json
         http.put("/api/permission-groups/g", body: update).status_code.should eq 204
 
         # Authorization was settled at accept time: a message let in under a grant

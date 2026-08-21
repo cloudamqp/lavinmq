@@ -36,13 +36,12 @@ module MqttSpecs
         # The subscriber connects as "sub" (read: chat/sub/#) but also gets
         # the broad read rule via the second entry so it can receive messages
         # on any chat/ topic.
-        group = LavinMQ::Auth::PermissionGroup.new(
+        group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-chat",
-          "mqtt",
           ["alice", "sub"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
           ]
         )
         server.permission_service.put(group)
@@ -90,13 +89,12 @@ module MqttSpecs
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
-        group = LavinMQ::Auth::PermissionGroup.new(
+        group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-chat",
-          "mqtt",
           ["alice", "sub"],
           [
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
-            LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
           ]
         )
         server.permission_service.put(group)
@@ -140,9 +138,9 @@ module MqttSpecs
         # the coarse ACL would close the connection on publish.
         server.users.add_permission("erin", "/", /.*/, /.*/, /^$/)
 
-        group = LavinMQ::Auth::PermissionGroup.new(
-          "chat", "mqtt", ["*"],
-          [LavinMQ::Auth::PermissionGroup::Rule.new("chat/#", read: true, write: true)]
+        group = LavinMQ::MQTT::PermissionGroup.new(
+          "chat", ["*"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]
         )
         server.permission_service.put(group)
 

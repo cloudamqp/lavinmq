@@ -128,7 +128,6 @@ Permission groups are global objects managed via `/api/permission-groups`. A gro
 ```
 
 - `members` is a list of client ids the group applies to. The entry `"*"` applies the group to every client.
-- `protocol` is optional and defaults to `mqtt`, the only supported value.
 
 Patterns use MQTT wildcards (`+`, `#`) and support the `{client_id}` substitution variable, bound per connection to the client id of the connection being authorized, never another client's. The client id must be a single topic level; if it contains `/`, `+`, or `#`, the affected `{client_id}` rules are skipped for that connection so they cannot widen into another client's subtree.
 

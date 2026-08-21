@@ -1,16 +1,16 @@
 require "json"
 require "./permission_group"
-require "../mqtt/topic_rule_segment"
+require "./topic_rule_segment"
 
 module LavinMQ
-  module Auth
+  module MQTT
     # Every change rebuilds the compiled state and publishes it with one
     # reference assignment, so readers never see stale or partial state.
     class PermissionService
-      Log = LavinMQ::Log.for "permission_service"
+      Log = LavinMQ::Log.for "mqtt.permission_service"
 
       record CompiledRule,
-        chain : MQTT::TopicRuleSegment,
+        chain : TopicRuleSegment,
         read : Bool,
         write : Bool
 
@@ -42,7 +42,7 @@ module LavinMQ
         @groups.values
       end
 
-      def mqtt_in_use? : Bool
+      def in_use? : Bool
         !@compiled.empty?
       end
 
@@ -63,12 +63,12 @@ module LavinMQ
       end
 
       def can_write?(client_id : String, topic : String) : Bool
-        return true unless mqtt_in_use?
+        return true unless in_use?
         matches?(client_id, topic, write: true)
       end
 
       def can_read?(client_id : String, topic : String) : Bool
-        return true unless mqtt_in_use?
+        return true unless in_use?
         matches?(client_id, topic, write: false)
       end
 
@@ -87,7 +87,7 @@ module LavinMQ
       private def rules_match?(rules : Array(CompiledRule), client_id : String, topic : String, write : Bool) : Bool
         rules.each do |rule|
           next unless write ? rule.write : rule.read
-          return true if MQTT::TopicRuleSegment.matches?(rule.chain, topic, client_id)
+          return true if TopicRuleSegment.matches?(rule.chain, topic, client_id)
         end
         false
       end
@@ -96,10 +96,9 @@ module LavinMQ
         by_member = Hash(String, Array(CompiledRule)).new
         global_rules = Array(CompiledRule).new
         @groups.each_value do |group|
-          next unless group.protocol == "mqtt"
           compiled_rules = Array(CompiledRule).new
           group.rules.each do |rule|
-            chain = MQTT::TopicRuleSegment.compile(rule.pattern)
+            chain = TopicRuleSegment.compile(rule.pattern)
             if chain.nil?
               Log.warn { "Ignoring invalid topic filter #{rule.pattern.inspect} in permission group #{group.name.inspect}" }
               next
@@ -121,7 +120,7 @@ module LavinMQ
       end
 
       private def load!
-        path = File.join(@data_dir, "permission_groups.json")
+        path = File.join(@data_dir, "mqtt_permissions.json")
         return unless File.exists? path
         File.open(path) do |f|
           Array(PermissionGroup).from_json(f) do |group|
@@ -136,7 +135,7 @@ module LavinMQ
       end
 
       def save!
-        path = File.join(@data_dir, "permission_groups.json")
+        path = File.join(@data_dir, "mqtt_permissions.json")
         tmpfile = "#{path}.tmp"
         @save_lock.synchronize do
           File.open(tmpfile, "w") do |f|

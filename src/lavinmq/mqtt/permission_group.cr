@@ -1,8 +1,8 @@
 require "json"
-require "../mqtt/topic_filter"
+require "./topic_filter"
 
 module LavinMQ
-  module Auth
+  module MQTT
     class PermissionGroup
       include JSON::Serializable
 
@@ -17,22 +17,17 @@ module LavinMQ
       end
 
       getter name : String
-      getter protocol : String = "mqtt"
       getter members = Array(String).new
       getter rules = Array(Rule).new
 
       def initialize(@name : String,
-                     @protocol : String = "mqtt",
                      @members = Array(String).new,
                      @rules = Array(Rule).new)
       end
 
       def validate! : self
-        unless @protocol == "mqtt"
-          raise ArgumentError.new("Unsupported protocol #{@protocol.inspect} in permission group #{@name.inspect}, only 'mqtt' is supported")
-        end
         @rules.each do |rule|
-          unless MQTT::TopicFilter.valid_filter?(rule.pattern)
+          unless TopicFilter.valid_filter?(rule.pattern)
             raise ArgumentError.new("Invalid MQTT topic filter #{rule.pattern.inspect} in permission group #{@name.inspect}")
           end
         end

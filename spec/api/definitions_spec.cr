@@ -195,10 +195,10 @@ describe LavinMQ::GlobalDefinitions do
 
     it "raises on an invalid topic filter in a permission group" do
       defs = {
-        "permission_groups" => [
-          {"name" => "bad", "protocol" => "mqtt",
+        "mqtt_permissions" => [
+          {"name"    => "bad",
            "members" => [] of String,
-           "rules" => [{"pattern" => "secret/#/temp", "read" => true, "write" => false}]},
+           "rules"   => [{"pattern" => "secret/#/temp", "read" => true, "write" => false}]},
         ],
       }
       tmpfile = File.tempname("lavinmq-defs", ".json")
@@ -206,27 +206,6 @@ describe LavinMQ::GlobalDefinitions do
       begin
         with_amqp_server do |s|
           expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
-            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
-          end
-        end
-      ensure
-        File.delete?(tmpfile)
-      end
-    end
-
-    it "raises on an unsupported protocol in a permission group" do
-      defs = {
-        "permission_groups" => [
-          {"name" => "bad", "protocol" => "amqp",
-           "members" => [] of String,
-           "rules" => [{"pattern" => "secret/#", "read" => true, "write" => false}]},
-        ],
-      }
-      tmpfile = File.tempname("lavinmq-defs", ".json")
-      File.write(tmpfile, defs.to_json)
-      begin
-        with_amqp_server do |s|
-          expect_raises(ArgumentError, /[Uu]nsupported protocol/) do
             LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
           end
         end
@@ -627,20 +606,18 @@ describe LavinMQ::HTTP::Server do
         # A valid group followed by one with an invalid topic filter pattern.
         # Groups are parsed and validated up front, so a malformed later entry
         # makes the whole import a clean no-op: the earlier group is neither
-        # applied in memory (so mqtt_in_use? does not flip and put every MQTT
+        # applied in memory (so in_use? does not flip and put every MQTT
         # client into default-deny) nor written to disk.
         body = <<-JSON
-          { "permission_groups": [
+          { "mqtt_permissions": [
             {
               "name": "regression_group_ok",
-              "protocol": "mqtt",
-              "members": ["*"],
+                "members": ["*"],
               "rules": [{ "pattern": "a/#", "read": true, "write": true }]
             },
             {
               "name": "regression_group_bad",
-              "protocol": "mqtt",
-              "members": ["*"],
+                "members": ["*"],
               "rules": [{ "pattern": "secret/#/temp", "read": true, "write": false }]
             }
           ]}
@@ -648,8 +625,8 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         s.permission_service["regression_group_ok"]?.should be_nil
-        s.permission_service.mqtt_in_use?.should be_false
-        groups_file = File.join(s.data_dir, "permission_groups.json")
+        s.permission_service.in_use?.should be_false
+        groups_file = File.join(s.data_dir, "mqtt_permissions.json")
         File.read(groups_file).should_not contain("regression_group_ok") if File.exists?(groups_file)
       end
     end
@@ -838,15 +815,15 @@ describe LavinMQ::HTTP::Server do
 
     it "exports and imports permission groups" do
       with_http_server do |http, s|
-        rule = LavinMQ::Auth::PermissionGroup::Rule.new("sensors/#", read: true, write: false)
-        group = LavinMQ::Auth::PermissionGroup.new("testers", "mqtt", ["alice"], [rule])
+        rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors/#", read: true, write: false)
+        group = LavinMQ::MQTT::PermissionGroup.new("testers", ["alice"], [rule])
         s.permission_service.put(group, save: false)
 
         response = http.get("/api/definitions")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
-        body["permission_groups"].as_a.empty?.should be_false
-        exported = body["permission_groups"].as_a.find { |g| g["name"] == "testers" }
+        body["mqtt_permissions"].as_a.empty?.should be_false
+        exported = body["mqtt_permissions"].as_a.find { |g| g["name"] == "testers" }
         exported.should_not be_nil
         exported.not_nil!["members"].as_a.map(&.as_s).should contain("alice")
 

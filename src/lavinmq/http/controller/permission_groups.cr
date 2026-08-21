@@ -32,11 +32,10 @@ module LavinMQ
           name = params["name"]
           body = parse_body(context)
           begin
-            protocol = (raw = present(body, "protocol")) ? String.from_json(raw.to_json) : "mqtt"
-            members = (raw = present(body, "members")) ? Array(String).from_json(raw.to_json) : [] of String
-            rules = (raw = present(body, "rules")) ? Array(Auth::PermissionGroup::Rule).from_json(raw.to_json) : [] of Auth::PermissionGroup::Rule
+            members = (raw = present(body, "members")) ? Array(String).from_json(raw.to_json) : Array(String).new
+            rules = (raw = present(body, "rules")) ? Array(MQTT::PermissionGroup::Rule).from_json(raw.to_json) : Array(MQTT::PermissionGroup::Rule).new
             is_update = @server.permission_service[name]?
-            @server.permission_service.put(Auth::PermissionGroup.new(name, protocol, members, rules))
+            @server.permission_service.put(MQTT::PermissionGroup.new(name, members, rules))
             context.response.status = is_update ? ::HTTP::Status::NO_CONTENT : ::HTTP::Status::CREATED
           rescue ex : JSON::Error | ArgumentError
             bad_request(context, "Invalid permission group: #{ex.message}")

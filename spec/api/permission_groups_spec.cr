@@ -4,9 +4,8 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   it "creates, lists, gets and deletes a permission group" do
     with_http_server do |http, _|
       body = {
-        protocol: "mqtt",
-        members:  ["alice"],
-        rules:    [{pattern: "chat/{client_id}/#", read: true, write: true}],
+        members: ["alice"],
+        rules:   [{pattern: "chat/{client_id}/#", read: true, write: true}],
       }.to_json
       response = http.put("/api/permission-groups/chat", body: body)
       response.status_code.should eq 201
@@ -29,27 +28,12 @@ describe LavinMQ::HTTP::PermissionGroupsController do
 
   it "returns 204 when updating an existing group" do
     with_http_server do |http, s|
-      group = LavinMQ::Auth::PermissionGroup.new("grp", "mqtt", [] of String, [] of LavinMQ::Auth::PermissionGroup::Rule)
+      group = LavinMQ::MQTT::PermissionGroup.new("grp")
       s.permission_service.put(group)
 
-      body = {protocol: "mqtt", members: ["*"], rules: [] of NamedTuple(pattern: String, read: Bool, write: Bool)}.to_json
+      body = {members: ["*"], rules: [] of NamedTuple(pattern: String, read: Bool, write: Bool)}.to_json
       response = http.put("/api/permission-groups/grp", body: body)
       response.status_code.should eq 204
-    end
-  end
-
-  it "rejects unsupported protocols and does not create the group" do
-    with_http_server do |http, _|
-      body = {
-        protocol: "amqp",
-        members:  ["alice"],
-        rules:    [{pattern: "chat/#", read: true, write: true}],
-      }.to_json
-      response = http.put("/api/permission-groups/bad", body: body)
-      response.status_code.should eq 400
-
-      get_one = http.get("/api/permission-groups/bad")
-      get_one.status_code.should eq 404
     end
   end
 
@@ -72,7 +56,6 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         %({"rules": {"pattern": "a/#"}}),
         %({"rules": [{"read": true}]}),
         %({"rules": [{"pattern": "a/#", "read": "true"}]}),
-        %({"protocol": 1}),
       ].each do |body|
         http.put("/api/permission-groups/bad", body: body).status_code.should eq 400
       end
@@ -83,9 +66,8 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   it "returns 400 for a malformed topic-filter pattern and does not create the group" do
     with_http_server do |http, _|
       body = {
-        protocol: "mqtt",
-        members:  ["alice"],
-        rules:    [{pattern: "secret/#/temp", read: true, write: false}],
+        members: ["alice"],
+        rules:   [{pattern: "secret/#/temp", read: true, write: false}],
       }.to_json
       response = http.put("/api/permission-groups/bad-pattern", body: body)
       response.status_code.should eq 400
@@ -108,7 +90,6 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       response.status_code.should eq 201
 
       group = JSON.parse(http.get("/api/permission-groups/defaults").body)
-      group["protocol"].as_s.should eq "mqtt"
       group["members"].as_a.should be_empty
       group["rules"].as_a.should be_empty
     end

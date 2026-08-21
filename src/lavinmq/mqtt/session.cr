@@ -9,7 +9,7 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
-require "../auth/permission_service"
+require "./permission_service"
 
 module LavinMQ
   module MQTT
@@ -36,7 +36,7 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
-      property permission_service : Auth::PermissionService? = nil
+      property permission_service : PermissionService? = nil
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
       @client_id : String

@@ -1,11 +1,11 @@
 require "./session"
 require "../vhost"
-require "../auth/permission_service"
+require "./permission_service"
 
 module LavinMQ
   module MQTT
     class Sessions
-      def initialize(@vhost : VHost, @permission_service : Auth::PermissionService)
+      def initialize(@vhost : VHost, @permission_service : PermissionService)
         # Sessions restored from disk are created before any broker exists, so
         # hand them the service now.
         @vhost.each_session { |session| session.permission_service = @permission_service }

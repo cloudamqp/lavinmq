@@ -151,13 +151,13 @@ module LavinMQ
       end
     end
 
-    private def import_permission_groups(body, skip_existing = false)
-      if groups = body["permission_groups"]?
+    private def import_mqtt_permissions(body, skip_existing = false)
+      if groups = body["mqtt_permissions"]?
         # Validate every group before applying any: an invalid group later in
         # the file must not leave earlier groups live in memory while disk
         # stays on the old state.
         parsed = groups.as_a.compact_map do |g|
-          group = LavinMQ::Auth::PermissionGroup.from_json(g.to_json)
+          group = LavinMQ::MQTT::PermissionGroup.from_json(g.to_json)
           next if skip_existing && @amqp_server.permission_service[group.name]?
           group.validate!
         end
@@ -393,7 +393,7 @@ module LavinMQ
       end
     end
 
-    private def export_permission_groups(json)
+    private def export_mqtt_permissions(json)
       @amqp_server.permission_service.to_json(json)
     end
 
@@ -457,7 +457,7 @@ module LavinMQ
     def import(body, skip_existing = false)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
-      import_permission_groups(body, skip_existing)
+      import_mqtt_permissions(body, skip_existing)
       import_vhosts(body)
       import_queues(body)
       import_exchanges(body)
@@ -475,7 +475,7 @@ module LavinMQ
           json.field("users") { export_users(json) }
           json.field("vhosts", @amqp_server.vhosts)
           json.field("permissions") { export_permissions(json) }
-          json.field("permission_groups") { export_permission_groups(json) }
+          json.field("mqtt_permissions") { export_mqtt_permissions(json) }
           json.field("queues") { export_queues(json) }
           json.field("exchanges") { export_exchanges(json) }
           json.field("bindings") { export_bindings(json) }
