@@ -36,8 +36,13 @@ module LavinMQ
 
       # Seconds the session outlives its connection [MQTT-3.1.2.11.2]. 0 means it
       # ends when the connection closes, UInt32::MAX means it never expires.
-      # Single source for durable?/auto_delete? so the three cannot drift.
+      # Single source for auto_delete? and the expiry clock.
       getter session_expiry_interval : UInt32
+
+      # Derived from the interval once, at construction: it selects the data dir,
+      # the replicator and the message store's durability, none of which can be
+      # re-derived once that store exists.
+      @durable : Bool
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
@@ -55,9 +60,8 @@ module LavinMQ
                                auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = ARGUMENTS)
         @arguments = arguments
-        # Must precede any durable? use below: it decides the data dir, the
-        # replicator and the message store's durability.
-        @session_expiry_interval = self.class.expiry_from(arguments, auto_delete)
+        @session_expiry_interval = self.class.expiry_from(@name, arguments, auto_delete)
+        @durable = !@session_expiry_interval.zero?
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 
@@ -94,18 +98,23 @@ module LavinMQ
         @arguments
       end
 
-      # The argument wins when present. Read as a plain Int and bounds-checked
-      # rather than cast: it can come from an AMQP client declaring the queue by
-      # hand, in any int type.
+      # The argument wins when usable. Bounds-checked rather than cast, and warned
+      # about rather than swallowed, because an AMQP client can declare mqtt.<id>
+      # by hand with any int type in there - or something that is not an int.
       #
-      # Without it, fall back to what the declare flag meant before Session
-      # Expiry Interval existed - auto_delete was clean_session, so a durable
-      # session meant "keep forever". That covers both a definitions file written
-      # by an older LavinMQ and a caller declaring a session directly.
-      protected def self.expiry_from(arguments : ::AMQ::Protocol::Table,
+      # Without a usable one, fall back to what the declare flag meant before
+      # Session Expiry Interval existed - auto_delete was clean_session, so a
+      # durable session meant "keep forever". That covers both a definitions file
+      # written by an older LavinMQ and a caller declaring a session directly.
+      protected def self.expiry_from(name : String,
+                                     arguments : ::AMQ::Protocol::Table,
                                      auto_delete : Bool) : UInt32
-        if i = arguments[SESSION_EXPIRY_ARG]?.as?(Int)
-          return i.to_u32 if i >= 0 && i <= UInt32::MAX
+        v = arguments[SESSION_EXPIRY_ARG]?
+        if v.is_a?(Int)
+          return v.to_u32 if v >= 0 && v <= UInt32::MAX
+          Log.warn { "#{name}: ignoring out-of-range #{SESSION_EXPIRY_ARG}=#{v}" }
+        elsif !v.nil?
+          Log.warn { "#{name}: ignoring non-integer #{SESSION_EXPIRY_ARG}=#{v.inspect}" }
         end
         auto_delete ? 0u32 : UInt32::MAX
       end
@@ -136,13 +145,13 @@ module LavinMQ
       end
 
       # A reconnecting client may name a different interval, and so may its
-      # DISCONNECT [MQTT-3.14.2.2.2]. Kept in @arguments too so it persists.
+      # DISCONNECT [MQTT-3.14.2.2.2]. @arguments carries it, but the definitions
+      # log has no update frame for an existing queue, so it only reaches disk at
+      # the next compaction.
       #
-      # Only ever narrows to 0 (a resumed session always had a non-zero interval,
-      # and [MQTT-3.14.2] forbids 0 -> non-zero on DISCONNECT), and a 0 interval
-      # is followed by deletion. That matters because durable? is baked into the
-      # message store's data dir and durability at construction and cannot be
-      # re-derived here.
+      # auto_delete? and the expiry clock follow this; durable? deliberately does
+      # not, so narrowing to 0 still writes a persisted deletion frame rather than
+      # leaving the original declare to replay.
       def session_expiry_interval=(interval : UInt32) : Nil
         return if interval == @session_expiry_interval
         @session_expiry_interval = interval
@@ -245,8 +254,8 @@ module LavinMQ
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
-      def durable?
-        !@session_expiry_interval.zero?
+      def durable? : Bool
+        @durable
       end
 
       def subscribe(tf, qos)

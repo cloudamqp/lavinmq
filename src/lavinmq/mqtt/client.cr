@@ -38,8 +38,6 @@ module LavinMQ
         @io.version
       end
 
-      getter? clean_session
-
       # The interval named on CONNECT. Kept because [MQTT-3.14.2] makes a
       # non-zero interval on DISCONNECT a Protocol Error when this one was 0.
       getter session_expiry_interval : UInt32
@@ -75,7 +73,6 @@ module LavinMQ
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
                      @client_id : String,
-                     @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil,
                      @max_packet_size : UInt32? = nil,

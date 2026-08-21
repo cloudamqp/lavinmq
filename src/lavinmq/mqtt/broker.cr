@@ -62,12 +62,11 @@ module LavinMQ
           connection_info,
           user,
           self,
-          packet.client_id,
-          packet.clean_session?,
-          packet.keepalive,
-          packet.will,
-          packet.properties.maximum_packet_size,
-          session_expiry_interval(packet))
+          client_id: packet.client_id,
+          keepalive: packet.keepalive,
+          will: packet.will,
+          max_packet_size: packet.properties.maximum_packet_size,
+          session_expiry_interval: session_expiry_interval(packet))
         # Clean Start and the expiry are separate inputs: the first decides
         # whether to discard the stored session, the second how long the session
         # this connection ends up with will outlive it.

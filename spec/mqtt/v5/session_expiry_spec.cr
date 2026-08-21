@@ -163,6 +163,30 @@ module MqttSpecs
       end
     end
 
+    it "does not resurrect a session narrowed to 0 before a restart" do
+      # The deletion frame is only written for a durable session, so durable?
+      # must not follow the interval down - otherwise nothing records the delete
+      # and the original declare replays.
+      with_server(clean_dir: false) do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+          disconnect(io)
+        end
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          disconnect(io)
+        end
+
+        wait_for { server.vhosts["/"].session?("mqtt.sub").nil? }
+      end
+
+      with_server do |server|
+        server.vhosts["/"].session?("mqtt.sub").should be_nil
+      end
+    end
+
     it "adopts a new interval from DISCONNECT [MQTT-3.14.2.2.2]" do
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -239,6 +263,32 @@ module MqttSpecs
           pub.payload.should eq "dead".to_slice
           read_packet(watcher).should be_nil
         end
+      end
+    end
+
+    it "stays durable when a resuming client narrows the interval to 0" do
+      # durable? was fixed when the message store was built; only auto_delete?
+      # and the clock follow the narrowed interval.
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+          disconnect(io)
+        end
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          # Round-trip a SUBSCRIBE so the server is known to be past add_client,
+          # which is where the narrowed interval is adopted.
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 2u16)
+
+          session = server.vhosts["/"].session("mqtt.sub")
+          session.session_expiry_interval.should eq 0u32
+          session.auto_delete?.should be_true
+          session.durable?.should be_true
+        end
+
+        wait_for { server.vhosts["/"].session?("mqtt.sub").nil? }
       end
     end
 
