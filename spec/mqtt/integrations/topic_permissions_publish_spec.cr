@@ -40,8 +40,8 @@ module MqttSpecs
           "alice-chat", "/",
           ["alice", "sub"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat--client-id---", "chat/{client_id}/#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(group)
@@ -93,8 +93,8 @@ module MqttSpecs
           "alice-chat", "/",
           ["alice", "sub"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat--client-id---", "chat/{client_id}/#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(group)

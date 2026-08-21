@@ -108,18 +108,46 @@ Because group membership is keyed on client id, and a client chooses its own cli
 
 The only mode currently available besides `none` is `username`, which forces the client id to equal the username, so `{client_id}` in a rule is just the username. Because connecting with a client id that is already in use takes over that session (see Session Takeover above), this also means a user can hold exactly one MQTT connection at a time under `username` mode. This makes per-device isolation with distinct client ids per user currently unreachable: a fleet of devices sharing one set of credentials cannot each get their own client id and their own slice of a topic subtree at the same time.
 
-Permission groups are per-vhost objects managed via `/api/permission-groups/<vhost>/<name>`. A group has a member list and a set of rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
+Permission groups are per-vhost objects. A group has a member list and a set of named rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
 
 ```json
 {
+  "name": "devices",
+  "vhost": "/",
   "members": ["device-1"],
   "rules": [
-    { "pattern": "chat/{client_id}/#", "read": true, "write": true }
+    { "identifier": "own-chat", "pattern": "chat/{client_id}/#", "read": true, "write": true }
   ]
 }
 ```
 
 - `members` is a list of client ids the group applies to. The entry `"*"` applies the group to every client.
+- Every rule has an `identifier` (alphanumerics and hyphens, unique within the group), which is how the rule is addressed in the HTTP API.
+
+### HTTP API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/permission-groups` | List groups on all vhosts |
+| GET | `/api/permission-groups/{vhost}` | List groups on a vhost |
+| GET | `/api/permission-groups/{vhost}/{name}` | Get one group |
+| PUT | `/api/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
+| DELETE | `/api/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
+| PUT | `/api/permission-groups/{vhost}/{name}/members/{client-id}` | Add a member |
+| DELETE | `/api/permission-groups/{vhost}/{name}/members/{client-id}` | Remove a member |
+| PUT | `/api/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
+| DELETE | `/api/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
+
+For example, to allow every device to use only its own subtree under `chat/`:
+
+```sh
+curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices
+curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices/members/%2A
+curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices/rules/own-chat \
+  -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
+```
+
+Changes take effect immediately, including for connected clients. Groups are part of definitions export and import under the `mqtt_permissions` key.
 
 Patterns use MQTT wildcards (`+`, `#`) and support the `{client_id}` substitution variable, bound per connection to the client id of the connection being authorized, never another client's. The client id must be a single topic level; if it contains `/`, `+`, or `#`, the affected `{client_id}` rules are skipped for that connection so they cannot widen into another client's subtree.
 

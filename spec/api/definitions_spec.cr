@@ -198,7 +198,7 @@ describe LavinMQ::GlobalDefinitions do
         "mqtt_permissions" => [
           {"name"    => "bad",
            "members" => [] of String,
-           "rules"   => [{"pattern" => "secret/#/temp", "read" => true, "write" => false}]},
+           "rules"   => [{"identifier" => "bad", "pattern" => "secret/#/temp", "read" => true, "write" => false}]},
         ],
       }
       tmpfile = File.tempname("lavinmq-defs", ".json")
@@ -612,13 +612,13 @@ describe LavinMQ::HTTP::Server do
           { "mqtt_permissions": [
             {
               "name": "regression_group_ok",
-                "members": ["*"],
-              "rules": [{ "pattern": "a/#", "read": true, "write": true }]
+              "members": ["*"],
+              "rules": [{ "identifier": "ok", "pattern": "a/#", "read": true, "write": true }]
             },
             {
               "name": "regression_group_bad",
-                "members": ["*"],
-              "rules": [{ "pattern": "secret/#/temp", "read": true, "write": false }]
+              "members": ["*"],
+              "rules": [{ "identifier": "bad", "pattern": "secret/#/temp", "read": true, "write": false }]
             }
           ]}
           JSON
@@ -815,7 +815,7 @@ describe LavinMQ::HTTP::Server do
 
     it "exports and imports permission groups" do
       with_http_server do |http, s|
-        rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors/#", read: true, write: false)
+        rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors", "sensors/#", read: true, write: false)
         group = LavinMQ::MQTT::PermissionGroup.new("testers", "/", ["alice"], [rule])
         s.vhosts["/"].mqtt_permission_service.put(group, save: false)
 

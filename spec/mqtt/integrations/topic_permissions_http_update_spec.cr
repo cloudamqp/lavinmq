@@ -17,9 +17,10 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {members: ["*"],
-                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
-        http.put("/api/permission-groups/%2f/g", body: create).status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g").status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g/members/*").status_code.should eq 201
+        rule = {pattern: "chat/#", read: true, write: true}.to_json
+        http.put("/api/permission-groups/%2f/g/rules/chat", body: rule).status_code.should eq 201
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "guest", password: "guest".to_slice)
@@ -31,10 +32,9 @@ module MqttSpecs
             publish(pub_io, topic: "chat/1", payload: "one".to_slice, qos: 0u8)
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
-            # Same group name, rule replaced: write revoked, read kept.
-            update = {members: ["*"],
-                      rules:   [{pattern: "chat/#", read: true, write: false}]}.to_json
-            http.put("/api/permission-groups/%2f/g", body: update).status_code.should eq 204
+            # Same rule identifier, rule replaced: write revoked, read kept.
+            update = {pattern: "chat/#", read: true, write: false}.to_json
+            http.put("/api/permission-groups/%2f/g/rules/chat", body: update).status_code.should eq 204
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
             ping(pub_io)
@@ -50,9 +50,10 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {members: ["*"],
-                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
-        http.put("/api/permission-groups/%2f/g", body: create).status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g").status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g/members/*").status_code.should eq 201
+        rule = {pattern: "chat/#", read: true, write: true}.to_json
+        http.put("/api/permission-groups/%2f/g/rules/chat", body: rule).status_code.should eq 201
 
         # Durable session subscribes at QoS 1, then goes away.
         with_client_io(server) do |sub_io|
@@ -64,9 +65,8 @@ module MqttSpecs
 
         # Read revoked while the session has no attached client. Write kept so the
         # publisher can still send.
-        update = {members: ["*"],
-                  rules:   [{pattern: "chat/#", read: false, write: true}]}.to_json
-        http.put("/api/permission-groups/%2f/g", body: update).status_code.should eq 204
+        update = {pattern: "chat/#", read: false, write: true}.to_json
+        http.put("/api/permission-groups/%2f/g/rules/chat", body: update).status_code.should eq 204
 
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub", username: "guest", password: "guest".to_slice)
@@ -88,9 +88,10 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
-        create = {members: ["*"],
-                  rules:   [{pattern: "chat/#", read: true, write: true}]}.to_json
-        http.put("/api/permission-groups/%2f/g", body: create).status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g").status_code.should eq 201
+        http.put("/api/permission-groups/%2f/g/members/*").status_code.should eq 201
+        rule = {pattern: "chat/#", read: true, write: true}.to_json
+        http.put("/api/permission-groups/%2f/g/rules/chat", body: rule).status_code.should eq 201
 
         # Durable session subscribes at QoS 1, then goes away.
         with_client_io(server) do |sub_io|
@@ -109,9 +110,8 @@ module MqttSpecs
         end
 
         # Read revoked only now, after the message was already accepted.
-        update = {members: ["*"],
-                  rules:   [{pattern: "chat/#", read: false, write: true}]}.to_json
-        http.put("/api/permission-groups/%2f/g", body: update).status_code.should eq 204
+        update = {pattern: "chat/#", read: false, write: true}.to_json
+        http.put("/api/permission-groups/%2f/g/rules/chat", body: update).status_code.should eq 204
 
         # Authorization was settled at accept time: a message let in under a grant
         # that has since been revoked is still handed over. Only messages published

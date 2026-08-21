@@ -12,12 +12,12 @@ module MqttSpecs
         # alice may read only her own subtree.
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "alice-read", "/", ["alice"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false)]))
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false)]))
         # The publisher may write anywhere under chat/, so a message to chat/bob
         # really is published and routed. Only alice's read rule can stop it.
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "pub-write", "/", ["pub"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: false, write: true)]))
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: false, write: true)]))
 
         with_client_io(server) do |io|
           connect(io, client_id: "alice", username: "alice", password: "alice".to_slice)

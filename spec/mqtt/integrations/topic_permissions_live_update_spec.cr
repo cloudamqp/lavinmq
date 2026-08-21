@@ -11,7 +11,7 @@ module MqttSpecs
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "g", "/", ["*"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -25,7 +25,7 @@ module MqttSpecs
 
             server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
               "g", "/", ["*"],
-              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false)]))
+              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
             ping(pub_io)
@@ -44,7 +44,7 @@ module MqttSpecs
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "g", "/", ["*"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -58,7 +58,7 @@ module MqttSpecs
 
             server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
               "g", "/", ["*"],
-              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: false, write: true)]))
+              [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: false, write: true)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
             ping(pub_io)

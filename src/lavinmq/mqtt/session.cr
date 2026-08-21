@@ -9,6 +9,7 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
+require "./permission_service"
 
 module LavinMQ
   module MQTT

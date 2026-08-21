@@ -15,7 +15,7 @@ module MqttSpecs
           "alice-read", "/",
           ["alice"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(group)
@@ -24,7 +24,7 @@ module MqttSpecs
           "writer-all", "/",
           ["writer"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("-", "#", read: true, write: true),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(writer_group)
@@ -68,7 +68,7 @@ module MqttSpecs
           "alice-read", "/",
           ["alice"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(group)
@@ -78,7 +78,7 @@ module MqttSpecs
           "seeder-write-all", "/",
           ["seeder", "seeder2"],
           [
-            LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
+            LavinMQ::MQTT::PermissionGroup::Rule.new("-", "#", read: true, write: true),
           ]
         )
         server.vhosts["/"].mqtt_permission_service.put(writer_group)

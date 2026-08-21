@@ -19,7 +19,7 @@ describe LavinMQCtl::DefinitionsGenerator do
       Dir.mkdir_p vhost_dir
       File.open(File.join(vhost_dir, "definitions.amqp"), "w") { |f| f.write_bytes(1i32) }
       groups = [{name: "g1", vhost: "/", members: ["*"],
-                 rules: [{pattern: "a/#", read: true, write: false}]}]
+                 rules: [{identifier: "a", pattern: "a/#", read: true, write: false}]}]
       File.write(File.join(vhost_dir, "mqtt_permissions.json"), groups.to_json)
 
       io = IO::Memory.new
