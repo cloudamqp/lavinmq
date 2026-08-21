@@ -128,7 +128,8 @@ module MqttSpecs
         it "no session present when taking over a session that ends with its connection" do
           # session_present? runs before add_client, so the previous connection's
           # 0-interval session is still visible here - but the takeover ends it,
-          # so the new connection must not be told it resumed one.
+          # so the new connection must not be told it resumed one, and must not
+          # inherit the subscription either.
           with_server do |server|
             with_client_io(server) do |first|
               connect(first, clean_session: true)
@@ -140,6 +141,10 @@ module MqttSpecs
               with_client_io(server) do |second|
                 connack = connect(second, clean_session: false).as(MQTT::Protocol::Connack)
                 connack.session_present?.should be_false
+                # The CONNACK is written before add_client runs; a PINGREQ
+                # round-trip proves the takeover has been applied.
+                pingpong(second)
+                server.vhosts["/"].session?("mqtt.client_id").should be_nil
                 disconnect(second)
               end
             end
