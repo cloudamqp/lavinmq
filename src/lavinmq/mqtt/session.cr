@@ -9,7 +9,6 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
-require "./permission_service"
 
 module LavinMQ
   module MQTT
@@ -36,7 +35,7 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
-      property permission_service : PermissionService? = nil
+      @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
       @client_id : String
@@ -49,6 +48,7 @@ module LavinMQ
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
         @client_id = @name.lchop(SESSION_PREFIX)
+        @permission_service = @vhost.mqtt_permission_service
         @unacked = Hash(UInt16, SegmentPosition).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
@@ -179,9 +179,7 @@ module LavinMQ
       end
 
       def publish(msg : Message) : Bool
-        if (permissions = @permission_service) && !permissions.can_read?(@client_id, msg.routing_key)
-          return true
-        end
+        return true unless @permission_service.can_read?(@client_id, msg.routing_key)
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do

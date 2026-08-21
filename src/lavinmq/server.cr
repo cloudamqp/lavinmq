@@ -4,7 +4,6 @@ require "../stdlib/*"
 require "./persister"
 require "./vhost_store"
 require "./auth/user_store"
-require "./mqtt/permission_service"
 require "./exchange"
 require "./amqp/queue"
 require "./parameter"
@@ -19,7 +18,7 @@ module LavinMQ
   class Server
     PROCESS_START = Time.instant
 
-    getter vhosts, users, data_dir, parameters, authenticator, permission_service
+    getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 
     @closed = BoolChannel.new(false)
@@ -50,7 +49,6 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      @permission_service = MQTT::PermissionService.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = authenticator || Auth::Chain.create(@config, @users)

@@ -16,6 +16,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
@@ -33,6 +34,7 @@ module LavinMQ
     rate_stats(STATS_KEYS)
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
+    getter mqtt_permission_service : MQTT::PermissionService
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -222,6 +224,7 @@ module LavinMQ
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
+      @mqtt_permission_service = MQTT::PermissionService.new(@data_dir, @replicator)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)

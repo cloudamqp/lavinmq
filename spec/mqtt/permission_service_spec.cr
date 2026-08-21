@@ -2,7 +2,7 @@ require "../spec_helper"
 require "../../src/lavinmq/mqtt/permission_service"
 
 private def group(name, members, rules)
-  LavinMQ::MQTT::PermissionGroup.new(name, members, rules)
+  LavinMQ::MQTT::PermissionGroup.new(name, "/", members, rules)
 end
 
 private def rule(pattern, read = false, write = false)
@@ -135,7 +135,7 @@ describe LavinMQ::MQTT::PermissionService do
     begin
       File.write File.join(data_dir, "mqtt_permissions.json"), <<-JSON
         [
-          {"name":"g","members":["c1"],"rules":[{"pattern":"bad/#/x","write":true},{"pattern":"ok/#","write":true}]}
+          {"name":"g","vhost":"/","members":["c1"],"rules":[{"pattern":"bad/#/x","write":true},{"pattern":"ok/#","write":true}]}
         ]
         JSON
       service = LavinMQ::MQTT::PermissionService.new(data_dir, nil)

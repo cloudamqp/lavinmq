@@ -7,32 +7,32 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         members: ["alice"],
         rules:   [{pattern: "chat/{client_id}/#", read: true, write: true}],
       }.to_json
-      response = http.put("/api/permission-groups/chat", body: body)
+      response = http.put("/api/permission-groups/%2f/chat", body: body)
       response.status_code.should eq 201
 
       list = http.get("/api/permission-groups")
       list.status_code.should eq 200
       JSON.parse(list.body).as_a.map(&.["name"]).should contain "chat"
 
-      get_one = http.get("/api/permission-groups/chat")
+      get_one = http.get("/api/permission-groups/%2f/chat")
       get_one.status_code.should eq 200
       JSON.parse(get_one.body)["name"].as_s.should eq "chat"
 
-      del = http.delete("/api/permission-groups/chat")
+      del = http.delete("/api/permission-groups/%2f/chat")
       del.status_code.should eq 204
 
-      after_delete = http.get("/api/permission-groups/chat")
+      after_delete = http.get("/api/permission-groups/%2f/chat")
       after_delete.status_code.should eq 404
     end
   end
 
   it "returns 204 when updating an existing group" do
     with_http_server do |http, s|
-      group = LavinMQ::MQTT::PermissionGroup.new("grp")
-      s.permission_service.put(group)
+      group = LavinMQ::MQTT::PermissionGroup.new("grp", "/")
+      s.vhosts["/"].mqtt_permission_service.put(group)
 
       body = {members: ["*"], rules: [] of NamedTuple(pattern: String, read: Bool, write: Bool)}.to_json
-      response = http.put("/api/permission-groups/grp", body: body)
+      response = http.put("/api/permission-groups/%2f/grp", body: body)
       response.status_code.should eq 204
     end
   end
@@ -42,9 +42,9 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
       hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"} # arnold:pw
       http.get("/api/permission-groups", headers: hdrs).status_code.should eq 403
-      http.get("/api/permission-groups/anything", headers: hdrs).status_code.should eq 403
-      http.put("/api/permission-groups/foo", headers: hdrs, body: "{}").status_code.should eq 403
-      http.delete("/api/permission-groups/anything", headers: hdrs).status_code.should eq 403
+      http.get("/api/permission-groups/%2f/anything", headers: hdrs).status_code.should eq 403
+      http.put("/api/permission-groups/%2f/foo", headers: hdrs, body: "{}").status_code.should eq 403
+      http.delete("/api/permission-groups/%2f/anything", headers: hdrs).status_code.should eq 403
     end
   end
 
@@ -57,9 +57,9 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         %({"rules": [{"read": true}]}),
         %({"rules": [{"pattern": "a/#", "read": "true"}]}),
       ].each do |body|
-        http.put("/api/permission-groups/bad", body: body).status_code.should eq 400
+        http.put("/api/permission-groups/%2f/bad", body: body).status_code.should eq 400
       end
-      http.get("/api/permission-groups/bad").status_code.should eq 404
+      http.get("/api/permission-groups/%2f/bad").status_code.should eq 404
     end
   end
 
@@ -69,16 +69,16 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         members: ["alice"],
         rules:   [{pattern: "secret/#/temp", read: true, write: false}],
       }.to_json
-      response = http.put("/api/permission-groups/bad-pattern", body: body)
+      response = http.put("/api/permission-groups/%2f/bad-pattern", body: body)
       response.status_code.should eq 400
 
-      http.get("/api/permission-groups/bad-pattern").status_code.should eq 404
+      http.get("/api/permission-groups/%2f/bad-pattern").status_code.should eq 404
     end
   end
 
   it "returns 404 when deleting a group that does not exist" do
     with_http_server do |http, _|
-      response = http.delete("/api/permission-groups/does-not-exist")
+      response = http.delete("/api/permission-groups/%2f/does-not-exist")
       response.status_code.should eq 404
     end
   end
@@ -86,10 +86,10 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   it "accepts absent optional fields and applies their defaults" do
     with_http_server do |http, _|
       body = %({})
-      response = http.put("/api/permission-groups/defaults", body: body)
+      response = http.put("/api/permission-groups/%2f/defaults", body: body)
       response.status_code.should eq 201
 
-      group = JSON.parse(http.get("/api/permission-groups/defaults").body)
+      group = JSON.parse(http.get("/api/permission-groups/%2f/defaults").body)
       group["members"].as_a.should be_empty
       group["rules"].as_a.should be_empty
     end

@@ -9,8 +9,8 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
-          "g", ["*"],
+        server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+          "g", "/", ["*"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
@@ -23,8 +23,8 @@ module MqttSpecs
             publish(pub_io, topic: "chat/1", payload: "one".to_slice, qos: 0u8)
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
-            server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
-              "g", ["*"],
+            server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+              "g", "/", ["*"],
               [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)
@@ -42,8 +42,8 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
-          "g", ["*"],
+        server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+          "g", "/", ["*"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]))
 
         with_client_io(server) do |sub_io|
@@ -56,8 +56,8 @@ module MqttSpecs
             publish(pub_io, topic: "chat/1", payload: "one".to_slice, qos: 0u8)
             read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
 
-            server.permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
-              "g", ["*"],
+            server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
+              "g", "/", ["*"],
               [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: false, write: true)]))
 
             publish(pub_io, topic: "chat/2", payload: "two".to_slice, qos: 0u8)

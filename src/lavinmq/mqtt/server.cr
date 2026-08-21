@@ -9,7 +9,7 @@ module LavinMQ
 
       def initialize(server : LavinMQ::Server, config : Config = Config.instance)
         super(server, config, LavinMQ::Protocol::MQTT)
-        @brokers = Brokers.new(@server.vhosts, @server.permission_service)
+        @brokers = Brokers.new(@server.vhosts)
         @connection_factory = ConnectionFactory.new(@server.authenticator, @brokers, @config)
       end
 

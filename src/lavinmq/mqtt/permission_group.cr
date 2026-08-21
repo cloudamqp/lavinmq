@@ -17,10 +17,12 @@ module LavinMQ
       end
 
       getter name : String
+      getter vhost : String
       getter members = Array(String).new
       getter rules = Array(Rule).new
 
       def initialize(@name : String,
+                     @vhost : String,
                      @members = Array(String).new,
                      @rules = Array(Rule).new)
       end

@@ -12,22 +12,22 @@ module MqttSpecs
 
         # alice has read on chat/alice/#; writer has write on everything
         group = LavinMQ::MQTT::PermissionGroup.new(
-          "alice-read",
+          "alice-read", "/",
           ["alice"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
           ]
         )
-        server.permission_service.put(group)
+        server.vhosts["/"].mqtt_permission_service.put(group)
 
         writer_group = LavinMQ::MQTT::PermissionGroup.new(
-          "writer-all",
+          "writer-all", "/",
           ["writer"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
           ]
         )
-        server.permission_service.put(writer_group)
+        server.vhosts["/"].mqtt_permission_service.put(writer_group)
 
         with_client_io(server) do |alice_io|
           # alice subscribes to wildcard "#"
@@ -65,23 +65,23 @@ module MqttSpecs
 
         # alice: read-only on chat/alice/#
         group = LavinMQ::MQTT::PermissionGroup.new(
-          "alice-read",
+          "alice-read", "/",
           ["alice"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/alice/#", read: true, write: false),
           ]
         )
-        server.permission_service.put(group)
+        server.vhosts["/"].mqtt_permission_service.put(group)
 
         # seeder/seeder2: write on everything so they can seed retained messages
         writer_group = LavinMQ::MQTT::PermissionGroup.new(
-          "seeder-write-all",
+          "seeder-write-all", "/",
           ["seeder", "seeder2"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("#", read: true, write: true),
           ]
         )
-        server.permission_service.put(writer_group)
+        server.vhosts["/"].mqtt_permission_service.put(writer_group)
 
         # Seed a retained message on a topic alice is NOT allowed to read
         with_client_io(server) do |seed_io|

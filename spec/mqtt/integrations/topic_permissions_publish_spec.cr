@@ -37,14 +37,14 @@ module MqttSpecs
         # the broad read rule via the second entry so it can receive messages
         # on any chat/ topic.
         group = LavinMQ::MQTT::PermissionGroup.new(
-          "alice-chat",
+          "alice-chat", "/",
           ["alice", "sub"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
           ]
         )
-        server.permission_service.put(group)
+        server.vhosts["/"].mqtt_permission_service.put(group)
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -90,14 +90,14 @@ module MqttSpecs
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
         group = LavinMQ::MQTT::PermissionGroup.new(
-          "alice-chat",
+          "alice-chat", "/",
           ["alice", "sub"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/{client_id}/#", read: true, write: true),
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: false),
           ]
         )
-        server.permission_service.put(group)
+        server.vhosts["/"].mqtt_permission_service.put(group)
 
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
@@ -139,10 +139,10 @@ module MqttSpecs
         server.users.add_permission("erin", "/", /.*/, /.*/, /^$/)
 
         group = LavinMQ::MQTT::PermissionGroup.new(
-          "chat", ["*"],
+          "chat", "/", ["*"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat/#", read: true, write: true)]
         )
-        server.permission_service.put(group)
+        server.vhosts["/"].mqtt_permission_service.put(group)
 
         LavinMQ::Config.instance.mqtt_permission_check_enabled = true
         begin

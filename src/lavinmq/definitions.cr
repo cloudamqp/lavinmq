@@ -156,13 +156,21 @@ module LavinMQ
         # Validate every group before applying any: an invalid group later in
         # the file must not leave earlier groups live in memory while disk
         # stays on the old state.
-        parsed = groups.as_a.compact_map do |g|
-          group = LavinMQ::MQTT::PermissionGroup.from_json(g.to_json)
-          next if skip_existing && @amqp_server.permission_service[group.name]?
-          group.validate!
+        parsed = Array({VHost, MQTT::PermissionGroup}).new
+        groups.as_a.each do |g|
+          next unless v = fetch_vhost?(g)
+          name = g["name"].as_s
+          next if skip_existing && v.mqtt_permission_service[name]?
+          members = (m = g["members"]?) ? Array(String).from_json(m.to_json) : Array(String).new
+          rules = (r = g["rules"]?) ? Array(MQTT::PermissionGroup::Rule).from_json(r.to_json) : Array(MQTT::PermissionGroup::Rule).new
+          parsed << {v, MQTT::PermissionGroup.new(name, v.name, members, rules).validate!}
         end
-        parsed.each { |group| @amqp_server.permission_service.put(group, save: false) }
-        @amqp_server.permission_service.save!
+        touched = Set(VHost).new
+        parsed.each do |v, group|
+          v.mqtt_permission_service.put(group, save: false)
+          touched << v
+        end
+        touched.each(&.mqtt_permission_service.save!)
       end
     end
 
@@ -394,7 +402,11 @@ module LavinMQ
     end
 
     private def export_mqtt_permissions(json)
-      @amqp_server.permission_service.to_json(json)
+      json.array do
+        vhosts.each_value do |v|
+          v.mqtt_permission_service.values.each(&.to_json(json))
+        end
+      end
     end
 
     private def export_users(json)
@@ -426,6 +438,7 @@ module LavinMQ
       fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
+      import_mqtt_permissions(body, skip_existing)
     end
 
     def export(response)
@@ -437,6 +450,7 @@ module LavinMQ
           json.field("bindings") { export_bindings(json) }
           json.field("policies") { export_policies(json) }
           json.field("parameters") { export_vhost_parameters(json) }
+          json.field("mqtt_permissions") { export_mqtt_permissions(json) }
         end
       end
     end

@@ -12,11 +12,15 @@ ensure
 end
 
 describe LavinMQCtl::DefinitionsGenerator do
-  it "includes permission groups read from mqtt_permissions.json" do
+  it "includes permission groups read from each vhost's mqtt_permissions.json" do
     with_data_dir do |data_dir|
-      groups = [{name: "g1", members: ["*"],
+      File.write(File.join(data_dir, "vhosts.json"), %([{"name": "/", "dir": "vh1"}]))
+      vhost_dir = File.join(data_dir, "vh1")
+      Dir.mkdir_p vhost_dir
+      File.open(File.join(vhost_dir, "definitions.amqp"), "w") { |f| f.write_bytes(1i32) }
+      groups = [{name: "g1", vhost: "/", members: ["*"],
                  rules: [{pattern: "a/#", read: true, write: false}]}]
-      File.write(File.join(data_dir, "mqtt_permissions.json"), groups.to_json)
+      File.write(File.join(vhost_dir, "mqtt_permissions.json"), groups.to_json)
 
       io = IO::Memory.new
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
@@ -25,6 +29,7 @@ describe LavinMQCtl::DefinitionsGenerator do
       body["mqtt_permissions"].as_a.size.should eq 1
       group = body["mqtt_permissions"][0]
       group["name"].as_s.should eq "g1"
+      group["vhost"].as_s.should eq "/"
       group["rules"][0]["pattern"].as_s.should eq "a/#"
     end
   end

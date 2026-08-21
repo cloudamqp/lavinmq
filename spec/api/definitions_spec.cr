@@ -624,9 +624,9 @@ describe LavinMQ::HTTP::Server do
           JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
-        s.permission_service["regression_group_ok"]?.should be_nil
-        s.permission_service.in_use?.should be_false
-        groups_file = File.join(s.data_dir, "mqtt_permissions.json")
+        s.vhosts["/"].mqtt_permission_service["regression_group_ok"]?.should be_nil
+        s.vhosts["/"].mqtt_permission_service.in_use?.should be_false
+        groups_file = File.join(s.vhosts["/"].data_dir, "mqtt_permissions.json")
         File.read(groups_file).should_not contain("regression_group_ok") if File.exists?(groups_file)
       end
     end
@@ -816,8 +816,8 @@ describe LavinMQ::HTTP::Server do
     it "exports and imports permission groups" do
       with_http_server do |http, s|
         rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors/#", read: true, write: false)
-        group = LavinMQ::MQTT::PermissionGroup.new("testers", ["alice"], [rule])
-        s.permission_service.put(group, save: false)
+        group = LavinMQ::MQTT::PermissionGroup.new("testers", "/", ["alice"], [rule])
+        s.vhosts["/"].mqtt_permission_service.put(group, save: false)
 
         response = http.get("/api/definitions")
         response.status_code.should eq 200
@@ -827,12 +827,12 @@ describe LavinMQ::HTTP::Server do
         exported.should_not be_nil
         exported.not_nil!["members"].as_a.map(&.as_s).should contain("alice")
 
-        s.permission_service.delete("testers", save: false)
-        s.permission_service["testers"]?.should be_nil
+        s.vhosts["/"].mqtt_permission_service.delete("testers", save: false)
+        s.vhosts["/"].mqtt_permission_service["testers"]?.should be_nil
 
         response = http.post("/api/definitions", body: body.to_json)
         response.status_code.should eq 200
-        s.permission_service["testers"]?.not_nil!.members.should contain("alice")
+        s.vhosts["/"].mqtt_permission_service["testers"]?.not_nil!.members.should contain("alice")
       end
     end
 
