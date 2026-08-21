@@ -7,7 +7,7 @@ module LavinMQ
       # default.
       private def present(obj, key : String) : JSON::Any?
         raw = obj[key]?
-        return nil if raw.nil? || raw.raw.nil?
+        return if raw.nil? || raw.raw.nil?
         raw
       end
 
@@ -37,7 +37,7 @@ module LavinMQ
             rules = (raw = present(body, "rules")) ? Array(Auth::PermissionGroup::Rule).from_json(raw.to_json) : [] of Auth::PermissionGroup::Rule
             is_update = @server.permission_service[name]?
             @server.permission_service.put(Auth::PermissionGroup.new(name, protocol, members, rules))
-            context.response.status_code = is_update ? 204 : 201
+            context.response.status = is_update ? ::HTTP::Status::NO_CONTENT : ::HTTP::Status::CREATED
           rescue ex : JSON::Error | ArgumentError
             bad_request(context, "Invalid permission group: #{ex.message}")
           end
@@ -48,7 +48,7 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           group = @server.permission_service.delete(params["name"])
           not_found(context) unless group
-          context.response.status_code = 204
+          context.response.status = ::HTTP::Status::NO_CONTENT
           context
         end
       end

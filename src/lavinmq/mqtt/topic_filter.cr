@@ -12,8 +12,8 @@ module LavinMQ
       def valid_filter?(filter : String) : Bool
         return false if filter.empty?
         levels = filter.split('/')
-        return false if levels.size - 1 > MAX_FILTER_SEPARATORS
         last = levels.size - 1
+        return false if last > MAX_FILTER_SEPARATORS
         levels.each_with_index do |level, i|
           if level.includes?('#')
             return false unless level == "#" && i == last

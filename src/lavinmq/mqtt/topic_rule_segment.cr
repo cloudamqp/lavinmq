@@ -10,7 +10,7 @@ module LavinMQ
       abstract def match?(it : BytesTokenIterator, client_id : String) : Bool
 
       def self.compile(pattern : String) : TopicRuleSegment?
-        return nil unless TopicFilter.valid_filter?(pattern)
+        return unless TopicFilter.valid_filter?(pattern)
         chain = nil.as(TopicRuleSegment?)
         pattern.split('/').reverse_each do |level|
           chain = case level

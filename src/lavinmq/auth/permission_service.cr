@@ -16,12 +16,12 @@ module LavinMQ
 
       class Compiled
         getter by_member : Hash(String, Array(CompiledRule))
-        getter wildcard_rules : Array(CompiledRule)
-        getter? mqtt_in_use : Bool
+        getter global_rules : Array(CompiledRule)
+        getter? empty : Bool
 
         def initialize(@by_member : Hash(String, Array(CompiledRule)),
-                       @wildcard_rules : Array(CompiledRule),
-                       @mqtt_in_use : Bool)
+                       @global_rules : Array(CompiledRule))
+          @empty = @by_member.empty? && @global_rules.empty?
         end
       end
 
@@ -30,7 +30,7 @@ module LavinMQ
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
         @groups = Hash(String, PermissionGroup).new
-        @compiled = Compiled.new(Hash(String, Array(CompiledRule)).new, [] of CompiledRule, false)
+        @compiled = Compiled.new(Hash(String, Array(CompiledRule)).new, Array(CompiledRule).new)
         load!
       end
 
@@ -43,7 +43,7 @@ module LavinMQ
       end
 
       def mqtt_in_use? : Bool
-        @compiled.mqtt_in_use?
+        !@compiled.empty?
       end
 
       def put(group : PermissionGroup, save = true) : PermissionGroup
@@ -79,7 +79,7 @@ module LavinMQ
       # Read @compiled once so a concurrent rebuild is never observed halfway.
       private def matches?(client_id : String, topic : String, write : Bool) : Bool
         compiled = @compiled
-        return true if rules_match?(compiled.wildcard_rules, client_id, topic, write)
+        return true if rules_match?(compiled.global_rules, client_id, topic, write)
         return false unless own = compiled.by_member[client_id]?
         rules_match?(own, client_id, topic, write)
       end
@@ -94,11 +94,10 @@ module LavinMQ
 
       private def rebuild : Nil
         by_member = Hash(String, Array(CompiledRule)).new
-        wildcard_rules = [] of CompiledRule
-        mqtt_in_use = false
+        global_rules = Array(CompiledRule).new
         @groups.each_value do |group|
           next unless group.protocol == "mqtt"
-          compiled_rules = [] of CompiledRule
+          compiled_rules = Array(CompiledRule).new
           group.rules.each do |rule|
             chain = MQTT::TopicRuleSegment.compile(rule.pattern)
             if chain.nil?
@@ -107,19 +106,18 @@ module LavinMQ
             end
             compiled_rules << CompiledRule.new(chain, rule.read?, rule.write?)
           end
-          # A group with no valid rule grants nothing and must not be what
-          # flips every client to default-deny.
+          # A group with no valid rule grants nothing; skip it so its members
+          # don't get empty entries that would flip every client to default-deny.
           next if compiled_rules.empty?
-          mqtt_in_use = true
           if group.members.includes?("*")
-            wildcard_rules.concat(compiled_rules)
+            global_rules.concat(compiled_rules)
           else
             group.members.each do |member|
-              (by_member[member] ||= [] of CompiledRule).concat(compiled_rules)
+              (by_member[member] ||= Array(CompiledRule).new).concat(compiled_rules)
             end
           end
         end
-        @compiled = Compiled.new(by_member, wildcard_rules, mqtt_in_use)
+        @compiled = Compiled.new(by_member, global_rules)
       end
 
       private def load!

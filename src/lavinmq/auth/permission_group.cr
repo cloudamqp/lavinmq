@@ -18,13 +18,13 @@ module LavinMQ
 
       getter name : String
       getter protocol : String = "mqtt"
-      getter members : Array(String) = [] of String
-      getter rules : Array(Rule) = [] of Rule
+      getter members = Array(String).new
+      getter rules = Array(Rule).new
 
       def initialize(@name : String,
                      @protocol : String = "mqtt",
-                     @members : Array(String) = [] of String,
-                     @rules : Array(Rule) = [] of Rule)
+                     @members = Array(String).new,
+                     @rules = Array(Rule).new)
       end
 
       def validate! : self

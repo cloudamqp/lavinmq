@@ -629,20 +629,22 @@ describe LavinMQ::HTTP::Server do
         # makes the whole import a clean no-op: the earlier group is neither
         # applied in memory (so mqtt_in_use? does not flip and put every MQTT
         # client into default-deny) nor written to disk.
-        body = %({ "permission_groups": [
-          {
-            "name": "regression_group_ok",
-            "protocol": "mqtt",
-            "members": ["*"],
-            "rules": [{ "pattern": "a/#", "read": true, "write": true }]
-          },
-          {
-            "name": "regression_group_bad",
-            "protocol": "mqtt",
-            "members": ["*"],
-            "rules": [{ "pattern": "secret/#/temp", "read": true, "write": false }]
-          }
-        ]})
+        body = <<-JSON
+          { "permission_groups": [
+            {
+              "name": "regression_group_ok",
+              "protocol": "mqtt",
+              "members": ["*"],
+              "rules": [{ "pattern": "a/#", "read": true, "write": true }]
+            },
+            {
+              "name": "regression_group_bad",
+              "protocol": "mqtt",
+              "members": ["*"],
+              "rules": [{ "pattern": "secret/#/temp", "read": true, "write": false }]
+            }
+          ]}
+          JSON
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         s.permission_service["regression_group_ok"]?.should be_nil

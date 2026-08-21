@@ -152,6 +152,14 @@ describe LavinMQ::Auth::PermissionService do
     end
   end
 
+  it "leaves mqtt_in_use? false for a group with rules but no members" do
+    with_service do |service|
+      service.put(group("g", Array(String).new, [rule("a/#", read: true)]))
+      service.mqtt_in_use?.should be_false
+      service.can_read?("c1", "a/b").should be_true
+    end
+  end
+
   it "leaves mqtt_in_use? false for a group with an empty rules array" do
     with_service do |service|
       service.put(group("g", ["*"], [] of LavinMQ::Auth::PermissionGroup::Rule))
