@@ -30,11 +30,25 @@ module LavinMQ
         @vhost.register_exchange(@exchange)
       end
 
-      def session_present?(client_id : String, clean_session) : Bool
-        return false if clean_session
+      # Clean Start = 1 always reports no session, because the stored one is about
+      # to be discarded [MQTT-3.1.2-4].
+      #
+      # The auto_delete? guard is for takeover: this runs before add_client, so a
+      # 0-interval session belonging to a still-connected client is visible here,
+      # and that session is ended by the takeover rather than resumed (3.1.4).
+      def session_present?(client_id : String, clean_start) : Bool
+        return false if clean_start
         session = sessions[client_id]? || return false
-        return false if session.clean_session?
-        true
+        !session.auto_delete?
+      end
+
+      # v3 has no expiry property, so its clean-session bit carries both meanings:
+      # 1 ends the session with the connection, 0 keeps it forever, which is what
+      # LavinMQ has always done. v5 reads the property, absent meaning 0
+      # [MQTT-3.1.2-11].
+      private def session_expiry_interval(packet : Protocol::Connect) : UInt32
+        return packet.clean_session? ? 0u32 : UInt32::MAX unless packet.version.v5?
+        packet.properties.session_expiry_interval || 0u32
       end
 
       def add_client(io, connection_info, user, packet) : Client
@@ -48,17 +62,26 @@ module LavinMQ
           connection_info,
           user,
           self,
-          packet.client_id,
-          ProtocolVersion.from_value(packet.version),
-          packet.clean_session?,
-          packet.keepalive,
-          packet.will)
-        if client.clean_session?
+          client_id: packet.client_id,
+          keepalive: packet.keepalive,
+          will: packet.will,
+          max_packet_size: packet.properties.maximum_packet_size,
+          session_expiry_interval: session_expiry_interval(packet))
+        # Clean Start and the expiry are separate inputs: the first decides
+        # whether to discard the stored session, the second how long the session
+        # this connection ends up with will outlive it.
+        if packet.clean_session?
           sessions[client.client_id]?.try &.delete
         else
-          # If an existing session exists, reuse it. If no session exists
-          # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          # Reuse an existing session, adopting this connection's interval. No
+          # session yet means it is created on first subscribe.
+          if session = sessions[client.client_id]?
+            # Attach first: while the session has a client, wait_for_client
+            # cannot run, so narrowing the interval here can never expire the
+            # session this connection is about to resume.
+            session.client = client
+            session.session_expiry_interval = client.session_expiry_interval
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client
@@ -80,7 +103,7 @@ module LavinMQ
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
-            session.delete if session.clean_session?
+            session.delete if session.auto_delete?
           end
         end
         @clients.delete(client_id) if @clients[client_id]? == client
@@ -95,21 +118,28 @@ module LavinMQ
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          session.subscribe(tf.topic, tf.qos)
+          # We only deliver up to MAX_QOS, so grant (and store/deliver at) the
+          # clamped QoS - the SUBACK must report the granted max [MQTT-3.8.4-7].
+          granted = Math.min(tf.qos, MAX_QOS)
+          session.subscribe(tf.topic, granted)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: tf.qos)
+            props = AMQP::Properties.new(headers: headers, delivery_mode: granted)
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          Protocol::SubAck::ReturnCode.from_int(tf.qos)
+          Protocol::SubAck::ReasonCode.from_value(granted)
         end
       end
 
-      def unsubscribe(client_id, topics)
+      def unsubscribe(client_id, topics) : Array(Protocol::UnsubAck::ReasonCode)
         session = sessions[client_id]
-        topics.each do |tf|
-          session.unsubscribe(tf)
+        topics.map do |tf|
+          if session.unsubscribe(tf)
+            Protocol::UnsubAck::ReasonCode::Success
+          else
+            Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted
+          end
         end
       end
 

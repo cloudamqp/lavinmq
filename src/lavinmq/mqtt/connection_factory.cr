@@ -12,24 +12,45 @@ module LavinMQ
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "mqtt.connection_factory"
 
+      @server_capabilities : Protocol::ConnackProperties
+
       def initialize(@authenticator : Auth::Authenticator,
                      @brokers : Brokers, @config : Config)
+        @server_capabilities = build_server_capabilities
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
-          io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
-          if packet = io.read_packet.as?(Protocol::Connect)
-            logger.trace { "recv #{packet.inspect}" }
-            user, broker = authenticate(io, packet)
-            packet = assign_client_id(packet, user.name) if packet.client_id.empty?
-            validate_client_id!(packet.client_id, user.name)
-            session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-            connack io, session_present, Protocol::Connack::ReturnCode::Accepted
-            broker.run_client(io, connection_info, user, packet)
+          # CONNECT carries the protocol version on the wire; read_connect
+          # bootstraps with a v3 IO and hands back one reframed to the negotiated
+          # version (v3.1 / v3.1.1 / v5) for every subsequent packet. It only
+          # rebinds io on success, so the v3 boot IO survives a parse error and
+          # the rescue below can still answer with a CONNACK.
+          io = Protocol::IO::V3.new(socket, @config.mqtt_max_packet_size)
+          packet, io = io.read_connect
+          logger.trace { "recv #{packet.inspect}" }
+          # Enhanced authentication (the AUTH-packet flow) is not supported;
+          # reject before username/password auth so the reason is accurate. v5
+          # only - v3 has no properties. [MQTT-4.12]
+          if packet.properties.authentication_method
+            logger.warn { "Enhanced authentication requested but not supported" }
+            reject_connack(io, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+            return socket.close
           end
+          user, broker = authenticate(io, packet)
+          # A client that sends an empty client id gets one assigned; a v5
+          # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].
+          assigned_client_id = nil
+          if packet.client_id.empty?
+            assigned_client_id = generated_client_id(user.name)
+            packet = packet.copy_with(client_id: assigned_client_id)
+          end
+          validate_client_id!(packet.client_id, user.name)
+          session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+          connack io, session_present, Protocol::Connack::ReturnCode::Accepted, assigned_client_id
+          broker.run_client(io, connection_info, user, packet)
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
           if io
@@ -44,9 +65,52 @@ module LavinMQ
         end
       end
 
-      private def connack(io : Protocol::IO, session_present : Bool, return_code : Protocol::Connack::ReturnCode)
-        Protocol::Connack.new(session_present, return_code).to_io(io)
+      # Send a v5 CONNACK carrying a reason code that has no v3 return-code
+      # equivalent (e.g. BadAuthenticationMethod 0x8C). v5-only by construction.
+      private def reject_connack(io : Protocol::IO, reason : Protocol::Connack::ReasonCode)
+        Protocol::Connack.new(false, reason).to_io(io)
         io.flush
+      end
+
+      private def connack(io : Protocol::IO, session_present : Bool,
+                          return_code : Protocol::Connack::ReturnCode,
+                          assigned_client_id : String? = nil)
+        reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
+        # A v5 server must advertise which optional features it supports; an
+        # accepted v5 connection carries the capability set. On v3 the properties
+        # are ignored on the wire, so the v3 CONNACK is byte-for-byte unchanged.
+        properties =
+          if io.version.v5? && return_code.accepted?
+            if assigned_client_id
+              # Per-connection, so build a fresh set rather than mutating the
+              # shared static one.
+              caps = build_server_capabilities
+              caps.assigned_client_identifier = assigned_client_id
+              caps
+            else
+              @server_capabilities
+            end
+          else
+            Protocol::ConnackProperties.new
+          end
+        Protocol::Connack.new(session_present, reason, properties).to_io(io)
+        io.flush
+      end
+
+      # The fixed v5 capabilities LavinMQ advertises in CONNACK. They depend only
+      # on config (fixed after startup), so this is built once in initialize.
+      # Advertising a feature as unavailable is what makes deferring it spec-
+      # compliant; each deferred feature is then rejected in its own packet handler.
+      private def build_server_capabilities : Protocol::ConnackProperties
+        props = Protocol::ConnackProperties.new
+        props.maximum_qos = MAX_QOS   # QoS 2 not implemented
+        props.retain_available = true # LavinMQ has a retain store
+        props.wildcard_subscription_available = true
+        props.topic_alias_maximum = 0u16                # topic aliases not implemented
+        props.subscription_identifier_available = false # subscription ids not implemented
+        props.shared_subscription_available = false     # shared subscriptions not implemented
+        props.maximum_packet_size = @config.mqtt_max_packet_size
+        props
       end
 
       def authenticate(io : Protocol::IO, packet)
@@ -71,18 +135,12 @@ module LavinMQ
         {user, broker}
       end
 
-      def assign_client_id(packet, username : String)
-        client_id = case @config.mqtt_client_id_validation
-                    in .none?     then Random::Secure.base64(32)
-                    in .username? then username
-                    end
-        Protocol::Connect.new(client_id,
-          packet.clean_session?,
-          packet.keepalive,
-          packet.username,
-          packet.password,
-          packet.will,
-          packet.version)
+      # A server-generated client id for a client that connected without one.
+      private def generated_client_id(username : String) : String
+        case @config.mqtt_client_id_validation
+        in .none?     then Random::Secure.base64(32)
+        in .username? then username
+        end
       end
 
       private def validate_client_id!(client_id : String, username : String) : Nil

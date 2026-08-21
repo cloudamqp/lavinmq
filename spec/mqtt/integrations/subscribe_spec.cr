@@ -42,7 +42,7 @@ module MqttSpecs
 
           temp_io = IO::Memory.new
           topic_filters = mk_topic_filters({"a/b", 0})
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO::V3.new(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           subscribe_pkt = temp_io.to_slice
           # This will overwrite the protocol level byte
@@ -62,7 +62,7 @@ module MqttSpecs
 
           topic_filters = mk_topic_filters({"a/b", 0})
           temp_io = IO::Memory.new
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO::V3.new(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           sub_pkt = temp_io.to_slice
           sub_pkt[1] = 2u8 # Override remaning length
@@ -81,7 +81,7 @@ module MqttSpecs
 
           topic_filters = mk_topic_filters({"a/b", 0})
           temp_io = IO::Memory.new
-          subscribe(MQTT::Protocol::IO.new(temp_io), topic_filters: topic_filters, expect_response: false)
+          subscribe(MQTT::Protocol::IO::V3.new(temp_io), topic_filters: topic_filters, expect_response: false)
           temp_io.rewind
           sub_pkt = temp_io.to_slice
           sub_pkt[sub_pkt.size - 1] |= 0b1010_0100u8
@@ -103,7 +103,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos0
-          suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
+          suback.reason_codes.first.should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0)
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
@@ -118,7 +118,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
-          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS1])
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)

@@ -6,7 +6,7 @@ module MqttSpecs
     it "reports MQTT 3.1.1 for protocol level 4" do
       with_server do |server|
         with_client_io(server) do |io|
-          connect(io, version: 4u8)
+          connect(io, version: MQTT::Protocol::Version::V3_1_1)
           conn = wait_for { server.connections.first?.as?(LavinMQ::MQTT::Client) }
           conn.details_tuple[:protocol].should eq "MQTT 3.1.1"
         end
@@ -16,7 +16,7 @@ module MqttSpecs
     it "reports MQTT 3.1 for protocol level 3 (MQIsdp)" do
       with_server do |server|
         with_client_io(server) do |io|
-          connect(io, version: 3u8)
+          connect(io, version: MQTT::Protocol::Version::V3_1)
           conn = wait_for { server.connections.first?.as?(LavinMQ::MQTT::Client) }
           conn.details_tuple[:protocol].should eq "MQTT 3.1"
         end
@@ -26,7 +26,7 @@ module MqttSpecs
     it "keeps the negotiated version when the client id is auto-assigned" do
       with_server do |server|
         with_client_io(server) do |io|
-          connect(io, version: 3u8, client_id: "", clean_session: true)
+          connect(io, version: MQTT::Protocol::Version::V3_1, client_id: "", clean_session: true)
           conn = wait_for { server.connections.first?.as?(LavinMQ::MQTT::Client) }
           conn.details_tuple[:protocol].should eq "MQTT 3.1"
         end

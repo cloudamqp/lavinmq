@@ -1,5 +1,6 @@
 require "digest/sha1"
 require "./protocol"
+require "./publish_headers"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
@@ -23,9 +24,25 @@ module LavinMQ
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
       EFFECTIVE_ARGS = {"x-queue-type"}
 
+      # Per-instance, not the ARGUMENTS constant: definitions_store persists a
+      # session as a Queue::Declare frame carrying this table, so it is the only
+      # place session state can survive a restart. Never mutated, so sharing the
+      # constant as the default is safe - but it MUST keep x-queue-type, or
+      # QueueFactory rebuilds the session as a plain AMQP queue on the next boot.
+      @arguments : AMQP::Table
+
       getter name : String
       getter vhost : VHost
-      getter? auto_delete
+
+      # Seconds the session outlives its connection [MQTT-3.1.2.11.2]. 0 means it
+      # ends when the connection closes, UInt32::MAX means it never expires.
+      # Single source for auto_delete? and the expiry clock.
+      getter session_expiry_interval : UInt32
+
+      # Derived from the interval once, at construction: it selects the data dir,
+      # the replicator and the message store's durability, none of which can be
+      # re-derived once that store exists.
+      @durable : Bool
 
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
@@ -40,8 +57,11 @@ module LavinMQ
 
       protected def initialize(@vhost : VHost,
                                @name : String,
-                               @auto_delete = false,
-                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                               auto_delete = false,
+                               arguments : ::AMQ::Protocol::Table = ARGUMENTS)
+        @arguments = arguments
+        @session_expiry_interval = self.class.expiry_from(@name, arguments, auto_delete)
+        @durable = !@session_expiry_interval.zero?
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 
@@ -75,7 +95,28 @@ module LavinMQ
       end
 
       def arguments : AMQP::Table
-        ARGUMENTS
+        @arguments
+      end
+
+      # The argument wins when usable. Bounds-checked rather than cast, and warned
+      # about rather than swallowed, because an AMQP client can declare mqtt.<id>
+      # by hand with any int type in there - or something that is not an int.
+      #
+      # Without a usable one, fall back to what the declare flag meant before
+      # Session Expiry Interval existed - auto_delete was clean_session, so a
+      # durable session meant "keep forever". That covers both a definitions file
+      # written by an older LavinMQ and a caller declaring a session directly.
+      protected def self.expiry_from(name : String,
+                                     arguments : ::AMQ::Protocol::Table,
+                                     auto_delete : Bool) : UInt32
+        v = arguments[SESSION_EXPIRY_ARG]?
+        if v.is_a?(Int)
+          return v.to_u32 if v >= 0 && v <= UInt32::MAX
+          Log.warn { "#{name}: ignoring out-of-range #{SESSION_EXPIRY_ARG}=#{v}" }
+        elsif !v.nil?
+          Log.warn { "#{name}: ignoring non-integer #{SESSION_EXPIRY_ARG}=#{v.inspect}" }
+        end
+        auto_delete ? 0u32 : UInt32::MAX
       end
 
       def close : Bool
@@ -99,17 +140,37 @@ module LavinMQ
         true
       end
 
-      def clean_session?
-        @auto_delete
+      def auto_delete? : Bool
+        @session_expiry_interval.zero?
+      end
+
+      # A reconnecting client may name a different interval, and so may its
+      # DISCONNECT [MQTT-3.14.2.2.2]. @arguments carries it, but the definitions
+      # log has no update frame for an existing queue, so it only reaches disk at
+      # the next compaction.
+      #
+      # auto_delete? and the expiry clock follow this; durable? deliberately does
+      # not, so narrowing to 0 still writes a persisted deletion frame rather than
+      # leaving the original declare to replay.
+      def session_expiry_interval=(interval : UInt32) : Nil
+        return if interval == @session_expiry_interval
+        @session_expiry_interval = interval
+        # clone, never mutate: @arguments may be the shared ARGUMENTS constant.
+        args = @arguments.clone
+        args[SESSION_EXPIRY_ARG] = interval
+        @arguments = args
       end
 
       private def deliver_loop
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          # Client before store: an offline session has to park on @has_client,
+          # both so the expiry clock runs and so it does not wake on a publish it
+          # cannot deliver.
           client = @client
-          next @has_client.when_true.receive? if client.nil?
+          next wait_for_client if client.nil?
+          next wait_for_messages if @msg_store.empty?
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet)
@@ -126,6 +187,46 @@ module LavinMQ
         end
       end
 
+      # Parks until there is something to deliver. The detach arm matters: on its
+      # own, a park on @msg_store.empty never wakes when the client leaves, so the
+      # loop would never reach the top again to start the expiry clock.
+      private def wait_for_messages : Nil
+        select
+        when @msg_store.empty.when_false.receive?
+        when @has_client.when_false.receive?
+        end
+      end
+
+      # Parks until a client attaches, or until the session expires. This is the
+      # only place the expiry clock runs - exactly the window in which the session
+      # has no connection [MQTT-3.1.2.11.2]. Reattaching cancels the timer, and
+      # the next disconnect enters a fresh select, so the interval is measured
+      # from each disconnect rather than accumulated.
+      private def wait_for_client : Nil
+        ttl = @session_expiry_interval
+        # Unreachable in practice - Broker#remove_client deletes a 0-interval
+        # session - but expiring is the right answer if it is ever reached.
+        return expire if ttl.zero?
+        if ttl == UInt32::MAX
+          @has_client.when_true.receive?
+          return
+        end
+        select
+        when @has_client.when_true.receive?
+        when timeout ttl.seconds
+          expire
+        end
+      end
+
+      # Runs on the session's own fiber. `delete` closes @has_client and the
+      # message store, so deliver_loop's `break if closed?` exits on the next
+      # pass; the re-entrant q.delete from @vhost.delete_queue is a no-op via
+      # @deleted.
+      private def expire : Nil
+        @log.info { "Session expired after #{@session_expiry_interval}s offline" }
+        delete
+      end
+
       def client : MQTT::Client?
         @client
       end
@@ -134,7 +235,7 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
-        unless clean_session?
+        if durable?
           @msg_store_lock.synchronize do
             @unacked.values.each do |sp|
               @msg_store.requeue(sp)
@@ -153,8 +254,8 @@ module LavinMQ
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
-      def durable?
-        !clean_session?
+      def durable? : Bool
+        @durable
       end
 
       def subscribe(tf, qos)
@@ -167,9 +268,14 @@ module LavinMQ
         @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
       end
 
-      def unsubscribe(tf)
+      # Returns whether a matching subscription existed, so the v5 UNSUBACK can
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3].
+      def unsubscribe(tf) : Bool
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
+          true
+        else
+          false
         end
       end
 
@@ -205,13 +311,12 @@ module LavinMQ
           if no_ack
             begin
               packet = build_packet(env, nil)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
+              if exceeds_max_packet_size?(packet)
+                delete_message(sp)
+                next
               end
+              yield packet, sp.bytesize
+              record_delivery(env.redelivered, no_ack)
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
@@ -225,21 +330,28 @@ module LavinMQ
                 return false
               end
               packet = build_packet(env, id)
+              if exceeds_max_packet_size?(packet)
+                # Discard without sending and complete the delivery: do not track
+                # it in @unacked, so it is not redelivered [MQTT-3.1.2-25].
+                delete_message(sp)
+                next
+              end
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
+              begin
+                yield packet, sp.bytesize
+                record_delivery(env.redelivered, no_ack)
+                @unacked[id] = sp
+                @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
+              rescue ex # roll back only what this block added
+                # Scoped tightly on purpose: build_packet above can raise, and
+                # subtracting a count that was never added goes negative.
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                raise ex
               end
-              @unacked[id] = sp
-              @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
               raise ex
             end
           end
@@ -252,19 +364,45 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
+      private def record_delivery(redelivered : Bool, no_ack : Bool) : Nil
+        if redelivered
+          @redeliver_count.add(1, :relaxed)
+        else
+          (no_ack ? @deliver_no_ack_count : @deliver_count).add(1, :relaxed)
+          @deliver_get_count.add(1, :relaxed)
+        end
+      end
+
+      # A v5 client's Maximum Packet Size caps the packets we may send it
+      # [MQTT-3.1.2-24]. Only v5 clients set it, so size against v5 framing.
+      private def exceeds_max_packet_size?(packet : Protocol::Publish) : Bool
+        max = @client.try(&.max_packet_size) || return false
+        return false unless packet.bytesize(Protocol::Version::V5) > max
+        @log.debug { "Dropping PUBLISH exceeding client Maximum Packet Size (#{max} bytes)" }
+        true
+      end
+
       def build_packet(env, packet_id) : Protocol::Publish
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
-        qos = 1u8 if qos > 1
+        qos = MAX_QOS if qos > MAX_QOS
         dup = qos.zero? ? false : env.redelivered
+        # IO::V3#write_properties discards these, so a v3 subscriber should not
+        # pay six Table#fetch linear scans per delivery to build them.
+        properties = if @client.try(&.version.v5?)
+                       PublishHeaders.restore(msg.properties.headers)
+                     else
+                       Protocol::PublishProperties.new
+                     end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
           qos: qos,
           retain: retained,
-          topic: msg.routing_key
+          topic: msg.routing_key,
+          properties: properties
         )
       end
 
@@ -377,7 +515,7 @@ module LavinMQ
       end
 
       def match?(durable, exclusive, auto_delete, arguments) : Bool
-        durable? == durable && @auto_delete == auto_delete
+        durable? == durable && auto_delete? == auto_delete
       end
 
       def unacked_messages
@@ -398,7 +536,7 @@ module LavinMQ
           name:                         @name,
           durable:                      durable?,
           exclusive:                    false,
-          auto_delete:                  @auto_delete,
+          auto_delete:                  auto_delete?,
           arguments:                    NamedTuple.new, # "empty" AMQP::Table
           consumers:                    consumer_count,
           vhost:                        @vhost.name,
