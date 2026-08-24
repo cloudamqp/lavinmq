@@ -25,6 +25,7 @@ This release adds MQTT topic permissions, negative `x-stream-offset` values to r
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
 - `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher [#2204](https://github.com/cloudamqp/lavinmq/pull/2204)
+- `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
 - API endpoint and management UI action to close a single channel [#2212](https://github.com/cloudamqp/lavinmq/pull/2212)
 - `state` query parameter on `GET /api/queues` and `GET /api/queues/:vhost` to filter queues by state, e.g. `?state=closed` or `?state=paused,closed` [#2234](https://github.com/cloudamqp/lavinmq/pull/2234)
 - Per-queue delivered and acked totals in Prometheus metrics [#1837](https://github.com/cloudamqp/lavinmq/pull/1837)
