@@ -66,6 +66,7 @@ module LavinMQ
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        qos = 1u8 if qos > 1
         @tree.subscribe(routing_key, destination, qos)
 
         binding_key = SubscriptionKey.new(routing_key, qos)
@@ -76,6 +77,7 @@ module LavinMQ
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        qos = 1u8 if qos > 1
         @tree.unsubscribe(routing_key, destination)
 
         binding_key = SubscriptionKey.new(routing_key, qos)
