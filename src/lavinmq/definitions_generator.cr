@@ -52,18 +52,11 @@ class LavinMQCtl
                 end
               end
             end
-            groups_by_vhost = Array({String, Array(JSON::Any)}).new
-            each_vhost do |vhost, vhost_dir|
-              groups = mqtt_permissions(vhost_dir)
-              groups_by_vhost << {vhost, groups} unless groups.empty?
-            end
-            unless groups_by_vhost.empty?
-              json.field("mqtt_permissions") do
-                json.array do
-                  groups_by_vhost.each do |vhost, groups|
-                    groups.each do |g|
-                      g.as_h.merge!({"vhost" => JSON::Any.new(vhost)}).to_json(json)
-                    end
+            json.field("mqtt_permissions") do
+              json.array do
+                each_vhost do |vhost, vhost_dir|
+                  mqtt_permissions(vhost_dir).each do |g|
+                    g.as_h.merge!({"vhost" => JSON::Any.new(vhost)}).to_json(json)
                   end
                 end
               end
@@ -187,10 +180,6 @@ class LavinMQCtl
       File.open("users.json") { |f| JSON.parse f }.as_a
     end
 
-    # When no vhost has any permission group, which is the common case, the
-    # generated definitions omit the "mqtt_permissions" key entirely
-    # (matching how the online exporter behaves with no groups) rather than
-    # emitting an empty array.
     private def mqtt_permissions(vhost_dir)
       File.open(File.join(vhost_dir, "mqtt_permissions.json")) do |f|
         JSON.parse(f).as_a

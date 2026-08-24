@@ -34,13 +34,13 @@ describe LavinMQCtl::DefinitionsGenerator do
     end
   end
 
-  it "omits the mqtt_permissions key entirely when the file is absent" do
+  it "emits an empty mqtt_permissions array when no vhost has groups" do
     with_data_dir do |data_dir|
       io = IO::Memory.new
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
       body = JSON.parse(io.to_s)
 
-      body.as_h.has_key?("mqtt_permissions").should be_false
+      body["mqtt_permissions"].as_a.should be_empty
     end
   end
 end
