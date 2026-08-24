@@ -47,8 +47,8 @@ test.describe('queue tabs', _ => {
   const queueResponse = {
     name: queueName, durable: true, exclusive: false, auto_delete: false, arguments: {},
     consumers: consumerCount, vhost: queueVhost, messages: 0, total_bytes: 0,
-    messages_persistent: 0, ready: 0, messages_ready: 0, ready_bytes: 0,
-    message_bytes_ready: 0, ready_avg_bytes: 0, unacked: 0, messages_unacknowledged: 0,
+    messages_persistent: 0, ready: 0, messages_ready: 0, messages_ready_details: { log: [] }, ready_bytes: 0,
+    message_bytes_ready: 0, ready_avg_bytes: 0, unacked: 0, messages_unacknowledged: 0, messages_unacknowledged_details: { log: [] },
     unacked_bytes: 0, message_bytes_unacknowledged: 0, unacked_avg_bytes: 0,
     state: 'running', effective_policy_definition: {},
     effective_arguments: ['x-expires', 'x-max-length', 'x-max-length-bytes', 'x-message-ttl', 'x-delivery-limit', 'x-consumer-timeout'],
