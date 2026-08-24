@@ -86,6 +86,10 @@
           <pre class="arguments" id="q-arguments"></pre>
         </section>
         <section class="card cols-12 align-start">
+          <h3>Queued messages</h3>
+          <div class="chart-container" id="msgChart"></div>
+        </section>
+        <section class="card cols-12 align-start">
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
