@@ -35,6 +35,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
 | `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
+| `tls_prefer_server_ciphers` | `--tls-prefer-server-ciphers` | `LAVINMQ_TLS_PREFER_SERVER_CIPHERS` | Bool | `false` | Pick the cipher by the server's order in `tls_ciphers` instead of the client's preference |
 | `tls_min_version` | `--tls-min-version` | `LAVINMQ_TLS_MIN_VERSION` | String | (empty) | Minimum TLS version. When empty, the TLS library default (1.2) is used. |
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
 | `tls_ktls` | `--tls-ktls` | — | Bool | `false` | Enable kernel TLS offloading |
@@ -152,6 +153,7 @@ Per-hostname TLS configuration. Create a section for each hostname.
 | `tls_key` | Private key file. If empty, the cert file is expected to contain both. |
 | `tls_min_version` | Minimum TLS version |
 | `tls_ciphers` | Allowed cipher list |
+| `tls_prefer_server_ciphers` | Pick the cipher by the server's order instead of the client's preference |
 | `tls_verify_peer` | Require client certificate (mTLS) |
 | `tls_ca_cert` | CA bundle for verifying client certs (mTLS) |
 | `tls_keylog_file` | TLS key log file for debugging |

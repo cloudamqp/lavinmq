@@ -211,37 +211,41 @@ module LavinMQ
       settings.each do |config, v|
         case config
         # Default TLS settings
-        when "tls_cert"        then host.tls_cert = v
-        when "tls_key"         then host.tls_key = v
-        when "tls_min_version" then host.tls_min_version = v
-        when "tls_ciphers"     then host.tls_ciphers = v
-        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
-        when "tls_ca_cert"     then host.tls_ca_cert = v
-        when "tls_keylog_file" then host.tls_keylog_file = v
+        when "tls_cert"                  then host.tls_cert = v
+        when "tls_key"                   then host.tls_key = v
+        when "tls_min_version"           then host.tls_min_version = v
+        when "tls_ciphers"               then host.tls_ciphers = v
+        when "tls_prefer_server_ciphers" then host.tls_prefer_server_ciphers = true?(v)
+        when "tls_verify_peer"           then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"               then host.tls_ca_cert = v
+        when "tls_keylog_file"           then host.tls_keylog_file = v
           # AMQP-specific overrides
-        when "amqp_tls_cert"        then host.amqp_tls_cert = v
-        when "amqp_tls_key"         then host.amqp_tls_key = v
-        when "amqp_tls_min_version" then host.amqp_tls_min_version = v
-        when "amqp_tls_ciphers"     then host.amqp_tls_ciphers = v
-        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
-        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
-        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
+        when "amqp_tls_cert"                  then host.amqp_tls_cert = v
+        when "amqp_tls_key"                   then host.amqp_tls_key = v
+        when "amqp_tls_min_version"           then host.amqp_tls_min_version = v
+        when "amqp_tls_ciphers"               then host.amqp_tls_ciphers = v
+        when "amqp_tls_prefer_server_ciphers" then host.amqp_tls_prefer_server_ciphers = true?(v)
+        when "amqp_tls_verify_peer"           then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"               then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file"           then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
-        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
-        when "mqtt_tls_key"         then host.mqtt_tls_key = v
-        when "mqtt_tls_min_version" then host.mqtt_tls_min_version = v
-        when "mqtt_tls_ciphers"     then host.mqtt_tls_ciphers = v
-        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
-        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
-        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_cert"                  then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"                   then host.mqtt_tls_key = v
+        when "mqtt_tls_min_version"           then host.mqtt_tls_min_version = v
+        when "mqtt_tls_ciphers"               then host.mqtt_tls_ciphers = v
+        when "mqtt_tls_prefer_server_ciphers" then host.mqtt_tls_prefer_server_ciphers = true?(v)
+        when "mqtt_tls_verify_peer"           then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"               then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file"           then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
-        when "http_tls_cert"        then host.http_tls_cert = v
-        when "http_tls_key"         then host.http_tls_key = v
-        when "http_tls_min_version" then host.http_tls_min_version = v
-        when "http_tls_ciphers"     then host.http_tls_ciphers = v
-        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
-        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
-        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when "http_tls_cert"                  then host.http_tls_cert = v
+        when "http_tls_key"                   then host.http_tls_key = v
+        when "http_tls_min_version"           then host.http_tls_min_version = v
+        when "http_tls_ciphers"               then host.http_tls_ciphers = v
+        when "http_tls_prefer_server_ciphers" then host.http_tls_prefer_server_ciphers = true?(v)
+        when "http_tls_verify_peer"           then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"               then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file"           then host.http_tls_keylog_file = v
         else
           @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end

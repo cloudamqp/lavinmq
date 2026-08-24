@@ -127,6 +127,7 @@ describe LavinMQ::Config do
           data_dir_lock = false
           tls_cert = /etc/lavinmq/cert.pem
           tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
+          tls_prefer_server_ciphers = true
           tls_key = /etc/lavinmq/key.pem
           tls_min_version = 1.3
           tls_keylog_file = /tmp/keylog.txt
@@ -212,6 +213,7 @@ describe LavinMQ::Config do
     config.data_dir_lock?.should be_false
     config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/lavinmq/key.pem"
     config.tls_min_version.should eq "1.3"
     config.tls_keylog_file.should eq "/tmp/keylog.txt"
@@ -289,6 +291,7 @@ describe LavinMQ::Config do
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
       "--ciphers=ECDHE-RSA-AES256-GCM-SHA384",
+      "--tls-prefer-server-ciphers=true",
       "--key=/etc/ssl/key.pem",
       "--tls-min-version=1.3",
       "--metrics-http-bind=0.0.0.0",
@@ -329,6 +332,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/ssl/key.pem"
     config.tls_min_version.should eq "1.3"
     config.metrics_http_bind.should eq "0.0.0.0"
@@ -370,6 +374,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_HTTPS_PORT"] = "15676"
     ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
     ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
+    ENV["LAVINMQ_TLS_PREFER_SERVER_CIPHERS"] = "true"
     ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
     ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
     ENV["LAVINMQ_DEFAULT_CONSUMER_PREFETCH"] = "2000"
@@ -395,6 +400,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15676
     config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
     config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
+    config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/certs/env-key.pem"
     config.tls_min_version.should eq "1.2"
     config.default_consumer_prefetch.should eq 2000
@@ -417,6 +423,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_HTTPS_PORT")
     ENV.delete("LAVINMQ_TLS_CERT_PATH")
     ENV.delete("LAVINMQ_TLS_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")
     ENV.delete("LAVINMQ_TLS_KEY_PATH")
     ENV.delete("LAVINMQ_TLS_MIN_VERSION")
     ENV.delete("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")
@@ -872,6 +879,27 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         served_cn(amqp_ctx, "foobar.localhost").should eq "foobar.localhost"
+      end
+    end
+
+    it "applies and clears tls_prefer_server_ciphers on reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_prefer_server_ciphers = true
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          tls_prefer_server_ciphers = false
+          INI
+        launcher.reload!
+        amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
       end
     end
 

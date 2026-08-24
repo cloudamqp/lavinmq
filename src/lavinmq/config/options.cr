@@ -214,6 +214,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_TLS_CIPHERS")]
       property tls_ciphers = ""
 
+      @[CliOpt("", "--tls-prefer-server-ciphers=BOOL", "Let the server's cipher order decide which cipher is used (default: false)", section: "tls")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")]
+      property? tls_prefer_server_ciphers = false
+
       @[CliOpt("", "--key FILE", "Private key for the TLS certificate", section: "tls")]
       @[IniOpt(ini_name: tls_key, section: "main")]
       @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
