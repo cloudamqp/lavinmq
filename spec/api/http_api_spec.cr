@@ -58,6 +58,20 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should count returned unroutable messages in message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        response = http.get("/api/overview")
+        count = JSON.parse(response.body).dig("message_stats", "return_unroutable")
+        count.should eq 1
+      end
+    end
+
     it "should return sum of all published messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")

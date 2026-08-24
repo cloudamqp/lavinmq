@@ -350,6 +350,11 @@ module LavinMQ
                              message_stats.sum { |ms| ms[:confirm] },
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
+        writer.write({name:  "global_messages_unroutable_returned_total",
+                      value: @server.deleted_vhosts_messages_unroutable_returned_total +
+                             message_stats.sum { |ms| ms[:return_unroutable] },
+                      type: "counter",
+                      help: "Total number of unroutable messages returned to publishers"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
