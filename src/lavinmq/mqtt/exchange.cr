@@ -19,8 +19,6 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      # Routes a packet to the subscribed sessions. Retaining the message is the
-      # `Broker`'s responsibility, it owns the retain store.
       def publish(packet : Protocol::Publish) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
