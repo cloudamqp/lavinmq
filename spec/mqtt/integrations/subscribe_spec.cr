@@ -131,5 +131,55 @@ module MqttSpecs
         end
       end
     end
+
+    it "grants qos1 for a qos2 subscription [LavinMQ non-normative]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+
+          # LavinMQ doesn't support qos2, so a qos2 subscription is downgraded to
+          # qos1. The SubAck return code must show the granted maximum qos, not the
+          # requested one [MQTT-3.9.3-1].
+          topic_filters = mk_topic_filters({"a/b", 2})
+          suback = subscribe(io, topic_filters: topic_filters)
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback = suback.as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+
+          # Publish something to the topic we're subscribed to...
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          # ... consume it...
+          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          # ... and verify it be qos1, i.e. the downgrade is real and not just
+          # reported in the SubAck
+          packet.qos.should eq(1u8)
+          packet.packet_id.should_not be_nil
+
+          io.should be_drained
+        end
+      end
+    end
+
+    it "binds a qos2 subscription as qos1" do
+      with_server do |server|
+        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
+
+          binding = exchange.bindings_details.first
+          binding.binding_key.qos.should eq 1u8
+          binding.arguments.should eq LavinMQ::MQTT::QOS1_ARGUMENTS
+
+          # A follow up subscribe with the qos we granted is the same
+          # subscription, so it must not add a second binding
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          exchange.bindings_details.size.should eq 1
+          exchange.binding_count.should eq 1
+
+          disconnect(io)
+        end
+      end
+    end
   end
 end

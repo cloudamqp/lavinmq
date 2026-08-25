@@ -1,3 +1,5 @@
+require "../amqp"
+
 module LavinMQ
   module MQTT
     EXCHANGE      = "mqtt.default"

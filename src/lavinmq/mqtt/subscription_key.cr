@@ -12,8 +12,10 @@ module LavinMQ
     #
     # The subscription topic filter is carried in `topic_filter` (also exposed as
     # `routing_key` for interface parity); the QoS is carried in `qos`. `arguments`
-    # exposes the QoS as the shared, read-only `AMQP::Table` the rest of the system
-    # expects (`QOS_HEADER`); QoS 0 has no arguments.
+    # exposes the QoS as the `AMQP::Table` (keyed by `QOS_HEADER`) that the rest of
+    # the system expects, as one of the two shared, treat-as-read-only constants
+    # `QOS0_ARGUMENTS`/`QOS1_ARGUMENTS`, so no table is allocated per subscription.
+    # It is nilable only for parity with `AMQP::BindingKey#arguments`; it never is.
     struct SubscriptionKey
       getter topic_filter : String
       getter qos : UInt8
