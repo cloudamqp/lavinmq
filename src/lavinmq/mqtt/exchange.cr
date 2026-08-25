@@ -3,6 +3,7 @@ require "./consts"
 require "../destination"
 require "./subscription_tree"
 require "./session"
+require "./subscription_key"
 require "./subscription_details"
 require "./retain_store"
 
@@ -50,9 +51,7 @@ module LavinMQ
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
         @tree.each_entry do |session, qos, filter|
-          arguments = AMQP::Table.new
-          arguments[QOS_HEADER] = qos
-          result << SubscriptionDetails.new(name, vhost.name, LavinMQ::BindingKey.new(filter, arguments), session)
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
         end
         result
       end
@@ -67,18 +66,21 @@ module LavinMQ
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        qos = 1u8 if qos > 1
         @tree.subscribe(routing_key, destination, qos)
 
-        binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
+        binding_key = SubscriptionKey.new(routing_key, qos)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        qos = 1u8 if qos > 1
         @tree.unsubscribe(routing_key, destination)
 
-        binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
+        binding_key = SubscriptionKey.new(routing_key, qos)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
