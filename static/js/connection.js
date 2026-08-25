@@ -89,6 +89,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)
+    Table.renderCell(tr, 7, Helpers.closeChannelForm(item.name), 'right')
   }
   let mode = ''
   mode += item.confirm ? ' C' : ''

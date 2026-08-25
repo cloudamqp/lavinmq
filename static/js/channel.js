@@ -122,3 +122,12 @@ function updateChannel () {
 }
 updateChannel()
 setInterval(updateChannel, 5000)
+
+document.querySelector('#closeChannel').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const headers = new window.Headers({
+    'X-Reason': document.querySelector('[name=reason]').value
+  })
+  HTTP.request('DELETE', channelUrl, { headers })
+    .then(() => { window.location = 'channels' })
+})

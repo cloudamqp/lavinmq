@@ -17,7 +17,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter id, name
+      getter id, name, client
       property? running = true
       getter? flow = true
       @consumers = Array(AMQP::Consumer).new
@@ -738,6 +738,16 @@ module LavinMQ
         @next_msg_body_file.try &.close
         @log.debug { "Closed" }
         true
+      end
+
+      # Closes the channel from the server side, e.g. from the management API.
+      # The client is told why with a Channel::Close frame, but the channel is
+      # torn down right away so that a client that never replies with
+      # Channel::CloseOk can't keep it alive.
+      def close(reason : String) : Nil
+        code = ChannelReplyCode::PRECONDITION_FAILED
+        send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{reason}", 0_u16, 0_u16)
+        @client.close_channel(self)
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
