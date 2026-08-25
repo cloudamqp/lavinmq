@@ -17,7 +17,7 @@ tls_key = /etc/lavinmq/key.pem
 | `tls_cert` | `[main]` | (empty) | Certificate file (including chain) |
 | `tls_key` | `[main]` | (empty) | Private key file. If empty, the cert file is expected to contain both. |
 | `tls_ciphers` | `[main]` | (empty) | Allowed cipher list, in OpenSSL cipher list format |
-| `tls_prefer_server_ciphers` | `[main]` | `false` | Pick the cipher by the server's order in `tls_ciphers` instead of the client's preference |
+| `tls_prefer_server_ciphers` | `[main]` | `false` | Use the server's cipher order instead of the client's preference |
 | `tls_min_version` | `[main]` | (empty) | Minimum TLS version. Empty falls back to the TLS library default (1.2). |
 | `tls_ktls` | `[main]` | `false` | Enable kernel TLS offloading |
 | `tls_keylog_file` | `[main]` | (empty) | Key log file for debugging |
@@ -82,7 +82,7 @@ The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `t
 
 ## Cipher order
 
-By default the client decides which cipher is used: the server walks the client's preference list and picks the first cipher it also supports, so the order of `tls_ciphers` only decides which ciphers are allowed, not which one wins. Setting `tls_prefer_server_ciphers = true` (OpenSSL's `SSL_OP_CIPHER_SERVER_PREFERENCE`) flips that around, so the first entry in `tls_ciphers` that the client supports is the one negotiated.
+By default the client decides which cipher is used: the server walks the client's preference list and picks the first cipher it also supports, so the order of `tls_ciphers` only decides which ciphers are allowed, not which one wins. Setting `tls_prefer_server_ciphers = true` (OpenSSL's `SSL_OP_CIPHER_SERVER_PREFERENCE`) flips that around, so the highest-ranked cipher on the server that the client also supports is the one negotiated.
 
 ```ini
 [main]
