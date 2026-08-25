@@ -158,8 +158,7 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
-        arguments = AMQP::Table.new
-        arguments[QOS_HEADER] = qos
+        arguments = MQTT.qos_arguments(qos)
         if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)

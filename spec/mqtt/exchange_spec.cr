@@ -33,7 +33,7 @@ module MqttSpecs
           details.size.should eq 1
           sd = details.first
           sd.should be_a(LavinMQ::MQTT::SubscriptionDetails)
-          sd.binding_key.should be_a(LavinMQ::BindingKey)
+          sd.binding_key.should be_a(LavinMQ::MQTT::SubscriptionKey)
 
           # Same NamedTuple shape as LavinMQ::AMQP::BindingDetails (see spec/api/bindings_spec.cr)
           # so the two are interchangeable through duck typing.
