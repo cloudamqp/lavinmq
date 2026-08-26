@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../../clustering/client"
 
 module LavinMQ
   module HTTP
@@ -168,7 +169,7 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
-      def initialize
+      def initialize(@clustering_client : LavinMQ::Clustering::Client? = nil)
         register_routes
       end
 
@@ -185,6 +186,7 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             gc_metrics(writer)
+            cluster_metrics(writer)
           end
           context
         end
@@ -196,6 +198,15 @@ module LavinMQ
           report(context.response) { }
           context
         end
+      end
+
+      private def cluster_metrics(writer)
+        client = @clustering_client
+        return unless client
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: client.streamed_bytes,
+                      type:  "counter",
+                      help:  "Total bytes received from the leader for replication"})
       end
     end
 
@@ -436,6 +447,16 @@ module LavinMQ
                         value:  f.lag_in_bytes,
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
+          writer.write({name:   "follower_bytes_sent_total",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.sent_bytes,
+                        type:   "counter",
+                        help:   "Total bytes sent to the follower for replication"})
+          writer.write({name:   "follower_bytes_acked_total",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.acked_bytes,
+                        type:   "counter",
+                        help:   "Total bytes acknowledged as received by the follower"})
         end
         writer.write({name:  "mfile_count",
                       value: MFile.mmap_count,

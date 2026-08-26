@@ -36,7 +36,7 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
-      @streamed_bytes = 0_u64
+      getter streamed_bytes = 0_u64
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -79,7 +79,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
