@@ -201,10 +201,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
         serve_follower_metrics(cluster.repli) do |http|
           body = http.get("/metrics").body
-          leader = cluster.repli.leader_address.not_nil!
-          received = metric_value(body, "lavinmq_cluster_received_bytes_total", {"leader" => leader})
-          received.should_not be_nil
-          received.not_nil!.should be > 0
+          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total "))
+          line.should_not be_nil
+          line.not_nil!.split(' ').last.to_f.should be > 0
         end
       end
     end

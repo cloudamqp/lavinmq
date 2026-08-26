@@ -12,7 +12,6 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
-                           NamedTuple(leader: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
@@ -204,13 +203,10 @@ module LavinMQ
       private def cluster_metrics(writer)
         client = @clustering_client
         return unless client
-        if leader = client.leader_address
-          writer.write({name:   "cluster_received_bytes_total",
-                        labels: {leader: leader},
-                        value:  client.streamed_bytes,
-                        type:   "counter",
-                        help:   "Total bytes received from the leader for replication"})
-        end
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: client.streamed_bytes,
+                      type:  "counter",
+                      help:  "Total bytes received from the leader for replication"})
       end
     end
 

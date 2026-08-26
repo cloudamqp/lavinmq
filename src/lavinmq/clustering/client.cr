@@ -86,13 +86,6 @@ module LavinMQ
         end
       end
 
-      def leader_address : String?
-        if (host = @host) && (port = @port)
-          # Bracket IPv6 literals so the host:port label is unambiguous (e.g. [::1]:5679)
-          host.includes?(':') ? "[#{host}]:#{port}" : "#{host}:#{port}"
-        end
-      end
-
       def follow(uri : String)
         follow(URI.parse(uri))
       end
