@@ -123,6 +123,39 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  describe "#copy" do
+    # Regression: dead-lettering routes a message after releasing the queue's
+    # @msg_store_lock, while a racing purge/queue delete can munmap the
+    # segment. A zero-copy `store[sp]` read would then segfault mid-copy;
+    # `#copy` must return a message that owns all its memory (body and
+    # headers included).
+    it "returns a message that stays valid after its segment is unmapped" do
+      mktmpdir do |dir|
+        body = "dead letter me"
+        headers = LavinMQ::AMQP::Table.new({"x-dead-letter-exchange" => "dlx"})
+        props = LavinMQ::AMQP::Properties.new(headers: headers)
+        store = LavinMQ::MessageStore.new(dir, nil)
+        msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "ex", "rk", props,
+          body.bytesize.to_u64, IO::Memory.new(body))
+        sp = store.push(msg)
+        copy = store.copy(sp)
+        store.close # unmaps every segment
+        String.new(copy.body).should eq body
+        copy.exchange_name.should eq "ex"
+        copy.routing_key.should eq "rk"
+        copy.properties.headers.should eq headers
+      end
+    end
+
+    it "raises KeyError when the segment is gone" do
+      with_store do |store|
+        sp = store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        gone = LavinMQ::SegmentPosition.new(sp.segment + 1, sp.position, sp.bytesize)
+        expect_raises(KeyError) { store.copy(gone) }
+      end
+    end
+  end
+
   it "deletes orphaned ack files" do
     mktmpdir do |dir|
       # Create a dummy msgs file
