@@ -181,5 +181,37 @@ module MqttSpecs
         end
       end
     end
+
+    it "keeps the subscriptions of a persistent session after a restart" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b", 0u8)])
+          disconnect(io)
+        end
+
+        restart_server(server)
+
+        vhost = server.vhosts["/"]
+        vhost.session?("mqtt.sub").should_not be_nil
+        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
+
+    it "does not restore an unsubscribed topic after a restart" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b", 0u8)])
+          unsubscribe(io, ["a/b"])
+          disconnect(io)
+        end
+
+        restart_server(server)
+
+        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+      end
+    end
   end
 end
