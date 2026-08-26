@@ -160,6 +160,17 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   Table.renderCell(tr, 14, Helpers.nFormatter(item.total_bytes) + 'B', 'right')
 })
 
+const addQueueDialog = document.getElementById('add-queue-dialog')
+document.getElementById('show-add-queue').addEventListener('click', () => {
+  addQueueDialog.showModal()
+})
+document.getElementById('close-add-queue').addEventListener('click', () => {
+  addQueueDialog.close()
+})
+addQueueDialog.addEventListener('click', (evt) => {
+  if (evt.target === addQueueDialog) addQueueDialog.close()
+})
+
 document.querySelector('#declare').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
@@ -177,6 +188,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
+      addQueueDialog.close()
       DOM.toast('Queue ' + queue + ' created')
     })
 })

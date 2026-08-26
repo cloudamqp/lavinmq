@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage queues</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" id="show-add-queue">+ Add queue</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -51,8 +54,12 @@
           </table>
         </div>
       </section>
-      <form method="put" id="declare" class="form card">
-        <h3>Add queue</h3>
+      <dialog id="add-queue-dialog" class="dialog">
+        <div class="dialog-header">
+          <h3>Add queue</h3>
+          <button type="button" class="dialog-close" id="close-add-queue" aria-label="Close">&#x2715;</button>
+        </div>
+        <form method="put" id="declare" class="form">
         <label>
           <span>Virtual host</span>
           <select class="dropdown" name="vhost" required></select>
@@ -137,7 +144,8 @@
           </div>
         </label>
         <button type="submit" class="btn btn-green">Add queue</button>
-      </form>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>
