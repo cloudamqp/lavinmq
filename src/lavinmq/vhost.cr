@@ -90,6 +90,10 @@ module LavinMQ
       definitions.register_exchange(exchange)
     end
 
+    def mqtt_exchange : MQTT::Exchange
+      definitions.mqtt_exchange
+    end
+
     # Queue accessors
 
     def queue?(name : String) : AMQP::Queue?

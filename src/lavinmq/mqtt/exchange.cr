@@ -5,7 +5,6 @@ require "./subscription_tree"
 require "./session"
 require "./subscription_key"
 require "./subscription_details"
-require "./retain_store"
 
 module LavinMQ
   module MQTT
@@ -16,7 +15,7 @@ module LavinMQ
         "mqtt"
       end
 
-      def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
+      def initialize(vhost : VHost, name : String)
         super(vhost, name, false, false, true)
       end
 
@@ -28,11 +27,6 @@ module LavinMQ
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
-
-        if packet.retain?
-          @retain_store.retain(packet.topic, body, bodysize)
-          body.rewind
-        end
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
@@ -65,8 +59,7 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
-        qos = 1u8 if qos > 1
+        qos = MQTT.qos(arguments)
         @tree.subscribe(routing_key, destination, qos)
 
         binding_key = SubscriptionKey.new(routing_key, qos)
@@ -76,8 +69,7 @@ module LavinMQ
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
-        qos = 1u8 if qos > 1
+        qos = MQTT.qos(arguments)
         @tree.unsubscribe(routing_key, destination)
 
         binding_key = SubscriptionKey.new(routing_key, qos)

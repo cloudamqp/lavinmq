@@ -91,6 +91,32 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "imports bindings with the mqtt exchange as source" do
+      defs = {
+        "queues" => [
+          {"name" => "mqtt.sub", "vhost" => "/", "durable" => true, "auto_delete" => false,
+           "arguments" => {"x-queue-type" => "mqtt"}},
+        ],
+        "bindings" => [
+          {"source" => "mqtt.default", "vhost" => "/", "destination" => "mqtt.sub",
+           "destination_type" => "queue", "routing_key" => "a/b", "arguments" => {} of String => String},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          # Nothing has created an MQTT broker at this point, just like in
+          # Launcher#start where definitions are loaded before MQTT::Server
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          exchange = s.vhosts["/"].mqtt_exchange
+          exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "raises if definitions file not found" do
       with_amqp_server do |s|
         expect_raises(File::NotFoundError) do

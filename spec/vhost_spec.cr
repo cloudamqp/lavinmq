@@ -132,6 +132,25 @@ describe LavinMQ::VHost do
       s.vhosts["/"].queue?("mqtt.persist").should be_nil
     end
   end
+
+  it "should keep durable mqtt session bindings after compaction and restart" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.max_deleted_definitions = 8
+      v = s.vhosts["/"]
+      v.declare_queue("mqtt.persist", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+      v.bind_queue("mqtt.persist", LavinMQ::MQTT::EXCHANGE, "a/b",
+        LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 1u8}))
+      LavinMQ::Config.instance.max_deleted_definitions.times do
+        v.declare_queue("q", true, false)
+        v.delete_queue("q")
+      end
+      restart_server(s)
+      bindings = s.vhosts["/"].mqtt_exchange.bindings_details
+      bindings.map(&.binding_key.routing_key).should eq ["a/b"]
+      bindings.first.arguments.try &.[](LavinMQ::MQTT::QOS_HEADER).should eq 1u8
+    end
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       with_amqp_server do |s|

@@ -1,4 +1,5 @@
 require "./topic_tree"
+require "./protocol"
 require "digest/md5"
 
 module LavinMQ
@@ -66,11 +67,13 @@ module LavinMQ
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
       end
 
-      def retain(topic : String, body_io : ::IO, size : UInt64) : Nil
+      def retain(packet : Protocol::Publish) : Nil
         @lock.synchronize do
-          Log.debug { "retain topic=#{topic} body.bytesize=#{size}" }
+          topic = packet.topic
+          payload = packet.payload
+          Log.debug { "retain topic=#{topic} body.bytesize=#{payload.bytesize}" }
           # An empty message with retain flag means clear the topic from retained messages
-          if size.zero?
+          if payload.empty?
             delete_from_index(topic)
             return
           end
@@ -83,8 +86,9 @@ module LavinMQ
           file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
           file.sync = true
           file.read_buffering = false
-          len = ::IO.copy(body_io, file, size)
-          raise ::IO::EOFError.new("Copied only #{len} of #{size} bytes") if len != size
+          # sync = true, so this writes the payload straight to the fd, no
+          # intermediate buffer and no copy
+          file.write payload
           final_file_path = File.join(@dir, msg_file_name)
           file.rename(final_file_path)
           @replicator.try &.replace_file(final_file_path)

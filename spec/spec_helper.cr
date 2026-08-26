@@ -323,3 +323,8 @@ Spec.around_each do |example|
     FileUtils.rm_rf data_dir
   end
 end
+
+def restart_server(server : LavinMQ::Server)
+  server.restart
+  Fiber.yield
+end

@@ -262,11 +262,12 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       # written to socket, meaning that the lag_size has changed.
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-      props = LavinMQ::AMQP::Properties.new
-      msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
-      msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
-      retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
-      retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
+      pub1 = MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
+        packet_id: nil, dup: false, qos: 0u8, retain: true)
+      pub2 = MQTT::Protocol::Publish.new(topic: "topic2", payload: "body2".to_slice,
+        packet_id: nil, dup: false, qos: 0u8, retain: true)
+      retain_store.retain(pub1)
+      retain_store.retain(pub2)
 
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
       cluster.stop
