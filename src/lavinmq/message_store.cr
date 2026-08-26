@@ -173,6 +173,20 @@ module LavinMQ
       end
     end
 
+    # Like `#[]`, but the returned message owns all its memory: the record is
+    # copied out of the segment's mmap, so the message stays valid after the
+    # segment is deleted and unmapped. For messages that outlive the caller's
+    # @msg_store_lock hold, e.g. dead-lettering (see AMQP::Queue#expire_msg).
+    def copy(sp : SegmentPosition) : BytesMessage
+      raise ClosedError.new if @closed
+      segment = @segments[sp.segment]
+      begin
+        BytesMessage.from_bytes(segment.to_slice(sp.position.to_i64, sp.bytesize.to_i64).dup)
+      rescue ex
+        raise Error.new(segment, cause: ex)
+      end
+    end
+
     def delete(sp) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
