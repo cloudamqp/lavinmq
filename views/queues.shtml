@@ -15,7 +15,7 @@
         <div class="table-header">
           <h2>Manage queues</h2>
           <div class="btn-holder">
-            <button type="button" class="btn btn-green" id="show-add-queue">+ Add queue</button>
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-queue-dialog">+ Add queue</button>
           </div>
         </div>
         <div class="table-subheader">
@@ -54,10 +54,10 @@
           </table>
         </div>
       </section>
-      <dialog id="add-queue-dialog" class="dialog">
+      <dialog id="add-queue-dialog" class="dialog" closedby="any">
         <div class="dialog-header">
           <h3>Add queue</h3>
-          <button type="button" class="dialog-close" id="close-add-queue" aria-label="Close">&#x2715;</button>
+          <button type="button" class="dialog-close" command="close" commandfor="add-queue-dialog" aria-label="Close">&#x2715;</button>
         </div>
         <form method="put" id="declare" class="form">
         <label>
