@@ -172,13 +172,13 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: DOM.parseJSON(data.get('arguments'))
   }
 
-  HTTP.submitForm(evt.target, 'PUT', url, {
-    body,
-    table: queuesTable
-  }).then(() => {
-    DOM.toast(`Queue ${queue} created`)
-    evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
-  })
+  HTTP.request('PUT', url, { body })
+    .then(() => {
+      queuesTable.reload()
+      evt.target.reset()
+      DOM.toast(`Queue ${queue} created`)
+      evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
+    })
 })
 
 queuesTable.on('updated', _ => {

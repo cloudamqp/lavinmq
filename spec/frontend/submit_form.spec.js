@@ -1,7 +1,7 @@
 import * as helpers from './helpers.js'
 import { test, expect } from './fixtures.js'
 
-test.describe('submitForm', _ => {
+test.describe('form request handling', _ => {
   test.describe('exchanges form', _ => {
     test.beforeEach(async ({ page, apimap }) => {
       const exchangeTypesLoaded = apimap.get('/api/exchanges', [])

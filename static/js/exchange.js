@@ -102,8 +102,11 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     routing_key: data.get('routing_key').trim(),
     arguments: args
   }
-  HTTP.submitForm(evt.target, 'POST', url, { body, table: bindingsTable })
-    .catch(e => {
+  HTTP.request('POST', url, { body })
+    .then(() => {
+      bindingsTable.reload()
+      evt.target.reset()
+    }).catch(e => {
       if (e.status === 404) {
         const type = t === 'q' ? 'Queue' : 'Exchange'
         DOM.toast.error(`${type} '${d}' does not exist and needs to be created first.`)

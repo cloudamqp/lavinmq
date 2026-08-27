@@ -67,7 +67,11 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
     write: data.get('write'),
     read: data.get('read')
   }
-  HTTP.submitForm(evt.target, 'PUT', url, { body, table: permissionsTable })
+  HTTP.request('PUT', url, { body })
+    .then(() => {
+      permissionsTable.reload()
+      evt.target.reset()
+    })
 })
 
 document.querySelector('[name=remove_password]').addEventListener('change', function () {
@@ -93,14 +97,14 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
   } else if (data.get('password') !== '') {
     body.password = data.get('password')
   }
-  HTTP.submitForm(evt.target, 'PUT', url, {
-    body
-  }).then(() => {
-    DOM.toast('User updated')
-    updateUser()
-    pwd.disabled = false
-    pwd.required = true
-  })
+  HTTP.request('PUT', url, { body })
+    .then(() => {
+      evt.target.reset()
+      DOM.toast('User updated')
+      updateUser()
+      pwd.disabled = false
+      pwd.required = true
+    })
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {

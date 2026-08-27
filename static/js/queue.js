@@ -213,16 +213,16 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     routing_key: data.get('routing_key').trim(),
     arguments: args
   }
-  HTTP.submitForm(evt.target, 'POST', url, {
-    body,
-    table: bindingsTable
-  }).then(() => {
-    DOM.toast(`Exchange ${e} bound to queue`)
-  }).catch(err => {
-    if (err.status === 404) {
-      DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
-    }
-  })
+  HTTP.request('POST', url, { body })
+    .then(() => {
+      bindingsTable.reload()
+      evt.target.reset()
+      DOM.toast(`Exchange ${e} bound to queue`)
+    }).catch(err => {
+      if (err.status === 404) {
+        DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -317,11 +317,11 @@ moveMessagesForm.addEventListener('submit', function (evt) {
       'src-delete-after': 'queue-length'
     }
   }
-  HTTP.submitForm(evt.target, 'PUT', url, {
-    body
-  }).then(() => {
-    DOM.toast(`Moving messages to ${dest}`)
-  })
+  HTTP.request('PUT', url, { body })
+    .then(() => {
+      evt.target.reset()
+      DOM.toast(`Moving messages to ${dest}`)
+    })
 })
 
 document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
@@ -376,8 +376,7 @@ restartQueueForm.addEventListener('submit', function (evt) {
   const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
   if (window.confirm('Are you sure? This will restart the queue.')) {
     HTTP.request('PUT', url)
-      .then((res) => {
-        if (res && res.is_error) return
+      .then(() => {
         DOM.toast('Queue restarted!')
         handleQueueState('running')
       })

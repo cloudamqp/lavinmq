@@ -65,7 +65,11 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
     'apply-to': data.get('apply-to'),
     priority: parseInt(data.get('priority'))
   }
-  HTTP.submitForm(evt.target, 'PUT', url, { body, table: policiesTable })
+  HTTP.request('PUT', url, { body })
+    .then(() => {
+      policiesTable.reload()
+      evt.target.reset()
+    })
 })
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('createPolicy', 'definition', e)

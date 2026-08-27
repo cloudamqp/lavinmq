@@ -1,4 +1,4 @@
-function request (method, path, options = {}) {
+async function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
   const opts = {
@@ -12,16 +12,20 @@ function request (method, path, options = {}) {
     headers.append('Content-Type', 'application/json')
     opts.body = JSON.stringify(body)
   }
-  return window.fetch(path, opts)
-    .then(response => {
+
+  const response = await window.fetch(path, opts)
+  if (response.ok) {
       updateVersionFromResponse(response)
-      if (!response.ok) {
-        const error = { status: response.status, reason: response.statusText, is_error: true }
-        return response.json()
-          .then(json => { error.reason = json.reason; return error })
-          .finally(() => { standardErrorHandler(error) })
-      } else { return response.json().catch(() => null) }
-    })
+    return response.json().catch(() => null)
+    }
+
+  const error = { status: response.status, reason: response.statusText, is_error: true }
+  try {
+    const json = await response.json()
+    if (json?.reason) error.reason = json.reason
+  } catch (_) {}
+
+  standardErrorHandler(error)
 }
 
 // The server advertises its version via the `LavinMQ-Version` header on every
@@ -47,15 +51,15 @@ function alertErrorHandler (e) {
 
 function standardErrorHandler (e) {
   if (e.status === 404) {
-    console.warn(`Not found: ${e.message}`)
+    console.warn(`Not found: ${e.reason || e.message}`)
   } else if (e.status === 401) {
-    return window.location.assign('login')
+    window.location.assign('login')
   } else if (e.body || e.message || e.reason) {
-    return alertErrorHandler(e)
+    alertErrorHandler(e)
   } else {
     console.error(e)
+    throw error
   }
-  throw e
 }
 
 function url (strings, ...params) {
@@ -84,19 +88,8 @@ function noencode (v) {
   return new NoUrlEscapeString(v)
 }
 
-async function submitForm (form, method, url, options = {}) {
-  const { body, table } = options
-  return request(method, url, { body })
-    .then(res => {
-      if (res?.is_error) throw res
-      if (table) table.reload()
-      form.reset()
-    })
-}
-
 export {
   request,
-  submitForm,
   url,
   noencode
 }

@@ -178,12 +178,12 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     routing_key: data.get('routing_key').trim(),
     arguments: args
   }
-  HTTP.submitForm(evt.target, 'POST', url, {
-    body,
-    table: bindingsTable
-  }).then(() => {
-    DOM.toast(`Exchange ${e} bound to queue`)
-  })
+  HTTP.request('POST', url, { body })
+    .then(() => {
+      bindingsTable.reload()
+      evt.target.reset()
+      DOM.toast(`Exchange ${e} bound to queue`)
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
