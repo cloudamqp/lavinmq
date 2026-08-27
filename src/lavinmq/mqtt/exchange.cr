@@ -9,7 +9,8 @@ require "./subscription_details"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      # The vhost's tree, shared with every `x-mqtt-topic` exchange in it.
+      @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
       def type : String
         "mqtt"
@@ -17,6 +18,7 @@ module LavinMQ
 
       def initialize(vhost : VHost, name : String)
         super(vhost, name, false, false, true)
+        @tree = vhost.mqtt_subscriptions
       end
 
       def publish(packet : Protocol::Publish) : UInt32
@@ -30,9 +32,9 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
+        @tree.each_entry(packet.topic) do |subscriber, qos, filter|
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
+          if subscriber.deliver(msg, filter)
             count += 1
             msg.body_io.rewind
           end
@@ -42,16 +44,25 @@ module LavinMQ
         count
       end
 
+      # Only MQTT sessions: the tree is shared, and the entries belonging to an
+      # `x-mqtt-topic` exchange are that exchange's bindings, not ours.
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
         @tree.each_entry do |session, qos, filter|
+          next unless subscriber.is_a?(MQTT::Session)
+          arguments = AMQP::Table.new
+          arguments[QOS_HEADER] = qos
           result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
         end
         result
       end
 
       def binding_count : Int32
-        @tree.size
+        count = 0
+        @tree.each_entry do |subscriber, _qos, _filter|
+          count += 1 if subscriber.is_a?(MQTT::Session)
+        end
+        count
       end
 
       # Only here to make superclass happy
@@ -76,7 +87,9 @@ module LavinMQ
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @tree.empty?
+        # Our own bindings, not `@tree.empty?`: the tree is shared with the
+        # vhost's `x-mqtt-topic` exchanges.
+        delete if @auto_delete && binding_count.zero?
         true
       end
 
