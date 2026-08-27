@@ -161,15 +161,6 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
 })
 
 const addQueueDialog = document.getElementById('add-queue-dialog')
-document.getElementById('show-add-queue').addEventListener('click', () => {
-  addQueueDialog.showModal()
-})
-document.getElementById('close-add-queue').addEventListener('click', () => {
-  addQueueDialog.close()
-})
-addQueueDialog.addEventListener('click', (evt) => {
-  if (evt.target === addQueueDialog) addQueueDialog.close()
-})
 
 document.querySelector('#declare').addEventListener('submit', function (evt) {
   evt.preventDefault()
