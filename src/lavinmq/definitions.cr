@@ -335,7 +335,12 @@ module LavinMQ
     private def export_exchanges(json)
       json.array do
         vhosts.each_value do |v|
-          v.exchanges.reject(&.internal?).each do |e|
+          # Only the broker's own plumbing is skipped, i.e. internal exchanges
+          # under a reserved prefix (mqtt.default). A user-declared internal
+          # exchange is exported: export_bindings emits bindings for every
+          # exchange, so skipping one leaves an import referencing an exchange
+          # that was never exported.
+          v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
             delayed = e.arguments["x-delayed-exchange"]?
             if delayed
               arguments = e.arguments.clone
