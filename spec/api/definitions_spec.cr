@@ -725,6 +725,25 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "exports internal exchanges unless their name is reserved" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("export_internal", "topic", false, false, internal: true)
+        s.vhosts["/"].declare_exchange("mqtt.reserved", "topic", false, false, internal: true)
+        s.vhosts["/"].declare_queue("export_iq", false, false)
+        s.vhosts["/"].bind_queue("export_iq", "export_internal", "rk")
+
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        names = body["exchanges"].as_a.map(&.["name"].as_s)
+        names.should contain "export_internal"
+        names.should_not contain "mqtt.reserved"
+        # Bindings are exported for every exchange, so an exchange that is
+        # skipped leaves its bindings pointing at nothing on import.
+        body["bindings"].as_a.map(&.["source"].as_s).should contain "export_internal"
+      end
+    end
+
     it "exports permissions" do
       with_http_server do |http, _|
         response = http.get("/api/definitions")
