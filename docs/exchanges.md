@@ -7,7 +7,7 @@ Exchanges receive published messages and route them to queues based on bindings 
 | Property | Description |
 |----------|-------------|
 | `name` | Exchange name. The default exchange has an empty name. |
-| `type` | Routing algorithm (direct, fanout, topic, headers, x-consistent-hash, x-delayed-message) |
+| `type` | Routing algorithm (direct, fanout, topic, headers, x-consistent-hash, x-delayed-message, x-mqtt-topic) |
 | `durable` | Survives server restart |
 | `auto_delete` | Deleted when the last binding is removed |
 | `internal` | Cannot be published to directly by clients |
@@ -66,6 +66,32 @@ Distributes messages across bound queues using consistent hashing. Each message 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
 | `default_consistent_hash_algorithm` | `[main]` | `ring` | Default hash algorithm when `x-algorithm` is not set on the exchange |
+
+### MQTT Topic Exchange
+
+Routes messages published by MQTT clients to AMQP queues, matching MQTT topic filters. This is how an AMQP consumer receives MQTT traffic.
+
+- Type: `x-mqtt-topic`
+- Not pre-declared — declare one yourself, under any name
+- Binding keys are MQTT topic filters, with `/` as the level separator: `+` matches exactly one level, `#` matches zero or more levels and must be last
+- Routing keys are MQTT topics verbatim, slashes included. A publish to `a/b/c` reaches queues bound with `a/b/c`, `a/b/#`, `a/+/c`, `#`, and so on. `#` includes the parent level, so `a/b/c/#` matches it too
+- Always internal, even if declared with `internal: false`: an AMQP publish carries no MQTT topic, so publishing to it (over AMQP or through the HTTP API) is refused with `ACCESS_REFUSED`
+- Delivered messages carry the exchange's own name, the MQTT topic as the routing key, and `delivery_mode` 2
+- Exchange arguments and policies are ignored
+
+A message is delivered once per matching binding, so a queue bound with both `sensors/#` and `sensors/+/temp` gets two copies of a publish to `sensors/a/temp`. Bind non-overlapping filters if you want exactly one.
+
+A newly bound queue only receives messages published after the bind. Retained messages are not replayed into it, unlike for an MQTT client subscribing to the same filter. See [MQTT](mqtt.md).
+
+Binding keys are not validated as MQTT topic filters, and an invalid one fails silently instead of being rejected:
+
+| Binding key | Behaviour |
+|-------------|-----------|
+| `a/#/b` | Treated as `a/#`; everything after `#` is discarded, so it matches **more** than it appears to |
+| `sport#`, `a+b` | Wildcards are only recognised as a whole level, so these are literal level names that never match |
+| `a.b.#`, `a.b.*` | AMQP topic syntax; accepted as one literal level named `a.b.#` and never matches |
+
+MQTT `SUBSCRIBE` does validate topic filters, so the same string can be rejected for an MQTT client and silently accepted as a binding key here.
 
 ### Default Exchange
 

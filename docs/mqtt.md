@@ -89,6 +89,8 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 - MQTT topic separators (`/`) map directly to AMQP routing key segments
 - Message properties are mapped between protocols (e.g., `delivery_mode` maps to QoS, `mqtt.retain` header tracks retain flag)
 
+To hand MQTT traffic to an AMQP consumer, declare an `x-mqtt-topic` exchange and bind queues to it with MQTT topic filters as binding keys. Every MQTT publish in the vhost is matched against those bindings alongside the MQTT subscriptions. See [Exchanges](exchanges.md).
+
 ## Configuration
 
 | Config Key | Section | Default | Description |
@@ -133,5 +135,5 @@ Note that connecting with a client_id already in use takes over that session, so
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
-- AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
+- An AMQP publisher cannot reach MQTT subscribers: the MQTT exchange takes no exchange-to-exchange bindings. The other direction works, through an `x-mqtt-topic` exchange (see [Exchanges](exchanges.md)).
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).
