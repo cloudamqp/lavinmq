@@ -76,6 +76,24 @@ describe LavinMQ::Exchange do
         end
       end
     end
+
+    # `internal` refuses basic.publish, not binding, in either direction.
+    # Exchange federation depends on the destination direction: ExchangeLink
+    # binds its internal x-federation-upstream exchange as a destination of the
+    # upstream exchange over an AMQP client connection. The HTTP bindings API
+    # does refuse an internal destination; that inconsistency is deliberate.
+    it "allows binding internal exchanges in both directions" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.exchange("e_internal", "topic", internal: true)
+          ch.exchange("e_public", "topic")
+          ch.exchange_bind("e_public", "e_internal", "#")
+          ch.exchange_bind("e_internal", "e_public", "#")
+          s.vhosts["/"].exchange("e_public").binding_count.should eq 1
+          s.vhosts["/"].exchange("e_internal").binding_count.should eq 1
+        end
+      end
+    end
   end
 
   describe "metrics" do
