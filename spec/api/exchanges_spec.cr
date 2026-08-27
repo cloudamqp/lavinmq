@@ -168,6 +168,27 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    # Redeclaring must stay idempotent for internal exchanges too, otherwise
+    # definitions import and other declare-then-reconcile tooling can't manage
+    # them. Publishing to one is still refused, by the publish endpoint.
+    it "should redeclare identical internal exchange" do
+      with_http_server do |http, _|
+        body = <<-JSON
+          {
+            "type": "topic",
+            "durable": true,
+            "internal": true,
+            "auto_delete": false,
+            "arguments": {}
+          }
+          JSON
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 201
+        response = http.put("/api/exchanges/%2f/spechange", body: body)
+        response.status_code.should eq 204
+      end
+    end
+
     it "should require config access to declare" do
       with_http_server do |http, _|
         body = <<-JSON
