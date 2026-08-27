@@ -4,7 +4,8 @@ Date: 2026-08-21
 
 ## Status
 
-Accepted, not yet implemented.
+Accepted. Implemented 2026-08-27, with the amendment to collateral fix 1 noted
+below.
 
 ## Context
 
@@ -76,7 +77,8 @@ reference-only.
 | `internal` | Forced `true` in the constructor, with `match?` overridden to ignore the flag so a redeclare with `internal: false` is still idempotent rather than PRECONDITION_FAILED. |
 | Binding book | `Hash(String, Set({AMQP::Destination, BindingKey}))`; sole source of truth for `bindings_details`, `binding_count`, and auto-delete. |
 | Tree writes | `subscribe(filter, self, 1u8)` on the first binding for a filter; `unsubscribe(filter, self)` on the last. |
-| `deliver(msg, filter)` | Builds a **fresh** `Message` (a struct — no heap allocation): `exchange_name` = own name, routing key = MQTT topic verbatim, `delivery_mode = 2`, `headers = nil`. Publishes to each destination in the book, rewinding `body_io` between them. |
+| `deliver(msg, filter)` | Builds a **fresh** `Message` (a struct — no heap allocation): `exchange_name` = own name, routing key = MQTT topic verbatim, `delivery_mode = 2`, `headers = nil`. Publishes to each destination in the book, rewinding `body_io` between them: a queue destination directly, an exchange destination through `route_msg`. |
+| Stats | `deliver` counts `publish_in` (once per *matching filter*, so an overlapping-filter publish counts more than once) and `publish_out` (per destination that accepted), so the exchange isn't blank in the management UI. |
 | `each_destination` | No-op. |
 | Arguments and policies | `handle_arguments`, `apply_policy_argument`, `clear_policy_arguments` are no-ops, as in `MQTT::Exchange`. |
 | `delete` | **Must** unsubscribe every filter from the vhost tree before/while calling `super`. |

@@ -430,6 +430,8 @@ module LavinMQ
         AMQP::FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
         AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+      when "x-mqtt-topic"
+        AMQP::MqttTopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("unknown exchange type '#{type}'")
       end
     end
