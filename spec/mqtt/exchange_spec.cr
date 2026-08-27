@@ -22,6 +22,25 @@ module MqttSpecs
       end
     end
 
+    it "subscribes into the vhost's tree, which exists before any broker does" do
+      with_server do |server|
+        vhost = server.vhosts.create("no-mqtt-yet")
+        vhost.mqtt_subscriptions.empty?.should be_true
+
+        vhost = server.vhosts["/"]
+        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: true)
+          subscribe(io, topic_filters: [subtopic("a/b", 0u8)])
+
+          vhost.mqtt_subscriptions.any?("a/b").should be_true
+          exchange.binding_count.should eq 1
+          disconnect(io)
+        end
+        wait_for { vhost.mqtt_subscriptions.empty? }
+      end
+    end
+
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

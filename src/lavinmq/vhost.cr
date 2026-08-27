@@ -16,6 +16,8 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./mqtt/subscriber"
+require "./mqtt/subscription_tree"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
@@ -35,6 +37,16 @@ module LavinMQ
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
+
+    # Every MQTT subscription in this vhost, in one tree: the sessions of
+    # connected MQTT clients and the `x-mqtt-topic` exchanges queues are bound
+    # to. Owned here rather than by `MQTT::Broker`/`mqtt.default` because
+    # `x-mqtt-topic` exchanges subscribe while `load!` replays definitions,
+    # which is long before a `Broker` exists (it's created by `MQTT::Server`,
+    # after the whole `VHostStore` has been built).
+    #
+    # Initialized as a default ivar value, so it's there before `load!` runs.
+    getter mqtt_subscriptions : MQTT::SubscriptionTree(MQTT::Subscriber) = MQTT::SubscriptionTree(MQTT::Subscriber).new
 
     @flow = true
     @direct_reply_consumers = DirectReplyConsumerStore.new

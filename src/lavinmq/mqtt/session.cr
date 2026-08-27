@@ -9,6 +9,7 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
+require "./subscriber"
 
 module LavinMQ
   module MQTT
@@ -18,6 +19,7 @@ module LavinMQ
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
+      include MQTT::Subscriber
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
@@ -171,6 +173,13 @@ module LavinMQ
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
         end
+      end
+
+      # `MQTT::Subscriber`. Which of the session's filters matched doesn't
+      # change anything: an MQTT client is subscribed with one QoS per filter,
+      # and the QoS is already on the message when we get here.
+      def deliver(msg : Message, filter : String) : Bool
+        publish(msg)
       end
 
       def publish(msg : Message) : Bool

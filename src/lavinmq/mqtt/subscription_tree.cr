@@ -1,4 +1,5 @@
 require "./session"
+require "./subscriber"
 require "./bytes_token_iterator"
 
 module LavinMQ
@@ -105,6 +106,9 @@ module LavinMQ
         false
       end
 
+      # A vhost's tree is shared by `mqtt.default` and every `x-mqtt-topic`
+      # exchange in the vhost, so this asks "no subscriptions at all in this
+      # vhost", not "none belonging to any one exchange".
       def empty?
         return false unless @non_wildcards.empty? || @non_wildcards.values.all? &.empty?
         return false unless @leafs.empty?
@@ -116,7 +120,8 @@ module LavinMQ
         true
       end
 
-      # Total number of subscriptions (session/filter pairs) held in the tree.
+      # Total number of subscriptions (entry/filter pairs) held in the tree,
+      # across every exchange sharing it. See `#empty?`.
       def size : Int32
         count = @leafs.size + @wildcard_rest.size
         @non_wildcards.each_value { |entries| count += entries.size }
