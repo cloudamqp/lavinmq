@@ -15,6 +15,7 @@ module LavinMQ
         {name: "headers", human: "Headers"},
         {name: "x-federation-upstream", human: "Federation Upstream"},
         {name: "x-consistent-hash", human: "Consistent Hash"},
+        {name: "x-mqtt-topic", human: "MQTT Topic"},
       }
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
