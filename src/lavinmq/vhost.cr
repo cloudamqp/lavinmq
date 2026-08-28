@@ -29,7 +29,7 @@ module LavinMQ
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
-                "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
+                "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter closed = BoolChannel.new(true)
@@ -323,7 +323,7 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
+      ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = deliver_get = 0_u64
       each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
@@ -336,7 +336,6 @@ module LavinMQ
         get_no_ack += q.get_no_ack_count
         publish += q.publish_count
         redeliver += q.redeliver_count
-        return_unroutable += q.return_unroutable_count
       end
       each_session do |s|
         ready += s.message_count
@@ -366,7 +365,7 @@ module LavinMQ
           deliver_get:       deliver_get,
           publish:           publish,
           redeliver:         redeliver,
-          return_unroutable: return_unroutable,
+          return_unroutable: return_unroutable_count,
         },
       }
     end
@@ -606,19 +605,20 @@ module LavinMQ
 
     def event_tick(event_type)
       case event_type
-      in EventType::ChannelClosed        then @channel_closed_count.add(1, :relaxed)
-      in EventType::ChannelCreated       then @channel_created_count.add(1, :relaxed)
-      in EventType::ConnectionClosed     then @connection_closed_count.add(1, :relaxed)
-      in EventType::ConnectionCreated    then @connection_created_count.add(1, :relaxed)
-      in EventType::QueueDeclared        then @queue_declared_count.add(1, :relaxed)
-      in EventType::QueueDeleted         then @queue_deleted_count.add(1, :relaxed)
-      in EventType::ClientAck            then @ack_count.add(1, :relaxed)
-      in EventType::ClientPublish        then @publish_count.add(1, :relaxed)
-      in EventType::ClientPublishConfirm then @confirm_count.add(1, :relaxed)
-      in EventType::ClientRedeliver      then @redeliver_count.add(1, :relaxed)
-      in EventType::ClientReject         then @reject_count.add(1, :relaxed)
-      in EventType::ConsumerAdded        then @consumer_added_count.add(1, :relaxed)
-      in EventType::ConsumerRemoved      then @consumer_removed_count.add(1, :relaxed)
+      in EventType::ChannelClosed          then @channel_closed_count.add(1, :relaxed)
+      in EventType::ChannelCreated         then @channel_created_count.add(1, :relaxed)
+      in EventType::ConnectionClosed       then @connection_closed_count.add(1, :relaxed)
+      in EventType::ConnectionCreated      then @connection_created_count.add(1, :relaxed)
+      in EventType::QueueDeclared          then @queue_declared_count.add(1, :relaxed)
+      in EventType::QueueDeleted           then @queue_deleted_count.add(1, :relaxed)
+      in EventType::ClientAck              then @ack_count.add(1, :relaxed)
+      in EventType::ClientPublish          then @publish_count.add(1, :relaxed)
+      in EventType::ClientPublishConfirm   then @confirm_count.add(1, :relaxed)
+      in EventType::ClientRedeliver        then @redeliver_count.add(1, :relaxed)
+      in EventType::ClientReject           then @reject_count.add(1, :relaxed)
+      in EventType::ConsumerAdded          then @consumer_added_count.add(1, :relaxed)
+      in EventType::ConsumerRemoved        then @consumer_removed_count.add(1, :relaxed)
+      in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
       in EventType::ClientGet
         @get_count.add(1, :relaxed)
         @deliver_get_count.add(1, :relaxed)

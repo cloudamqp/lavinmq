@@ -61,6 +61,7 @@ module LavinMQ
               @server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
               @server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
               @server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
+              @server.deleted_vhosts_messages_unroutable_returned_total += message_stats[:return_unroutable]
               context.response.status_code = 204
             else
               context.response.status_code = 404
