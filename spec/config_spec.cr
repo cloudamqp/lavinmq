@@ -906,4 +906,26 @@ describe LavinMQ::Launcher do
       end
     end
   end
+
+  describe "[external_auth] section" do
+    it "parses the external_auth settings from the config file" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir = /tmp/lavinmq-spec
+          [external_auth]
+          login_from = common_name
+          san_type = dns
+          san_index = 0
+        CONFIG
+      end
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.external_auth_san_type.should eq "dns"
+      config.external_auth_san_index.should eq 0
+      config.external_auth_login_from.should eq "common_name"
+    ensure
+      File.delete(config_file.path) if config_file
+    end
+  end
 end

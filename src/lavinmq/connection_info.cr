@@ -11,6 +11,7 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
+    property ssl_san_entries : Array(SubjectAlternativeName)?
 
     # Remote and local addresses from the server's perspective
     def initialize(remote_address, local_address)
@@ -22,6 +23,39 @@ module LavinMQ
       src = Socket::IPAddress.new("127.0.0.1", 0)
       dst = Socket::IPAddress.new("127.0.0.1", 0)
       new(src, dst)
+    end
+
+    def with_ssl(ssl_client)
+      self.ssl = true
+      self.ssl_version = ssl_client.tls_version
+      self.ssl_cipher = ssl_client.cipher
+      self.ssl_san_entries = extract_subject_alternative_name_entries(ssl_client.peer_certificate)
+      self.ssl_cn = extract_common_name(ssl_client.peer_certificate)
+      self
+    end
+
+    def extract_subject_alternative_name_entries(peer_certificate) : Array(SubjectAlternativeName)?
+      return nil unless peer_certificate
+      # A certificate has a single subjectAltName extension whose value lists all
+      # entries comma-separated, e.g. "DNS:anders, DNS:localhost".
+      san_ext = peer_certificate.extensions.find { |ext| ext.oid == "subjectAltName" }
+      return nil unless san_ext
+      san_ext.value.split(',').map_with_index do |entry, index|
+        type, _, value = entry.strip.partition(':')
+        SubjectAlternativeName.new(index, type, value)
+      end
+    end
+
+    def extract_common_name(peer_certificate) : String?
+      return nil unless peer_certificate
+      peer_certificate.subject.to_a.to_h["CN"]?
+    end
+
+    struct SubjectAlternativeName
+      getter index, type, value
+
+      def initialize(@index : Int32, @type : String, @value : String)
+      end
     end
 
     # Suspecting memory problem with Socket::IPAddress in Crystal 1.15.0
