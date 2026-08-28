@@ -69,7 +69,7 @@ MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wil
 
 Examples:
 - `sensor/+/temperature` matches `sensor/room1/temperature` but not `sensor/room1/sub/temperature`
-- `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
+- `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`, and also `sensor` itself — `#` includes the parent level
 
 ## MQTT-AMQP Bridge
 

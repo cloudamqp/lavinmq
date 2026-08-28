@@ -175,6 +175,60 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
   end
 
+  # MQTT 3.1.1 [MQTT-4.7.1-2]: "sport/tennis/player1/# also matches the singular
+  # sport/tennis/player1, since # includes the parent level."
+  describe "# matching the parent level" do
+    it "matches the parent topic" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/#", "session", 0u8)
+
+      matched = [] of String
+      tree.each_entry("a") { |session, _qos, filter| matched << "#{session}:#{filter}" }
+      matched.should eq ["session:a/#"]
+      tree.any?("a").should be_true
+    end
+
+    it "matches the parent topic at any depth" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b/c/#", "session", 0u8)
+
+      matched = 0
+      tree.each_entry("a/b/c") { matched += 1 }
+      matched.should eq 1
+      tree.any?("a/b/c").should be_true
+      tree.any?("a/b").should be_false
+    end
+
+    it "matches the parent topic through a + level" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/+/#", "session", 0u8)
+
+      matched = 0
+      tree.each_entry("a/b") { matched += 1 }
+      matched.should eq 1
+      tree.any?("a/b").should be_true
+    end
+
+    it "doesn't match a sibling of the parent topic" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/b/#", "session", 0u8)
+
+      matched = 0
+      tree.each_entry("a/c") { matched += 1 }
+      matched.should eq 0
+      tree.any?("a/c").should be_false
+    end
+
+    it "yields a subscriber once for a topic below the parent" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      tree.subscribe("a/#", "session", 0u8)
+
+      matched = 0
+      tree.each_entry("a/b") { matched += 1 }
+      matched.should eq 1
+    end
+  end
+
   it "subscriptions is found" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [

@@ -99,7 +99,9 @@ module LavinMQ
       end
 
       protected def any?(filter : BytesTokenIterator)
-        return !@leafs.empty? unless current = filter.next
+        # An exhausted topic still matches a `#` registered at this level:
+        # `#` includes the parent level, so `a/#` matches `a` [MQTT-4.7.1-2].
+        return !@leafs.empty? || !@wildcard_rest.empty? unless current = filter.next
         return true if !@wildcard_rest.empty?
         return true if @plus.try &.any?(filter)
         return true if @sublevels[current]?.try &.any?(filter)
@@ -141,6 +143,11 @@ module LavinMQ
 
       protected def each_entry(topic : BytesTokenIterator, &block : (T, UInt8, String) -> _)
         unless current = topic.next
+          # `#` includes the parent level, so a `#` registered here matches the
+          # topic that just ran out: `a/#` matches `a` [MQTT-4.7.1-2].
+          if f = @wildcard_rest_filter
+            @wildcard_rest.each { |s, q| yield s, q, f }
+          end
           if f = @leaf_filter
             @leafs.each { |s, q| yield s, q, f }
           end
