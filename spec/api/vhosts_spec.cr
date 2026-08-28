@@ -61,6 +61,21 @@ describe LavinMQ::HTTP::VHostsController do
         response.status_code.should eq 403
       end
     end
+
+    it "should count returned unroutable messages in message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        response = http.get("/api/vhosts/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.dig("message_stats", "return_unroutable").should eq 1
+      end
+    end
   end
 
   describe "PUT /api/vhosts/vhost" do

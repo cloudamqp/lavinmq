@@ -96,6 +96,22 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should count returned unroutable messages" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        raw = http.get("/metrics").body
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+        metric = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_unroutable_returned_total" }
+        metric.should_not be_nil
+        metric.try(&.[:value].should eq 1)
+      end
+    end
+
     it "should support specifying prefix" do
       with_metrics_server do |http, _|
         prefix = "testing"
