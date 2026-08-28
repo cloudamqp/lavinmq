@@ -31,7 +31,7 @@ function render (data) {
 
 function start (cb) {
   update(cb)
-  setInterval(update, 5000, cb)
+  Helpers.pollWhileVisible(() => update(cb), 5000)
 }
 
 const gcStatsFields = [
