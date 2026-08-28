@@ -20,6 +20,9 @@ module MqttSpecs
       "+/+/#",
       "a/+/#",
       "a/+/c",
+      # `#` includes the parent level [MQTT-4.7.1-2]
+      "a/b/c/#",
+      "a/+/c/#",
     }
     negative_topic_filters = {
       "c/a/b",
