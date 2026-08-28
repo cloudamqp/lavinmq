@@ -1,6 +1,7 @@
 require "../etcd"
 require "./client"
 require "./etcd_coordinator"
+require "./disk_watchdog"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
@@ -33,6 +34,7 @@ class LavinMQ::Clustering::Controller
     @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
     @elected_leader.set(true)
     ensure_in_isr!
+    start_disk_watchdog(lease)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     yield
@@ -40,11 +42,7 @@ class LavinMQ::Clustering::Controller
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
     end
   rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopped
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
-    end
+    handle_lease_expiry
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
     exit 3
@@ -53,10 +51,80 @@ class LavinMQ::Clustering::Controller
     exit 3
   end
 
+  # Keep lease-expiry handling separate from the run loop so the fencing race
+  # is explicit and covered independently. Releasing the lease while fencing
+  # wakes the loop above with Expired; the hook has already run in that case.
+  private def handle_lease_expiry : Nil
+    # When fencing, fence_leader has already dispatched the hook and is about to
+    # SIGKILL; releasing the lease woke this path, so skip the duplicate dispatch.
+    unless @fencing
+      execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    end
+    unless @stopped
+      Log.fatal { "Lease expired, lost leadership" }
+      exit 3
+    end
+  end
+
+  @disk_watchdog : DiskWatchdog? = nil
+
+  # Grace period the best-effort lease revoke and leader_lost hook get before the
+  # unconditional kill.
+  FENCE_GRACE = 2.seconds
+
+  # Start the disk watchdog once this node is the leader.
+  private def start_disk_watchdog(lease)
+    return unless @config.clustering_disk_watchdog?
+    interval = @config.clustering_disk_watchdog_interval.seconds
+    timeout = @config.clustering_disk_watchdog_timeout.seconds
+    watchdog = @disk_watchdog = DiskWatchdog.for_data_dir(@config.data_dir, interval, timeout) do |reason|
+      fence_leader(lease, reason)
+    end
+    spawn(watchdog.run, name: "Disk watchdog")
+    Log.info { "Disk watchdog started (interval=#{interval}, timeout=#{timeout})" }
+  end
+
+  # Give up leadership after a data-dir stall and terminate. The SIGKILL is
+  # unconditional and always reached: the process must die so the lease keepalive
+  # stops and a follower is promoted within the lease TTL. We must not go through
+  # normal shutdown — it flushes the persister, whose syncfs would hang on the
+  # stalled disk. Revoking the lease (for near-instant failover instead of
+  # waiting out the TTL) and running the leader_lost hook are best-effort: the
+  # revoke runs on a separate thread and both are bounded by FENCE_GRACE, so a
+  # hung etcd or a hook that touches the dead disk can never delay the kill.
+  private def fence_leader(lease, reason : String) : Nil
+    # @fencing: skip the duplicate leader_lost hook in the Expired rescue (we
+    # dispatch it here). @stopped: suppress that path's exit 3, whose at_exit
+    # flush would hang on the dead disk; we hard-kill below instead.
+    @fencing = true
+    @stopped = true
+    Log.fatal { "Data dir stalled, fencing leader: #{reason}" }
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    revoked = ::Channel(Nil).new(1)
+    Fiber::ExecutionContext::Isolated.new("Leader fence") do
+      begin
+        Log.info { "Revoking lease #{@id.to_s(36)} before fencing" }
+        lease.release
+      rescue ex
+        Log.warn(exception: ex) { "Failed to revoke lease while fencing; it will expire on its TTL" }
+      end
+      revoked.send(nil) rescue nil
+    end
+    select
+    when revoked.receive
+      # revoke completed; the grace window also let the leader_lost hook run
+    when timeout(FENCE_GRACE)
+      Log.warn { "Lease revoke did not finish within #{FENCE_GRACE}, killing anyway" }
+    end
+    Process.signal(Signal::KILL, Process.pid)
+  end
+
   @stopped = false
+  @fencing = false
 
   def stop
     @stopped = true
+    @disk_watchdog.try &.stop
     @repli_client.try &.close
     @lease.try &.release
   end

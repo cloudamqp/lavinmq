@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Leader disk watchdog: the clustering leader self-fences (drops its etcd lease and exits) when its data dir stalls, so a follower is promoted instead of the cluster hanging indefinitely. Configurable via `clustering_disk_watchdog`, `clustering_disk_watchdog_interval` and `clustering_disk_watchdog_timeout` [#2150](https://github.com/cloudamqp/lavinmq/pull/2150)
 - Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
