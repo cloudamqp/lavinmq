@@ -54,6 +54,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_redelivered_total` | counter | Total messages redelivered to consumers |
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
+| `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
 
 #### Runtime and clustering
 
