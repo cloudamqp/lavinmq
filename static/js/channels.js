@@ -22,6 +22,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.user)
+    Table.renderCell(tr, 7, Helpers.closeChannelForm(item.name), 'right')
   }
   if (item.confirm) {
     const confirmSpan = document.createElement('span')

@@ -57,32 +57,6 @@ class AMQP::Client::UnsafeClient < AMQP::Client
   end
 end
 
-def with_raw_amqp_connection(s, &)
-  io = TCPSocket.new("localhost", amqp_port(s))
-  io.read_timeout = 5.seconds
-
-  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
-  io.flush
-  stream = AMQ::Protocol::Stream.new(io)
-  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
-  response = "\u0000guest\u0000guest"
-  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
-    AMQ::Protocol::Table.new, "PLAIN", response, ""),
-    IO::ByteFormat::NetworkEndian)
-  io.flush
-  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
-  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
-    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
-    IO::ByteFormat::NetworkEndian
-  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
-  io.flush
-  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
-
-  yield io, stream
-ensure
-  io.try &.close
-end
-
 describe LavinMQ::Server do
   describe "channel close" do
     it "does not close the connection for frames on a channel waiting for close-ok" do

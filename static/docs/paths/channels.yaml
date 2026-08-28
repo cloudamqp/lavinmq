@@ -91,6 +91,29 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - channels
+    description: Close a specific channel. Consumers on the channel are cancelled
+      and its unacknowledged messages are requeued. The client is notified with a
+      channel close frame, but is free to open a new channel.
+    summary: Close channel
+    operationId: DeleteChannel
+    responses:
+      '204':
+        description: The channel was closed successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
   put:
     tags:
     - channels

@@ -76,6 +76,14 @@
           </table>
         </div>
       </section>
+      <form method="delete" id="closeChannel" class="form card">
+        <h3>Close channel</h3>
+        <label>
+          <span>Reason</span>
+          <input type="text" name="reason" value="Closed via Web management">
+        </label>
+        <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
+      </form>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>

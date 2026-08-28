@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
+- Be able to close a specific channel [#2144](https://github.com/cloudamqp/lavinmq/issues/2144)
 
 ### Changed
 

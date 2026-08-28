@@ -1,4 +1,5 @@
 import * as HTTP from './http.js'
+import * as DOM from './dom.js'
 
 function formatNumber (num) {
   if (typeof num.toLocaleString === 'function') {
@@ -239,8 +240,23 @@ const stateClasses = new class {
     this.#persist()
   }
 }()
+// A one button form that closes the named channel, for use in a table cell
+function closeChannelForm (name) {
+  const form = document.createElement('form')
+  form.appendChild(DOM.button.delete({ text: 'Close', type: 'submit' }))
+  form.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    if (!window.confirm(`Are you sure you want to close channel ${name}?`)) return false
+    const headers = new window.Headers({ 'X-Reason': 'Closed via Web management' })
+    HTTP.request('DELETE', HTTP.url`api/channels/${name}`, { headers })
+      .then(() => { DOM.toast(`Channel ${name} closed`) })
+  })
+  return form
+}
+
 export {
   addVhostOptions,
+  closeChannelForm,
   formatNumber,
   nFormatter,
   duration,
