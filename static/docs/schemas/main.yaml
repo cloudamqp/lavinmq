@@ -53,6 +53,10 @@ overview:
           type: integer
         reject_details:
           "$ref": "#/stats_details"
+        return_unroutable:
+          type: integer
+        return_unroutable_details:
+          "$ref": "#/stats_details"
     node:
       type: string
       description: Node hostname.

@@ -802,22 +802,29 @@ module LavinMQ::AMQP
       @log.info { "Expired #{i} messages" } if i > 0
     end
 
-    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      if sp.has_dlx? || @dead_letter.dlx
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
-        env = Envelope.new(sp, msg, false)
-        expire_msg(env, reason, dlx_tasks)
-      else
-        delete_message sp
-      end
+    private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
+      expire_msg(env.segment_position, reason, dlx_tasks)
     end
 
-    private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      sp = env.segment_position
-      msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
-
-      @dead_letter.route(msg, reason, dlx_tasks) do
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
+      if sp.has_dlx? || @dead_letter.dlx
+        @log.debug { "Expiring #{sp} now due to #{reason}" }
+        # Dead-lettering escapes @msg_store_lock — the message is published
+        # into other queues after this method's lock hold — while a concurrent
+        # purge or queue/vhost delete can unmap the segment it lives in, so a
+        # zero-copy view (`@msg_store[sp]`) would be read after munmap. Route
+        # a copy that owns its memory instead.
+        msg = begin
+          @msg_store_lock.synchronize { @msg_store.copy(sp) }
+        rescue KeyError | MessageStore::ClosedError
+          # The segment (or whole store) is already gone: a racing purge or
+          # delete removed the message, so there is nothing left to route.
+          return
+        end
+        @dead_letter.route(msg, reason, dlx_tasks) do
+          delete_message sp
+        end
+      else
         delete_message sp
       end
     end

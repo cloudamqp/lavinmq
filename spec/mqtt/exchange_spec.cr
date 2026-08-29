@@ -22,6 +22,30 @@ module MqttSpecs
       end
     end
 
+    it "grants a QoS 2 subscription bound from outside the MQTT protocol as QoS 1" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        exchange = vhost.mqtt_exchange
+        vhost.declare_queue("mqtt.sub", true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+
+        # Bindings made over the HTTP API or imported from a definitions file don't
+        # pass through the MQTT parser, so the QoS header is any integer here.
+        vhost.bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 2}))
+
+        binding = exchange.bindings_details.first
+        binding.binding_key.qos.should eq 1u8
+        binding.arguments.should eq LavinMQ::MQTT::QOS1_ARGUMENTS
+
+        # bind and unbind must read the QoS the same way, or the unbind wouldn't
+        # match the binding it's meant to remove
+        vhost.unbind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 2}))
+        exchange.bindings_details.should be_empty
+      end
+    end
+
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
@@ -33,7 +57,7 @@ module MqttSpecs
           details.size.should eq 1
           sd = details.first
           sd.should be_a(LavinMQ::MQTT::SubscriptionDetails)
-          sd.binding_key.should be_a(LavinMQ::BindingKey)
+          sd.binding_key.should be_a(LavinMQ::MQTT::SubscriptionKey)
 
           # Same NamedTuple shape as LavinMQ::AMQP::BindingDetails (see spec/api/bindings_spec.cr)
           # so the two are interchangeable through duck typing.

@@ -304,6 +304,7 @@ module LavinMQ
     property deleted_vhosts_messages_redelivered_total = 0_u64
     property deleted_vhosts_messages_acknowledged_total = 0_u64
     property deleted_vhosts_messages_confirmed_total = 0_u64
+    property deleted_vhosts_messages_unroutable_returned_total = 0_u64
 
     private def control_flow!
       if disk_full?

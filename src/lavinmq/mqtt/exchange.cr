@@ -3,8 +3,8 @@ require "./consts"
 require "../destination"
 require "./subscription_tree"
 require "./session"
+require "./subscription_key"
 require "./subscription_details"
-require "./retain_store"
 
 module LavinMQ
   module MQTT
@@ -15,7 +15,7 @@ module LavinMQ
         "mqtt"
       end
 
-      def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
+      def initialize(vhost : VHost, name : String)
         super(vhost, name, false, false, true)
       end
 
@@ -27,11 +27,6 @@ module LavinMQ
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
-
-        if packet.retain?
-          @retain_store.retain(packet.topic, body, bodysize)
-          body.rewind
-        end
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
@@ -50,9 +45,7 @@ module LavinMQ
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
         @tree.each_entry do |session, qos, filter|
-          arguments = AMQP::Table.new
-          arguments[QOS_HEADER] = qos
-          result << SubscriptionDetails.new(name, vhost.name, LavinMQ::BindingKey.new(filter, arguments), session)
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
         end
         result
       end
@@ -66,19 +59,20 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        qos = MQTT.qos(arguments)
         @tree.subscribe(routing_key, destination, qos)
 
-        binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
+        binding_key = SubscriptionKey.new(routing_key, qos)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+        qos = MQTT.qos(arguments)
         @tree.unsubscribe(routing_key, destination)
 
-        binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
+        binding_key = SubscriptionKey.new(routing_key, qos)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 

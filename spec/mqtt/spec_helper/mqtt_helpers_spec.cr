@@ -101,7 +101,7 @@ module MqttHelpers
     MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8)
   end
 
-  def publish(io, expect_response = true, **args)
+  def publish_packet(**args) : MQTT::Protocol::Publish
     pub_args = {
       packet_id: next_packet_id,
       payload:   "data".to_slice,
@@ -109,8 +109,13 @@ module MqttHelpers
       qos:       0u8,
       retain:    false,
     }.merge(args)
-    MQTT::Protocol::Publish.new(**pub_args).to_io(io)
-    MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
+    MQTT::Protocol::Publish.new(**pub_args)
+  end
+
+  def publish(io, expect_response = true, **args)
+    packet = publish_packet(**args)
+    packet.to_io(io)
+    MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
   end
 
   def puback(io, packet_id : UInt16?)

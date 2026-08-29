@@ -26,8 +26,7 @@ module LavinMQ
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator)
-        @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
-        @vhost.register_exchange(@exchange)
+        @exchange = @vhost.mqtt_exchange
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -88,6 +87,7 @@ module LavinMQ
       end
 
       def publish(packet : Protocol::Publish)
+        @retain_store.retain(packet) if packet.retain?
         @exchange.publish(packet)
       end
 
@@ -95,14 +95,15 @@ module LavinMQ
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          session.subscribe(tf.topic, tf.qos)
+          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+          session.subscribe(tf.topic, qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: tf.qos)
+            props = AMQP::Properties.new(headers: headers, delivery_mode: qos)
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          Protocol::SubAck::ReturnCode.from_int(tf.qos)
+          Protocol::SubAck::ReturnCode.from_int(qos)
         end
       end
 

@@ -381,6 +381,7 @@ module LavinMQ
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
         @return_unroutable_count.add(1, :relaxed)
+        @client.vhost.event_tick(EventType::ClientReturnUnroutable)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)

@@ -6,6 +6,22 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
+private def metric_value(body : String, name : String, labels : Hash(String, String)) : Float64?
+  body.each_line do |line|
+    next unless line.starts_with?("#{name}{")
+    close = line.index('}')
+    next unless close
+    parsed = Hash(String, String).new
+    line[(name.size + 1)...close].split(", ").each do |pair|
+      key, _, value = pair.partition('=')
+      parsed[key] = value.strip('"')
+    end
+    next unless labels.all? { |k, v| parsed[k]? == v }
+    return line[(close + 1)..].strip.to_f
+  end
+  nil
+end
+
 private def populate_msg_store(msg_store)
   segment_size = LavinMQ::Config.instance.segment_size
   msg_size = 1000_u64
@@ -183,6 +199,37 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         end
         s.vhosts["/"].queue("repli_confirm").message_count.should eq 100
         cluster.replicator.followers.first?.try &.lag_in_bytes.should eq 0
+      end
+    end
+  end
+
+  it "exposes inter-node replication byte counters" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("repli", durable: true)
+          q.publish_confirm "hello world", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        end
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+        follower_id = cluster.replicator.followers.first.id.to_s(36)
+
+        serve_metrics(s) do |http|
+          body = http.get("/metrics").body
+          sent = metric_value(body, "lavinmq_follower_bytes_sent_total", {"id" => follower_id})
+          acked = metric_value(body, "lavinmq_follower_bytes_acked_total", {"id" => follower_id})
+          sent.should_not be_nil
+          acked.should_not be_nil
+          sent.not_nil!.should be > 0
+          acked.not_nil!.should be > 0
+        end
+
+        serve_follower_metrics(cluster.repli) do |http|
+          body = http.get("/metrics").body
+          line = body.lines.find(&.starts_with?("lavinmq_cluster_received_bytes_total "))
+          line.should_not be_nil
+          line.not_nil!.split(' ').last.to_f.should be > 0
+        end
       end
     end
   end
@@ -414,11 +461,12 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       # written to socket, meaning that the lag_size has changed.
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-      props = LavinMQ::AMQP::Properties.new
-      msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
-      msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
-      retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
-      retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
+      pub1 = MQTT::Protocol::Publish.new(topic: "topic1", payload: "body1".to_slice,
+        packet_id: nil, dup: false, qos: 0u8, retain: true)
+      pub2 = MQTT::Protocol::Publish.new(topic: "topic2", payload: "body2".to_slice,
+        packet_id: nil, dup: false, qos: 0u8, retain: true)
+      retain_store.retain(pub1)
+      retain_store.retain(pub2)
 
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
       cluster.stop

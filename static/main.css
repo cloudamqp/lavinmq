@@ -753,12 +753,6 @@ button {
   color: var(--color-text-muted);
 }
 
-.overview-divider {
-  width: 1px;
-  height: 40px;
-  background-color: var(--color-border-primary);
-  display: block;
-}
 
 .counter-pill:empty {
   padding: 0;
@@ -862,38 +856,71 @@ footer .logo {
   font-size: 14px;
   line-height: 24px;
   border-radius: 0.75rem;
-  padding: 2rem 1.5rem;
-  align-items: center;
+  padding: 0;
+  align-items: stretch;
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border-separator);
-}
-
-#overview>div:first-child {
-  border-left: 0px !important;
+  overflow: hidden;
 }
 
 #overview>div {
+  text-align: left;
+  padding: 1rem;
+  border-right: 1px solid var(--color-border-separator);
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+#overview>div:last-child {
+  border-right: none;
   text-align: center;
 }
 
+.overview-col-footer {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  min-height: 2.5625rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-tr-hover);
+  border-top: 1px solid var(--color-border-separator);
+  margin: auto -1rem -1rem -1rem;
+  margin-top: 1.5rem;
+
+  &.uptime-footer {
+    margin-top: 1rem;
+  }
+}
+
 #overview .counter {
-  font-size: 32px;
+  font-size: 24px;
   line-height: 32px;
   color: var(--color-text-primary);
   font-weight: 600;
 }
 
+#overview #uptime {
+  flex-grow: 1;
+  align-content: center;
+}
+
 #overview .counter-header {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   color: var(--color-text-secondary);
+  margin-bottom: .5rem;
 }
 
-#overview a,
-#overview a:visited {
-  color: var(--color-text-secondary);
+.overview-col-footer a,
+.overview-col-footer a:visited {
+  color: var(--color-success);
+  font-weight: 500;
+  text-decoration: none;
 }
 
-#overview a:hover {
-  color: var(--color-text-primary);
+.overview-col-footer a:hover {
+  opacity: 0.8;
 }
 
 #menu h1 {
@@ -2586,9 +2613,6 @@ pre.arguments .inactive-argument:before {
     justify-content: end;
   }
 
-  .overview-divider {
-    display: none;
-  }
 
   #menu-button.open-menu::before {
     content: "\2715";
@@ -2713,17 +2737,19 @@ pre.arguments .inactive-argument:before {
 
   #overview {
     flex-wrap: wrap;
-    padding: 10px 20px;
   }
 
   #overview>div {
-    flex: 33%;
+    flex: 50%;
     font-size: 12px;
-    padding: 5px 0;
+    text-align: left;
+
+    &:nth-child(even) {
+      border-right: 0;
+    }
   }
 
-  #overview>div {
-    border-left: 0px;
+  #overview>div:last-child {
     text-align: center;
   }
 
