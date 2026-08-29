@@ -10,12 +10,13 @@ module LavinMQ
   # Owns the dirty segment file set and the publish-confirm batching loop.
   # A single Persister is created per Server and shared between all VHosts.
   # Message stores register each segment file they write to (mark_dirty);
-  # sync then msyncs exactly those files, so a publish confirm doesn't also
-  # write out dirty pages of unrelated files (ack files, other vhosts) the
-  # way a whole-filesystem syncfs did.
+  # sync then msyncs exactly those files. Large batches fall back to one
+  # filesystem-wide sync because many individual msync calls can cost more
+  # than syncfs; the cutoff is configurable with `syncfs_threshold`.
   class Persister
     Log = LavinMQ::Log.for "persister"
 
+    @data_dir_fd : Int32 = -1
     @publish_confirm_requested = ::Channel(Bool).new(1)
     # Confirm acks accumulated since the last drain. The follower set is
     # decided at drain time against the in-sync set as it exists then (see
@@ -31,7 +32,11 @@ module LavinMQ
     # be closed by the drain that made their writes durable.
     @sync_waiters : Sync::Exclusive(Array(::Channel(Nil))) = Sync::Exclusive.new(Array(::Channel(Nil)).new, :unchecked)
 
-    def initialize(@replicator : Clustering::Replicator? = nil)
+    def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir)
+      {% if flag?(:linux) %}
+        @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
+        raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
+      {% end %}
       # Run on a dedicated thread so the blocking msync(2) syscalls only stall
       # this thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
@@ -97,6 +102,11 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
+    ensure
+      {% if flag?(:linux) %}
+        LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+        @data_dir_fd = -1
+      {% end %}
     end
 
     private def sync_dirty_files : Nil
@@ -129,10 +139,28 @@ module LavinMQ
         replicator.fsync_files(paths) unless paths.empty?
       end
       return unless Config.instance.sync?
+      begin
+        sync_files(dirty)
+      rescue ex
+        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        exit 1
+      end
+    end
+
+    # Flush small batches file by file to avoid writing unrelated dirty data.
+    # Once the number of live files reaches the configured threshold, one
+    # syncfs is faster than issuing many serial msync calls on typical storage.
+    protected def sync_files(dirty : Array(MFile)) : Nil
+      live_count = dirty.count { |mfile| !mfile.closed? && !mfile.deleted? }
+      if live_count >= Config.instance.syncfs_threshold
+        syncfs
+        return
+      end
+
       dirty.each do |mfile|
         next if mfile.closed? || mfile.deleted?
         begin
-          mfile.fsync
+          sync_file(mfile)
         rescue IO::Error
           # Closed in the window since the check above — a deleted segment's
           # content no longer needs durability. A real msync failure raises an
@@ -142,6 +170,19 @@ module LavinMQ
           exit 1
         end
       end
+    end
+
+    protected def sync_file(mfile : MFile) : Nil
+      mfile.fsync
+    end
+
+    protected def syncfs : Nil
+      {% if flag?(:linux) %}
+        ret = LibC.syncfs(@data_dir_fd)
+        raise IO::Error.from_errno("syncfs") if ret != 0
+      {% else %}
+        LibC.sync
+      {% end %}
     end
 
     private def drain

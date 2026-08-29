@@ -294,6 +294,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_SYNC")]
       property? sync : Bool = true
 
+      # Use one filesystem-wide sync instead of individual MFile msyncs when a
+      # publish-confirm batch reaches this many dirty files.
+      @[IniOpt(section: "main")]
+      property syncfs_threshold : Int32 = 10
+
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 
