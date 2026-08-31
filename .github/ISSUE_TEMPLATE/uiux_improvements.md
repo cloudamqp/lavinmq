@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Summary**  
-Provide a brief description of the issue or improvement.
+Provide a brief human readable description of the issue or improvement.
 
 **Current Behavior**  
 Describe how the feature or UI element currently works.
