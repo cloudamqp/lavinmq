@@ -49,11 +49,7 @@ const prefetchForm = (cb) => {
     event.preventDefault()
     const prefetch = parseInt(input.value)
     HTTP.request('PUT', channelUrl, { body: { prefetch } })
-      .then((r) => {
-        if (!(r && r.is_error)) {
-          cb(prefetch)
-        }
-      })
+      .then(() => cb(prefetch))
   })
   form.append(input, save, reset)
   const updateForm = (value) => { input.value = value }

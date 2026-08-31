@@ -172,8 +172,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: DOM.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then((response) => {
-      if (response?.is_error) { return }
+    .then(() => {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected

@@ -214,8 +214,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(res => {
-      if (res && res.is_error) return
+    .then(() => {
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
@@ -378,8 +377,7 @@ restartQueueForm.addEventListener('submit', function (evt) {
   const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
   if (window.confirm('Are you sure? This will restart the queue.')) {
     HTTP.request('PUT', url)
-      .then((res) => {
-        if (res && res.is_error) return
+      .then(() => {
         DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
