@@ -1,0 +1,163 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Users 1" [level=2] [ref=e91]:
+      - generic [ref=e92]: Users
+      - generic [ref=e93]: "1"
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - searchbox "Filter regex" [ref=e97]
+        - heading "Manage users" [level=2] [ref=e98]
+      - generic [ref=e99]:
+        - generic [ref=e100]: +/-
+        - table [ref=e101]:
+          - rowgroup [ref=e102]:
+            - row "↑ Name ↓ ↑ Tags ↓ Can access virtual hosts Has password" [ref=e103]:
+              - columnheader "↑ Name ↓" [ref=e104] [cursor=pointer]:
+                - text: ↑ Name
+                - text: ↓
+              - columnheader "↑ Tags ↓" [ref=e105] [cursor=pointer]:
+                - text: ↑ Tags
+                - text: ↓
+              - columnheader "Can access virtual hosts" [ref=e106]
+              - columnheader "Has password" [ref=e107]
+          - rowgroup [ref=e108]:
+            - row "guest administrator / ●" [ref=e109]:
+              - cell "guest" [ref=e110]:
+                - link "guest" [ref=e111]:
+                  - /url: user#name=guest
+              - cell "administrator" [ref=e112]
+              - cell / [ref=e113]
+              - cell "●" [ref=e114]
+          - rowgroup [ref=e115]:
+            - row [ref=e116]:
+              - cell [ref=e117]
+    - generic [ref=e118]:
+      - heading "Add user" [level=3] [ref=e119]
+      - generic [ref=e120]:
+        - generic [ref=e121]: Username
+        - textbox "Username" [ref=e122]
+      - generic [ref=e123]:
+        - generic [ref=e124]: Password
+        - textbox "Password" [ref=e125]
+      - generic [ref=e126]:
+        - button "Generate Password" [ref=e127] [cursor=pointer]
+        - button [ref=e128] [cursor=pointer]:
+          - img [ref=e129]
+      - generic [ref=e130]:
+        - generic [ref=e131]: Tags
+        - textbox "Tags" [ref=e132]
+      - generic [ref=e133]: Administrator | Policymaker | Monitoring | Management | Impersonator | None
+      - button "Add user" [ref=e134] [cursor=pointer]
+  - contentinfo [ref=e135]:
+    - paragraph [ref=e136]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e137]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e138]
+```

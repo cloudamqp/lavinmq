@@ -84,10 +84,9 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       'consumer-tag': data.get('consumer-tag')
     }
   }
-  HTTP.submitForm(evt.target, 'PUT', url, {
-    body,
-    table: upstreamsTable
-  }).then(() => {
-    DOM.toast(`Upstream ${name} saved`)
-  })
+  HTTP.submitForm(evt.target, 'PUT', url, { body })
+    .then(() => {
+      upstreamsTable.reload()
+      DOM.toast(`Upstream ${name} saved`)
+    })
 })

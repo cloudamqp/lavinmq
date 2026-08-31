@@ -1,0 +1,191 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34] [cursor=pointer]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41] [cursor=pointer]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44] [cursor=pointer]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47] [cursor=pointer]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51] [cursor=pointer]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54] [cursor=pointer]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57] [cursor=pointer]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61] [cursor=pointer]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64] [cursor=pointer]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68] [cursor=pointer]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71] [cursor=pointer]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75] [cursor=pointer]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78] [cursor=pointer]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81] [cursor=pointer]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84] [cursor=pointer]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87] [cursor=pointer]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Policies 0" [level=2] [ref=e91]:
+      - text: Policies
+      - generic [ref=e92]: "0"
+    - generic [ref=e93]:
+      - generic [ref=e94]:
+        - searchbox "Filter regex" [ref=e96]
+        - heading "Manage policies" [level=2] [ref=e97]
+      - generic [ref=e98]:
+        - generic [ref=e99]: +/-
+        - table [ref=e100]:
+          - rowgroup [ref=e101]:
+            - row "Virtual host ↑ Name ↓ Pattern Apply to Definition Priority" [ref=e102]:
+              - columnheader "Virtual host" [ref=e103]
+              - columnheader "↑ Name ↓" [ref=e104] [cursor=pointer]:
+                - text: ↑ Name
+                - text: ↓
+              - columnheader "Pattern" [ref=e105]
+              - columnheader "Apply to" [ref=e106]
+              - columnheader "Definition" [ref=e107]
+              - columnheader "Priority" [ref=e108]
+              - columnheader [ref=e109]
+          - rowgroup [ref=e110]:
+            - row "Nope, nothing to see here." [ref=e111]:
+              - cell "Nope, nothing to see here." [ref=e112]
+          - rowgroup [ref=e113]:
+            - row [ref=e114]:
+              - cell [ref=e115]
+    - generic [ref=e116]:
+      - heading "Add policy" [level=3] [ref=e117]
+      - generic [ref=e118]:
+        - generic [ref=e119]: Virtual host
+        - combobox "Virtual host" [ref=e120]:
+          - option "bar" [selected]
+          - option "foo"
+      - generic [ref=e121]:
+        - generic [ref=e122]: Name
+        - textbox "Name" [ref=e123]
+      - generic [ref=e124]:
+        - generic [ref=e125]: Pattern
+        - textbox "Pattern" [ref=e126]
+      - generic [ref=e127]:
+        - generic [ref=e128]: Apply to
+        - combobox "Apply to" [ref=e129]:
+          - option "Exchanges & Queues" [selected]
+          - option "Exchanges"
+          - option "Queues"
+      - generic [ref=e130]:
+        - generic [ref=e131]: Definition
+        - textbox "Definition Max length | Max length bytes | Message TTL | Overflow behaviour | Auto expire | Dead letter exchange | Dead letter routing key | Federation upstream | Federation upstream set | Delivery limit | Max age" [ref=e132]:
+          - /placeholder: "{ \"key\": value }"
+        - generic [ref=e133]:
+          - generic [ref=e134] [cursor=pointer]: Max length
+          - text: "|"
+          - generic [ref=e135] [cursor=pointer]: Max length bytes
+          - text: "|"
+          - generic [ref=e136] [cursor=pointer]: Message TTL
+          - text: "|"
+          - generic [ref=e137] [cursor=pointer]: Overflow behaviour
+          - text: "|"
+          - generic [ref=e138] [cursor=pointer]: Auto expire
+          - text: "|"
+          - generic [ref=e139] [cursor=pointer]: Dead letter exchange
+          - text: "|"
+          - generic [ref=e140] [cursor=pointer]: Dead letter routing key
+          - text: "|"
+          - generic [ref=e141] [cursor=pointer]: Federation upstream
+          - text: "|"
+          - generic [ref=e142] [cursor=pointer]: Federation upstream set
+          - text: "|"
+          - generic [ref=e143] [cursor=pointer]: Delivery limit
+          - text: "|"
+          - generic [ref=e144] [cursor=pointer]: Max age
+      - generic [ref=e145]:
+        - generic [ref=e146]: Priority
+        - spinbutton "Priority" [ref=e147]: "0"
+      - button "Add policy" [ref=e148] [cursor=pointer]
+  - contentinfo [ref=e149]:
+    - paragraph [ref=e150]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e151] [cursor=pointer]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e152]
+```

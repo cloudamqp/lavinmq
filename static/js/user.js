@@ -67,7 +67,8 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
     write: data.get('write'),
     read: data.get('read')
   }
-  HTTP.submitForm(evt.target, 'PUT', url, { body, table: permissionsTable })
+  HTTP.submitForm(evt.target, 'PUT', url, { body })
+    .then(() => permissionsTable.reload())
 })
 
 document.querySelector('[name=remove_password]').addEventListener('change', function () {

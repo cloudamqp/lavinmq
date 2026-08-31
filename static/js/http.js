@@ -67,11 +67,10 @@ function noencode (v) {
 }
 
 async function submitForm (form, method, url, options = {}) {
-  const { body, table } = options
+  const { body } = options
   return request(method, url, { body })
     .then(res => {
       if (res?.is_error) throw res
-      if (table) table.reload()
       form.reset()
     })
 }

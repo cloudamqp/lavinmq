@@ -1,0 +1,228 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34] [cursor=pointer]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41] [cursor=pointer]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44] [cursor=pointer]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47] [cursor=pointer]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51] [cursor=pointer]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54] [cursor=pointer]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57] [cursor=pointer]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61] [cursor=pointer]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64] [cursor=pointer]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68] [cursor=pointer]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71] [cursor=pointer]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75] [cursor=pointer]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78] [cursor=pointer]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81] [cursor=pointer]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84] [cursor=pointer]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87] [cursor=pointer]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Queues 0" [level=2] [ref=e91]:
+      - text: Queues
+      - generic [ref=e92]: "0"
+    - generic [ref=e93]:
+      - generic [ref=e94]:
+        - searchbox "Filter regex" [ref=e96]
+        - heading "Manage queues" [level=2] [ref=e97]
+      - generic [ref=e98]:
+        - generic [ref=e99]: +/-
+        - table [ref=e100]:
+          - rowgroup [ref=e101]:
+            - row "↑ Virtual host ↓ ↑ Name ↓ Features ↑ Policy ↓ ↑ Consumers ↓ ↑ State ↓ ↑ Messages Ready ↓ ↑ Messages Unacknowledged ↓ ↑ Total ↓ ↑ Publish rate ↓ ↑ Deliver rate ↓ ↑ Redeliver rate ↓ ↑ Ack rate ↓ ↑ Disk space used ↓" [ref=e102]:
+              - columnheader [ref=e103]:
+                - checkbox [ref=e104]
+              - columnheader "↑ Virtual host ↓" [ref=e105] [cursor=pointer]:
+                - text: ↑ Virtual host
+                - text: ↓
+              - columnheader "↑ Name ↓" [ref=e106] [cursor=pointer]:
+                - text: ↑ Name
+                - text: ↓
+              - columnheader "Features" [ref=e107]
+              - columnheader "↑ Policy ↓" [ref=e108] [cursor=pointer]:
+                - text: ↑ Policy
+                - text: ↓
+              - columnheader "↑ Consumers ↓" [ref=e109] [cursor=pointer]:
+                - text: ↑ Consumers
+                - text: ↓
+              - columnheader "↑ State ↓" [ref=e110] [cursor=pointer]:
+                - text: ↑ State
+                - text: ↓
+              - columnheader "↑ Messages Ready ↓" [ref=e111] [cursor=pointer]:
+                - text: ↑ Messages Ready
+                - text: ↓
+              - columnheader "↑ Messages Unacknowledged ↓" [ref=e112] [cursor=pointer]:
+                - text: ↑ Messages Unacknowledged
+                - text: ↓
+              - columnheader "↑ Total ↓" [ref=e113] [cursor=pointer]:
+                - text: ↑ Total
+                - text: ↓
+              - columnheader "↑ Publish rate ↓" [ref=e114] [cursor=pointer]:
+                - text: ↑ Publish rate
+                - text: ↓
+              - columnheader "↑ Deliver rate ↓" [ref=e115] [cursor=pointer]:
+                - text: ↑ Deliver rate
+                - text: ↓
+              - columnheader "↑ Redeliver rate ↓" [ref=e116] [cursor=pointer]:
+                - text: ↑ Redeliver rate
+                - text: ↓
+              - columnheader "↑ Ack rate ↓" [ref=e117] [cursor=pointer]:
+                - text: ↑ Ack rate
+                - text: ↓
+              - columnheader "↑ Disk space used ↓" [ref=e118] [cursor=pointer]:
+                - text: ↑ Disk space used
+                - text: ↓
+          - rowgroup [ref=e119]:
+            - row "Nope, nothing to see here." [ref=e120]:
+              - cell "Nope, nothing to see here." [ref=e121]
+          - rowgroup [ref=e122]:
+            - row [ref=e123]:
+              - cell [ref=e124]
+    - generic [ref=e125]:
+      - heading "Add queue" [level=3] [ref=e126]
+      - generic [ref=e127]:
+        - generic [ref=e128]: Virtual host
+        - combobox "Virtual host" [ref=e129]:
+          - option "bar" [selected]
+          - option "foo"
+      - generic [ref=e130]:
+        - generic [ref=e131]: Name
+        - textbox "Name" [ref=e132]
+      - generic [ref=e133]:
+        - generic [ref=e135] [cursor=pointer]:
+          - text: Durable
+          - generic [ref=e136]: "?"
+        - checkbox "Durable ?" [checked] [ref=e137]
+      - generic [ref=e138]:
+        - generic [ref=e140] [cursor=pointer]:
+          - text: Auto-delete
+          - generic [ref=e141]: "?"
+        - checkbox "Auto-delete ?" [ref=e142]
+      - generic [ref=e143]:
+        - generic [ref=e144]: Arguments
+        - textbox "Arguments Auto Expire | Max Length | Message TTL | Delivery limit | Overflow behaviour | Dead letter exchange | Dead letter routing key | Max Priority | Stream Queue | Max age | Message deduplication | Deduplication cache size | Deduplication cache ttl | Deduplication header" [ref=e145]:
+          - /placeholder: "{ \"key\": value }"
+        - generic [ref=e146]:
+          - generic [ref=e147] [cursor=pointer]: Auto Expire
+          - text: "|"
+          - generic [ref=e148] [cursor=pointer]: Max Length
+          - text: "|"
+          - generic [ref=e149] [cursor=pointer]: Message TTL
+          - text: "|"
+          - generic [ref=e150] [cursor=pointer]: Delivery limit
+          - text: "|"
+          - generic [ref=e151] [cursor=pointer]: Overflow behaviour
+          - text: "|"
+          - generic [ref=e152] [cursor=pointer]: Dead letter exchange
+          - text: "|"
+          - generic [ref=e153] [cursor=pointer]: Dead letter routing key
+          - text: "|"
+          - generic [ref=e154] [cursor=pointer]: Max Priority
+          - text: "|"
+          - generic [ref=e155] [cursor=pointer]: Stream Queue
+          - text: "|"
+          - generic [ref=e156] [cursor=pointer]: Max age
+          - text: "|"
+          - generic [ref=e157] [cursor=pointer]: Message deduplication
+          - text: "|"
+          - generic [ref=e158] [cursor=pointer]: Deduplication cache size
+          - text: "|"
+          - generic [ref=e159] [cursor=pointer]: Deduplication cache ttl
+          - text: "|"
+          - generic [ref=e160] [cursor=pointer]: Deduplication header
+      - button "Add queue" [ref=e161] [cursor=pointer]
+  - contentinfo [ref=e162]:
+    - paragraph [ref=e163]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e164] [cursor=pointer]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e165]
+```

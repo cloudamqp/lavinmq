@@ -35,5 +35,6 @@ document.querySelector('#createVhost').addEventListener('submit', function (evt)
   const data = new window.FormData(this)
   const name = data.get('name').trim()
   const url = HTTP.url`api/vhosts/${name}`
-  HTTP.submitForm(evt.target, 'PUT', url, { table: vhostTable })
+  HTTP.submitForm(evt.target, 'PUT', url, {})
+    .then(() => vhostTable.reload())
 })

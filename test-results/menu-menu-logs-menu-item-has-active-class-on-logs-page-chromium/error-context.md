@@ -1,0 +1,725 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34] [cursor=pointer]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41] [cursor=pointer]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44] [cursor=pointer]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47] [cursor=pointer]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51] [cursor=pointer]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54] [cursor=pointer]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57] [cursor=pointer]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61] [cursor=pointer]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64] [cursor=pointer]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68] [cursor=pointer]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71] [cursor=pointer]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75] [cursor=pointer]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78] [cursor=pointer]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81] [cursor=pointer]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84] [cursor=pointer]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87] [cursor=pointer]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Logs" [level=2] [ref=e91]:
+      - generic [ref=e92]: Logs
+    - generic [ref=e93]:
+      - generic [ref=e94]:
+        - button "Newest" [pressed] [ref=e95] [cursor=pointer]
+        - button "Oldest" [ref=e96] [cursor=pointer]
+        - link "Download logs" [ref=e97] [cursor=pointer]:
+          - /url: api/logs
+      - table [ref=e99]:
+        - rowgroup [ref=e100]:
+          - row "Timestamp Severity Source Message" [ref=e101]:
+            - columnheader "Timestamp" [ref=e102]
+            - columnheader "Severity" [ref=e103]
+            - columnheader "Source" [ref=e104]
+            - columnheader "Message" [ref=e105]
+        - rowgroup [ref=e106]:
+          - row "8/31/2026, 10:04:54 AM info lmq Logger settings" [ref=e107]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e108]
+            - cell "info" [ref=e109]
+            - cell "lmq" [ref=e110]
+            - cell "Logger settings" [ref=e111]:
+              - generic [ref=e112]: Logger settings
+          - row "8/31/2026, 10:04:54 AM info lmq.launcher LavinMQ 2.7.0-rc.1-44-g42dbf7fa" [ref=e113]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e114]
+            - cell "info" [ref=e115]
+            - cell "lmq.launcher" [ref=e116]
+            - cell "LavinMQ 2.7.0-rc.1-44-g42dbf7fa" [ref=e117]:
+              - generic [ref=e118]: LavinMQ 2.7.0-rc.1-44-g42dbf7fa
+          - row "8/31/2026, 10:04:54 AM info lmq.launcher Crystal 1.20.2 (2026-05-15)" [ref=e119]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e120]
+            - cell "info" [ref=e121]
+            - cell "lmq.launcher" [ref=e122]
+            - cell "Crystal 1.20.2 (2026-05-15)" [ref=e123]:
+              - generic [ref=e124]: Crystal 1.20.2 (2026-05-15)
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher LLVM: 22.1.8" [ref=e125]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e126]
+            - cell "info" [ref=e127]
+            - cell "lmq.launcher" [ref=e128]
+            - 'cell "LLVM: 22.1.8" [ref=e129]':
+              - generic [ref=e130]: "LLVM: 22.1.8"
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher Default target: aarch64-apple-darwin25.5.0" [ref=e131]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e132]
+            - cell "info" [ref=e133]
+            - cell "lmq.launcher" [ref=e134]
+            - 'cell "Default target: aarch64-apple-darwin25.5.0" [ref=e135]':
+              - generic [ref=e136]: "Default target: aarch64-apple-darwin25.5.0"
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher Build flags: --debug" [ref=e137]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e138]
+            - cell "info" [ref=e139]
+            - cell "lmq.launcher" [ref=e140]
+            - 'cell "Build flags: --debug" [ref=e141]':
+              - generic [ref=e142]: "Build flags: --debug"
+          - row "8/31/2026, 10:04:54 AM warn lmq.launcher Not built in release mode" [ref=e143]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e144]
+            - cell "warn" [ref=e145]
+            - cell "lmq.launcher" [ref=e146]
+            - cell "Not built in release mode" [ref=e147]:
+              - generic [ref=e148]: Not built in release mode
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher Multithreading: 4 threads" [ref=e149]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e150]
+            - cell "info" [ref=e151]
+            - cell "lmq.launcher" [ref=e152]
+            - 'cell "Multithreading: 4 threads" [ref=e153]':
+              - generic [ref=e154]: "Multithreading: 4 threads"
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher PID: 19476" [ref=e155]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e156]
+            - cell "info" [ref=e157]
+            - cell "lmq.launcher" [ref=e158]
+            - 'cell "PID: 19476" [ref=e159]':
+              - generic [ref=e160]: "PID: 19476"
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher Data directory: ./tmp/data-fe" [ref=e161]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e162]
+            - cell "info" [ref=e163]
+            - cell "lmq.launcher" [ref=e164]
+            - 'cell "Data directory: ./tmp/data-fe" [ref=e165]':
+              - generic [ref=e166]: "Data directory: ./tmp/data-fe"
+          - 'row "8/31/2026, 10:04:54 AM info lmq.launcher FD limit: 9223372036854775807" [ref=e167]':
+            - cell "8/31/2026, 10:04:54 AM" [ref=e168]
+            - cell "info" [ref=e169]
+            - cell "lmq.launcher" [ref=e170]
+            - 'cell "FD limit: 9223372036854775807" [ref=e171]':
+              - generic [ref=e172]: "FD limit: 9223372036854775807"
+          - row "8/31/2026, 10:04:54 AM info lmq.vhost Loading default definitions" [ref=e173]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e174]
+            - cell "info" [ref=e175]
+            - cell "lmq.vhost" [ref=e176]
+            - cell "Loading default definitions" [ref=e177]:
+              - generic [ref=e178]: Loading default definitions
+          - row "8/31/2026, 10:04:54 AM info lmq.vhost Compacting definitions" [ref=e179]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e180]
+            - cell "info" [ref=e181]
+            - cell "lmq.vhost" [ref=e182]
+            - cell "Compacting definitions" [ref=e183]:
+              - generic [ref=e184]: Compacting definitions
+          - row "8/31/2026, 10:04:54 AM info lmq.vhost_store Created vhost /" [ref=e185]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e186]
+            - cell "info" [ref=e187]
+            - cell "lmq.vhost_store" [ref=e188]
+            - cell "Created vhost /" [ref=e189]:
+              - generic [ref=e190]: Created vhost /
+          - row "8/31/2026, 10:04:54 AM info lmq.http.server Bound to 127.0.0.1:15672" [ref=e191]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e192]
+            - cell "info" [ref=e193]
+            - cell "lmq.http.server" [ref=e194]
+            - cell "Bound to 127.0.0.1:15672" [ref=e195]:
+              - generic [ref=e196]: Bound to 127.0.0.1:15672
+          - row "8/31/2026, 10:04:54 AM info lmq.http.server Bound to /tmp/lavinmqctl.sock" [ref=e197]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e198]
+            - cell "info" [ref=e199]
+            - cell "lmq.http.server" [ref=e200]
+            - cell "Bound to /tmp/lavinmqctl.sock" [ref=e201]:
+              - generic [ref=e202]: Bound to /tmp/lavinmqctl.sock
+          - row "8/31/2026, 10:04:54 AM info lmq.metrics.server Bound to 127.0.0.1:15692" [ref=e203]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e204]
+            - cell "info" [ref=e205]
+            - cell "lmq.metrics.server" [ref=e206]
+            - cell "Bound to 127.0.0.1:15692" [ref=e207]:
+              - generic [ref=e208]: Bound to 127.0.0.1:15692
+          - row "8/31/2026, 10:04:54 AM info lmq.server Listening for AMQP on 127.0.0.1:5672" [ref=e209]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e210]
+            - cell "info" [ref=e211]
+            - cell "lmq.server" [ref=e212]
+            - cell "Listening for AMQP on 127.0.0.1:5672" [ref=e213]:
+              - generic [ref=e214]: Listening for AMQP on 127.0.0.1:5672
+          - row "8/31/2026, 10:04:54 AM info lmq.server Listening for MQTT on 127.0.0.1:1883" [ref=e215]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e216]
+            - cell "info" [ref=e217]
+            - cell "lmq.server" [ref=e218]
+            - cell "Listening for MQTT on 127.0.0.1:1883" [ref=e219]:
+              - generic [ref=e220]: Listening for MQTT on 127.0.0.1:1883
+          - row "8/31/2026, 10:04:54 AM info lmq.launcher Finished startup in 0.010705709s" [ref=e221]:
+            - cell "8/31/2026, 10:04:54 AM" [ref=e222]
+            - cell "info" [ref=e223]
+            - cell "lmq.launcher" [ref=e224]
+            - cell "Finished startup in 0.010705709s" [ref=e225]:
+              - generic [ref=e226]: Finished startup in 0.010705709s
+          - row "8/31/2026, 10:04:55 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e227]:
+            - cell "8/31/2026, 10:04:55 AM" [ref=e228]
+            - cell "warn" [ref=e229]
+            - cell "lmq.amqp.connection_factory" [ref=e230]
+            - cell "VHost \"cloudamqp\" not found" [ref=e231]:
+              - generic [ref=e232]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:04:56 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e233]:
+            - cell "8/31/2026, 10:04:56 AM" [ref=e234]
+            - cell "warn" [ref=e235]
+            - cell "lmq.amqp.connection_factory" [ref=e236]
+            - cell "VHost \"cloudamqp\" not found" [ref=e237]:
+              - generic [ref=e238]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:04:57 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e239]:
+            - cell "8/31/2026, 10:04:57 AM" [ref=e240]
+            - cell "warn" [ref=e241]
+            - cell "lmq.amqp.connection_factory" [ref=e242]
+            - cell "VHost \"cloudamqp\" not found" [ref=e243]:
+              - generic [ref=e244]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:04:58 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e245]:
+            - cell "8/31/2026, 10:04:58 AM" [ref=e246]
+            - cell "warn" [ref=e247]
+            - cell "lmq.amqp.connection_factory" [ref=e248]
+            - cell "VHost \"cloudamqp\" not found" [ref=e249]:
+              - generic [ref=e250]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:04:59 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e251]:
+            - cell "8/31/2026, 10:04:59 AM" [ref=e252]
+            - cell "warn" [ref=e253]
+            - cell "lmq.amqp.connection_factory" [ref=e254]
+            - cell "VHost \"cloudamqp\" not found" [ref=e255]:
+              - generic [ref=e256]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:00 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e257]:
+            - cell "8/31/2026, 10:05:00 AM" [ref=e258]
+            - cell "warn" [ref=e259]
+            - cell "lmq.amqp.connection_factory" [ref=e260]
+            - cell "VHost \"cloudamqp\" not found" [ref=e261]:
+              - generic [ref=e262]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:01 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e263]:
+            - cell "8/31/2026, 10:05:01 AM" [ref=e264]
+            - cell "warn" [ref=e265]
+            - cell "lmq.amqp.connection_factory" [ref=e266]
+            - cell "VHost \"cloudamqp\" not found" [ref=e267]:
+              - generic [ref=e268]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:02 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e269]:
+            - cell "8/31/2026, 10:05:02 AM" [ref=e270]
+            - cell "warn" [ref=e271]
+            - cell "lmq.amqp.connection_factory" [ref=e272]
+            - cell "VHost \"cloudamqp\" not found" [ref=e273]:
+              - generic [ref=e274]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:03 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e275]:
+            - cell "8/31/2026, 10:05:03 AM" [ref=e276]
+            - cell "warn" [ref=e277]
+            - cell "lmq.amqp.connection_factory" [ref=e278]
+            - cell "VHost \"cloudamqp\" not found" [ref=e279]:
+              - generic [ref=e280]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:04 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e281]:
+            - cell "8/31/2026, 10:05:04 AM" [ref=e282]
+            - cell "warn" [ref=e283]
+            - cell "lmq.amqp.connection_factory" [ref=e284]
+            - cell "VHost \"cloudamqp\" not found" [ref=e285]:
+              - generic [ref=e286]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:05 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e287]:
+            - cell "8/31/2026, 10:05:05 AM" [ref=e288]
+            - cell "warn" [ref=e289]
+            - cell "lmq.amqp.connection_factory" [ref=e290]
+            - cell "VHost \"cloudamqp\" not found" [ref=e291]:
+              - generic [ref=e292]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:06 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e293]:
+            - cell "8/31/2026, 10:05:06 AM" [ref=e294]
+            - cell "warn" [ref=e295]
+            - cell "lmq.amqp.connection_factory" [ref=e296]
+            - cell "VHost \"cloudamqp\" not found" [ref=e297]:
+              - generic [ref=e298]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:07 AM info lmq.http.performance request=/api/whoami? memory=80B elapsed=0ms" [ref=e299]:
+            - cell "8/31/2026, 10:05:07 AM" [ref=e300]
+            - cell "info" [ref=e301]
+            - cell "lmq.http.performance" [ref=e302]
+            - cell "request=/api/whoami? memory=80B elapsed=0ms" [ref=e303]:
+              - generic [ref=e304]: request=/api/whoami? memory=80B elapsed=0ms
+          - row "8/31/2026, 10:05:07 AM info lmq.http.performance request=/api/vhosts?columns=name memory=0B elapsed=0ms" [ref=e305]:
+            - cell "8/31/2026, 10:05:07 AM" [ref=e306]
+            - cell "info" [ref=e307]
+            - cell "lmq.http.performance" [ref=e308]
+            - cell "request=/api/vhosts?columns=name memory=0B elapsed=0ms" [ref=e309]:
+              - generic [ref=e310]: request=/api/vhosts?columns=name memory=0B elapsed=0ms
+          - row "8/31/2026, 10:05:07 AM info lmq.http.performance request=/api/overview? memory=15.2kiB elapsed=0ms" [ref=e311]:
+            - cell "8/31/2026, 10:05:07 AM" [ref=e312]
+            - cell "info" [ref=e313]
+            - cell "lmq.http.performance" [ref=e314]
+            - cell "request=/api/overview? memory=15.2kiB elapsed=0ms" [ref=e315]:
+              - generic [ref=e316]: request=/api/overview? memory=15.2kiB elapsed=0ms
+          - row "8/31/2026, 10:05:07 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e317]:
+            - cell "8/31/2026, 10:05:07 AM" [ref=e318]
+            - cell "warn" [ref=e319]
+            - cell "lmq.amqp.connection_factory" [ref=e320]
+            - cell "VHost \"cloudamqp\" not found" [ref=e321]:
+              - generic [ref=e322]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e323]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e324]
+            - cell "info" [ref=e325]
+            - cell "lmq.http.apierror" [ref=e326]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e327]:
+              - generic [ref=e328]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e329]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e330]
+            - cell "info" [ref=e331]
+            - cell "lmq.http.apierror" [ref=e332]
+            - cell "method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e333]:
+              - generic [ref=e334]: method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message="Channel 127.0.0.1:63221[1] does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e335]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e336]
+            - cell "info" [ref=e337]
+            - cell "lmq.http.apierror" [ref=e338]
+            - cell "method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e339]:
+              - generic [ref=e340]: method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message="Channel 127.0.0.1:63221[1] does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e341]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e342]
+            - cell "info" [ref=e343]
+            - cell "lmq.http.apierror" [ref=e344]
+            - cell "method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e345]:
+              - generic [ref=e346]: method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message="Channel 127.0.0.1:63221[1] does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e347]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e348]
+            - cell "info" [ref=e349]
+            - cell "lmq.http.apierror" [ref=e350]
+            - cell "method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message=\"Channel 127.0.0.1:63221[1] does not exist\"" [ref=e351]:
+              - generic [ref=e352]: method=GET path=/api/channels/127.0.0.1%3A63221%5B1%5D status=404 message="Channel 127.0.0.1:63221[1] does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e353]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e354]
+            - cell "info" [ref=e355]
+            - cell "lmq.http.apierror" [ref=e356]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e357]:
+              - generic [ref=e358]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e359]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e360]
+            - cell "info" [ref=e361]
+            - cell "lmq.http.apierror" [ref=e362]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e363]:
+              - generic [ref=e364]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e365]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e366]
+            - cell "info" [ref=e367]
+            - cell "lmq.http.apierror" [ref=e368]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e369]:
+              - generic [ref=e370]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e371]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e372]
+            - cell "info" [ref=e373]
+            - cell "lmq.http.apierror" [ref=e374]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e375]:
+              - generic [ref=e376]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e377]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e378]
+            - cell "info" [ref=e379]
+            - cell "lmq.http.apierror" [ref=e380]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e381]:
+              - generic [ref=e382]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e383]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e384]
+            - cell "warn" [ref=e385]
+            - cell "lmq.amqp.connection_factory" [ref=e386]
+            - cell "VHost \"cloudamqp\" not found" [ref=e387]:
+              - generic [ref=e388]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e389]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e390]
+            - cell "info" [ref=e391]
+            - cell "lmq.http.apierror" [ref=e392]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e393]:
+              - generic [ref=e394]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e395]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e396]
+            - cell "info" [ref=e397]
+            - cell "lmq.http.apierror" [ref=e398]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e399]:
+              - generic [ref=e400]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e401]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e402]
+            - cell "info" [ref=e403]
+            - cell "lmq.http.apierror" [ref=e404]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e405]:
+              - generic [ref=e406]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e407]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e408]
+            - cell "info" [ref=e409]
+            - cell "lmq.http.apierror" [ref=e410]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e411]:
+              - generic [ref=e412]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e413]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e414]
+            - cell "info" [ref=e415]
+            - cell "lmq.http.apierror" [ref=e416]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e417]:
+              - generic [ref=e418]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e419]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e420]
+            - cell "info" [ref=e421]
+            - cell "lmq.http.apierror" [ref=e422]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e423]:
+              - generic [ref=e424]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e425]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e426]
+            - cell "info" [ref=e427]
+            - cell "lmq.http.apierror" [ref=e428]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e429]:
+              - generic [ref=e430]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345/channels status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e431]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e432]
+            - cell "info" [ref=e433]
+            - cell "lmq.http.apierror" [ref=e434]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e435]:
+              - generic [ref=e436]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e437]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e438]
+            - cell "info" [ref=e439]
+            - cell "lmq.http.apierror" [ref=e440]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e441]:
+              - generic [ref=e442]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e443]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e444]
+            - cell "info" [ref=e445]
+            - cell "lmq.http.apierror" [ref=e446]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e447]:
+              - generic [ref=e448]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e449]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e450]
+            - cell "info" [ref=e451]
+            - cell "lmq.http.apierror" [ref=e452]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e453]:
+              - generic [ref=e454]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e455]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e456]
+            - cell "info" [ref=e457]
+            - cell "lmq.http.apierror" [ref=e458]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e459]:
+              - generic [ref=e460]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e461]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e462]
+            - cell "info" [ref=e463]
+            - cell "lmq.http.apierror" [ref=e464]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e465]:
+              - generic [ref=e466]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.apierror method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e467]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e468]
+            - cell "info" [ref=e469]
+            - cell "lmq.http.apierror" [ref=e470]
+            - cell "method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message=\"Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist\"" [ref=e471]:
+              - generic [ref=e472]: method=GET path=/api/connections/127.0.0.1:63610%20-%3E%20127.0.0.1:12345 status=404 message="Connection 127.0.0.1:63610 -> 127.0.0.1:12345 does not exist"
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/queues/%2F?columns=name memory=7.08kiB elapsed=0ms" [ref=e473]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e474]
+            - cell "info" [ref=e475]
+            - cell "lmq.http.performance" [ref=e476]
+            - cell "request=/api/queues/%2F?columns=name memory=7.08kiB elapsed=0ms" [ref=e477]:
+              - generic [ref=e478]: request=/api/queues/%2F?columns=name memory=7.08kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=240B elapsed=0ms" [ref=e479]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e480]
+            - cell "info" [ref=e481]
+            - cell "lmq.http.performance" [ref=e482]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=240B elapsed=0ms" [ref=e483]:
+              - generic [ref=e484]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=240B elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/queues/%2F?columns=name memory=2.37kiB elapsed=0ms" [ref=e485]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e486]
+            - cell "info" [ref=e487]
+            - cell "lmq.http.performance" [ref=e488]
+            - cell "request=/api/queues/%2F?columns=name memory=2.37kiB elapsed=0ms" [ref=e489]:
+              - generic [ref=e490]: request=/api/queues/%2F?columns=name memory=2.37kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.09kiB elapsed=0ms" [ref=e491]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e492]
+            - cell "info" [ref=e493]
+            - cell "lmq.http.performance" [ref=e494]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.09kiB elapsed=0ms" [ref=e495]:
+              - generic [ref=e496]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.09kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic? memory=0B elapsed=0ms" [ref=e497]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e498]
+            - cell "info" [ref=e499]
+            - cell "lmq.http.performance" [ref=e500]
+            - cell "request=/api/exchanges/%2F/amq.topic? memory=0B elapsed=0ms" [ref=e501]:
+              - generic [ref=e502]: request=/api/exchanges/%2F/amq.topic? memory=0B elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic? memory=304B elapsed=0ms" [ref=e503]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e504]
+            - cell "info" [ref=e505]
+            - cell "lmq.http.performance" [ref=e506]
+            - cell "request=/api/exchanges/%2F/amq.topic? memory=304B elapsed=0ms" [ref=e507]:
+              - generic [ref=e508]: request=/api/exchanges/%2F/amq.topic? memory=304B elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.11kiB elapsed=0ms" [ref=e509]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e510]
+            - cell "info" [ref=e511]
+            - cell "lmq.http.performance" [ref=e512]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.11kiB elapsed=0ms" [ref=e513]:
+              - generic [ref=e514]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.11kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic? memory=1.23kiB elapsed=0ms" [ref=e515]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e516]
+            - cell "info" [ref=e517]
+            - cell "lmq.http.performance" [ref=e518]
+            - cell "request=/api/exchanges/%2F/amq.topic? memory=1.23kiB elapsed=0ms" [ref=e519]:
+              - generic [ref=e520]: request=/api/exchanges/%2F/amq.topic? memory=1.23kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=2.86kiB elapsed=1ms" [ref=e521]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e522]
+            - cell "info" [ref=e523]
+            - cell "lmq.http.performance" [ref=e524]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=2.86kiB elapsed=1ms" [ref=e525]:
+              - generic [ref=e526]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=2.86kiB elapsed=1ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/queues/%2F?columns=name memory=3.34kiB elapsed=0ms" [ref=e527]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e528]
+            - cell "info" [ref=e529]
+            - cell "lmq.http.performance" [ref=e530]
+            - cell "request=/api/queues/%2F?columns=name memory=3.34kiB elapsed=0ms" [ref=e531]:
+              - generic [ref=e532]: request=/api/queues/%2F?columns=name memory=3.34kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/exchanges/%2F/amq.direct/bindings/source?page=1&page_size=100 memory=3.3kiB elapsed=0ms" [ref=e533]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e534]
+            - cell "info" [ref=e535]
+            - cell "lmq.http.performance" [ref=e536]
+            - cell "request=/api/exchanges/%2F/amq.direct/bindings/source?page=1&page_size=100 memory=3.3kiB elapsed=0ms" [ref=e537]:
+              - generic [ref=e538]: request=/api/exchanges/%2F/amq.direct/bindings/source?page=1&page_size=100 memory=3.3kiB elapsed=0ms
+          - row "8/31/2026, 10:05:08 AM info lmq.http.performance request=/api/queues/%2F?columns=name memory=7.53kiB elapsed=0ms" [ref=e539]:
+            - cell "8/31/2026, 10:05:08 AM" [ref=e540]
+            - cell "info" [ref=e541]
+            - cell "lmq.http.performance" [ref=e542]
+            - cell "request=/api/queues/%2F?columns=name memory=7.53kiB elapsed=0ms" [ref=e543]:
+              - generic [ref=e544]: request=/api/queues/%2F?columns=name memory=7.53kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=11.9kiB elapsed=0ms" [ref=e545]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e546]
+            - cell "info" [ref=e547]
+            - cell "lmq.http.performance" [ref=e548]
+            - cell "request=/api/overview? memory=11.9kiB elapsed=0ms" [ref=e549]:
+              - generic [ref=e550]: request=/api/overview? memory=11.9kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.94kiB elapsed=0ms" [ref=e551]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e552]
+            - cell "info" [ref=e553]
+            - cell "lmq.http.performance" [ref=e554]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.94kiB elapsed=0ms" [ref=e555]:
+              - generic [ref=e556]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.94kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic? memory=3.36kiB elapsed=0ms" [ref=e557]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e558]
+            - cell "info" [ref=e559]
+            - cell "lmq.http.performance" [ref=e560]
+            - cell "request=/api/exchanges/%2F/amq.topic? memory=3.36kiB elapsed=0ms" [ref=e561]:
+              - generic [ref=e562]: request=/api/exchanges/%2F/amq.topic? memory=3.36kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=14.8kiB elapsed=0ms" [ref=e563]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e564]
+            - cell "info" [ref=e565]
+            - cell "lmq.http.performance" [ref=e566]
+            - cell "request=/api/overview? memory=14.8kiB elapsed=0ms" [ref=e567]:
+              - generic [ref=e568]: request=/api/overview? memory=14.8kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=14.8kiB elapsed=0ms" [ref=e569]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e570]
+            - cell "info" [ref=e571]
+            - cell "lmq.http.performance" [ref=e572]
+            - cell "request=/api/overview? memory=14.8kiB elapsed=0ms" [ref=e573]:
+              - generic [ref=e574]: request=/api/overview? memory=14.8kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.25kiB elapsed=0ms" [ref=e575]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e576]
+            - cell "info" [ref=e577]
+            - cell "lmq.http.performance" [ref=e578]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.25kiB elapsed=0ms" [ref=e579]:
+              - generic [ref=e580]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=6.25kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic? memory=3.7kiB elapsed=0ms" [ref=e581]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e582]
+            - cell "info" [ref=e583]
+            - cell "lmq.http.performance" [ref=e584]
+            - cell "request=/api/exchanges/%2F/amq.topic? memory=3.7kiB elapsed=0ms" [ref=e585]:
+              - generic [ref=e586]: request=/api/exchanges/%2F/amq.topic? memory=3.7kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.59kiB elapsed=0ms" [ref=e587]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e588]
+            - cell "info" [ref=e589]
+            - cell "lmq.http.performance" [ref=e590]
+            - cell "request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.59kiB elapsed=0ms" [ref=e591]:
+              - generic [ref=e592]: request=/api/exchanges/%2F/amq.topic/bindings/source?page=1&page_size=100 memory=3.59kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e593]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e594]
+            - cell "warn" [ref=e595]
+            - cell "lmq.amqp.connection_factory" [ref=e596]
+            - cell "VHost \"cloudamqp\" not found" [ref=e597]:
+              - generic [ref=e598]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/livelog? memory=15.3kiB elapsed=1ms" [ref=e599]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e600]
+            - cell "info" [ref=e601]
+            - cell "lmq.http.performance" [ref=e602]
+            - cell "request=/api/livelog? memory=15.3kiB elapsed=1ms" [ref=e603]:
+              - generic [ref=e604]: request=/api/livelog? memory=15.3kiB elapsed=1ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=13.4kiB elapsed=0ms" [ref=e605]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e606]
+            - cell "info" [ref=e607]
+            - cell "lmq.http.performance" [ref=e608]
+            - cell "request=/api/overview? memory=13.4kiB elapsed=0ms" [ref=e609]:
+              - generic [ref=e610]: request=/api/overview? memory=13.4kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=11.7kiB elapsed=0ms" [ref=e611]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e612]
+            - cell "info" [ref=e613]
+            - cell "lmq.http.performance" [ref=e614]
+            - cell "request=/api/overview? memory=11.7kiB elapsed=0ms" [ref=e615]:
+              - generic [ref=e616]: request=/api/overview? memory=11.7kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/exchanges?page=1&page_size=100 memory=3.47kiB elapsed=0ms" [ref=e617]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e618]
+            - cell "info" [ref=e619]
+            - cell "lmq.http.performance" [ref=e620]
+            - cell "request=/api/exchanges?page=1&page_size=100 memory=3.47kiB elapsed=0ms" [ref=e621]:
+              - generic [ref=e622]: request=/api/exchanges?page=1&page_size=100 memory=3.47kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/overview? memory=11.6kiB elapsed=0ms" [ref=e623]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e624]
+            - cell "info" [ref=e625]
+            - cell "lmq.http.performance" [ref=e626]
+            - cell "request=/api/overview? memory=11.6kiB elapsed=0ms" [ref=e627]:
+              - generic [ref=e628]: request=/api/overview? memory=11.6kiB elapsed=0ms
+          - row "8/31/2026, 10:05:09 AM info lmq.http.performance request=/api/nodes? memory=10.7kiB elapsed=0ms" [ref=e629]:
+            - cell "8/31/2026, 10:05:09 AM" [ref=e630]
+            - cell "info" [ref=e631]
+            - cell "lmq.http.performance" [ref=e632]
+            - cell "request=/api/nodes? memory=10.7kiB elapsed=0ms" [ref=e633]:
+              - generic [ref=e634]: request=/api/nodes? memory=10.7kiB elapsed=0ms
+          - row "8/31/2026, 10:05:10 AM info lmq.http.performance request=/api/livelog? memory=13.0kiB elapsed=0ms" [ref=e635]:
+            - cell "8/31/2026, 10:05:10 AM" [ref=e636]
+            - cell "info" [ref=e637]
+            - cell "lmq.http.performance" [ref=e638]
+            - cell "request=/api/livelog? memory=13.0kiB elapsed=0ms" [ref=e639]:
+              - generic [ref=e640]: request=/api/livelog? memory=13.0kiB elapsed=0ms
+          - row "8/31/2026, 10:05:10 AM info lmq.http.performance request=/api/livelog? memory=13.0kiB elapsed=0ms" [ref=e641]:
+            - cell "8/31/2026, 10:05:10 AM" [ref=e642]
+            - cell "info" [ref=e643]
+            - cell "lmq.http.performance" [ref=e644]
+            - cell "request=/api/livelog? memory=13.0kiB elapsed=0ms" [ref=e645]:
+              - generic [ref=e646]: request=/api/livelog? memory=13.0kiB elapsed=0ms
+          - row "8/31/2026, 10:05:10 AM info lmq.http.performance request=/api/connections?page=1&page_size=100 memory=0B elapsed=0ms" [ref=e647]:
+            - cell "8/31/2026, 10:05:10 AM" [ref=e648]
+            - cell "info" [ref=e649]
+            - cell "lmq.http.performance" [ref=e650]
+            - cell "request=/api/connections?page=1&page_size=100 memory=0B elapsed=0ms" [ref=e651]:
+              - generic [ref=e652]: request=/api/connections?page=1&page_size=100 memory=0B elapsed=0ms
+          - row "8/31/2026, 10:05:10 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e653]:
+            - cell "8/31/2026, 10:05:10 AM" [ref=e654]
+            - cell "warn" [ref=e655]
+            - cell "lmq.amqp.connection_factory" [ref=e656]
+            - cell "VHost \"cloudamqp\" not found" [ref=e657]:
+              - generic [ref=e658]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:10 AM info lmq.http.performance request=/api/channels?page=1&page_size=100 memory=0B elapsed=0ms" [ref=e659]:
+            - cell "8/31/2026, 10:05:10 AM" [ref=e660]
+            - cell "info" [ref=e661]
+            - cell "lmq.http.performance" [ref=e662]
+            - cell "request=/api/channels?page=1&page_size=100 memory=0B elapsed=0ms" [ref=e663]:
+              - generic [ref=e664]: request=/api/channels?page=1&page_size=100 memory=0B elapsed=0ms
+          - row "8/31/2026, 10:05:11 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e665]:
+            - cell "8/31/2026, 10:05:11 AM" [ref=e666]
+            - cell "warn" [ref=e667]
+            - cell "lmq.amqp.connection_factory" [ref=e668]
+            - cell "VHost \"cloudamqp\" not found" [ref=e669]:
+              - generic [ref=e670]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:12 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e671]:
+            - cell "8/31/2026, 10:05:12 AM" [ref=e672]
+            - cell "warn" [ref=e673]
+            - cell "lmq.amqp.connection_factory" [ref=e674]
+            - cell "VHost \"cloudamqp\" not found" [ref=e675]:
+              - generic [ref=e676]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:13 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e677]:
+            - cell "8/31/2026, 10:05:13 AM" [ref=e678]
+            - cell "warn" [ref=e679]
+            - cell "lmq.amqp.connection_factory" [ref=e680]
+            - cell "VHost \"cloudamqp\" not found" [ref=e681]:
+              - generic [ref=e682]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:14 AM warn lmq.amqp.connection_factory VHost \"cloudamqp\" not found" [ref=e683]:
+            - cell "8/31/2026, 10:05:14 AM" [ref=e684]
+            - cell "warn" [ref=e685]
+            - cell "lmq.amqp.connection_factory" [ref=e686]
+            - cell "VHost \"cloudamqp\" not found" [ref=e687]:
+              - generic [ref=e688]: VHost "cloudamqp" not found
+          - row "8/31/2026, 10:05:14 AM info lmq.http.performance request=/api/overview? memory=14.6kiB elapsed=0ms" [ref=e689]:
+            - cell "8/31/2026, 10:05:14 AM" [ref=e690]
+            - cell "info" [ref=e691]
+            - cell "lmq.http.performance" [ref=e692]
+            - cell "request=/api/overview? memory=14.6kiB elapsed=0ms" [ref=e693]:
+              - generic [ref=e694]: request=/api/overview? memory=14.6kiB elapsed=0ms
+          - row "8/31/2026, 10:05:14 AM info lmq.http.performance request=/api/nodes? memory=13.9kiB elapsed=0ms" [ref=e695]:
+            - cell "8/31/2026, 10:05:14 AM" [ref=e696]
+            - cell "info" [ref=e697]
+            - cell "lmq.http.performance" [ref=e698]
+            - cell "request=/api/nodes? memory=13.9kiB elapsed=0ms" [ref=e699]:
+              - generic [ref=e700]: request=/api/nodes? memory=13.9kiB elapsed=0ms
+  - contentinfo [ref=e701]:
+    - paragraph [ref=e702]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e703] [cursor=pointer]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e704]
+```

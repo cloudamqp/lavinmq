@@ -200,16 +200,15 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     routing_key: data.get('routing_key').trim(),
     arguments: args
   }
-  HTTP.submitForm(evt.target, 'POST', url, {
-    body,
-    table: bindingsTable
-  }).then(() => {
-    DOM.toast(`Exchange ${e} bound to queue`)
-  }).catch(err => {
-    if (err.status === 404) {
-      DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
-    }
-  })
+  HTTP.submitForm(evt.target, 'POST', url, { body })
+    .then(() => {
+      bindingsTable.reload()
+      DOM.toast(`Exchange ${e} bound to queue`)
+    }).catch(err => {
+      if (err.status === 404) {
+        DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {

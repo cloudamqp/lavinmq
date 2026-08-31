@@ -1,0 +1,197 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Expand sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Expand sidebar
+      - link "LavinMQ logo" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e10]
+      - generic [ref=e11]: v2.7.0-rc.1-44-g42dbf7fa
+    - navigation [ref=e12]:
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - generic [ref=e15]:
+            - generic [ref=e16]: User
+            - generic [ref=e17]: guest
+        - listitem [ref=e18]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: "vhost:"
+            - combobox "vhost:" [ref=e22]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e23]:
+          - generic [ref=e24]:
+            - button "Light theme Light theme" [ref=e25] [cursor=pointer]:
+              - img "Light theme" [ref=e26]
+              - img "Light theme" [ref=e27]
+            - button "Dark theme Dark theme" [ref=e28] [cursor=pointer]:
+              - img "Dark theme" [ref=e29]
+              - img "Dark theme" [ref=e30]
+            - button "System theme System theme" [ref=e31] [cursor=pointer]:
+              - img "System theme" [ref=e32]
+              - img "System theme" [ref=e33]
+        - listitem [ref=e34]:
+          - link "Sign out" [ref=e35] [cursor=pointer]:
+            - /url: "#"
+  - navigation [ref=e38]:
+    - list [ref=e39]:
+      - listitem [ref=e40]: Cluster
+      - listitem [ref=e41]:
+        - link "Overview" [ref=e42] [cursor=pointer]:
+          - /url: .
+          - generic [ref=e43]: Overview
+      - listitem [ref=e44]:
+        - link "Nodes" [ref=e45] [cursor=pointer]:
+          - /url: nodes
+          - generic [ref=e46]: Nodes
+      - listitem [ref=e47]:
+        - link "Logs" [ref=e48] [cursor=pointer]:
+          - /url: logs
+          - generic [ref=e49]: Logs
+      - listitem [ref=e50]: Clients
+      - listitem [ref=e51]:
+        - link "Connections" [ref=e52] [cursor=pointer]:
+          - /url: connections
+          - generic [ref=e53]: Connections
+      - listitem [ref=e54]:
+        - link "Channels" [ref=e55] [cursor=pointer]:
+          - /url: channels
+          - generic [ref=e56]: Channels
+      - listitem [ref=e57]:
+        - link "Consumers" [ref=e58] [cursor=pointer]:
+          - /url: consumers
+          - generic [ref=e59]: Consumers
+      - listitem [ref=e60]: Messaging
+      - listitem [ref=e61]:
+        - link "Exchanges" [ref=e62] [cursor=pointer]:
+          - /url: exchanges
+          - generic [ref=e63]: Exchanges
+      - listitem [ref=e64]:
+        - link "Queues" [ref=e65] [cursor=pointer]:
+          - /url: queues
+          - generic [ref=e66]: Queues
+      - listitem [ref=e67]: Bridges
+      - listitem [ref=e68]:
+        - link "Shovels" [ref=e69] [cursor=pointer]:
+          - /url: shovels
+          - generic [ref=e70]: Shovels
+      - listitem [ref=e71]:
+        - link "Federation" [ref=e72] [cursor=pointer]:
+          - /url: federation
+          - generic [ref=e73]: Federation
+      - listitem [ref=e74]: Administration
+      - listitem [ref=e75]:
+        - link "Virtual hosts" [ref=e76] [cursor=pointer]:
+          - /url: vhosts
+          - generic [ref=e77]: Virtual hosts
+      - listitem [ref=e78]:
+        - link "Policies" [ref=e79] [cursor=pointer]:
+          - /url: policies
+          - generic [ref=e80]: Policies
+      - listitem [ref=e81]:
+        - link "Operator policies" [ref=e82] [cursor=pointer]:
+          - /url: operator-policies
+          - generic [ref=e83]: Operator policies
+      - listitem [ref=e84]:
+        - link "Users" [ref=e85] [cursor=pointer]:
+          - /url: users
+          - generic [ref=e86]: Users
+      - listitem [ref=e87]:
+        - link "HTTP API" [ref=e88] [cursor=pointer]:
+          - /url: docs/
+          - generic [ref=e89]: HTTP API
+  - main [ref=e90]:
+    - heading "Nodes" [level=2] [ref=e92]:
+      - generic [ref=e93]: Nodes
+    - generic [ref=e94]:
+      - heading "Details" [level=3] [ref=e95]
+      - table [ref=e96]:
+        - rowgroup [ref=e97]:
+          - row "Name Thomass-MacBook-Pro.local" [ref=e98]:
+            - rowheader "Name" [ref=e99]
+            - cell "Thomass-MacBook-Pro.local" [ref=e100]
+          - row "Uptime 1m 16s" [ref=e101]:
+            - rowheader "Uptime" [ref=e102]
+            - cell "1m 16s" [ref=e103]
+          - row "vCPU 10" [ref=e104]:
+            - rowheader "vCPU" [ref=e105]
+            - cell "10" [ref=e106]
+          - row "Memory usage ? 0.034/32.000 GiB (0.11%)" [ref=e107]:
+            - rowheader "Memory usage ?" [ref=e108]:
+              - generic [ref=e109] [cursor=pointer]:
+                - text: Memory usage
+                - generic [ref=e110]: "?"
+            - cell "0.034/32.000 GiB (0.11%)" [ref=e111]
+          - row "Disk usage ? 644.868/926 GiB (69.61%)" [ref=e112]:
+            - rowheader "Disk usage ?" [ref=e113]:
+              - generic [ref=e114] [cursor=pointer]:
+                - text: Disk usage
+                - generic [ref=e115]: "?"
+            - cell "644.868/926 GiB (69.61%)" [ref=e116]
+          - row "CPU Usage 2.07%" [ref=e117]:
+            - rowheader "CPU Usage" [ref=e118]
+            - cell "2.07%" [ref=e119]
+    - generic [ref=e120]:
+      - heading "Stats" [level=3] [ref=e121]
+      - table [ref=e122]:
+        - 'row "Connection Created: 0 Closed: 0" [ref=e123]':
+          - rowheader "Connection" [ref=e124]
+          - 'cell "Created: 0" [ref=e125]'
+          - 'cell "Closed: 0" [ref=e126]'
+        - 'row "Channels Created: 0 Closed: 0" [ref=e127]':
+          - rowheader "Channels" [ref=e128]
+          - 'cell "Created: 0" [ref=e129]'
+          - 'cell "Closed: 0" [ref=e130]'
+        - 'row "Queues Declared: 0 Deleted: 0" [ref=e131]':
+          - rowheader "Queues" [ref=e132]
+          - 'cell "Declared: 0" [ref=e133]'
+          - 'cell "Deleted: 0" [ref=e134]'
+        - 'row "File descriptors Used: -1 Total: 9,223,372,036,854,776,000" [ref=e135]':
+          - rowheader "File descriptors" [ref=e136]
+          - 'cell "Used: -1" [ref=e137]'
+          - 'cell "Total: 9,223,372,036,854,776,000" [ref=e138]'
+        - 'row "Messages Ready: 0 Unacknowledged: 0" [ref=e139]':
+          - rowheader "Messages" [ref=e140]
+          - 'cell "Ready: 0" [ref=e141]'
+          - 'cell "Unacknowledged: 0" [ref=e142]'
+    - heading "Memory usage" [level=3] [ref=e144]
+    - heading "IO" [level=3] [ref=e149]
+    - heading "CPU usage" [level=3] [ref=e154]
+    - heading "Connection churn" [level=3] [ref=e159]
+    - heading "Channel churn" [level=3] [ref=e164]
+    - heading "Queue churn" [level=3] [ref=e169]
+    - generic [ref=e173]:
+      - heading "Followers 0" [level=2] [ref=e175]:
+        - text: Followers
+        - generic [ref=e176]: "0"
+      - table [ref=e178]:
+        - rowgroup [ref=e179]:
+          - row "ID Remote address Sent bytes Acked bytes Lag" [ref=e180]:
+            - columnheader "ID" [ref=e181]
+            - columnheader "Remote address" [ref=e182]
+            - columnheader "Sent bytes" [ref=e183]
+            - columnheader "Acked bytes" [ref=e184]
+            - columnheader "Lag" [ref=e185]
+        - rowgroup [ref=e186]:
+          - row "Nope, nothing to see here." [ref=e187]:
+            - cell "Nope, nothing to see here." [ref=e188]
+    - generic [ref=e189]:
+      - generic [ref=e190]:
+        - heading "Garbage collection" [level=3] [ref=e191]
+        - generic [ref=e192]:
+          - button "Refresh GC stats" [ref=e193] [cursor=pointer]:
+            - img [ref=e194]
+          - button "Collect" [ref=e198] [cursor=pointer]
+      - table
+  - contentinfo [ref=e199]:
+    - paragraph [ref=e200]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e201] [cursor=pointer]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e202]
+```
