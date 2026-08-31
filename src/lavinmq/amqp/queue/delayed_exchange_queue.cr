@@ -41,10 +41,10 @@ module LavinMQ::AMQP
       @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
     end
 
-    def delay(msg : Message) : Bool
+    def delay(msg : Message, needs_sync = false) : Bool
       return false if @closed
       @msg_store_lock.synchronize do
-        @msg_store.push(msg)
+        @msg_store.push(msg, needs_sync)
       end
       @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
@@ -154,11 +154,11 @@ module LavinMQ::AMQP
     private def queue_expire_loop
     end
 
-    def publish(message : Message) : PublishResult
+    def publish(message : Message, needs_sync = false) : PublishResult
       PublishResult::Dropped
     end
 
-    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+    protected def publish_internal(message : Message, needs_sync = false, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       PublishResult::Dropped
     end
 

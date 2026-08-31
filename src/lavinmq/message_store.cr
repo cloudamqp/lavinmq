@@ -54,9 +54,9 @@ module LavinMQ
       @empty.set empty? unless @closed
     end
 
-    def push(msg) : SegmentPosition
+    def push(msg, needs_sync = false) : SegmentPosition
       raise ClosedError.new if @closed
-      sp = write_to_disk(msg)
+      sp = write_to_disk(msg, needs_sync)
       was_empty = @size.zero?
       @bytesize += sp.bytesize
       @size += 1
@@ -348,7 +348,7 @@ module LavinMQ
       end
     end
 
-    private def write_to_disk(msg) : SegmentPosition
+    private def write_to_disk(msg, needs_sync : Bool) : SegmentPosition
       wfile = @wfile
       if wfile.capacity < wfile.size + msg.bytesize
         wfile = open_new_segment(msg.bytesize)
@@ -357,10 +357,12 @@ module LavinMQ
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
-      # Marked dirty only after the replication dispatch: once this file is in
-      # a sync's dirty set, every marked write is already on the wire ahead of
-      # the `$` fsync request that must cover it (see Persister#mark_dirty).
-      @persister.try &.mark_dirty(wfile)
+      # Confirmed and transactional writes are marked dirty only after the
+      # replication dispatch: once this file is in a sync's dirty set, every
+      # marked write is already on the wire ahead of the `$` fsync request that
+      # must cover it (see Persister#mark_dirty). Ordinary publishes deliberately
+      # stay out of the set because no durability response depends on them.
+      @persister.try &.mark_dirty(wfile) if needs_sync
       @segment_msg_count[wfile_id] += 1
       sp
     end

@@ -299,9 +299,10 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new,
+                needs_sync = false) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
-        ex.publish(msg, immediate, found_queues, visited)
+        ex.publish(msg, immediate, found_queues, visited, needs_sync)
       else
         AMQP::Exchange::PublishResult::None
       end

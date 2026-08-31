@@ -83,6 +83,14 @@ class SpyReplicator
   end
 end
 
+private class DirtyRecordingPersister < LavinMQ::Persister
+  getter recorded_dirty_files = Array(MFile).new
+
+  def mark_dirty(mfile : MFile) : Nil
+    @recorded_dirty_files << mfile
+  end
+end
+
 def mktmpdir(&)
   path = File.tempname
   Dir.mkdir_p(path)
@@ -126,6 +134,23 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "only marks segments written for confirms or transactions as dirty" do
+    mktmpdir do |dir|
+      persister = DirtyRecordingPersister.new(data_dir: dir)
+      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+
+      store.push(msg)
+      persister.recorded_dirty_files.should be_empty
+
+      store.push(msg, needs_sync: true)
+      persister.recorded_dirty_files.map(&.path).should eq [File.join(dir, "msgs.0000000001")]
+    ensure
+      store.try &.close
+      persister.try &.close
+    end
+  end
+
   describe "#copy" do
     # Regression: dead-lettering routes a message after releasing the queue's
     # @msg_store_lock, while a racing purge/queue delete can munmap the

@@ -619,11 +619,11 @@ module LavinMQ::AMQP
 
     class Closed < Exception; end
 
-    def publish(msg : Message) : PublishResult
-      publish_internal(msg)
+    def publish(msg : Message, needs_sync = false) : PublishResult
+      publish_internal(msg, needs_sync)
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    protected def publish_internal(msg : Message, needs_sync = false, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
         if d.duplicate?(msg)
@@ -637,7 +637,7 @@ module LavinMQ::AMQP
       pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
-        @msg_store.push(msg)
+        @msg_store.push(msg, needs_sync)
         pushed = true
         drop_overflow(dlx_tasks)
       end

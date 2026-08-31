@@ -9,8 +9,8 @@ require "sync/exclusive"
 module LavinMQ
   # Owns the dirty segment file set and the publish-confirm batching loop.
   # A single Persister is created per Server and shared between all VHosts.
-  # Message stores register each segment file they write to (mark_dirty);
-  # sync then msyncs exactly those files. Large batches fall back to one
+  # Message stores register segment files written by confirmed or transactional
+  # publishes (mark_dirty); sync then msyncs exactly those files. Large batches fall back to one
   # filesystem-wide sync because many individual msync calls can cost more
   # than syncfs; the cutoff is configurable with `syncfs_threshold`.
   class Persister
@@ -24,9 +24,10 @@ module LavinMQ
     # follower only reaches the in-sync set after a full_sync that includes
     # every prior write.
     @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
-    # Files written since the last sync. Each file registers itself only on
-    # its first write after a sync (see MFile#mark_needs_msync!), so this
-    # stays a handful of entries per drain.
+    # Files written by confirmed or transactional publishes since the last
+    # sync. Each file registers itself only on its first such write after a
+    # sync (see MFile#mark_needs_msync!), so this stays a handful of entries
+    # per drain.
     @dirty_files : Sync::Exclusive(Array(MFile)) = Sync::Exclusive.new(Array(MFile).new, :unchecked)
     # Fibers blocked in #sync (tx.commit), each waiting on its own channel to
     # be closed by the drain that made their writes durable.
