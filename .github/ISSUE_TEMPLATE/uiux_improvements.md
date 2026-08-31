@@ -24,3 +24,14 @@ Suggest how to resolve the issue or implement the improvement.
 
 **Screenshots/Mockups**  
 Add visuals to clarify the issue or illustrate your suggestion.
+
+<details>
+<summary>AI investigation</summary>
+
+<!--
+Paste detailed AI findings here: root cause analysis, call chains,
+evidence, and alternatives that were considered.
+Delete this section if there is no AI investigation.
+-->
+
+</details>

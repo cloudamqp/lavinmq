@@ -15,3 +15,14 @@ A clear and concise description of what you want to happen.
 
 **Describe alternatives you've considered**
 A clear and concise description of any alternative solutions or features you've considered.
+
+<details>
+<summary>AI investigation</summary>
+
+<!--
+Paste detailed AI findings here: root cause analysis, call chains,
+evidence, and alternatives that were considered.
+Delete this section if there is no AI investigation.
+-->
+
+</details>

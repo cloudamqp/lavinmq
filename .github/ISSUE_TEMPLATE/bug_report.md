@@ -20,3 +20,14 @@ Please provide steps to reproduce the behavior.
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
+
+<details>
+<summary>AI investigation</summary>
+
+<!--
+Paste detailed AI findings here: root cause analysis, call chains,
+evidence, and alternatives that were considered.
+Delete this section if there is no AI investigation.
+-->
+
+</details>
