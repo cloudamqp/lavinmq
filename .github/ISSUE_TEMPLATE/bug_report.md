@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+A clear and concise human readable description of what the bug is.
 
 <details>
 <summary>Investigation details</summary>
