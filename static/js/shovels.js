@@ -113,6 +113,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
             tr.parentNode.removeChild(tr)
             DOM.toast(`Shovel ${item.name} deleted`)
           })
+          .catch(() => {})
       }
     }
   })
@@ -216,6 +217,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
     })
+    .catch(() => {})
 })
 
 // function updateAutocomplete (e, id) {

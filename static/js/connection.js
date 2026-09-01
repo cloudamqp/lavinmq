@@ -71,7 +71,7 @@ function updateConnection (all) {
         document.getElementById('channels-section').style.display = 'block'
       }
     }
-  })
+  }).catch(() => {})
 }
 updateConnection(true)
 setInterval(updateConnection, 5000)
@@ -106,4 +106,5 @@ document.querySelector('#closeConnection').addEventListener('submit', function (
   })
   HTTP.request('DELETE', url, { headers })
     .then(() => { window.location = 'connections' })
+    .catch(() => {})
 })

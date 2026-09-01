@@ -44,6 +44,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
         DOM.toast('Consumer cancelled')
         updateQueue(false)
       })
+      .catch(() => {})
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -132,7 +133,7 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
-    })
+    }).catch(() => {})
 }
 updateQueue(true)
 setInterval(updateQueue, 5000)
@@ -152,7 +153,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       text: 'Unbind',
       click: function () {
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/q/${queue}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -184,6 +187,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     })
+    .catch(() => {})
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -204,6 +208,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
       DOM.toast('Published message to ' + queue)
       updateQueue(false)
     })
+    .catch(() => {})
 })
 
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -243,6 +248,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         messagesContainer.appendChild(msgNode)
       }
     })
+    .catch(() => {})
 })
 
 document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
@@ -251,6 +257,7 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
+      .catch(() => {})
   }
 })
 
@@ -263,6 +270,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue paused!')
         handleQueueState('paused')
       })
+      .catch(() => {})
   }
 })
 
@@ -275,6 +283,7 @@ resumeQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
       })
+      .catch(() => {})
   }
 })
 

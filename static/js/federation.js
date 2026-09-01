@@ -39,6 +39,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
           tr.parentNode.removeChild(tr)
           DOM.toast(`Upstream ${item.name} deleted`)
         })
+        .catch(() => {})
     }
   })
 
@@ -90,4 +91,5 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       evt.target.reset()
       DOM.toast(`Upstream ${name} saved`)
     })
+    .catch(() => {})
 })

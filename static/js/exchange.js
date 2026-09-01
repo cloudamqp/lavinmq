@@ -51,7 +51,7 @@ function updateExchange (all) {
         document.getElementById('e-policy').appendChild(policyLink)
       }
     }
-  })
+  }).catch(() => {})
 }
 updateExchange(true)
 setInterval(updateExchange, 5000)
@@ -74,7 +74,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       click: function () {
         const type = item.destination_type === 'exchange' ? 'e' : 'q'
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -132,6 +134,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     .then(res => {
       DOM.toast('Published message to ' + exchange + (res.routed ? '.' : ', but not routed.'))
     })
+    .catch(() => {})
 })
 
 document.querySelector('#deleteExchange').addEventListener('submit', function (evt) {
@@ -140,6 +143,7 @@ document.querySelector('#deleteExchange').addEventListener('submit', function (e
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'exchanges' })
+      .catch(() => {})
   }
 })
 

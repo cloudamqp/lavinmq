@@ -50,6 +50,7 @@ const prefetchForm = (cb) => {
     const prefetch = parseInt(input.value)
     HTTP.request('PUT', channelUrl, { body: { prefetch } })
       .then(() => cb(prefetch))
+      .catch(() => {})
   })
   form.append(input, save, reset)
   const updateForm = (value) => { input.value = value }
@@ -114,7 +115,7 @@ function updateChannel () {
       chMode.replaceChildren(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
-  })
+  }).catch(() => {})
 }
 updateChannel()
 setInterval(updateChannel, 5000)
