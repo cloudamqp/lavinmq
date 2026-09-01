@@ -148,4 +148,20 @@ describe LavinMQ::HTTP::ShovelsController do
       end
     end
   end
+
+  describe "PUT api/parameters/shovel/:vhost/:name" do
+    it "should create a shovel with an HTTP destination" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":   s.amqp_server.url,
+            "src-queue": "events",
+            "dest-uri":  "https://example.com/webhook",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/webhook-shovel", body: body.to_json)
+        response.status_code.should eq 201
+      end
+    end
+  end
 end
