@@ -31,7 +31,7 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
     property max_queues : Int32?
@@ -299,9 +299,10 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new,
+                needs_sync = false) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
-        ex.publish(msg, immediate, found_queues, visited)
+        ex.publish(msg, immediate, found_queues, visited, needs_sync)
       else
         AMQP::Exchange::PublishResult::None
       end

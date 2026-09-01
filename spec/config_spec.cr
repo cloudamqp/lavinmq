@@ -110,6 +110,7 @@ describe LavinMQ::Config do
           tcp_nodelay = true
           segment_size = 16777216
           sync = false
+          syncfs_threshold = 25
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
@@ -197,6 +198,7 @@ describe LavinMQ::Config do
     config.tcp_nodelay?.should be_true
     config.segment_size.should eq 16777216
     config.sync?.should be_false
+    config.syncfs_threshold.should eq 25
     config.tcp_keepalive.should eq({120, 20, 5})
     config.tcp_recv_buffer_size.should eq 65536
     config.tcp_send_buffer_size.should eq 65536
@@ -268,6 +270,16 @@ describe LavinMQ::Config do
   ensure
     # Reset log level to default for other specs
     Log.setup(:fatal)
+  end
+
+  it "rejects a non-positive syncfs threshold" do
+    config_file = File.tempfile do |file|
+      file.print "[main]\nsyncfs_threshold = 0\n"
+    end
+    config = LavinMQ::Config.new
+    expect_raises(LavinMQ::Config::Error, /syncfs_threshold must be positive/) do
+      config.parse(["-c", config_file.path])
+    end
   end
 
   it "can parse all CLI argumetns" do

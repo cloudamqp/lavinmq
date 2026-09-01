@@ -7,6 +7,7 @@ require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
+require "../../filesystem"
 require "./state"
 require "./event"
 require "../../message_store"
@@ -247,7 +248,7 @@ module LavinMQ::AMQP
         !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused
@@ -313,7 +314,7 @@ module LavinMQ::AMQP
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      MessageStore.new(data_dir, replicator, durable?, @vhost.persister, metadata: @metadata)
     end
 
     private def make_data_dir : String
@@ -618,11 +619,11 @@ module LavinMQ::AMQP
 
     class Closed < Exception; end
 
-    def publish(msg : Message) : PublishResult
-      publish_internal(msg)
+    def publish(msg : Message, needs_sync = false) : PublishResult
+      publish_internal(msg, needs_sync)
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    protected def publish_internal(msg : Message, needs_sync = false, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
         if d.duplicate?(msg)
@@ -636,7 +637,7 @@ module LavinMQ::AMQP
       pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
-        @msg_store.push(msg)
+        @msg_store.push(msg, needs_sync)
         pushed = true
         drop_overflow(dlx_tasks)
       end

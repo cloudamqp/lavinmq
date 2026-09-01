@@ -1,6 +1,7 @@
 require "json"
 require "./vhost"
 require "./auth/base_user"
+require "./filesystem"
 require "./observable"
 
 module LavinMQ
@@ -153,7 +154,7 @@ module LavinMQ
       # `.tmp` file and fail the rename.
       @save_lock.synchronize do
         File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename "#{path}.tmp", path
+        FileSystem.durable_rename("#{path}.tmp", path)
       end
       @replicator.try &.replace_file path
     end

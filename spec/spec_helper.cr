@@ -83,7 +83,7 @@ class LavinMQ::Server
     stop
     Dir.mkdir_p @data_dir
     LavinMQ::Schema.migrate(@data_dir, @replicator)
-    @persister = LavinMQ::Persister.new(@data_dir)
+    @persister = LavinMQ::Persister.new(data_dir: @data_dir)
     @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
     @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
     @vhosts = LavinMQ::VHostStore.new(@data_dir, @users, @replicator, @persister)

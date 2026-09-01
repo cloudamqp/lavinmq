@@ -68,6 +68,31 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
+# Handshake and complete both full_sync passes without requesting any files,
+# so the leader marks the connection synced. Returns the socket and its LZ4
+# reader, ready for the streaming phase.
+private def connect_synced_follower(replicator, tcp_server) : {TCPSocket, Compress::LZ4::Reader}
+  client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+  client_io.write LavinMQ::Clustering::Start
+  client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+  client_io.write replicator.password.to_slice
+  client_io.read_byte.should eq 0u8
+  client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
+  client_io.flush
+  client_lz4 = Compress::LZ4::Reader.new(client_io)
+  sha1_size = Digest::SHA1.new.digest_size
+  2.times do
+    loop do
+      filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+      break if filename_len.zero?
+      client_lz4.skip filename_len
+      client_lz4.skip sha1_size
+    end
+    client_io.write_bytes 0i32 # request no files
+  end
+  {client_io, client_lz4}
+end
+
 class SelfLeaderEtcd < LavinMQ::Etcd
   getter observed = Channel(Nil).new(1)
 
@@ -209,7 +234,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     end
   end
 
-  it "confirms via syncfs while the only follower is still syncing" do
+  it "confirms via local msync while the only follower is still syncing" do
     # Regression: a publish written while all followers are syncing isn't streamed
     # to them. The confirm must not stall waiting for an ack from a follower that
     # flips to synced before the persister drains.
@@ -249,10 +274,137 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         ch.confirm_select
         q = ch.queue("syncing_confirm", durable: true)
         10.times { q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
-        # Confirmed via syncfs (no synced follower); must not stall or be skipped.
+        # Confirmed via local msync (no synced follower); must not stall or be skipped.
         ch.wait_for_confirms.should be_true
       end
       s.vhosts["/"].queue("syncing_confirm").message_count.should eq 10
+    end
+  ensure
+    client_io.try &.close
+    replicator.try &.close
+    tcp_server.try &.close
+    FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+  end
+
+  it "sends fsync requests only for the files a confirm depends on" do
+    # A confirmed publish dispatches a `$`-prefixed zero-length record naming
+    # the dirty msgs segment (and a durable declare one for definitions.amqp),
+    # while acks.* files are never named — that's the write amplification the
+    # per-file fsync protocol removes.
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator = LavinMQ::Clustering::Server.new(
+      LavinMQ::Config.instance, NullCoordinator.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+    # Fake follower: turn synced, then ack every streamed record, recording
+    # the fsync requests.
+    client_io, client_lz4 = connect_synced_follower(replicator, tcp_server)
+
+    fsyncs_lock = Mutex.new
+    fsyncs = Array(String).new
+    spawn(name: "synced follower spec") do
+      loop do
+        filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+        next if filename_len.zero?
+        filename = client_lz4.read_string(filename_len)
+        len = client_lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        client_lz4.skip len.abs
+        if filename.starts_with?('$')
+          fsyncs_lock.synchronize { fsyncs << filename.lchop('$') }
+        end
+        acked = sizeof(Int32) + filename_len + sizeof(Int64) + len.abs
+        client_io.write_bytes acked.to_i64, IO::ByteFormat::LittleEndian
+      end
+    rescue IO::Error
+    end
+
+    wait_for { replicator.followers.size == 1 } # synced
+
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        ch.confirm_select
+        q = ch.queue("fsync_protocol", durable: true)
+        10.times { q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8) }
+        ch.wait_for_confirms.should be_true
+      end
+      s.vhosts["/"].queue("fsync_protocol").message_count.should eq 10
+    end
+
+    fsyncs_lock.synchronize do
+      fsyncs.any?(&.ends_with?("msgs.0000000001")).should be_true
+      fsyncs.any?(&.ends_with?("definitions.amqp")).should be_true
+      fsyncs.none?(&.includes?("acks.")).should be_true
+    end
+  ensure
+    client_io.try &.close
+    replicator.try &.close
+    tcp_server.try &.close
+    FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+  end
+
+  it "holds tx.commit-ok until in-sync followers ack the transaction" do
+    Dir.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator = LavinMQ::Clustering::Server.new(
+      LavinMQ::Config.instance, NullCoordinator.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+    # Fake synced follower whose acks can be paused: the reader counts every
+    # streamed byte, the acker only acks them while enabled.
+    client_io, client_lz4 = connect_synced_follower(replicator, tcp_server)
+    acks_enabled = Atomic(Bool).new(true)
+    unacked = Atomic(Int64).new(0)
+    spawn(name: "synced follower reader spec") do
+      loop do
+        filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+        next if filename_len.zero?
+        client_lz4.skip filename_len
+        len = client_lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        client_lz4.skip len.abs
+        unacked.add(sizeof(Int32).to_i64 + filename_len + sizeof(Int64) + len.abs)
+      end
+    rescue IO::Error
+    end
+    spawn(name: "synced follower acker spec") do
+      loop do
+        if acks_enabled.get && (bytes = unacked.get) > 0
+          client_io.write_bytes bytes, IO::ByteFormat::LittleEndian
+          unacked.sub(bytes)
+        end
+        sleep 5.milliseconds
+      end
+    rescue IO::Error
+    end
+
+    wait_for { replicator.followers.size == 1 } # synced
+
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("tx_commit_wait", durable: true)
+        ch.tx_select
+        q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        acks_enabled.set(false)
+        committed = Channel(Nil).new
+        spawn(name: "tx commit spec") do
+          ch.tx_commit
+          committed.send nil
+        end
+        # The commit replicates the publish and must block in
+        # wait_for_followers while the follower withholds its acks.
+        select
+        when committed.receive
+          fail "tx.commit-ok arrived before the follower acked"
+        when timeout(200.milliseconds)
+        end
+        acks_enabled.set(true)
+        select
+        when committed.receive
+        when timeout(5.seconds)
+          fail "tx.commit-ok never arrived after the follower acked"
+        end
+        s.vhosts["/"].queue("tx_commit_wait").message_count.should eq 1
+      end
     end
   ensure
     client_io.try &.close

@@ -182,6 +182,26 @@ class MFile < IO
     msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
+  # Block until all written pages are flushed to disk, the mmap equivalent
+  # of fsync(2). Only actually dirty pages are written, so the cost is
+  # proportional to what changed since the last sync, not to file size.
+  def fsync : Nil
+    msync(@buffer, @size, LibC::MS_SYNC)
+  end
+
+  # Dirty-file bookkeeping for the Persister: set on first write after a sync,
+  # so each file is registered for msync at most once per sync cycle.
+  @needs_msync = Atomic(Bool).new(false)
+
+  # Returns whether the flag was already set.
+  def mark_needs_msync! : Bool
+    @needs_msync.swap(true, :acquire_release)
+  end
+
+  def clear_needs_msync! : Nil
+    @needs_msync.set(false, :release)
+  end
+
   private def msync(addr, len, flag) : Nil
     return if len.zero?
     check_open

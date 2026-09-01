@@ -32,6 +32,46 @@ describe MFile do
     end
   end
 
+  it "fsyncs written data" do
+    file = File.tempfile "mfile_spec"
+    begin
+      mfile = MFile.new file.path, capacity: 1024
+      mfile.write "hello world".to_slice
+      mfile.fsync
+      File.read(file.path)[0, 11].should eq "hello world"
+      mfile.close
+    ensure
+      file.delete
+    end
+  end
+
+  it "raises on fsync after close" do
+    file = File.tempfile "mfile_spec"
+    file.sync = true
+    begin
+      file.puts "foobar" # can't mmap empty file
+      mfile = MFile.new file.path
+      mfile.close
+      expect_raises(IO::Error, "Closed mfile") { mfile.fsync }
+    ensure
+      file.delete
+    end
+  end
+
+  it "dedupes needs-msync marking until cleared" do
+    file = File.tempfile "mfile_spec"
+    begin
+      mfile = MFile.new file.path, capacity: 1024
+      mfile.mark_needs_msync!.should be_false # was clear
+      mfile.mark_needs_msync!.should be_true  # already marked
+      mfile.clear_needs_msync!
+      mfile.mark_needs_msync!.should be_false
+      mfile.close
+    ensure
+      file.delete
+    end
+  end
+
   it "tracks mmap count" do
     file = File.tempfile "mfile_spec"
     file.print "test"

@@ -28,7 +28,7 @@ module LavinMQ::AMQP
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, persister: @vhost.persister, metadata: @metadata)
     end
 
     class PriorityMessageStore < MessageStore
@@ -44,6 +44,7 @@ module LavinMQ::AMQP
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
         @durable : Bool = true,
+        @persister : Persister? = nil,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
       )
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
@@ -59,7 +60,7 @@ module LavinMQ::AMQP
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
+          store = MessageStore.new(sub_msg_dir, @replicator, @durable, @persister, metadata: @metadata.extend({prio: i.to_s}))
           stores << store
         end
       end
@@ -128,11 +129,11 @@ module LavinMQ::AMQP
         size.zero?
       end
 
-      def push(msg) : SegmentPosition
+      def push(msg, needs_sync = false) : SegmentPosition
         raise ClosedError.new if @closed
         prio = Math.min(msg.properties.priority || 0u8, @max_priority)
         was_empty = size.zero?
-        sp = store_for prio, &.push(msg)
+        sp = store_for(prio, &.push(msg, needs_sync))
         @empty.set false if was_empty
         sp
       end

@@ -240,7 +240,9 @@ module LavinMQ::AMQP
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes offset
       end
+      @consumer_offsets.fsync
       @consumer_offsets.rename(old_consumer_offsets.path)
+      File.open(File.dirname(@consumer_offsets.path), &.fsync)
       @replicator.try &.replace_file(@consumer_offsets)
       old_consumer_offsets.close(truncate_to_size: false)
     end
@@ -312,10 +314,10 @@ module LavinMQ::AMQP
       end
     end
 
-    def push(msg) : SegmentPosition
+    def push(msg, needs_sync = false) : SegmentPosition
       raise ClosedError.new if @closed
       @last_offset += 1
-      sp = write_to_disk(msg)
+      sp = write_to_disk(msg, needs_sync)
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp

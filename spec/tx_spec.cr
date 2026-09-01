@@ -68,6 +68,48 @@ describe "Transactions" do
         end
       end
     end
+
+    # Commits are released by the publish confirm loop's drain (the only
+    # place that msyncs); interleave them with confirm publishes to exercise
+    # a drain serving acks and commit waiters at once.
+    it "can be commited while publish confirms are in flight" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("tx_with_confirms", durable: true)
+          done = Channel(Nil).new
+          spawn(name: "confirm publisher spec") do
+            with_channel(s) do |confirm_ch|
+              cq = confirm_ch.queue("tx_with_confirms", durable: true)
+              20.times { cq.publish_confirm "confirmed" }
+            end
+          ensure
+            done.send nil
+          end
+          ch.tx_select
+          10.times do |i|
+            q.publish "tx #{i}"
+            ch.tx_commit
+          end
+          done.receive
+          s.vhosts["/"].queue("tx_with_confirms").message_count.should eq 30
+        end
+      end
+    end
+
+    it "can be commited when sync is disabled" do
+      LavinMQ::Config.instance.sync = false
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.tx_select
+          q = ch.queue
+          q.publish "no sync"
+          ch.tx_commit
+          q.get.not_nil!("expected a message").body_io.to_s.should eq "no sync"
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.sync = true
+    end
   end
 
   describe "acks" do
