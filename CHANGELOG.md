@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HTTP shovels could no longer be created through the API, config validation demanded a destination queue or exchange that an HTTP destination has no use for [#2215](https://github.com/cloudamqp/lavinmq/pull/2215)
 - Management UI OAuth2 login now works with identity providers that require a specific scope (e.g. Entra ID), via the new `mgmt_scopes` config option [#2127](https://github.com/cloudamqp/lavinmq/pull/2127)
 - Accept JWKS keys that omit the `alg` parameter when fetching keys for OAuth/OIDC [#2124](https://github.com/cloudamqp/lavinmq/pull/2124)
 - Document that OAuth/OIDC JWTs must include a `kid` header matching a JWKS key [#2107](https://github.com/cloudamqp/lavinmq/pull/2107)
