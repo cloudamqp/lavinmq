@@ -5,7 +5,7 @@ module LavinMQ
     class PermissionGroupsController < Controller
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
-        get "/api/permission-groups" do |context, _params|
+        get "/api/mqtt/permission-groups" do |context, _params|
           refuse_unless_administrator(context, user(context))
           JSON.build(context.response) do |json|
             json.array do
@@ -17,14 +17,14 @@ module LavinMQ
           context
         end
 
-        get "/api/permission-groups/:vhost" do |context, params|
+        get "/api/mqtt/permission-groups/:vhost" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             vhost.mqtt_permission_service.values.to_json(context.response)
           end
         end
 
-        get "/api/permission-groups/:vhost/:name" do |context, params|
+        get "/api/mqtt/permission-groups/:vhost/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
@@ -35,7 +35,7 @@ module LavinMQ
 
         # Creates an empty group; members and rules are managed through the
         # endpoints below.
-        put "/api/permission-groups/:vhost/:name" do |context, params|
+        put "/api/mqtt/permission-groups/:vhost/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             unless parse_body(context).as_h.empty?
@@ -51,7 +51,7 @@ module LavinMQ
           end
         end
 
-        delete "/api/permission-groups/:vhost/:name" do |context, params|
+        delete "/api/mqtt/permission-groups/:vhost/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service.delete(params["name"])
@@ -60,7 +60,7 @@ module LavinMQ
           end
         end
 
-        put "/api/permission-groups/:vhost/:name/members/:member" do |context, params|
+        put "/api/mqtt/permission-groups/:vhost/:name/members/:member" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service
@@ -76,7 +76,7 @@ module LavinMQ
           end
         end
 
-        delete "/api/permission-groups/:vhost/:name/members/:member" do |context, params|
+        delete "/api/mqtt/permission-groups/:vhost/:name/members/:member" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service
@@ -89,7 +89,7 @@ module LavinMQ
           end
         end
 
-        put "/api/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
+        put "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service
@@ -112,7 +112,7 @@ module LavinMQ
           end
         end
 
-        delete "/api/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
+        delete "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service

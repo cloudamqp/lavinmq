@@ -128,22 +128,22 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/permission-groups` | List groups on all vhosts |
-| GET | `/api/permission-groups/{vhost}` | List groups on a vhost |
-| GET | `/api/permission-groups/{vhost}/{name}` | Get one group |
-| PUT | `/api/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
-| DELETE | `/api/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
-| PUT | `/api/permission-groups/{vhost}/{name}/members/{client-id}` | Add a member |
-| DELETE | `/api/permission-groups/{vhost}/{name}/members/{client-id}` | Remove a member |
-| PUT | `/api/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
-| DELETE | `/api/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
+| GET | `/api/mqtt/permission-groups` | List groups on all vhosts |
+| GET | `/api/mqtt/permission-groups/{vhost}` | List groups on a vhost |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}` | Get one group |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Add a member |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Remove a member |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
 For example, to allow every device to use only its own subtree under `chat/`:
 
 ```sh
-curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices
-curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices/members/%2A
-curl -u admin:pw -X PUT localhost:15672/api/permission-groups/%2f/devices/rules/own-chat \
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/members/%2A
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/rules/own-chat \
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
