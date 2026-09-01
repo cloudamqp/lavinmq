@@ -46,6 +46,7 @@ A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message 
 | Parameter | Description |
 |-----------|-------------|
 | `dest-uri` | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
+| `dest-signature-secret` | Secret(s) used to sign each request, see [Signed requests](#signed-requests). |
 
 The AMQP message is mapped to the HTTP request as follows:
 
@@ -61,6 +62,37 @@ The AMQP message is mapped to the HTTP request as follows:
 | `User-Agent` | `LavinMQ` |
 
 For `on-confirm` and `on-publish` ack modes, the source delivery is acked only when the destination returns a 2xx response; any other status triggers the shovel's reconnect/retry path. `no-ack` skips the check.
+
+### Signed requests
+
+Set `dest-signature-secret` and every request is signed with HMAC-SHA256 following the [Standard Webhooks](https://www.standardwebhooks.com/) specification, so the receiver can verify the message really came from your broker:
+
+| Header | Value |
+|--------|-------|
+| `webhook-id` | Unique per delivery, `msg_` followed by 32 hex characters |
+| `webhook-timestamp` | Unix timestamp in seconds when the request was signed |
+| `webhook-signature` | `v1,` followed by the base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed with the secret |
+
+```
+webhook-id: msg_2f5c8e7a1b3d4f6e8a9c0b2d4e6f8a0c
+webhook-timestamp: 1702345678
+webhook-signature: v1,K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
+```
+
+To rotate a secret without dropping deliveries, set several secrets separated by spaces. Each request is then signed with all of them and `webhook-signature` holds one space separated signature per secret, so a receiver that still only knows the old secret keeps validating while you roll out the new one.
+
+```json
+{
+  "src-uri": "amqp://localhost",
+  "src-queue": "events",
+  "dest-uri": "https://example.com/webhook",
+  "dest-signature-secret": "whsec_new_key whsec_old_key"
+}
+```
+
+Replay protection is the receiver's job: reject requests whose `webhook-timestamp` is outside your tolerance window, and compare signatures in constant time.
+
+The secret is write only. `GET /api/parameters/shovel/{vhost}/{name}` returns it as `********` so you can see that one is set without reading it back, which also means you have to send it again on every update, exactly like a GitHub webhook secret. Omitting it removes the signing. Full definitions exports (`GET /api/definitions`) are an administrator-only backup format and do contain the real secret, the same way they contain the credentials in `src-uri` and `dest-uri`.
 
 ## Multi-Destination
 

@@ -118,13 +118,18 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   })
   const editBtn = DOM.button.edit({
     click: function () {
+      const isHttp = [item.value['dest-uri']].flat().some(uri => uri.startsWith('http'))
       Form.editItem('#createShovel', item, {
         'src-type': (_item) => srcType,
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
-        'src-offset': (_item) => consumerArgs['x-stream-offset']
+        'src-offset': (_item) => consumerArgs['x-stream-offset'],
+        // The API returns the secret masked, so never prefill it
+        'dest-signature-secret': () => ''
       })
+      toggleDestFields(isHttp)
+      showSecretHelp(isHttp && item.value['dest-signature-secret'])
     }
   })
 
@@ -159,11 +164,21 @@ document.querySelector('[name=src-type]').addEventListener('change', function ()
   document.getElementById('srcOffset').classList.toggle('hide', this.value !== 'stream')
 })
 
-document.querySelector('[name=dest-uri]').addEventListener('change', function () {
-  const isHttp = this.value.startsWith('http')
+function toggleDestFields (isHttp) {
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
     e.classList.toggle('hide', isHttp)
   })
+  document.querySelectorAll('.http-dest-field').forEach(e => {
+    e.classList.toggle('hide', !isHttp)
+  })
+}
+
+function showSecretHelp (show) {
+  document.querySelector('.http-secret-help').classList.toggle('hide', !show)
+}
+
+document.querySelector('[name=dest-uri]').addEventListener('change', function () {
+  toggleDestFields(this.value.startsWith('http'))
 })
 
 document.querySelector('#createShovel').addEventListener('submit', function (evt) {
@@ -205,7 +220,12 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-type') === 'queue') {
+  if (data.get('dest-uri').startsWith('http')) {
+    const signatureSecret = data.get('dest-signature-secret')
+    if (signatureSecret) {
+      body.value['dest-signature-secret'] = signatureSecret
+    }
+  } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
@@ -216,6 +236,10 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
     })
+})
+
+document.querySelector('#createShovel').addEventListener('reset', function () {
+  showSecretHelp(false)
 })
 
 // function updateAutocomplete (e, id) {

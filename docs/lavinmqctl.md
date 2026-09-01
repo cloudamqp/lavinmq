@@ -80,7 +80,7 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | Command | Description |
 |---------|-------------|
 | `list_shovels` | List all shovels |
-| `add_shovel <name>` | Create a shovel (supports `--src-uri`, `--dest-uri`, `--src-queue`, `--src-exchange`, `--src-exchange-key`, `--dest-exchange`, `--dest-exchange-key`, `--dest-queue`, `--src-prefetch-count`, `--ack-mode`, `--src-delete-after`, `--reconnect-delay`) |
+| `add_shovel <name>` | Create a shovel (supports `--src-uri`, `--dest-uri`, `--src-queue`, `--src-exchange`, `--src-exchange-key`, `--dest-exchange`, `--dest-exchange-key`, `--dest-queue`, `--src-prefetch-count`, `--ack-mode`, `--src-delete-after`, `--reconnect-delay`, `--dest-signature-secret`) |
 | `delete_shovel <name>` | Delete a shovel |
 | `list_federations` | List federation upstreams |
 | `add_federation <name>` | Create a federation upstream (supports `--uri`, `--expires`, `--message-ttl`, `--max-hops`, `--prefetch-count`, `--reconnect-delay`, `--ack-mode`, `--queue`, `--exchange`) |

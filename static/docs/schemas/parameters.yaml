@@ -85,6 +85,15 @@ shovel-value:
       type: string
       description: Routing key for destination exchange publishing (only used with dest-exchange).
       example: "routing.key"
+    dest-signature-secret:
+      type: string
+      description: |
+        Signing secret for HTTP destinations. When set, each request gets webhook-id,
+        webhook-timestamp and webhook-signature headers per the Standard Webhooks
+        specification (https://www.standardwebhooks.com/). Give several space separated
+        secrets to sign with all of them during key rotation. Masked in GET responses,
+        and must be sent again on every update or it is removed.
+      example: "whsec_current_key whsec_old_key"
     src-prefetch-count:
       type: integer
       description: Number of messages to prefetch from source.
