@@ -164,4 +164,56 @@ describe LavinMQ::HTTP::ShovelsController do
       end
     end
   end
+
+  describe "GET api/parameters/shovel" do
+    it "should mask dest-signature-secret in response" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":               s.amqp_server.url,
+            "dest-uri":              "https://example.com/webhook",
+            "src-queue":             "test-q",
+            "dest-signature-secret": "my-secret-key",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/secret-shovel", body: body.to_json)
+        response.status_code.should eq 201
+
+        response = http.get("/api/parameters/shovel/%2F/secret-shovel")
+        response.status_code.should eq 200
+        json = JSON.parse(response.body)
+        json["value"]["dest-signature-secret"].as_s.should eq "********"
+      end
+    end
+
+    it "should clear dest-signature-secret when updating without providing it" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":               s.amqp_server.url,
+            "dest-uri":              "https://example.com/webhook",
+            "src-queue":             "test-q",
+            "dest-signature-secret": "my-secret-key",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/clear-secret-shovel", body: body.to_json)
+        response.status_code.should eq 201
+
+        body = {
+          value: {
+            "src-uri":   s.amqp_server.url,
+            "dest-uri":  "https://example.com/webhook",
+            "src-queue": "updated-q",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/clear-secret-shovel", body: body.to_json)
+        response.status_code.should eq 204
+
+        response = http.get("/api/parameters/shovel/%2F/clear-secret-shovel")
+        json = JSON.parse(response.body)
+        json["value"]["src-queue"].as_s.should eq "updated-q"
+        json["value"].as_h.has_key?("dest-signature-secret").should be_false
+      end
+    end
+  end
 end

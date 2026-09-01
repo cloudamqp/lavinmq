@@ -774,6 +774,7 @@ class LavinMQCtl
   @[Opt("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)", args: "src-delete-after")]
   @[Opt("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)", args: "ack-mode")]
   @[Opt("--reconnect-delay=SECONDS", "Reconnect delay in seconds", args: "reconnect-delay", value: v.to_i64)]
+  @[Opt("--dest-signature-secret=SECRET", "Space separated Standard Webhooks signing secrets, HTTP destinations only", args: "dest-signature-secret")]
   private def add_shovel
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
