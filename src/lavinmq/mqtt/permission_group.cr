@@ -8,6 +8,8 @@ module LavinMQ
 
       # Rule identifiers make individual rules addressable in the HTTP API.
       IDENTIFIER_PATTERN = /\A[A-Za-z0-9-]+\z/
+      # Group names travel in URL paths; the charset keeps them unambiguous there.
+      NAME_PATTERN = /\A[A-Za-z0-9_-]{1,255}\z/
 
       struct Rule
         include JSON::Serializable
@@ -32,6 +34,9 @@ module LavinMQ
       end
 
       def validate! : self
+        unless @name.matches?(NAME_PATTERN)
+          raise ArgumentError.new("Invalid group name #{@name.inspect}, only alphanumerics, hyphens and underscores are allowed, max 255 characters")
+        end
         identifiers = Set(String).new
         @rules.each do |rule|
           unless rule.identifier.matches?(IDENTIFIER_PATTERN)

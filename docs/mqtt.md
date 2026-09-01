@@ -121,6 +121,7 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 }
 ```
 
+- Group names consist of alphanumerics, hyphens and underscores, at most 255 characters.
 - `members` is a list of client ids the group applies to. The entry `"*"` applies the group to every client.
 - Every rule has an `identifier` (alphanumerics and hyphens, unique within the group), which is how the rule is addressed in the HTTP API.
 

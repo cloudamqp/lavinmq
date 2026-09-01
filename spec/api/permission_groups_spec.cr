@@ -57,6 +57,28 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       end
     end
 
+    it "rejects an invalid group name, creating nothing" do
+      with_http_server do |http, _|
+        [
+          "a%20b",   # space
+          "a%2Fb",   # slash
+          "a.b",     # dot
+          "%C3%A5",  # non-ascii
+          "..",      # path traversal
+          "x" * 256, # too long
+        ].each do |name|
+          http.put("/api/mqtt/permission-groups/%2f/#{name}").status_code.should eq 400
+        end
+        JSON.parse(http.get("/api/mqtt/permission-groups/%2f").body).as_a.should be_empty
+      end
+    end
+
+    it "accepts a group name with hyphens and underscores" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/Team_1-iot").status_code.should eq 201
+      end
+    end
+
     it "returns 204 when creating a group that already exists" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201

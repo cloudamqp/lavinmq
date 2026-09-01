@@ -100,7 +100,11 @@ module LavinMQ
             if service[params["name"]]?
               context.response.status = ::HTTP::Status::NO_CONTENT
             else
-              service.put(MQTT::PermissionGroup.new(params["name"], vhost.name))
+              begin
+                service.put(MQTT::PermissionGroup.new(params["name"], vhost.name))
+              rescue ex : ArgumentError
+                bad_request(context, ex.message)
+              end
               context.response.status = ::HTTP::Status::CREATED
             end
           end
