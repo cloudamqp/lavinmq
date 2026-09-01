@@ -52,6 +52,27 @@ describe LavinMQ::SNIHost do
     # HTTP should NOT have peer verification
     http_ctx.verify_mode.should eq(OpenSSL::SSL::VerifyMode::NONE)
   end
+
+  it "does not prefer server ciphers by default" do
+    host = LavinMQ::SNIHost.new("example.com")
+    host.tls_cert = "spec/resources/server_certificate.pem"
+    host.tls_key = "spec/resources/server_key.pem"
+
+    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
+  end
+
+  it "creates TLS contexts that prefer the server cipher order" do
+    host = LavinMQ::SNIHost.new("example.com")
+    host.tls_cert = "spec/resources/server_certificate.pem"
+    host.tls_key = "spec/resources/server_key.pem"
+    host.tls_prefer_server_ciphers = true
+    # MQTT opts out of the default
+    host.mqtt_tls_prefer_server_ciphers = false
+
+    host.amqp_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
+    host.http_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_true
+    host.mqtt_tls_context.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
+  end
 end
 
 describe LavinMQ::SNIManager do
