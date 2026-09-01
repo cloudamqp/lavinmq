@@ -40,8 +40,9 @@ module LavinMQ
       value = @heap[idx]
       while idx > 0
         parent = (idx - 1) // 2
-        break if @heap[parent] <= value
-        @heap[idx] = @heap[parent]
+        p = @heap[parent]
+        break if p <= value
+        @heap[idx] = p
         idx = parent
       end
       @heap[idx] = value
@@ -52,9 +53,13 @@ module LavinMQ
       size = @heap.size
       while (child = 2 * idx + 1) < size
         right = child + 1
-        child = right if right < size && @heap[right] < @heap[child]
-        break if value <= @heap[child]
-        @heap[idx] = @heap[child]
+        c = @heap[child]
+        if right < size && (r = @heap[right]) < c
+          child = right
+          c = r
+        end
+        break if value <= c
+        @heap[idx] = c
         idx = child
       end
       @heap[idx] = value
