@@ -1,26 +1,81 @@
 require "../controller"
+require "../../sortable_json"
 
 module LavinMQ
   module HTTP
+    # The list routes return this instead of the full group, so a listing of
+    # thousands of groups stays small. Full content is in the per-group route.
+    struct PermissionGroupSummaryView
+      include SortableJSON
+
+      def initialize(@group : MQTT::PermissionGroup)
+      end
+
+      def details_tuple
+        {
+          name:         @group.name,
+          vhost:        @group.vhost,
+          member_count: @group.members.size,
+          rule_count:   @group.rules.size,
+        }
+      end
+
+      protected def search_value
+        @group.name
+      end
+    end
+
+    struct PermissionGroupRuleView
+      def initialize(@rule : MQTT::PermissionGroup::Rule)
+      end
+
+      def details_tuple
+        {
+          identifier: @rule.identifier,
+          pattern:    @rule.pattern,
+          read:       @rule.read?,
+          write:      @rule.write?,
+        }
+      end
+    end
+
+    struct PermissionGroupView
+      def initialize(@group : MQTT::PermissionGroup)
+      end
+
+      def details_tuple
+        {
+          name:    @group.name,
+          vhost:   @group.vhost,
+          members: @group.members,
+          rules:   @group.rules.map { |r| PermissionGroupRuleView.new(r).details_tuple },
+        }
+      end
+
+      def to_json(io : IO)
+        details_tuple.to_json(io)
+      end
+    end
+
     class PermissionGroupsController < Controller
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/mqtt/permission-groups" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          JSON.build(context.response) do |json|
-            json.array do
-              @server.vhosts.each_value do |vhost|
-                vhost.mqtt_permission_service.values.each(&.to_json(json))
-              end
+          views = Array(PermissionGroupSummaryView).new
+          @server.vhosts.each_value do |vhost|
+            vhost.mqtt_permission_service.values.each do |group|
+              views << PermissionGroupSummaryView.new(group)
             end
           end
-          context
+          page(context, views)
         end
 
         get "/api/mqtt/permission-groups/:vhost" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            vhost.mqtt_permission_service.values.to_json(context.response)
+            views = vhost.mqtt_permission_service.values.map { |g| PermissionGroupSummaryView.new(g) }
+            page(context, views)
           end
         end
 
@@ -29,7 +84,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            group.to_json(context.response)
+            PermissionGroupView.new(group).to_json(context.response)
           end
         end
 

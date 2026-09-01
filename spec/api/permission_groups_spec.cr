@@ -30,6 +30,33 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       end
     end
 
+    it "lists groups as summaries with pagination and filtering" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 201
+        http.put("/api/mqtt/permission-groups/%2f/chat/members/m1").status_code.should eq 201
+        rule = {pattern: "chat/#", read: true}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/chat/rules/r1", body: rule).status_code.should eq 201
+        http.put("/api/mqtt/permission-groups/%2f/other").status_code.should eq 201
+
+        list = JSON.parse(http.get("/api/mqtt/permission-groups").body).as_a
+        chat = list.find! { |g| g["name"] == "chat" }
+        chat["vhost"].as_s.should eq "/"
+        chat["member_count"].as_i.should eq 1
+        chat["rule_count"].as_i.should eq 1
+        chat["members"]?.should be_nil
+        chat["rules"]?.should be_nil
+
+        paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?page=1&page_size=1").body)
+        paged["items"].as_a.size.should eq 1
+        paged["total_count"].as_i.should eq 2
+        paged["page_count"].as_i.should eq 2
+
+        filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?name=chat").body).as_a
+        filtered.size.should eq 1
+        filtered[0]["name"].as_s.should eq "chat"
+      end
+    end
+
     it "returns 204 when creating a group that already exists" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
