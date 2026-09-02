@@ -7,7 +7,7 @@ require "./subscription_details"
 
 module LavinMQ
   module MQTT
-    class Exchange # < LavinMQ::Exchange
+    class Exchange
       include Stats
       include SortableJSON
 

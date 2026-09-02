@@ -157,30 +157,6 @@ module LavinMQ
         notify_observers(ExchangeEvent::Deleted)
       end
 
-      # This outer macro will add a finished macro hook to all inherited classes
-      # in LavinMQ::AMQP namespace.
-      # macro inherited
-      #  {% if @type.name.starts_with?("LavinMQ::AMQP::") %}
-      #    # This macro will find the "bind" method of classes inheriting from this class
-      #    # and redefine them to raise AccessRefused exception if the first argument
-      #    # isn't a type in LavinMQ::AMQP namespace.
-      #    #
-      #    # TODO remove this when LavinMQ::MQTT::Session no longer inherit from
-      #    # LavinMQ::AMQP::Queue and LavinMQ::MQTT::Exchange no longer inherit from
-      #    # lavinMQ::AMQP::Exchange
-      #  macro finished
-      #    \{% if (m = @type.methods.find(&.name.== "bind"))  %}
-      #      def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
-      #        unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
-      #          raise AccessRefused.new(self)
-      #        end
-      #        \{{ m.body }}
-      #    end
-      #   \{% end %}
-      #  end
-      #  {% end %}
-      # end
-
       def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
@@ -224,7 +200,7 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
+                  exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -247,10 +223,10 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(LavinMQ::Exchange).new)
+        route_msg(msg, false, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
@@ -282,7 +258,7 @@ module LavinMQ
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                      exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
+                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
         each_destination(routing_key, headers) do |d|
           case d
