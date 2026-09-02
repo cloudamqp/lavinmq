@@ -42,6 +42,14 @@ module LavinMQ
         @groups.values
       end
 
+      def size : Int32
+        @groups.size
+      end
+
+      def each_value(& : PermissionGroup ->) : Nil
+        @groups.each_value { |group| yield group }
+      end
+
       def in_use? : Bool
         !@compiled.empty?
       end
@@ -92,11 +100,13 @@ module LavinMQ
         false
       end
 
+      # A group's compiled rules are stored once and referenced by each of its
+      # members. A client in more than one group gets a merged copy.
       private def rebuild : Nil
         by_member = Hash(String, Array(CompiledRule)).new
         global_rules = Array(CompiledRule).new
         @groups.each_value do |group|
-          compiled_rules = Array(CompiledRule).new
+          compiled_rules = Array(CompiledRule).new(group.rules.size)
           group.rules.each do |rule|
             chain = TopicRuleSegment.compile(rule.pattern)
             if chain.nil?
@@ -112,7 +122,11 @@ module LavinMQ
             global_rules.concat(compiled_rules)
           else
             group.members.each do |member|
-              (by_member[member] ||= Array(CompiledRule).new).concat(compiled_rules)
+              if own = by_member[member]?
+                by_member[member] = own + compiled_rules
+              else
+                by_member[member] = compiled_rules
+              end
             end
           end
         end

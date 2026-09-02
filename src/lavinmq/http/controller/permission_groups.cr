@@ -45,9 +45,10 @@ module LavinMQ
       private def register_routes
         get "/api/mqtt/permission-groups" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          views = Array(PermissionGroupSummaryView).new
+          total = @server.vhosts.sum { |_, vhost| vhost.mqtt_permission_service.size }
+          views = Array(PermissionGroupSummaryView).new(total)
           @server.vhosts.each_value do |vhost|
-            vhost.mqtt_permission_service.values.each do |group|
+            vhost.mqtt_permission_service.each_value do |group|
               views << PermissionGroupSummaryView.new(group)
             end
           end
@@ -57,7 +58,9 @@ module LavinMQ
         get "/api/mqtt/permission-groups/:vhost" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            views = vhost.mqtt_permission_service.values.map { |g| PermissionGroupSummaryView.new(g) }
+            service = vhost.mqtt_permission_service
+            views = Array(PermissionGroupSummaryView).new(service.size)
+            service.each_value { |group| views << PermissionGroupSummaryView.new(group) }
             page(context, views)
           end
         end

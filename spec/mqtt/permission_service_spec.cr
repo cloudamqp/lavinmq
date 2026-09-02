@@ -182,4 +182,14 @@ describe LavinMQ::MQTT::PermissionService do
       service.can_read?("c1", "b/x").should be_false
     end
   end
+
+  it "keeps a shared group's rules intact when one member is also in another group" do
+    with_service do |service|
+      service.put(group("a", ["c1", "c2"], [rule("a/#", read: true)]))
+      service.put(group("b", ["c1"], [rule("b/#", write: true)]))
+      service.can_write?("c1", "b/x").should be_true
+      service.can_write?("c2", "b/x").should be_false
+      service.can_read?("c2", "a/x").should be_true
+    end
+  end
 end
