@@ -131,15 +131,17 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 |--------|------|-------------|
 | GET | `/api/mqtt/permission-groups` | List group summaries on all vhosts |
 | GET | `/api/mqtt/permission-groups/{vhost}` | List group summaries on a vhost |
-| GET | `/api/mqtt/permission-groups/{vhost}/{name}` | Get one group with all its members and rules |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}` | Get one group summary |
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}/members` | List the members of a group |
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Add a member |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Remove a member |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules` | List the rules of a group |
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
-The list routes return one summary object per group: `name`, `vhost`, `member_count`, and `rule_count`. They accept the same query parameters as the other list endpoints: `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse`, and `columns`.
+The group GET routes return one summary object per group: `name`, `vhost`, `member_count`, and `rule_count`. The members route returns one object per member: `{"client_id": "..."}`. The group list routes and the members route accept the same query parameters as the other list endpoints: `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse`, and `columns`. The rules route returns the full rule list with `identifier`, `pattern`, `read`, and `write` per rule.
 
 For example, to allow every device to use only its own subtree under `chat/`:
 

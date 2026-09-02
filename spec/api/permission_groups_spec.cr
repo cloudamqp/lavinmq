@@ -20,8 +20,10 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         group = JSON.parse(get_one.body)
         group["name"].as_s.should eq "chat"
         group["vhost"].as_s.should eq "/"
-        group["members"].as_a.should be_empty
-        group["rules"].as_a.should be_empty
+        group["member_count"].as_i.should eq 0
+        group["rule_count"].as_i.should eq 0
+        group["members"]?.should be_nil
+        group["rules"]?.should be_nil
 
         del = http.delete("/api/mqtt/permission-groups/%2f/chat")
         del.status_code.should eq 204
@@ -102,7 +104,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   end
 
   describe "members" do
-    it "adds and removes a member" do
+    it "adds, lists and removes members" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
 
@@ -111,18 +113,40 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         http.put("/api/mqtt/permission-groups/%2f/grp/members/*").status_code.should eq 201
 
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["members"].as_a.map(&.as_s).should eq ["device-1", "*"]
+        group["member_count"].as_i.should eq 2
+        members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
+        members.map(&.["client_id"].as_s).should eq ["device-1", "*"]
 
         http.delete("/api/mqtt/permission-groups/%2f/grp/members/device-1").status_code.should eq 204
         http.delete("/api/mqtt/permission-groups/%2f/grp/members/device-1").status_code.should eq 404
 
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["members"].as_a.map(&.as_s).should eq ["*"]
+        group["member_count"].as_i.should eq 1
+        members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
+        members.map(&.["client_id"].as_s).should eq ["*"]
+      end
+    end
+
+    it "lists members with pagination and filtering" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+        3.times do |i|
+          http.put("/api/mqtt/permission-groups/%2f/grp/members/device-#{i}").status_code.should eq 201
+        end
+
+        paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members?page=2&page_size=2").body)
+        paged["items"].as_a.map(&.["client_id"].as_s).should eq ["device-2"]
+        paged["total_count"].as_i.should eq 3
+        paged["page_count"].as_i.should eq 2
+
+        filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members?name=device-1").body).as_a
+        filtered.map(&.["client_id"].as_s).should eq ["device-1"]
       end
     end
 
     it "returns 404 for member operations on a missing group" do
       with_http_server do |http, _|
+        http.get("/api/mqtt/permission-groups/%2f/nope/members").status_code.should eq 404
         http.put("/api/mqtt/permission-groups/%2f/nope/members/m1").status_code.should eq 404
         http.delete("/api/mqtt/permission-groups/%2f/nope/members/m1").status_code.should eq 404
       end
@@ -130,7 +154,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   end
 
   describe "rules" do
-    it "adds, replaces and removes a rule by identifier" do
+    it "adds, lists, replaces and removes a rule by identifier" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
 
@@ -138,22 +162,27 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         http.put("/api/mqtt/permission-groups/%2f/grp/rules/own-chat", body: rule).status_code.should eq 201
 
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["rules"].as_a.size.should eq 1
-        group["rules"][0]["identifier"].as_s.should eq "own-chat"
-        group["rules"][0]["write"].as_bool.should be_true
+        group["rule_count"].as_i.should eq 1
+        rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
+        rules.size.should eq 1
+        rules[0]["identifier"].as_s.should eq "own-chat"
+        rules[0]["pattern"].as_s.should eq "chat/{client_id}/#"
+        rules[0]["read"].as_bool.should be_true
+        rules[0]["write"].as_bool.should be_true
 
         replace = {pattern: "chat/{client_id}/#", read: true, write: false}.to_json
         http.put("/api/mqtt/permission-groups/%2f/grp/rules/own-chat", body: replace).status_code.should eq 204
 
-        group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["rules"].as_a.size.should eq 1
-        group["rules"][0]["write"].as_bool.should be_false
+        rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
+        rules.size.should eq 1
+        rules[0]["write"].as_bool.should be_false
 
         http.delete("/api/mqtt/permission-groups/%2f/grp/rules/own-chat").status_code.should eq 204
         http.delete("/api/mqtt/permission-groups/%2f/grp/rules/own-chat").status_code.should eq 404
 
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["rules"].as_a.should be_empty
+        group["rule_count"].as_i.should eq 0
+        JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a.should be_empty
       end
     end
 
@@ -168,14 +197,14 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         ].each do |c|
           http.put("/api/mqtt/permission-groups/%2f/grp/rules/#{c[:path]}", body: c[:body]).status_code.should eq 400
         end
-        group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
-        group["rules"].as_a.should be_empty
+        JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a.should be_empty
       end
     end
 
     it "returns 404 for rule operations on a missing group" do
       with_http_server do |http, _|
         body = {pattern: "a/#"}.to_json
+        http.get("/api/mqtt/permission-groups/%2f/nope/rules").status_code.should eq 404
         http.put("/api/mqtt/permission-groups/%2f/nope/rules/r1", body: body).status_code.should eq 404
         http.delete("/api/mqtt/permission-groups/%2f/nope/rules/r1").status_code.should eq 404
       end
@@ -191,8 +220,10 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       http.get("/api/mqtt/permission-groups/%2f/anything", headers: hdrs).status_code.should eq 403
       http.put("/api/mqtt/permission-groups/%2f/foo", headers: hdrs).status_code.should eq 403
       http.delete("/api/mqtt/permission-groups/%2f/anything", headers: hdrs).status_code.should eq 403
+      http.get("/api/mqtt/permission-groups/%2f/foo/members", headers: hdrs).status_code.should eq 403
       http.put("/api/mqtt/permission-groups/%2f/foo/members/m1", headers: hdrs).status_code.should eq 403
       http.delete("/api/mqtt/permission-groups/%2f/foo/members/m1", headers: hdrs).status_code.should eq 403
+      http.get("/api/mqtt/permission-groups/%2f/foo/rules", headers: hdrs).status_code.should eq 403
       http.put("/api/mqtt/permission-groups/%2f/foo/rules/r1", headers: hdrs, body: "{}").status_code.should eq 403
       http.delete("/api/mqtt/permission-groups/%2f/foo/rules/r1", headers: hdrs).status_code.should eq 403
     end

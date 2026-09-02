@@ -3,8 +3,8 @@ require "../../sortable_json"
 
 module LavinMQ
   module HTTP
-    # The list routes return this instead of the full group, so a listing of
-    # thousands of groups stays small. Full content is in the per-group route.
+    # Groups are returned as summaries with counts, so a group with thousands
+    # of members or rules stays small in every route.
     struct PermissionGroupSummaryView
       include SortableJSON
 
@@ -25,35 +25,18 @@ module LavinMQ
       end
     end
 
-    struct PermissionGroupRuleView
-      def initialize(@rule : MQTT::PermissionGroup::Rule)
+    struct PermissionGroupMemberView
+      include SortableJSON
+
+      def initialize(@client_id : String)
       end
 
       def details_tuple
-        {
-          identifier: @rule.identifier,
-          pattern:    @rule.pattern,
-          read:       @rule.read?,
-          write:      @rule.write?,
-        }
-      end
-    end
-
-    struct PermissionGroupView
-      def initialize(@group : MQTT::PermissionGroup)
+        {client_id: @client_id}
       end
 
-      def details_tuple
-        {
-          name:    @group.name,
-          vhost:   @group.vhost,
-          members: @group.members,
-          rules:   @group.rules.map { |r| PermissionGroupRuleView.new(r).details_tuple },
-        }
-      end
-
-      def to_json(io : IO)
-        details_tuple.to_json(io)
+      protected def search_value
+        @client_id
       end
     end
 
@@ -84,7 +67,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            PermissionGroupView.new(group).to_json(context.response)
+            PermissionGroupSummaryView.new(group).to_json(context.response)
           end
         end
 
@@ -119,6 +102,16 @@ module LavinMQ
           end
         end
 
+        get "/api/mqtt/permission-groups/:vhost/:name/members" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          with_vhost(context, params) do |vhost|
+            group = vhost.mqtt_permission_service[params["name"]]?
+            not_found(context) unless group
+            views = group.members.map { |m| PermissionGroupMemberView.new(m) }
+            page(context, views)
+          end
+        end
+
         put "/api/mqtt/permission-groups/:vhost/:name/members/:member" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
@@ -145,6 +138,15 @@ module LavinMQ
             not_found(context) unless group.members.includes?(member)
             service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members - [member], group.rules))
             context.response.status = ::HTTP::Status::NO_CONTENT
+          end
+        end
+
+        get "/api/mqtt/permission-groups/:vhost/:name/rules" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          with_vhost(context, params) do |vhost|
+            group = vhost.mqtt_permission_service[params["name"]]?
+            not_found(context) unless group
+            group.rules.to_json(context.response)
           end
         end
 
