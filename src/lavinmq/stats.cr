@@ -1,6 +1,7 @@
 module LavinMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w[])
+      {% stats_keys = stats_keys.resolve if stats_keys.is_a?(Path) %}
       {% for name in stats_keys %}
         @{{ name.id }}_count = Atomic(UInt64).new(0_u64)
         @{{ name.id }}_count_prev = 0_u64
