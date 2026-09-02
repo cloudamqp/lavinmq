@@ -417,14 +417,14 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
-        res = Set(LavinMQ::Exchange).new
+        res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
@@ -944,14 +944,14 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
-        res = Set(LavinMQ::Exchange).new
+        res = Set(LavinMQ::AMQP::Exchange).new
         res << s.vhosts["/"].exchange("import_x1")
         res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::AMQP::Queue).new
-        es = Set(LavinMQ::Exchange).new
+        es = Set(LavinMQ::AMQP::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::AMQP::Queue).new
         res << s.vhosts["/"].queue("import_q1")
