@@ -534,7 +534,8 @@ module MessageRoutingSpec
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        s1 = LavinMQ::QueueFactory.make(vhost, "q1", arguments: LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        vhost.declare_queue("s1", true, false, LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        s1 = vhost.session("s1")
         x = LavinMQ::MQTT::Exchange.new(vhost, "")
         x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
         expect_raises(LavinMQ::Exchange::AccessRefused) do
