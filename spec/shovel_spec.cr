@@ -943,5 +943,64 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "accepts an HTTP destination without a dest queue or exchange" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user3", "pass")
+        s.users.add_permission("shovel_user3", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":   "amqp:///",
+          "dest-uri":  "https://example.com/webhook",
+          "src-queue": "q1",
+        }.to_json)
+        LavinMQ::Shovel::Store.validate_config!(config, user)
+      end
+    end
+
+    it "raises when only some destinations are HTTP and none names a queue or exchange" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user5", "pass")
+        s.users.add_permission("shovel_user5", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":   "amqp:///",
+          "dest-uri":  ["https://example.com/webhook", "amqp:///"],
+          "src-queue": "q1",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+
+    # Only http and https build an HTTPDestination, so nothing else may skip the check
+    it "raises for an unknown scheme that merely starts with http" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user6", "pass")
+        s.users.add_permission("shovel_user6", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":   "amqp:///",
+          "dest-uri":  "httpx://example.com/webhook",
+          "src-queue": "q1",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+
+    it "raises when an AMQP destination has no queue or exchange" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user4", "pass")
+        s.users.add_permission("shovel_user4", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":   "amqp:///",
+          "dest-uri":  "amqp:///",
+          "src-queue": "q1",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError, "Shovel destination requires queue and/or exchange") do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
   end
 end
