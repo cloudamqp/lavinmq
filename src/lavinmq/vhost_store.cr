@@ -4,6 +4,22 @@ require "./auth/base_user"
 require "./observable"
 
 module LavinMQ
+  class DeletedVHostStats
+    {% for m in VHost::STATS_KEYS %}
+      @{{ m.id }} = Atomic(UInt64).new(0_u64)
+
+      def {{ m.id }} : UInt64
+        @{{ m.id }}.get(:relaxed)
+      end
+    {% end %}
+
+    def add(vhost : VHost) : Nil
+      {% for m in VHost::STATS_KEYS %}
+        @{{ m.id }}.add(vhost.{{ m.id }}_count, :relaxed)
+      {% end %}
+    end
+  end
+
   class VHostStore
     enum Event
       Added
@@ -14,6 +30,8 @@ module LavinMQ
     include Observable(Event)
 
     Log = LavinMQ::Log.for "vhost_store"
+
+    getter deleted_stats = DeletedVHostStats.new
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister)
       @vhosts = Hash(String, VHost).new
@@ -78,6 +96,7 @@ module LavinMQ
     def delete(name) : VHost?
       if vhost = @vhosts.delete name
         Log.info { "Deleting vhost #{name}" }
+        @deleted_stats.add(vhost)
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
         notify_observers(Event::Deleted, name)
