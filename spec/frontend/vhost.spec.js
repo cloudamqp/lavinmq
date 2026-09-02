@@ -69,6 +69,57 @@ test.describe("vhost", _ => {
     await expect(apiSetMaxQueuesRequest).toBeRequested()
   })
 
+  test('refreshes limits after one limit update fails', async ({ page }) => {
+    const errors = []
+    let limitsRequests = 0
+    const limitResponse = () => {
+      limitsRequests += 1
+      return [{
+        value: limitsRequests === 1
+          ? { 'max-connections': 10, 'max-queues': 20 }
+          : { 'max-connections': 10, 'max-queues': 100 }
+      }]
+    }
+
+    page.on('pageerror', err => errors.push(err.message))
+    page.on('dialog', dialog => dialog.dismiss())
+    await page.route(url => url.pathname === `/api/vhosts/${vhostName}`, async route => {
+      await route.fulfill({ json: { messages_ready: 0, messages_unacknowledged: 0, messages: 0 } })
+    })
+    await page.route(url => url.pathname === `/api/vhosts/${vhostName}/permissions`, async route => {
+      await route.fulfill({ json: permissionsResponse })
+    })
+    await page.route(url => url.pathname === '/api/users', async route => {
+      await route.fulfill({ json: usersResponse })
+    })
+    await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}`, async route => {
+      await route.fulfill({ json: limitResponse() })
+    })
+    await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}/max-connections`, async route => {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'access_refused', reason: 'No permission' })
+      })
+    })
+    await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}/max-queues`, async route => {
+      await route.fulfill({ status: 204 })
+    })
+
+    await page.goto(`/vhost#name=${vhostName}`)
+    await expect(page.locator('#max-connections')).toHaveText('10')
+    await expect(page.locator('#max-queues')).toHaveText('20')
+
+    const form = page.locator('#setLimits')
+    await form.getByLabel('Max connections').fill('200')
+    await form.getByLabel('Max queues').fill('100')
+    await form.getByRole('button').click()
+
+    await expect(page.locator('#max-connections')).toHaveText('10')
+    await expect(page.locator('#max-queues')).toHaveText('100')
+    expect(errors).toEqual([])
+  })
+
   test('delete button works', async ({ page }) => {
     await page.goto(`/vhost#name=${vhostName}`)
 
