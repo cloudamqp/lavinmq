@@ -159,27 +159,27 @@ module LavinMQ
 
       # This outer macro will add a finished macro hook to all inherited classes
       # in LavinMQ::AMQP namespace.
-      macro inherited
-        {% if @type.name.starts_with?("LavinMQ::AMQP::") %}
-          # This macro will find the "bind" method of classes inheriting from this class
-          # and redefine them to raise AccessRefused exception if the first argument
-          # isn't a type in LavinMQ::AMQP namespace.
-          #
-          # TODO remove this when LavinMQ::MQTT::Session no longer inherit from
-          # LavinMQ::AMQP::Queue and LavinMQ::MQTT::Exchange no longer inherit from
-          # lavinMQ::AMQP::Exchange
-        macro finished
-          \{% if (m = @type.methods.find(&.name.== "bind"))  %}
-            def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
-              unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
-                raise AccessRefused.new(self)
-              end
-              \{{ m.body }}
-          end
-         \{% end %}
-        end
-        {% end %}
-      end
+      # macro inherited
+      #  {% if @type.name.starts_with?("LavinMQ::AMQP::") %}
+      #    # This macro will find the "bind" method of classes inheriting from this class
+      #    # and redefine them to raise AccessRefused exception if the first argument
+      #    # isn't a type in LavinMQ::AMQP namespace.
+      #    #
+      #    # TODO remove this when LavinMQ::MQTT::Session no longer inherit from
+      #    # LavinMQ::AMQP::Queue and LavinMQ::MQTT::Exchange no longer inherit from
+      #    # lavinMQ::AMQP::Exchange
+      #  macro finished
+      #    \{% if (m = @type.methods.find(&.name.== "bind"))  %}
+      #      def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
+      #        unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
+      #          raise AccessRefused.new(self)
+      #        end
+      #        \{{ m.body }}
+      #    end
+      #   \{% end %}
+      #  end
+      #  {% end %}
+      # end
 
       def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
@@ -291,7 +291,7 @@ module LavinMQ
             unless delayed? && d == @delayed_queue
               queues.add(d)
             end
-          in LavinMQ::Exchange
+          in AMQP::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end
         end

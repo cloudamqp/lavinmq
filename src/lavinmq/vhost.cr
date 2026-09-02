@@ -16,7 +16,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
-require "./mqtt/session"
+require "./mqtt/definitions_store"
 require "./connection_store"
 require "./direct_reply_consumer_store"
 require "./definitions_store"
@@ -40,6 +40,7 @@ module LavinMQ
     @flow = true
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
+    @mqtt_definitions : MQTT::DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
@@ -92,7 +93,7 @@ module LavinMQ
     end
 
     def mqtt_exchange : MQTT::Exchange
-      definitions.mqtt_exchange
+      mqtt_definitions.exchange
     end
 
     # Queue accessors
@@ -140,31 +141,37 @@ module LavinMQ
     # Session accessors
 
     def session?(name : String) : MQTT::Session?
-      definitions.session?(name)
+      mqtt_definitions.session?(name)
     end
 
     def session(name : String) : MQTT::Session
-      definitions.session(name)
+      mqtt_definitions.session(name)
     end
 
     def session_exists?(name : String) : Bool
-      definitions.session_exists?(name)
+      mqtt_definitions.session_exists?(name)
     end
 
     def each_session(& : MQTT::Session ->) : Nil
-      definitions.each_session { |v| yield v }
+      mqtt_definitions.each_session { |v| yield v }
     end
 
     def sessions : Array(MQTT::Session)
-      definitions.sessions
+      mqtt_definitions.sessions
     end
 
     def sessions_size : Int32
-      definitions.sessions_size
+      mqtt_definitions.sessions_size
     end
 
     def sessions_clear : Nil
-      definitions.sessions_clear
+      mqtt_definitions.sessions_clear
+    end
+
+    # The subscriptions of an MQTT session, in binding-details shape. The MQTT
+    # counterpart of `queue_bindings`.
+    def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
+      mqtt_definitions.subscriptions(session)
     end
 
     # Connection accessors
@@ -224,7 +231,8 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
+      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self)
+      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log, mqtt)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -261,7 +269,7 @@ module LavinMQ
     end
 
     def queue_limit_reached? : Bool
-      @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+      @max_queues.try { |max| definitions.queues_size + mqtt_definitions.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -300,7 +308,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(AMQP::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else
@@ -423,7 +431,7 @@ module LavinMQ
       definitions.fsync
     end
 
-    def queue_bindings(queue : Queue)
+    def queue_bindings(queue : AMQP::Queue)
       definitions.queue_bindings(queue)
     end
 
@@ -649,6 +657,10 @@ module LavinMQ
 
     private def definitions : DefinitionsStore
       @definitions.not_nil!
+    end
+
+    private def mqtt_definitions : MQTT::DefinitionsStore
+      @mqtt_definitions.not_nil!
     end
   end
 end

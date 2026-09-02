@@ -1,4 +1,4 @@
-require "../amqp/exchange"
+require "../exchange"
 require "./consts"
 require "./subscription_tree"
 require "./session"
@@ -7,15 +7,21 @@ require "./subscription_details"
 
 module LavinMQ
   module MQTT
-    class Exchange < AMQP::Exchange
+    class Exchange # < LavinMQ::Exchange
+      include Stats
+      include SortableJSON
+
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
 
       def type : String
         "mqtt"
       end
 
-      def initialize(vhost : VHost, name : String)
-        super(vhost, name, false, false, true)
+      getter vhost, name
+
+      rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
+
+      def initialize(@vhost : VHost, @name : String)
       end
 
       def publish(packet : Protocol::Publish) : UInt32
@@ -43,8 +49,8 @@ module LavinMQ
 
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
-          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
+        each_subscription do |session, topic_filter, qos|
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(topic_filter, qos), session)
         end
         result
       end
@@ -53,52 +59,52 @@ module LavinMQ
         @tree.size
       end
 
-      # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
+      # MQTT-native subscription entry points. `bind`/`unbind` are the
+      # AMQP-shaped adapters over these, still in use while subscriptions are
+      # persisted as AMQP binding frames.
+      def subscribe(session : MQTT::Session, topic_filter : String, qos : UInt8) : Bool
+        @tree.subscribe(topic_filter, session, qos)
+        true
       end
 
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
-
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+      def unsubscribe(session : MQTT::Session, topic_filter : String) : Bool
+        @tree.unsubscribe(topic_filter, session)
         true
+      end
+
+      # Yields every subscription as session, topic filter and granted QoS.
+      # The block is captured: `SubscriptionTree#each_entry` captures its own.
+      def each_subscription(&block : (MQTT::Session, String, UInt8) ->) : Nil
+        @tree.each_entry do |session, qos, topic_filter|
+          block.call(session, topic_filter, qos)
+        end
+      end
+
+      # TODO: notify observers of ExchangeEvent::Bind/Unbind once MQTT has its
+      # own observable events. The payload to send is the SubscriptionDetails
+      # for `destination` and `routing_key`, as `bindings_details` builds them.
+      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
+        subscribe(destination, routing_key, MQTT.qos(arguments))
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.unsubscribe(routing_key, destination)
-
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
-
-        delete if @auto_delete && @tree.empty?
-        true
+        unsubscribe(destination, routing_key)
       end
 
-      # TODO: remove when Session no longer inherit AMQP::Exchange
-      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
+      def bind(_destination : LavinMQ::AMQP::Destination, _rk : String, _args = nil) : Bool
+        raise LavinMQ::Exchange::AccessRefused.new(name)
       end
 
-      # TODO: remove when Session no longer inherit AMQP::Exchange
-      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      private def apply_policy_argument(key : String, value : JSON::Any)
-        # mqtt exchange doesn't support policies, make this a noop
-      end
-
-      private def clear_policy_arguments
-        # mqtt exchange doesn't support policies, make this a noop
-      end
-
-      def handle_arguments
-        # mqtt exchange doesn't support arguments, make this a noop
+      def details_tuple
+        {
+          name: @name, type: type, durable: true, auto_delete: false,
+          internal: true, arguments: nil, vhost: @vhost.name,
+          policy: nil,
+          operator_policy: nil,
+          effective_policy_definition: nil,
+          message_stats: current_stats_details,
+          effective_arguments: nil,
+        }
       end
     end
   end
