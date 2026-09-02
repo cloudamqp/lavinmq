@@ -93,18 +93,26 @@ module LavinMQ
 
       def subscribe(client, topics)
         session = sessions.declare(client)
-        headers = AMQP::Table.new({RETAIN_HEADER => true})
-        topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
-          session.subscribe(tf.topic, qos)
-          ts = RoughTime.unix_ms
-          @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            props = AMQP::Properties.new(headers: headers, delivery_mode: qos)
-            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
-            session.publish(msg)
-          end
-          Protocol::SubAck::ReturnCode.from_int(qos)
+        topics.map { |tf| grant(session, tf) }
+      end
+
+      # Subscribes one topic filter and returns the return code to put in the
+      # SubAck, replaying any retained messages on the way.
+      #
+      # A subscription we failed to establish is granted as Failure. Granting
+      # the qos we would have given instead tells the client it is subscribed
+      # to a topic it will never receive a message on, and the protocol gives
+      # us no way to correct that afterwards.
+      def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
+        qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+        return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
+        ts = RoughTime.unix_ms
+        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+          props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
+          msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+          session.publish(msg)
         end
+        Protocol::SubAck::ReturnCode.from_int(qos)
       end
 
       def unsubscribe(client_id, topics)

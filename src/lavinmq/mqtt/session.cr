@@ -157,9 +157,13 @@ module LavinMQ
         !clean_session?
       end
 
-      def subscribe(tf, qos)
+      # False if the subscription couldn't be established, which happens when
+      # the session is deleted between the caller getting hold of it and this
+      # call — a clean-session client reconnecting under the same client_id
+      # deletes the session from another fiber.
+      def subscribe(tf, qos) : Bool
         if subscription = find_subscription(tf)
-          return if subscription.binding_key.qos == qos
+          return true if subscription.binding_key.qos == qos
           unbind(tf, subscription.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
