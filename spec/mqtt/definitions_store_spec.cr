@@ -88,6 +88,57 @@ describe LavinMQ::MQTT::DefinitionsStore do
     end
   end
 
+  it "reports whether a subscription was established" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      session = declare_mqtt_session(v, "mqtt.sub")
+      session.subscribe("a/b", 0u8).should be_true # new
+      session.subscribe("a/b", 0u8).should be_true # already subscribed at this qos
+      session.subscribe("a/b", 1u8).should be_true # qos replaced
+      v.session_subscriptions(session).size.should eq 1
+    end
+  end
+
+  # The race this guards: a clean-session client reconnecting under the same
+  # client_id deletes the session from another fiber, so a subscribe can find
+  # its session gone. The client must be told, or it waits forever on a topic
+  # it was told it had subscribed to.
+  it "reports a failed subscription for a session that has been deleted" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      session = declare_mqtt_session(v, "mqtt.gone")
+      session.delete
+      v.session?("mqtt.gone").should be_nil
+
+      session.subscribe("a/b", 0u8).should be_false
+      v.mqtt_exchange.binding_count.should eq 0
+    end
+  end
+
+  it "grants the subscribed qos in the SubAck on success" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      broker = s.mqtt_server.broker("/")
+      session = declare_mqtt_session(v, "mqtt.sub")
+
+      tf = MQTT::Protocol::Subscribe::TopicFilter.new("a/b", 1u8)
+      broker.grant(session, tf).should eq MQTT::Protocol::SubAck::ReturnCode::QoS1
+      v.session_subscriptions(session).map(&.routing_key).should eq ["a/b"]
+    end
+  end
+
+  it "grants Failure in the SubAck for a subscription it could not establish" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      broker = s.mqtt_server.broker("/")
+      session = declare_mqtt_session(v, "mqtt.gone")
+      session.delete
+
+      tf = MQTT::Protocol::Subscribe::TopicFilter.new("a/b", 0u8)
+      broker.grant(session, tf).should eq MQTT::Protocol::SubAck::ReturnCode::Failure
+    end
+  end
+
   it "restores durable sessions and their subscriptions after a compaction and restart" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.max_deleted_definitions = 4

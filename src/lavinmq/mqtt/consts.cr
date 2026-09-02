@@ -8,6 +8,10 @@ module LavinMQ
 
     SESSION_PREFIX = "mqtt."
 
+    # The headers on a retained message replayed to a new subscriber, as one
+    # shared treat-as-read-only constant.
+    RETAIN_HEADERS = AMQP::Table.new({RETAIN_HEADER => true})
+
     QOS0_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 0u8})
     QOS1_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 1u8})
 
