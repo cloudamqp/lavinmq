@@ -1,10 +1,9 @@
 require "../spec_helper"
 require "file_utils"
 
-# Before MQTT got its own definitions file, a session was a durable queue of
-# type "mqtt" and a subscription was a binding from the mqtt.default exchange.
-# These helpers write a data dir in that shape so booting it exercises the
-# migration.
+# Before MQTT got its own definitions file, a session was a durable queue of type
+# "mqtt" and a subscription a binding from mqtt.default. These helpers write a
+# data dir in that shape, so booting it exercises the migration.
 private def legacy_vhost_dir(vhost : String) : String
   dir = Digest::SHA1.hexdigest(vhost)
   vhost_dir = File.join(LavinMQ::Config.instance.data_dir, dir)
@@ -91,11 +90,10 @@ describe "MQTT definitions migration" do
         end
       end
 
-      # ... and definitions.mqtt carries them instead
+      # ... and definitions.mqtt carries them instead (4 bytes is the prefix)
       mqtt_definitions_size(vhost_dir).should be > 4
 
-      # definitions.mqtt is authoritative from here on: the state survives a
-      # restart even though definitions.amqp no longer mentions it
+      # definitions.mqtt is authoritative from here on
       restart_server(s)
       v = s.vhosts["mqttmig"]
       reloaded = v.session?("mqtt.migrated")
@@ -107,8 +105,7 @@ describe "MQTT definitions migration" do
   end
 
   # A crash between "definitions.mqtt fsynced" and "definitions.amqp rewritten"
-  # leaves the state in both files. The next boot has to read that as one set of
-  # definitions, not two.
+  # leaves the state in both files, to be read as one set of definitions, not two.
   it "is idempotent if definitions.amqp still holds the frames on the next boot" do
     vhost_dir = legacy_vhost_dir("mqttmig")
     write_legacy_definitions(vhost_dir) do |f|
@@ -134,9 +131,8 @@ describe "MQTT definitions migration" do
     end
   end
 
-  # definitions.mqtt is the newer of the two: anything left in definitions.amqp
-  # is by definition pre-migration. If a leftover frame were replayed over the
-  # loaded state, a subscription's QoS would silently revert.
+  # Anything left in definitions.amqp is pre-migration, and replaying it over the
+  # loaded state would silently revert a subscription's QoS.
   it "does not let a leftover definitions.amqp frame override definitions.mqtt" do
     vhost_dir = legacy_vhost_dir("mqttmig")
     write_legacy_definitions(vhost_dir) do |f|
@@ -151,8 +147,7 @@ describe "MQTT definitions migration" do
       session = v.session("mqtt.migrated")
       v.session_subscriptions(session).first.binding_key.qos.should eq 0u8
 
-      # The client raises the QoS after the migration, so definitions.mqtt now
-      # holds a newer value than the frame did
+      # The client raises the QoS, so definitions.mqtt now differs from the frame
       v.mqtt.subscribe(session, "a/b", 1u8).should be_true
 
       # A crash mid-migration would have left the old frame in place

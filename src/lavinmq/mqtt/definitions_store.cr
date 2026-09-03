@@ -11,20 +11,14 @@ module LavinMQ
   module MQTT
     # Owns a vhost's MQTT definitions: its sessions (one per client_id that has
     # subscribed) and their subscriptions, the latter held in the subscription
-    # tree of the vhost's `MQTT::Exchange`.
+    # tree of the vhost's `MQTT::Exchange`. The exchange is created with the
+    # store rather than declared, so there is always one to subscribe against,
+    # and it is never persisted.
     #
-    # The exchange is created with the store rather than declared, so that it's
-    # always there for a subscription to be made against, and it is never
-    # persisted.
-    #
-    # Persisted to `definitions.mqtt` as an append-only log of the records
-    # below, compacted once enough of them are deletes. Only durable
-    # (non-clean) sessions and their subscriptions are written; a clean session
-    # lives and dies with its connection and never reaches the file.
-    #
-    # Records are keyed by session *name* (`mqtt.<client_id>`) rather than by
-    # client_id, because that is the identity the rest of the system —
-    # `Session#name`, the HTTP API, the definitions importer — uses.
+    # Persisted to `definitions.mqtt` as an append-only log, compacted once
+    # enough records are deletes. A clean session lives and dies with its
+    # connection and never reaches the file. Records are keyed by session name
+    # (`mqtt.<client_id>`), the identity the rest of the system uses.
     class DefinitionsStore
       Log = LavinMQ::Log.for "mqtt.definitions_store"
 
@@ -47,17 +41,12 @@ module LavinMQ
         # Reentrant: the store methods hold the lock while `store` may compact.
         @lock = Mutex.new(:reentrant)
         @file_path = File.join(@data_dir, "definitions.mqtt")
-        # Unbuffered, for the same reason as definitions.amqp: a joining
-        # follower reads this file's size and content through separate fds, so
-        # a record must never sit in a user-space write buffer where they
-        # can't see it.
+        # Unbuffered, as definitions.amqp: a joining follower reads size and
+        # content through separate fds and can't see a buffered record.
         @file = File.open(@file_path, "a+").tap &.sync = true
         @replicator.try &.register_file(@file)
         @deletes = 0
-        # Sessions read from our own file on boot. It is newer than any MQTT
-        # frame still sitting in definitions.amqp, and holds each session's
-        # complete state, so a leftover frame for one of these must not be
-        # replayed over it. Only consulted while loading.
+        # Sessions read from our own file on boot, consulted while loading only.
         @loaded_sessions = Set(String).new
       end
 
@@ -91,8 +80,8 @@ module LavinMQ
         @sessions.clear
       end
 
-      # Creates a session, or returns nil if one already exists under that name,
-      # so a caller can tell a fresh declaration from a no-op.
+      # Nil if a session already exists under that name, so a caller can tell a
+      # fresh declaration from a no-op.
       def declare_session(name : String, clean_session : Bool,
                           loading = false, fsync = true) : Session?
         @lock.synchronize do
@@ -107,9 +96,8 @@ module LavinMQ
         end
       end
 
-      # Removes a session and all of its subscriptions, or returns nil if there
-      # is no session under that name. The `Session` itself is not closed or
-      # deleted — that's the caller's job, as it is for a queue.
+      # Removes a session and its subscriptions; nil if there is none. Closing
+      # and deleting the `Session` is the caller's job, as it is for a queue.
       def delete_session(name : String) : Session?
         @lock.synchronize do
           return unless session = @sessions.delete(name)
@@ -119,8 +107,7 @@ module LavinMQ
             topic_filters << topic_filter if s.same?(session)
           end
           topic_filters.each { |tf| @exchange.unsubscribe(session, tf) }
-          # One record covers the session and every subscription it had: `load!`
-          # drops all of a deleted session's state.
+          # One record covers the subscriptions too; `load!` drops both.
           store(session_record(Op::SessionDelete, name), dirty: true) if session.durable?
           @vhost.event_tick(EventType::QueueDeleted)
           session
@@ -129,21 +116,19 @@ module LavinMQ
 
       # Subscription accessors
 
-      # False if the session is gone, or has been replaced by a new one under
-      # the same name, since the caller got hold of it.
+      # False if the session was deleted or replaced since the caller got hold
+      # of it.
       def subscribe(session : Session, topic_filter : String, qos : UInt8,
                     loading = false, fsync = true) : Bool
         @lock.synchronize do
           return false unless current?(session)
-          # A pre-migration frame for a session definitions.mqtt already
-          # described is stale, and replaying it would revert whatever changed
-          # since the migration — a raised QoS, say. Unbind frames need no such
-          # guard: `DefinitionsStore#load!` resolves them away while bucketing,
-          # so they never reach here.
+          # definitions.mqtt holds the session's complete state and is newer
+          # than any leftover frame in definitions.amqp, so replaying one would
+          # revert what changed since the migration — a raised QoS, say. Unbind
+          # frames never reach here, `DefinitionsStore#load!` resolves them away.
           return true if loading && @loaded_sessions.includes?(session.name)
-          # The tree keys a subscription on session and filter, so a repeat at a
-          # different QoS overwrites rather than duplicating — and so does the
-          # Subscribe record on load.
+          # Keyed on session and filter, so a repeat at another QoS overwrites
+          # rather than duplicates — the Subscribe record does too, on load.
           @exchange.subscribe(session, topic_filter, qos)
           if session.durable? && !loading
             store(subscription_record(Op::Subscribe, session.name, topic_filter, qos), fsync: fsync)
@@ -167,8 +152,8 @@ module LavinMQ
         @exchange.each_subscription(&block)
       end
 
-      # One session's subscriptions, in the binding-details shape that the HTTP
-      # API and the session itself read subscriptions through.
+      # One session's subscriptions, in the binding-details shape the HTTP API
+      # and the session itself read them through.
       def subscriptions(session : Session) : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
         each_subscription do |s, topic_filter, qos|
@@ -189,7 +174,7 @@ module LavinMQ
           end
           @log.info { "Loading MQTT definitions" }
           SchemaVersion.verify(@file, :mqtt_definition)
-          # Last record wins per key, and a SessionDelete drops the session's
+          # Last record wins per key and a SessionDelete drops the session's
           # subscriptions too, so replay into hashes before building anything.
           sessions = Set(String).new
           subscriptions = Hash(String, Hash(String, UInt8)).new
@@ -221,8 +206,7 @@ module LavinMQ
             break
           end
 
-          # Only durable sessions are ever written, so everything read back is
-          # non-clean.
+          # Only durable sessions are written, so everything read back is non-clean.
           sessions.each do |name|
             @sessions[name] = Session.new(@vhost, name, false)
             @loaded_sessions << name
@@ -236,10 +220,8 @@ module LavinMQ
         end
       end
 
-      # Rewrites the file from the in-memory state and fsyncs it. Used to
-      # migrate sessions and subscriptions that were read out of
-      # definitions.amqp: they have to be durable here before that file is
-      # rewritten without them.
+      # Makes sessions and subscriptions migrated out of definitions.amqp
+      # durable here, before that file is rewritten without them.
       def rewrite! : Nil
         @lock.synchronize do
           compact!
@@ -275,14 +257,13 @@ module LavinMQ
       private def store(bytes : Bytes, dirty = false, fsync = true) : Nil
         offset = @file.size.to_i64
         # sync = true, so the record is readable at `offset` through any fd by
-        # the time it's dispatched to followers.
+        # the time it is dispatched.
         @file.write bytes
         @replicator.try &.append_bytes @file_path, bytes, offset
         if fsync
           @file.fsync
-          # The change is acknowledged to the client right after this returns
-          # (a SubAck, say), so it has to be durable on every in-sync follower
-          # first.
+          # A SubAck follows right after, so the change has to be durable on
+          # every in-sync follower first.
           @replicator.try &.wait_for_followers
         end
         if dirty
@@ -333,8 +314,8 @@ module LavinMQ
         io.to_slice
       end
 
-      # Lengths are u16, matching the MQTT protocol's own string framing, and
-      # wider than the shortstr these names used to be persisted as.
+      # u16 lengths, as in MQTT's own framing, and wider than the shortstr these
+      # names used to be persisted as.
       private def write_string(io : ::IO, str : String) : Nil
         io.write_bytes(str.bytesize.to_u16, FORMAT)
         io.write(str.to_slice)

@@ -2,9 +2,8 @@ require "../spec_helper"
 
 MQTT_QUEUE_ARGS = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
 
-# Sessions and subscriptions are declared the way the MQTT broker and the
-# definitions importer do it, as queues of type "mqtt" and bindings from the
-# MQTT exchange.
+# Declared the way the MQTT broker and the definitions importer do it, as queues
+# of type "mqtt" and bindings from the MQTT exchange.
 def declare_mqtt_session(vhost, name, clean_session = false)
   vhost.declare_queue(name, !clean_session, clean_session, MQTT_QUEUE_ARGS)
   vhost.session(name)
@@ -99,10 +98,9 @@ describe LavinMQ::MQTT::DefinitionsStore do
     end
   end
 
-  # The race this guards: a clean-session client reconnecting under the same
-  # client_id deletes the session from another fiber, so a subscribe can find
-  # its session gone. The client must be told, or it waits forever on a topic
-  # it was told it had subscribed to.
+  # A clean-session client reconnecting under the same client_id deletes the
+  # session from another fiber, so a subscribe can find its session gone. Unless
+  # told, the client waits forever on a topic it believes it subscribed to.
   it "reports a failed subscription for a session that has been deleted" do
     with_amqp_server do |s|
       v = s.vhosts["/"]
@@ -146,7 +144,7 @@ describe LavinMQ::MQTT::DefinitionsStore do
       declare_mqtt_session(v, "mqtt.durable")
       subscribe_mqtt_session(v, "mqtt.durable", "a/b", 1u8)
       subscribe_mqtt_session(v, "mqtt.durable", "c/#", 0u8)
-      # A clean session is transient: neither it nor its subscription is persisted
+      # A clean session is transient: neither it nor its subscription persists
       declare_mqtt_session(v, "mqtt.clean", clean_session: true)
       subscribe_mqtt_session(v, "mqtt.clean", "e/f", 0u8)
       # Trip the compaction threshold
