@@ -26,7 +26,12 @@ module LavinMQ
       record Replay,
         sessions : Set(String),
         subscriptions : Hash(String, Hash(String, UInt8)),
-        compactable : Bool
+        compactable : Bool do
+        # What a data dir with no definitions.mqtt replays to.
+        def self.empty : Replay
+          new(Set(String).new, Hash(String, Hash(String, UInt8)).new, false)
+        end
+      end
 
       # Last record wins per key and a SessionDelete drops the session's
       # subscriptions too, so replay into hashes before building anything.
