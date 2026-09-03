@@ -207,10 +207,9 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      # False if the subscription couldn't be established, which happens when
-      # the session is deleted between the caller getting hold of it and this
-      # call — a clean-session client reconnecting under the same client_id
-      # deletes the session from another fiber.
+      # False if the session was deleted between the caller getting hold of it
+      # and this call, by a clean-session client reconnecting under the same
+      # client_id.
       def subscribe(tf, qos) : Bool
         @vhost.mqtt.subscribe(self, tf, qos)
       end
