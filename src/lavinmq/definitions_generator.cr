@@ -2,9 +2,15 @@ require "./version"
 require "../stdlib/slice"
 require "json"
 require "amq-protocol"
+require "./mqtt/consts"
+require "./mqtt/definitions_format"
 
 class LavinMQCtl
   class DefinitionsGenerator
+    alias Format = LavinMQ::MQTT::DefinitionsFormat
+
+    MQTT_SESSION_ARGUMENTS = {"x-queue-type" => "mqtt"}
+
     def initialize(@data_dir : String)
       {"vhosts.json", "users.json"}.each do |f|
         abort "#{f} not found. Is #{@data_dir} a data directory?" unless File.exists?(File.join(@data_dir, f))
@@ -71,7 +77,10 @@ class LavinMQCtl
             json.field("queues") do
               json.array do
                 each_vhost do |vhost, vhost_dir|
+                  mqtt = mqtt_definitions(vhost_dir)
                   queues(vhost_dir).each do |q|
+                    # A half-finished migration leaves sessions in both files.
+                    next if mqtt.sessions.includes?(q.queue_name)
                     json.object do
                       json.field "vhost", vhost
                       json.field "name", q.queue_name
@@ -80,13 +89,29 @@ class LavinMQCtl
                       json.field "arguments", q.arguments
                     end
                   end
+                  # Only durable sessions reach definitions.mqtt, and a durable
+                  # session is one that isn't auto-deleted.
+                  mqtt.sessions.each do |name|
+                    json.object do
+                      json.field "vhost", vhost
+                      json.field "name", name
+                      json.field "durable", true
+                      json.field "auto_delete", false
+                      json.field "arguments", MQTT_SESSION_ARGUMENTS
+                    end
+                  end
                 end
               end
             end
             json.field("bindings") do
               json.array do
                 each_vhost do |vhost, vhost_dir|
+                  mqtt = mqtt_definitions(vhost_dir)
                   queue_bindings(vhost_dir).each do |b|
+                    # definitions.mqtt holds a session's complete subscriptions,
+                    # so a leftover frame for one would resurrect an unsubscribe.
+                    next if b.exchange_name == LavinMQ::MQTT::EXCHANGE &&
+                            mqtt.sessions.includes?(b.queue_name)
                     json.object do
                       json.field "vhost", vhost
                       json.field "source", b.exchange_name
@@ -94,6 +119,19 @@ class LavinMQCtl
                       json.field "destination_type", "queue"
                       json.field "routing_key", b.routing_key
                       json.field "arguments", b.arguments
+                    end
+                  end
+                  mqtt.subscriptions.each do |name, filters|
+                    next unless mqtt.sessions.includes?(name)
+                    filters.each do |topic_filter, qos|
+                      json.object do
+                        json.field "vhost", vhost
+                        json.field "source", LavinMQ::MQTT::EXCHANGE
+                        json.field "destination", name
+                        json.field "destination_type", "queue"
+                        json.field "routing_key", topic_filter
+                        json.field "arguments", {LavinMQ::MQTT::QOS_HEADER => qos}
+                      end
                     end
                   end
                   exchange_bindings(vhost_dir).each do |b|
@@ -141,6 +179,16 @@ class LavinMQCtl
           end
         end
       end
+    end
+
+    # Absent before a data dir has been migrated, and empty if the server was
+    # killed between creating the file and writing its schema prefix.
+    private def mqtt_definitions(vhost_dir) : Format::Replay
+      File.open(File.join(vhost_dir, "definitions.mqtt")) do |f|
+        f.size.zero? ? Format::Replay.empty : Format.replay(f)
+      end
+    rescue File::NotFoundError
+      Format::Replay.empty
     end
 
     private def policies(vhost_dir)
