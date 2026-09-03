@@ -51,6 +51,7 @@ module LavinMQ
           ConnectionsController.new(@server),
           ChannelsController.new(@server),
           ConsumersController.new(@server),
+          MQTTExchangeController.new(@server),
           ExchangesController.new(@server),
           QueuesController.new(@server),
           BindingsController.new(@server),
