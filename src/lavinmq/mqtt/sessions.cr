@@ -8,19 +8,23 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.session?("mqtt.#{client_id}")
+        @vhost.session?(name(client_id))
       end
 
       def [](client_id : String) : Session
-        @vhost.session("mqtt.#{client_id}")
+        @vhost.session(name(client_id))
       end
 
-      def declare(client : Client)
-        self[client.client_id]? || begin
-          @vhost.declare_queue("mqtt.#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
-          self[client.client_id].client = client
-          self[client.client_id]
-        end
+      def declare(client : Client) : Session
+        session = self[client.client_id]? ||
+                  @vhost.mqtt.declare_session(name(client.client_id), client.clean_session?) ||
+                  self[client.client_id]
+        session.client = client
+        session
+      end
+
+      private def name(client_id : String) : String
+        "mqtt.#{client_id}"
       end
     end
   end

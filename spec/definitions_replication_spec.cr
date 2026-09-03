@@ -12,9 +12,11 @@ class DiskVisibilitySpyReplicator
 
   getter violations = Array(String).new
   getter dispatched_definitions = 0
+  getter dispatched_mqtt_definitions = 0
 
   def append_bytes(path : String, bytes : Bytes, offset : Int64)
     @dispatched_definitions += 1 if path.ends_with?("definitions.amqp")
+    @dispatched_mqtt_definitions += 1 if path.ends_with?("definitions.mqtt")
     File.open(path) do |f|
       if f.size < offset + bytes.bytesize
         @violations << "#{path}: dispatched [#{offset}, #{offset + bytes.bytesize}) but only #{f.size} bytes are on disk"
@@ -104,6 +106,21 @@ describe LavinMQ::DefinitionsStore do
       end
     end
     spy.dispatched_definitions.should be >= 3 # queue + exchange + binding
+    spy.violations.should be_empty
+  end
+
+  # definitions.mqtt is written the same unbuffered way, and for the same
+  # reason, so it has to hold the same guarantee.
+  it "has MQTT definition records on disk before they are dispatched to followers" do
+    spy = DiskVisibilitySpyReplicator.new
+    with_amqp_server(replicator: spy) do |s|
+      v = s.vhosts["/"]
+      session = v.mqtt.declare_session("mqtt.disk_visibility", false)
+      session = session.should_not be_nil
+      v.mqtt.subscribe(session, "a/b", 1u8)
+      v.mqtt.unsubscribe(session, "a/b")
+    end
+    spy.dispatched_mqtt_definitions.should be >= 3 # session + subscribe + unsubscribe
     spy.violations.should be_empty
   end
 end
