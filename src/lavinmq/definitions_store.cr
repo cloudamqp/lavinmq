@@ -12,8 +12,6 @@ module LavinMQ
 
     @definitions_file : File
 
-    # MQTT sessions and subscriptions live in `@mqtt`; this store owns the file
-    # they are still persisted to, as `Queue::Declare` and `Queue::Bind` frames.
     def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?,
                    @log : Logger, @mqtt : MQTT::DefinitionsStore)
       @exchanges = Hash(String, Exchange).new
@@ -216,13 +214,11 @@ module LavinMQ
       end
     end
 
-    # Bindings are stored so they can be restored on boot.
     private def persist_binding?(x : Exchange, q : Queue) : Bool
       x.durable? && q.durable? && !q.exclusive?
     end
 
-    # MQTT sessions are declared as queues of this type, both by the MQTT broker
-    # and by definition imports.
+    # How both the MQTT broker and definition imports declare a session.
     private def mqtt_session?(frame) : Bool
       frame.arguments["x-queue-type"]? == "mqtt"
     end
@@ -311,11 +307,10 @@ module LavinMQ
       @log.info { "Definitions loaded" }
 
       if mqtt_frames
-        # MQTT definitions used to live in this file. The frames have been
-        # applied into the MQTT store above, so make them durable there first
-        # and only then rewrite this file without them: a crash in between
-        # leaves them in both files, which the next boot reads as duplicates
-        # and drops, whereas the reverse order would lose them.
+        # The frames have been applied into the MQTT store above; make them
+        # durable there before rewriting this file without them. A crash in
+        # between leaves them in both files and the next boot drops the
+        # duplicates, whereas the reverse order would lose them.
         @log.info { "Migrating MQTT definitions to definitions.mqtt" }
         @mqtt.rewrite!
         compact!
@@ -351,8 +346,6 @@ module LavinMQ
         # @definitions_file after the rename.
         io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
-        # Durable only; `make_exchange` couldn't rebuild a non-durable
-        # exchange's type from a frame anyway.
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable?, e.auto_delete?, e.internal?,

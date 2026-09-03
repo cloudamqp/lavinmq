@@ -168,8 +168,7 @@ module LavinMQ
       mqtt.sessions_clear
     end
 
-    # The subscriptions of an MQTT session, in binding-details shape. The MQTT
-    # counterpart of `queue_bindings`.
+    # The MQTT counterpart of `queue_bindings`.
     def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
       mqtt.subscriptions(session)
     end

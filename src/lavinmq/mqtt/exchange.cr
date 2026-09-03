@@ -59,9 +59,8 @@ module LavinMQ
         @tree.size
       end
 
-      # MQTT-native subscription entry points. `bind`/`unbind` are the
-      # AMQP-shaped adapters over these, still in use while subscriptions are
-      # persisted as AMQP binding frames.
+      # TODO: notify observers of ExchangeEvent::Bind/Unbind once MQTT has its own
+      # observable events, with the SubscriptionDetails `bindings_details` builds.
       def subscribe(session : MQTT::Session, topic_filter : String, qos : UInt8) : Bool
         @tree.subscribe(topic_filter, session, qos)
         true
@@ -72,17 +71,13 @@ module LavinMQ
         true
       end
 
-      # Yields every subscription as session, topic filter and granted QoS.
-      # The block is captured: `SubscriptionTree#each_entry` captures its own.
+      # Captured, not yielded: `SubscriptionTree#each_entry` captures its own.
       def each_subscription(&block : (MQTT::Session, String, UInt8) ->) : Nil
         @tree.each_entry do |session, qos, topic_filter|
           block.call(session, topic_filter, qos)
         end
       end
 
-      # TODO: notify observers of ExchangeEvent::Bind/Unbind once MQTT has its
-      # own observable events. The payload to send is the SubscriptionDetails
-      # for `destination` and `routing_key`, as `bindings_details` builds them.
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         subscribe(destination, routing_key, MQTT.qos(arguments))
       end

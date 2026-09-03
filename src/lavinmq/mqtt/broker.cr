@@ -96,13 +96,9 @@ module LavinMQ
         topics.map { |tf| grant(session, tf) }
       end
 
-      # Subscribes one topic filter and returns the return code to put in the
-      # SubAck, replaying any retained messages on the way.
-      #
-      # A subscription we failed to establish is granted as Failure. Granting
-      # the qos we would have given instead tells the client it is subscribed
-      # to a topic it will never receive a message on, and the protocol gives
-      # us no way to correct that afterwards.
+      # A subscription we failed to establish is granted as Failure: telling the
+      # client it subscribed to a topic it will never receive on is something
+      # the protocol gives us no way to correct afterwards.
       def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
         qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
         return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)

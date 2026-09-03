@@ -109,8 +109,7 @@ describe LavinMQ::DefinitionsStore do
     spy.violations.should be_empty
   end
 
-  # definitions.mqtt is written the same unbuffered way, and for the same
-  # reason, so it has to hold the same guarantee.
+  # definitions.mqtt is written unbuffered too, so it owes the same guarantee.
   it "has MQTT definition records on disk before they are dispatched to followers" do
     spy = DiskVisibilitySpyReplicator.new
     with_amqp_server(replicator: spy) do |s|
