@@ -96,7 +96,7 @@ module LavinMQ
     end
 
     def mqtt_exchange : MQTT::Exchange
-      mqtt_definitions.exchange
+      mqtt.exchange
     end
 
     # Queue accessors
@@ -144,37 +144,37 @@ module LavinMQ
     # Session accessors
 
     def session?(name : String) : MQTT::Session?
-      mqtt_definitions.session?(name)
+      mqtt.session?(name)
     end
 
     def session(name : String) : MQTT::Session
-      mqtt_definitions.session(name)
+      mqtt.session(name)
     end
 
     def session_exists?(name : String) : Bool
-      mqtt_definitions.session_exists?(name)
+      mqtt.session_exists?(name)
     end
 
     def each_session(& : MQTT::Session ->) : Nil
-      mqtt_definitions.each_session { |v| yield v }
+      mqtt.each_session { |v| yield v }
     end
 
     def sessions : Array(MQTT::Session)
-      mqtt_definitions.sessions
+      mqtt.sessions
     end
 
     def sessions_size : Int32
-      mqtt_definitions.sessions_size
+      mqtt.sessions_size
     end
 
     def sessions_clear : Nil
-      mqtt_definitions.sessions_clear
+      mqtt.sessions_clear
     end
 
     # The subscriptions of an MQTT session, in binding-details shape. The MQTT
     # counterpart of `queue_bindings`.
     def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
-      mqtt_definitions.subscriptions(session)
+      mqtt.subscriptions(session)
     end
 
     # Connection accessors
@@ -235,7 +235,7 @@ module LavinMQ
       @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self)
+      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self, @data_dir, @replicator, @log)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log, mqtt)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
@@ -277,7 +277,7 @@ module LavinMQ
     end
 
     def queue_limit_reached? : Bool
-      @max_queues.try { |max| definitions.queues_size + mqtt_definitions.sessions_size >= max } || false
+      @max_queues.try { |max| definitions.queues_size + mqtt.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -418,6 +418,7 @@ module LavinMQ
     # Flush definitions written with fsync: false (e.g. during bulk import).
     def fsync_definitions
       definitions.fsync
+      mqtt.fsync
     end
 
     def queue_bindings(queue : AMQP::Queue)
@@ -533,6 +534,7 @@ module LavinMQ
       each_exchange &.close
       Fiber.yield
       definitions.close
+      mqtt.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
       @mqtt_permission_service.save!
     end
@@ -579,6 +581,7 @@ module LavinMQ
     end
 
     private def load!
+      mqtt.load!
       definitions.load!
       has_parameters = !@parameters.empty?
       has_policies = !@policies.empty? || !@operator_policies.empty?
@@ -649,7 +652,7 @@ module LavinMQ
       @definitions.not_nil!
     end
 
-    private def mqtt_definitions : MQTT::DefinitionsStore
+    def mqtt : MQTT::DefinitionsStore
       @mqtt_definitions.not_nil!
     end
   end
