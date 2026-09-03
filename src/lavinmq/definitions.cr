@@ -364,6 +364,12 @@ module LavinMQ
               b.to_json(json)
             end
           end
+          # The MQTT exchange is not in `each_exchange`, and only the sessions
+          # `export_queues` emits can be re-imported.
+          v.mqtt_exchange.bindings_details.each do |b|
+            next unless b.destination.durable?
+            b.to_json(json)
+          end
         end
       end
     end
