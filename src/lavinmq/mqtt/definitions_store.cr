@@ -2,6 +2,7 @@ require "../logger"
 require "../schema"
 require "../event_type"
 require "./consts"
+require "./definitions_format"
 require "./exchange"
 require "./session"
 require "./subscription_key"
@@ -22,14 +23,7 @@ module LavinMQ
     class DefinitionsStore
       Log = LavinMQ::Log.for "mqtt.definitions_store"
 
-      FORMAT = IO::ByteFormat::SystemEndian
-
-      enum Op : UInt8
-        SessionAdd    = 1
-        SessionDelete = 2
-        Subscribe     = 3
-        Unsubscribe   = 4
-      end
+      alias Op = DefinitionsFormat::Op
 
       getter exchange : MQTT::Exchange
 
@@ -88,7 +82,7 @@ module LavinMQ
           return if @sessions.has_key?(name)
           session = @sessions[name] = Session.new(@vhost, name, clean_session)
           unless loading
-            store(session_record(Op::SessionAdd, name), fsync: fsync) if session.durable?
+            store(DefinitionsFormat.session_record(Op::SessionAdd, name), fsync: fsync) if session.durable?
             @vhost.apply_policies([session] of LavinMQ::Queue)
             @vhost.event_tick(EventType::QueueDeclared)
           end
@@ -108,7 +102,7 @@ module LavinMQ
           end
           topic_filters.each { |tf| @exchange.unsubscribe(session, tf) }
           # One record covers the subscriptions too; `load!` drops both.
-          store(session_record(Op::SessionDelete, name), dirty: true) if session.durable?
+          store(DefinitionsFormat.session_record(Op::SessionDelete, name), dirty: true) if session.durable?
           @vhost.event_tick(EventType::QueueDeleted)
           session
         end
@@ -131,7 +125,8 @@ module LavinMQ
           # rather than duplicates — the Subscribe record does too, on load.
           @exchange.subscribe(session, topic_filter, qos)
           if session.durable? && !loading
-            store(subscription_record(Op::Subscribe, session.name, topic_filter, qos), fsync: fsync)
+            rec = DefinitionsFormat.subscription_record(Op::Subscribe, session.name, topic_filter, qos)
+            store(rec, fsync: fsync)
           end
           true
         end
@@ -142,7 +137,8 @@ module LavinMQ
           return false unless current?(session)
           @exchange.unsubscribe(session, topic_filter)
           if session.durable?
-            store(subscription_record(Op::Unsubscribe, session.name, topic_filter, nil), dirty: true)
+            rec = DefinitionsFormat.subscription_record(Op::Unsubscribe, session.name, topic_filter, nil)
+            store(rec, dirty: true)
           end
           true
         end
@@ -173,50 +169,18 @@ module LavinMQ
             return
           end
           @log.info { "Loading MQTT definitions" }
-          SchemaVersion.verify(@file, :mqtt_definition)
-          # Last record wins per key and a SessionDelete drops the session's
-          # subscriptions too, so replay into hashes before building anything.
-          sessions = Set(String).new
-          subscriptions = Hash(String, Hash(String, UInt8)).new
-          should_compact = false
-          loop do
-            break unless byte = @file.read_byte
-            op = Op.from_value?(byte) ||
-                 raise InvalidRecord.new("Unknown op #{byte} in #{@file_path}")
-            case op
-            in Op::SessionAdd
-              sessions << read_string
-            in Op::SessionDelete
-              name = read_string
-              sessions.delete(name)
-              subscriptions.delete(name)
-              should_compact = true
-            in Op::Subscribe
-              name = read_string
-              topic_filter = read_string
-              qos = @file.read_byte || raise IO::EOFError.new
-              subscriptions.put_if_absent(name) { Hash(String, UInt8).new }[topic_filter] = qos
-            in Op::Unsubscribe
-              name = read_string
-              topic_filter = read_string
-              subscriptions[name]?.try &.delete(topic_filter)
-              should_compact = true
-            end
-          rescue IO::EOFError
-            break
-          end
-
+          replay = DefinitionsFormat.replay(@file)
           # Only durable sessions are written, so everything read back is non-clean.
-          sessions.each do |name|
+          replay.sessions.each do |name|
             @sessions[name] = Session.new(@vhost, name, false)
             @loaded_sessions << name
           end
-          subscriptions.each do |name, filters|
+          replay.subscriptions.each do |name, filters|
             next unless session = @sessions[name]?
             filters.each { |topic_filter, qos| @exchange.subscribe(session, topic_filter, qos) }
           end
           @log.info { "#{@sessions.size} MQTT sessions loaded" }
-          compact! if should_compact
+          compact! if replay.compactable
         end
       end
 
@@ -241,8 +205,6 @@ module LavinMQ
       def close : Nil
         @file.close
       end
-
-      class InvalidRecord < LavinMQ::Error; end
 
       # Whether this is still the session registered under its name; a
       # clean-session client reconnecting under the same client_id replaces it.
@@ -283,11 +245,11 @@ module LavinMQ
           SchemaVersion.prefix(io, :mqtt_definition)
           @sessions.each_value do |session|
             next unless session.durable?
-            io.write session_record(Op::SessionAdd, session.name)
+            io.write DefinitionsFormat.session_record(Op::SessionAdd, session.name)
           end
           each_subscription do |session, topic_filter, qos|
             next unless session.durable?
-            io.write subscription_record(Op::Subscribe, session.name, topic_filter, qos)
+            io.write DefinitionsFormat.subscription_record(Op::Subscribe, session.name, topic_filter, qos)
           end
           io.fsync
           File.rename io.path, @file_path
@@ -295,37 +257,6 @@ module LavinMQ
           @file.close
           @file = io
         end
-      end
-
-      private def session_record(op : Op, name : String) : Bytes
-        io = IO::Memory.new(3 + name.bytesize)
-        io.write_byte op.value
-        write_string(io, name)
-        io.to_slice
-      end
-
-      private def subscription_record(op : Op, name : String, topic_filter : String,
-                                      qos : UInt8?) : Bytes
-        io = IO::Memory.new(6 + name.bytesize + topic_filter.bytesize)
-        io.write_byte op.value
-        write_string(io, name)
-        write_string(io, topic_filter)
-        io.write_byte qos if qos
-        io.to_slice
-      end
-
-      # u16 lengths, as in MQTT's own framing, and wider than the shortstr these
-      # names used to be persisted as.
-      private def write_string(io : ::IO, str : String) : Nil
-        io.write_bytes(str.bytesize.to_u16, FORMAT)
-        io.write(str.to_slice)
-      end
-
-      private def read_string : String
-        len = UInt16.from_io(@file, FORMAT)
-        bytes = Bytes.new(len)
-        @file.read_fully(bytes)
-        String.new(bytes)
       end
     end
   end
