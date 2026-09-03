@@ -171,15 +171,15 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     auto_delete: data.get('auto_delete') === '1',
     arguments: DOM.parseJSON(data.get('arguments'))
   }
-  HTTP.request('PUT', url, { body })
-    .then((response) => {
-      if (response?.is_error) { return }
+
+  HTTP.submitForm(evt.target, 'PUT', url, { body })
+    .then(() => {
       queuesTable.reload()
-      evt.target.reset()
+      DOM.toast(`Queue ${queue} created`)
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
-      DOM.toast('Queue ' + queue + ' created')
     })
 })
+
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')
   document.getElementById('multi-queue-count').textContent = checked.length

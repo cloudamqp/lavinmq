@@ -1,0 +1,173 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Expand sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Expand sidebar
+      - link "LavinMQ logo" [ref=e8]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem
+      - listitem [ref=e39]:
+        - link "Overview" [ref=e40]:
+          - /url: .
+          - generic: Overview
+      - listitem [ref=e41]:
+        - link "Nodes" [ref=e42]:
+          - /url: nodes
+          - generic: Nodes
+      - listitem [ref=e43]:
+        - link "Logs" [ref=e44]:
+          - /url: logs
+          - generic: Logs
+      - listitem [ref=e45]
+      - listitem [ref=e46]:
+        - link "Connections" [ref=e47]:
+          - /url: connections
+          - generic: Connections
+      - listitem [ref=e48]:
+        - link "Channels" [ref=e49]:
+          - /url: channels
+          - generic: Channels
+      - listitem [ref=e50]:
+        - link "Consumers" [ref=e51]:
+          - /url: consumers
+          - generic: Consumers
+      - listitem [ref=e52]
+      - listitem [ref=e53]:
+        - link "Exchanges" [ref=e54]:
+          - /url: exchanges
+          - generic: Exchanges
+      - listitem [ref=e55]:
+        - link "Queues" [ref=e56]:
+          - /url: queues
+          - generic: Queues
+      - listitem [ref=e57]
+      - listitem [ref=e58]:
+        - link "Shovels" [ref=e59]:
+          - /url: shovels
+          - generic: Shovels
+      - listitem [ref=e60]:
+        - link "Federation" [ref=e61]:
+          - /url: federation
+          - generic: Federation
+      - listitem [ref=e62]
+      - listitem [ref=e63]:
+        - link "Virtual hosts" [ref=e64]:
+          - /url: vhosts
+          - generic: Virtual hosts
+      - listitem [ref=e65]:
+        - link "Policies" [ref=e66]:
+          - /url: policies
+          - generic: Policies
+      - listitem [ref=e67]:
+        - link "Operator policies" [ref=e68]:
+          - /url: operator-policies
+          - generic: Operator policies
+      - listitem [ref=e69]:
+        - link "Users" [ref=e70]:
+          - /url: users
+          - generic: Users
+      - listitem [ref=e71]:
+        - link "HTTP API" [ref=e72]:
+          - /url: docs/
+          - generic [ref=e73]: HTTP API
+  - main [ref=e74]:
+    - heading "Overview" [level=2] [ref=e76]
+    - generic [ref=e77]:
+      - generic [ref=e78]:
+        - generic [ref=e79]: "0"
+        - link "Connections" [ref=e81]:
+          - /url: connections
+      - generic [ref=e83]:
+        - generic [ref=e84]: "0"
+        - link "Channels" [ref=e86]:
+          - /url: channels
+      - generic [ref=e88]:
+        - generic [ref=e89]: "0"
+        - link "Consumers" [ref=e91]:
+          - /url: consumers
+      - generic [ref=e93]:
+        - generic [ref=e94]: "7"
+        - link "Exchanges" [ref=e96]:
+          - /url: exchanges
+      - generic [ref=e98]:
+        - generic [ref=e99]: "0"
+        - link "Queues" [ref=e101]:
+          - /url: queues
+      - generic [ref=e103]:
+        - generic [ref=e104]: "0"
+        - generic [ref=e105]: Bindings
+      - generic [ref=e107]:
+        - generic [ref=e108]: 2m 0s
+        - generic [ref=e109]: Uptime
+    - heading "Queued messages" [level=3] [ref=e111]
+    - heading "Data rates" [level=3] [ref=e116]
+    - heading "Message rates" [level=3] [ref=e121]
+    - generic [ref=e125]:
+      - heading "Upload definitions" [level=3] [ref=e126]
+      - generic [ref=e127]:
+        - generic [ref=e128]:
+          - generic [ref=e129]: Virtual host
+          - combobox "Virtual host" [ref=e130]:
+            - option "All" [selected]
+            - option "bar"
+            - option "foo"
+        - generic [ref=e131]:
+          - generic [ref=e132]: File
+          - button "File" [ref=e133]
+        - button "Upload" [ref=e134] [cursor=pointer]:
+          - generic [ref=e135]: Upload
+          - img [ref=e136]
+    - generic [ref=e139]:
+      - heading "Export definitions" [level=3] [ref=e140]
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - generic [ref=e143]: Virtual host
+          - combobox "Virtual host" [ref=e144]:
+            - option "All" [selected]
+            - option "bar"
+            - option "foo"
+        - button "Download" [ref=e145] [cursor=pointer]:
+          - generic [ref=e146]: Download
+          - img [ref=e147]
+  - contentinfo [ref=e150]:
+    - paragraph [ref=e151]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e152]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e153]
+```

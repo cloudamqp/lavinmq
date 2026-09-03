@@ -1,0 +1,282 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34] [cursor=pointer]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41] [cursor=pointer]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44] [cursor=pointer]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47] [cursor=pointer]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51] [cursor=pointer]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54] [cursor=pointer]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57] [cursor=pointer]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61] [cursor=pointer]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64] [cursor=pointer]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68] [cursor=pointer]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71] [cursor=pointer]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75] [cursor=pointer]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78] [cursor=pointer]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81] [cursor=pointer]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84] [cursor=pointer]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87] [cursor=pointer]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Exchanges 7" [level=2] [ref=e91]:
+      - text: Exchanges
+      - generic [ref=e92]: "7"
+    - generic [ref=e93]:
+      - generic [ref=e94]:
+        - searchbox "Filter regex" [ref=e96]
+        - heading "Manage exchanges" [level=2] [ref=e97]
+      - generic [ref=e98]:
+        - generic [ref=e99]: +/-
+        - table [ref=e100]:
+          - rowgroup [ref=e101]:
+            - row "↑ Virtual host ↓ ↑ Name ↓ ↑ Type ↓ Features ↑ Policy ↓ ↑ Message rate in ↓ ↑ Message rate out ↓" [ref=e102]:
+              - columnheader "↑ Virtual host ↓" [ref=e103] [cursor=pointer]:
+                - text: ↑ Virtual host
+                - text: ↓
+              - columnheader "↑ Name ↓" [ref=e104] [cursor=pointer]:
+                - text: ↑ Name
+                - text: ↓
+              - columnheader "↑ Type ↓" [ref=e105] [cursor=pointer]:
+                - text: ↑ Type
+                - text: ↓
+              - columnheader "Features" [ref=e106]
+              - columnheader "↑ Policy ↓" [ref=e107] [cursor=pointer]:
+                - text: ↑ Policy
+                - text: ↓
+              - columnheader "↑ Message rate in ↓" [ref=e108] [cursor=pointer]:
+                - text: ↑ Message rate in
+                - text: ↓
+              - columnheader "↑ Message rate out ↓" [ref=e109] [cursor=pointer]:
+                - text: ↑ Message rate out
+                - text: ↓
+          - rowgroup [ref=e110]:
+            - row "/ amq.default direct D 0 0" [ref=e111]:
+              - cell / [ref=e112]
+              - cell "amq.default" [ref=e113]:
+                - link "amq.default" [ref=e114] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.default
+              - cell "direct" [ref=e115]
+              - cell "D" [ref=e116]:
+                - generic [ref=e117]: D
+              - cell [ref=e118]
+              - cell "0" [ref=e119]
+              - cell "0" [ref=e120]
+            - row "/ amq.direct direct D 0 0" [ref=e121]:
+              - cell / [ref=e122]
+              - cell "amq.direct" [ref=e123]:
+                - link "amq.direct" [ref=e124] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.direct
+              - cell "direct" [ref=e125]
+              - cell "D" [ref=e126]:
+                - generic [ref=e127]: D
+              - cell [ref=e128]
+              - cell "0" [ref=e129]
+              - cell "0" [ref=e130]
+            - row "/ amq.fanout fanout D 0 0" [ref=e131]:
+              - cell / [ref=e132]
+              - cell "amq.fanout" [ref=e133]:
+                - link "amq.fanout" [ref=e134] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.fanout
+              - cell "fanout" [ref=e135]
+              - cell "D" [ref=e136]:
+                - generic [ref=e137]: D
+              - cell [ref=e138]
+              - cell "0" [ref=e139]
+              - cell "0" [ref=e140]
+            - row "/ amq.topic topic D 0 0" [ref=e141]:
+              - cell / [ref=e142]
+              - cell "amq.topic" [ref=e143]:
+                - link "amq.topic" [ref=e144] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.topic
+              - cell "topic" [ref=e145]
+              - cell "D" [ref=e146]:
+                - generic [ref=e147]: D
+              - cell [ref=e148]
+              - cell "0" [ref=e149]
+              - cell "0" [ref=e150]
+            - row "/ amq.headers headers D 0 0" [ref=e151]:
+              - cell / [ref=e152]
+              - cell "amq.headers" [ref=e153]:
+                - link "amq.headers" [ref=e154] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.headers
+              - cell "headers" [ref=e155]
+              - cell "D" [ref=e156]:
+                - generic [ref=e157]: D
+              - cell [ref=e158]
+              - cell "0" [ref=e159]
+              - cell "0" [ref=e160]
+            - row "/ amq.match headers D 0 0" [ref=e161]:
+              - cell / [ref=e162]
+              - cell "amq.match" [ref=e163]:
+                - link "amq.match" [ref=e164] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=amq.match
+              - cell "headers" [ref=e165]
+              - cell "D" [ref=e166]:
+                - generic [ref=e167]: D
+              - cell [ref=e168]
+              - cell "0" [ref=e169]
+              - cell "0" [ref=e170]
+            - row "/ mqtt.default mqtt I 0 0" [ref=e171]:
+              - cell / [ref=e172]
+              - cell "mqtt.default" [ref=e173]:
+                - link "mqtt.default" [ref=e174] [cursor=pointer]:
+                  - /url: exchange#vhost=%2F&name=mqtt.default
+              - cell "mqtt" [ref=e175]
+              - cell "I" [ref=e176]:
+                - generic [ref=e177]: I
+              - cell [ref=e178]
+              - cell "0" [ref=e179]
+              - cell "0" [ref=e180]
+          - rowgroup [ref=e181]:
+            - row [ref=e182]:
+              - cell [ref=e183]
+    - generic [ref=e184]:
+      - heading "Add exchange" [level=3] [ref=e185]
+      - generic [ref=e186]:
+        - generic [ref=e187]: Virtual host
+        - combobox "Virtual host" [ref=e188]:
+          - option "bar" [selected]
+          - option "foo"
+      - generic [ref=e189]:
+        - generic [ref=e190]: Name
+        - textbox "Name" [ref=e191]
+      - generic [ref=e192]:
+        - generic [ref=e193]: Type
+        - combobox "Type" [ref=e194]:
+          - option "Direct" [selected]
+          - option "Fanout"
+          - option "Topic"
+          - option "Headers"
+          - option "Federation Upstream"
+          - option "Consistent Hash"
+      - generic [ref=e195]:
+        - generic [ref=e197] [cursor=pointer]:
+          - text: Durable
+          - generic [ref=e198]: "?"
+        - checkbox "Durable ?" [checked] [ref=e199]
+      - generic [ref=e200]:
+        - generic [ref=e202] [cursor=pointer]:
+          - text: Auto-delete
+          - generic [ref=e203]: "?"
+        - checkbox "Auto-delete ?" [ref=e204]
+      - generic [ref=e205]:
+        - generic [ref=e207] [cursor=pointer]:
+          - text: Internal
+          - generic [ref=e208]: "?"
+        - checkbox "Internal ?" [ref=e209]
+      - generic [ref=e210]:
+        - generic [ref=e212] [cursor=pointer]:
+          - text: Delayed
+          - generic [ref=e213]: "?"
+        - checkbox "Delayed ?" [ref=e214]
+      - generic [ref=e215]:
+        - generic [ref=e216]: Arguments
+        - textbox "Arguments Alternate Exchange Message deduplication | Deduplication cache size | Deduplication cache ttl | Deduplication header | Hash Algorithm" [ref=e217]:
+          - /placeholder: "{ \"key\": value }"
+        - generic [ref=e218]:
+          - generic [ref=e219] [cursor=pointer]: Alternate Exchange
+          - generic [ref=e220] [cursor=pointer]: Message deduplication
+          - text: "|"
+          - generic [ref=e221] [cursor=pointer]: Deduplication cache size
+          - text: "|"
+          - generic [ref=e222] [cursor=pointer]: Deduplication cache ttl
+          - text: "|"
+          - generic [ref=e223] [cursor=pointer]: Deduplication header
+          - text: "|"
+          - generic [ref=e224] [cursor=pointer]: Hash Algorithm
+      - button "Add exchange" [ref=e225] [cursor=pointer]
+  - contentinfo [ref=e226]:
+    - paragraph [ref=e227]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e228] [cursor=pointer]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e229]
+```

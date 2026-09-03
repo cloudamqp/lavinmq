@@ -91,11 +91,10 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
     type: data.get('type'),
     arguments: DOM.parseJSON(data.get('arguments'))
   }
-  HTTP.request('PUT', url, { body })
+  HTTP.submitForm(evt.target, 'PUT', url, { body })
     .then(() => {
       exchangeTable.reload()
-      DOM.toast('Exchange ' + exchange + ' created')
-      evt.target.reset()
+      DOM.toast(`Exhange ${exchange} created`)
     })
 })
 

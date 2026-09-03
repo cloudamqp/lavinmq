@@ -1,0 +1,200 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - button "Collapse sidebar" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+        - generic: Collapse sidebar
+      - link "LavinMQ logo" [ref=e8]:
+        - /url: /
+        - img "LavinMQ logo" [ref=e9]
+      - generic [ref=e10]: v
+    - navigation [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: User
+            - generic [ref=e16]: guest
+        - listitem [ref=e17]:
+          - generic [ref=e19]:
+            - generic [ref=e20]: "vhost:"
+            - combobox "vhost:" [ref=e21]:
+              - option "All" [selected]
+              - option "bar"
+              - option "foo"
+        - listitem [ref=e22]:
+          - generic [ref=e23]:
+            - button "Light theme Light theme" [ref=e24] [cursor=pointer]:
+              - img "Light theme" [ref=e25]
+              - img "Light theme" [ref=e26]
+            - button "Dark theme Dark theme" [ref=e27] [cursor=pointer]:
+              - img "Dark theme" [ref=e28]
+              - img "Dark theme" [ref=e29]
+            - button "System theme System theme" [ref=e30] [cursor=pointer]:
+              - img "System theme" [ref=e31]
+              - img "System theme" [ref=e32]
+        - listitem [ref=e33]:
+          - link "Sign out" [ref=e34]:
+            - /url: "#"
+  - navigation [ref=e37]:
+    - list [ref=e38]:
+      - listitem [ref=e39]: Cluster
+      - listitem [ref=e40]:
+        - link "Overview" [ref=e41]:
+          - /url: .
+          - generic [ref=e42]: Overview
+      - listitem [ref=e43]:
+        - link "Nodes" [ref=e44]:
+          - /url: nodes
+          - generic [ref=e45]: Nodes
+      - listitem [ref=e46]:
+        - link "Logs" [ref=e47]:
+          - /url: logs
+          - generic [ref=e48]: Logs
+      - listitem [ref=e49]: Clients
+      - listitem [ref=e50]:
+        - link "Connections" [ref=e51]:
+          - /url: connections
+          - generic [ref=e52]: Connections
+      - listitem [ref=e53]:
+        - link "Channels" [ref=e54]:
+          - /url: channels
+          - generic [ref=e55]: Channels
+      - listitem [ref=e56]:
+        - link "Consumers" [ref=e57]:
+          - /url: consumers
+          - generic [ref=e58]: Consumers
+      - listitem [ref=e59]: Messaging
+      - listitem [ref=e60]:
+        - link "Exchanges" [ref=e61]:
+          - /url: exchanges
+          - generic [ref=e62]: Exchanges
+      - listitem [ref=e63]:
+        - link "Queues" [ref=e64]:
+          - /url: queues
+          - generic [ref=e65]: Queues
+      - listitem [ref=e66]: Bridges
+      - listitem [ref=e67]:
+        - link "Shovels" [ref=e68]:
+          - /url: shovels
+          - generic [ref=e69]: Shovels
+      - listitem [ref=e70]:
+        - link "Federation" [ref=e71]:
+          - /url: federation
+          - generic [ref=e72]: Federation
+      - listitem [ref=e73]: Administration
+      - listitem [ref=e74]:
+        - link "Virtual hosts" [ref=e75]:
+          - /url: vhosts
+          - generic [ref=e76]: Virtual hosts
+      - listitem [ref=e77]:
+        - link "Policies" [ref=e78]:
+          - /url: policies
+          - generic [ref=e79]: Policies
+      - listitem [ref=e80]:
+        - link "Operator policies" [ref=e81]:
+          - /url: operator-policies
+          - generic [ref=e82]: Operator policies
+      - listitem [ref=e83]:
+        - link "Users" [ref=e84]:
+          - /url: users
+          - generic [ref=e85]: Users
+      - listitem [ref=e86]:
+        - link "HTTP API" [ref=e87]:
+          - /url: docs/
+          - generic [ref=e88]: HTTP API
+  - main [ref=e89]:
+    - heading "Shovels 0" [level=2] [ref=e91]:
+      - generic [ref=e92]: Shovels
+      - generic [ref=e93]: "0"
+    - generic [ref=e94]:
+      - heading "Manage shovels" [level=2] [ref=e96]
+      - generic [ref=e97]:
+        - generic [ref=e98]: +/-
+        - table [ref=e99]:
+          - rowgroup [ref=e100]:
+            - row "Virtual host ↑ Name ↓ Source Destination Reconnect delay Ack mode Delete after State" [ref=e101]:
+              - columnheader "Virtual host" [ref=e102]
+              - columnheader "↑ Name ↓" [ref=e103] [cursor=pointer]:
+                - text: ↑ Name
+                - text: ↓
+              - columnheader "Source" [ref=e104]
+              - columnheader "Destination" [ref=e105]
+              - columnheader "Reconnect delay" [ref=e106]
+              - columnheader "Ack mode" [ref=e107]
+              - columnheader "Delete after" [ref=e108]
+              - columnheader "State" [ref=e109]
+              - columnheader [ref=e110]
+            - row "Uri Endpoint Prefetch Uri Endpoint" [ref=e111]:
+              - columnheader "Uri" [ref=e112]
+              - columnheader "Endpoint" [ref=e113]
+              - columnheader "Prefetch" [ref=e114]
+              - columnheader "Uri" [ref=e115]
+              - columnheader "Endpoint" [ref=e116]
+          - rowgroup [ref=e117]:
+            - row "Nope, nothing to see here." [ref=e118]:
+              - cell "Nope, nothing to see here." [ref=e119]
+    - generic [ref=e120]:
+      - heading "Add a new shovel" [level=3] [ref=e121]
+      - generic [ref=e122]:
+        - generic [ref=e123]: Virtual host
+        - combobox "Virtual host" [ref=e124]:
+          - option "bar" [selected]
+          - option "foo"
+      - generic [ref=e125]:
+        - generic [ref=e126]: Name
+        - textbox "Name" [ref=e127]
+      - group "Source" [ref=e128]:
+        - generic [ref=e129]: Source
+        - generic [ref=e130]:
+          - generic [ref=e131]: URI
+          - textbox "URI" [ref=e132]: amqp://
+        - generic [ref=e133]:
+          - generic [ref=e134]: Type
+          - combobox "Type" [ref=e135]:
+            - option "Queue" [selected]
+            - option "Stream"
+            - option "Exchange"
+        - generic [ref=e136]:
+          - generic [ref=e137]: Endpoint
+          - combobox "Endpoint" [ref=e138]
+        - generic [ref=e139]:
+          - generic [ref=e140]: Prefetch
+          - spinbutton "Prefetch" [ref=e141]: "1000"
+        - generic [ref=e142]:
+          - generic [ref=e143]: Auto delete
+          - combobox "Auto delete" [ref=e144]:
+            - option "Never" [selected]
+            - option "Queue length"
+      - group "Destination" [ref=e145]:
+        - generic [ref=e146]: Destination
+        - generic [ref=e147]:
+          - generic [ref=e148]: URI
+          - textbox "URI" [ref=e149]: amqp://
+        - generic [ref=e150]:
+          - generic [ref=e151]: Type
+          - combobox "Type" [ref=e152]:
+            - option "Queue" [selected]
+            - option "Exchange"
+        - generic [ref=e153]:
+          - generic [ref=e154]: Endpoint
+          - combobox "Endpoint" [ref=e155]
+      - generic [ref=e156]:
+        - generic [ref=e157]: Reconnect delay
+        - spinbutton "Reconnect delay" [ref=e158]: "5"
+      - generic [ref=e159]:
+        - generic [ref=e160]: Ack mode
+        - combobox "Ack mode" [ref=e161]:
+          - option "On confirm" [selected]
+          - option "On publish"
+          - option "No ack"
+      - button "Add shovel" [ref=e162] [cursor=pointer]
+  - contentinfo [ref=e163]:
+    - paragraph [ref=e164]:
+      - text: LavinMQ is open source and developed by
+      - link "84codes logo" [ref=e165]:
+        - /url: https://www.84codes.com
+        - img "84codes logo" [ref=e166]
+```

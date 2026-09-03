@@ -87,11 +87,8 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
     write: data.get('write'),
     read: data.get('read')
   }
-  HTTP.request('PUT', url, { body })
-    .then(() => {
-      permissionsTable.reload()
-      evt.target.reset()
-    })
+  HTTP.submitForm(evt.target, 'PUT', url, { body })
+    .then(() => permissionsTable.reload())
 })
 
 document.forms.setLimits.addEventListener('submit', function (evt) {
