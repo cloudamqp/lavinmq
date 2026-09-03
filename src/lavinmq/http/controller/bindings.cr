@@ -29,10 +29,10 @@ module LavinMQ
         get "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
-            # `e` is the virtual exchange type, so `bindings_details` may be either an
-            # AMQP or MQTT array; collect into one array so the default binding can be prepended.
+            # `e` may be the MQTT exchange, so `bindings_details` is either an AMQP
+            # or an MQTT array; collect into one so the default binding can be prepended.
             arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
             e.bindings_details.each { |db| arr << db if db.destination == q }
             if e.name.empty?
@@ -46,7 +46,7 @@ module LavinMQ
         post "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost.name, e.name)
@@ -77,7 +77,7 @@ module LavinMQ
         get "/api/bindings/:vhost/e/:name/q/:queue/:props" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             props = params["props"]
             binding_for_props(context, e, q, props).to_json(context.response)
@@ -87,7 +87,7 @@ module LavinMQ
         delete "/api/bindings/:vhost/e/:name/q/:queue/*props" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost.name, e.name)
@@ -198,7 +198,7 @@ module LavinMQ
         get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             page(context, e.bindings_details)
           end
         end
@@ -206,11 +206,19 @@ module LavinMQ
         get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
+            e = binding_source(context, params, vhost)
             arr = bindings(e.vhost).select { |b| b.destination.name == e.name }
             page(context, arr)
           end
         end
+      end
+
+      # mqtt.default is not in `vhost.exchanges`, so `exchange` can't find it.
+      # Its subscriptions are reachable through the same routes as AMQP
+      # bindings: `bind_queue`/`unbind_queue` still funnel them to the store.
+      private def binding_source(context, params, vhost, key = "name")
+        return vhost.mqtt_exchange if params[key] == MQTT::EXCHANGE
+        exchange(context, params, vhost, key)
       end
     end
   end
