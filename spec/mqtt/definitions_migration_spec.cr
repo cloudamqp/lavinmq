@@ -134,6 +134,38 @@ describe "MQTT definitions migration" do
     end
   end
 
+  # definitions.mqtt is the newer of the two: anything left in definitions.amqp
+  # is by definition pre-migration. If a leftover frame were replayed over the
+  # loaded state, a subscription's QoS would silently revert.
+  it "does not let a leftover definitions.amqp frame override definitions.mqtt" do
+    vhost_dir = legacy_vhost_dir("mqttmig")
+    write_legacy_definitions(vhost_dir) do |f|
+      f.write_bytes session_declare_frame("mqtt.migrated")
+      f.write_bytes subscription_bind_frame("mqtt.migrated", "a/b", 0u8)
+    end
+    legacy = File.join(vhost_dir, "legacy.amqp")
+    FileUtils.cp File.join(vhost_dir, "definitions.amqp"), legacy
+
+    with_amqp_server do |s|
+      v = s.vhosts["mqttmig"]
+      session = v.session("mqtt.migrated")
+      v.session_subscriptions(session).first.binding_key.qos.should eq 0u8
+
+      # The client raises the QoS after the migration, so definitions.mqtt now
+      # holds a newer value than the frame did
+      v.mqtt.subscribe(session, "a/b", 1u8).should be_true
+
+      # A crash mid-migration would have left the old frame in place
+      FileUtils.cp legacy, File.join(vhost_dir, "definitions.amqp")
+      restart_server(s)
+
+      v = s.vhosts["mqttmig"]
+      subscriptions = v.session_subscriptions(v.session("mqtt.migrated"))
+      subscriptions.map(&.routing_key).should eq ["a/b"]
+      subscriptions.first.binding_key.qos.should eq 1u8
+    end
+  end
+
   it "writes MQTT definitions only to definitions.mqtt" do
     with_amqp_server do |s|
       v = s.vhosts["/"]

@@ -54,6 +54,11 @@ module LavinMQ
         @file = File.open(@file_path, "a+").tap &.sync = true
         @replicator.try &.register_file(@file)
         @deletes = 0
+        # Sessions read from our own file on boot. It is newer than any MQTT
+        # frame still sitting in definitions.amqp, and holds each session's
+        # complete state, so a leftover frame for one of these must not be
+        # replayed over it. Only consulted while loading.
+        @loaded_sessions = Set(String).new
       end
 
       # Session accessors
@@ -130,6 +135,12 @@ module LavinMQ
                     loading = false, fsync = true) : Bool
         @lock.synchronize do
           return false unless current?(session)
+          # A pre-migration frame for a session definitions.mqtt already
+          # described is stale, and replaying it would revert whatever changed
+          # since the migration — a raised QoS, say. Unbind frames need no such
+          # guard: `DefinitionsStore#load!` resolves them away while bucketing,
+          # so they never reach here.
+          return true if loading && @loaded_sessions.includes?(session.name)
           # The tree keys a subscription on session and filter, so a repeat at a
           # different QoS overwrites rather than duplicating — and so does the
           # Subscribe record on load.
@@ -212,7 +223,10 @@ module LavinMQ
 
           # Only durable sessions are ever written, so everything read back is
           # non-clean.
-          sessions.each { |name| @sessions[name] = Session.new(@vhost, name, false) }
+          sessions.each do |name|
+            @sessions[name] = Session.new(@vhost, name, false)
+            @loaded_sessions << name
+          end
           subscriptions.each do |name, filters|
             next unless session = @sessions[name]?
             filters.each { |topic_filter, qos| @exchange.subscribe(session, topic_filter, qos) }
