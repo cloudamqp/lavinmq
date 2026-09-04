@@ -26,6 +26,10 @@ module LavinMQ
             if user_and_broker = authenticate(io, packet)
               user, broker = user_and_broker
               packet = assign_client_id(packet) if packet.client_id.empty?
+              if broker.connection_limit_reached?(packet.client_id)
+                raise Protocol::Error::ServerUnavailable.new(
+                  "too many connections to vhost \"#{broker.vhost.name}\"")
+              end
               session_present = broker.session_present?(packet.client_id, packet.clean_session?)
               connack io, session_present, Protocol::Connack::ReturnCode::Accepted
               return broker.add_client(io, connection_info, user, packet)

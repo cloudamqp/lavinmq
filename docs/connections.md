@@ -43,11 +43,20 @@ When free disk space drops below `3 * segment_size` or below `free_disk_min`, `b
 
 ## Connection Limits
 
-Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. Once the cap is reached, new connections to that vhost are refused with `connection.close` carrying reply code 530 (`NOT_ALLOWED`); existing connections are unaffected.
+Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. The cap counts AMQP and MQTT connections together. Existing connections are unaffected once the cap is reached, or if the limit is later lowered below the current count.
 
 | Limit | Default | Description |
 |-------|---------|-------------|
 | `max-connections` | (none) | Maximum concurrent connections per vhost. A negative value removes the cap. |
+
+How a refused connection is reported depends on the protocol:
+
+| Protocol | Refusal |
+|----------|---------|
+| AMQP | `connection.close` with reply code 530 (`NOT_ALLOWED`) |
+| MQTT | `CONNACK` with return code 3 (server unavailable), then the socket is closed |
+
+An MQTT client reconnecting with a client ID that already has an active connection is not refused at the cap, because [session takeover](mqtt.md#session-takeover) closes the existing connection instead of adding one.
 
 Set via the management API (`PUT /api/vhost-limits/:vhost/max-connections`) or `lavinmqctl set_vhost_limits`. See [Vhosts](vhosts.md#vhost-limits).
 

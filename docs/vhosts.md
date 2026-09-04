@@ -23,7 +23,7 @@ Vhost limits cap resource consumption per vhost. They are stored as part of the 
 
 | Limit | Description |
 |-------|-------------|
-| `max-connections` | Maximum concurrent connections to this vhost. New connections beyond the cap are refused with `connection.close` reply code 530 (`NOT_ALLOWED`). Existing connections are unaffected if the limit is later lowered below the current count. The cap is only enforced when an AMQP connection is opened; MQTT connections count towards the total but are never refused. |
+| `max-connections` | Maximum concurrent connections to this vhost, counting AMQP and MQTT together. New connections beyond the cap are refused — AMQP with `connection.close` reply code 530 (`NOT_ALLOWED`), MQTT with `CONNACK` return code 3 (server unavailable). Existing connections are unaffected if the limit is later lowered below the current count. |
 | `max-queues` | Maximum number of queues in this vhost. [MQTT sessions](mqtt.md#session-limits) count towards the same cap. `queue.declare` fails when the cap is reached, and an MQTT SUBSCRIBE that would create a new session is refused. Existing queues are unaffected if the limit is later lowered below the current count. |
 
 Limits are optional. When not set, there is no cap. Setting a limit to a negative value removes it.
