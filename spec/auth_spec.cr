@@ -27,6 +27,37 @@ class SimpleMockVerifier < LavinMQ::Auth::JWT::TokenVerifier
   end
 end
 
+# Returns the frame the server answers Connection.StartOk with: Tune if accepted, Close if refused
+private def amqp_login(port : Int32, username : String, password : String, proxy_header : String? = nil)
+  socket = TCPSocket.new("localhost", port)
+  socket.read_timeout = 5.seconds
+  socket.write proxy_header.to_slice if proxy_header
+  socket.write LavinMQ::AMQP::PROTOCOL_START_0_9_1.to_slice
+  socket.flush
+  stream = AMQ::Protocol::Stream.new(socket)
+  stream.next_frame.should be_a AMQ::Protocol::Frame::Connection::Start
+  props = AMQ::Protocol::Table.new({capabilities: {authentication_failure_close: true}})
+  start_ok = AMQ::Protocol::Frame::Connection::StartOk.new(props, "PLAIN", "\u0000#{username}\u0000#{password}", "en_US")
+  socket.write_bytes start_ok, IO::ByteFormat::NetworkEndian
+  socket.flush
+  stream.next_frame
+ensure
+  socket.try &.close
+end
+
+private def with_proxy_protocol(&)
+  config = LavinMQ::Config.instance
+  previous_loopback = config.default_user_only_loopback?
+  previous_proxy = config.tcp_proxy_protocol?
+  config.default_user_only_loopback = true
+  config.tcp_proxy_protocol = true
+  yield
+ensure
+  config = LavinMQ::Config.instance
+  config.default_user_only_loopback = previous_loopback.nil? ? true : previous_loopback
+  config.tcp_proxy_protocol = previous_proxy.nil? ? false : previous_proxy
+end
+
 describe LavinMQ::Auth::Chain do
   it "creates a default authentication chain if not configured" do
     with_amqp_server do |s|
@@ -63,6 +94,41 @@ describe LavinMQ::Auth::Chain do
       ctx = LavinMQ::Auth::Context.new("guest", "guest".to_slice, loopback: false)
       user = chain.authenticate(ctx)
       user.should be_nil
+    end
+  end
+
+  describe "default user loopback gate with PROXY protocol" do
+    it "rejects the default user when a PROXY header claims a loopback source" do
+      with_amqp_server do |s|
+        with_proxy_protocol do
+          port = amqp_port(s)
+          header = "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{port}\r\n"
+          frame = amqp_login(port, "guest", "guest", header)
+          frame.should be_a AMQ::Protocol::Frame::Connection::Close
+          frame.as(AMQ::Protocol::Frame::Connection::Close).reply_code.should eq 403
+        end
+      end
+    end
+
+    it "accepts the default user from a real loopback connection without a PROXY header" do
+      with_amqp_server do |s|
+        with_proxy_protocol do
+          frame = amqp_login(amqp_port(s), "guest", "guest")
+          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+        end
+      end
+    end
+
+    it "accepts a non-default user when a PROXY header claims a loopback source" do
+      with_amqp_server do |s|
+        with_proxy_protocol do
+          s.@users.create("foo", "bar")
+          port = amqp_port(s)
+          header = "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{port}\r\n"
+          frame = amqp_login(port, "foo", "bar", header)
+          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+        end
+      end
     end
   end
 
