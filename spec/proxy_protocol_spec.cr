@@ -7,10 +7,17 @@ describe "ProxyProtocol" do
       r, w = IO.pipe
       w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V1.parse(r).not_nil!
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
       conn_info.local_address.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
+    end
+
+    it "returns nil for the UNKNOWN family so the socket address is used" do
+      r, w = IO.pipe
+      w.write "PROXY UNKNOWN\r\n".to_slice
+
+      LavinMQ::ProxyProtocol::V1.parse(r).should be_nil
     end
 
     it "can handle invalid data" do
