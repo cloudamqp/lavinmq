@@ -94,21 +94,19 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
 
-## Topic permissions
+## Topic Permissions
 
-Topic permissions give MQTT clients fine-grained, per-topic authorization: each client is authorized against a set of MQTT topic filters, so a client can be allowed to publish and subscribe only within its own topic subtree.
+Topic permissions restrict which topics a user's MQTT clients can publish to and receive from. They are defined as permission groups on a vhost.
 
-Topic permissions activate when the first MQTT permission group is created on the vhost; there is no config flag. With no groups defined, any authenticated MQTT client can publish and subscribe to any topic. Once at least one group exists, the feature is default-deny: a connection may only publish to or receive on topics granted by a matched rule. A user still needs a permission entry on the vhost to establish the connection in the first place.
+- With no groups on a vhost, any authenticated client can publish and subscribe to any topic
+- When the first group is created, the vhost becomes default deny: a client can only publish to or receive on topics granted by a matching rule
+- There is no administrator bypass
+- Deleting the last group restores unrestricted topic access
+- A user still needs a permission entry on the vhost to connect
 
-Earlier LavinMQ versions had a `permission_check_enabled` config option under `[mqtt]` that applied the AMQP ACL model (read/write on the MQTT exchange) to MQTT operations. That option is removed; topic permissions replace it. If your config still sets it, LavinMQ logs a warning at startup and ignores it.
+### Groups
 
-Because it is default-deny, creating the first group switches every MQTT client to default-deny, members and non-members alike: from that point a client needs a matching rule to publish or receive, and there is no administrator bypass. Deleting the last group restores unrestricted topic access for authenticated clients.
-
-Group membership is keyed on the authenticated username, not on the client id. Every connection that authenticates as a member gets the group's rules, so a user with many devices is one member. The client id is chosen by the client and is not trusted for membership; it only feeds the `{client_id}` variable, which gives each device its own slice of the topic tree. A member name must match the user name as LavinMQ shows it in the connections list; for OAuth users that is the claim selected by `preferred_username_claims`.
-
-Read checks on a session use the username of the client that last attached to it. When a persistent session is taken over by a connection with a different username (see Session Takeover above), new messages are checked against the new user, but messages already queued under the previous user are still delivered. The session stores the username on disk, so a session restored after a restart keeps its member rules until a client reconnects. A session that has never had a client since the username was first stored, for example a durable session created before this version, is checked against `"*"` rules only until its first reconnect.
-
-Permission groups are per-vhost objects. A group has a member list and a set of named rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
+A permission group has a name, a list of members and a list of rules.
 
 ```json
 {
@@ -121,9 +119,43 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 }
 ```
 
-- Group names consist of alphanumerics, hyphens and underscores, at most 255 characters.
-- `members` is a list of usernames the group applies to. The entry `"*"` applies the group to every client.
-- Every rule has an `identifier` (alphanumerics and hyphens, unique within the group), which is how the rule is addressed in the HTTP API.
+- Group names consist of alphanumerics, hyphens and underscores, at most 255 characters
+- Members are usernames. Every connection that authenticates as a member gets the group's rules, so a user with many devices is one member
+- The member `"*"` applies the group to every authenticated user
+- A user in several groups gets the rules of all of them
+- A member name must match the user name as shown in the connections list. For OAuth users that is the claim selected by `preferred_username_claims`
+- Each rule has an identifier, a topic filter pattern and `read` and `write` flags
+- Rule identifiers consist of alphanumerics and hyphens and are unique within the group. The HTTP API addresses a rule by its identifier
+
+### Patterns
+
+Patterns are MQTT topic filters. They use the `+` and `#` wildcards with subscription semantics, so a rule for `a/#` also grants `a`.
+
+A pattern can contain `{client_id}` as a whole topic level. It is replaced with the client ID of the connection being checked, so one rule gives each of a user's devices its own subtree:
+
+- `chat/{client_id}/#` grants `chat/thermo-1/#` to a device connected as `thermo-1`
+- The same rule grants `chat/gate/#` to a device connected as `gate`
+- A client ID that contains `/`, `+` or `#` never matches a topic level, so rules with `{client_id}` never match for that connection
+
+The client ID has no other role. Membership is decided by the authenticated username, which the client cannot choose.
+
+### Enforcement
+
+- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged, and the connection stays open
+- Subscribe: always accepted. Read is enforced when a message is accepted into the session, so a subscription to a filter the user cannot read receives no messages. This matches Mosquitto
+- Will: the connection needs a write rule for the will topic, otherwise the will is dropped
+- Denials are logged at debug level
+- Changes to groups take effect immediately, also for connected clients
+
+Read is checked once per message, when the message is accepted into the session, not when it is delivered to the client. A message accepted before read was revoked is still delivered after the revocation. Messages published after the revocation are not.
+
+### Sessions
+
+A session is checked with the username of the client that last attached to it. This also covers messages that arrive while the device is offline.
+
+- The session stores that username on disk, so a session restored after a restart keeps its member rules until the device reconnects
+- When another user takes over the session (see [Session Takeover](#session-takeover)), new messages are checked against the new user
+- Messages already queued under the previous user are still delivered
 
 ### HTTP API
 
@@ -141,9 +173,13 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
-The group GET routes return one summary object per group: `name`, `vhost`, `member_count`, and `rule_count`. The members route returns one object per member: `{"username": "..."}`. The group list routes and the members route accept the same query parameters as the other list endpoints: `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse`, and `columns`. The rules route returns the full rule list with `identifier`, `pattern`, `read`, and `write` per rule.
+- All routes require the administrator tag
+- A group summary has `name`, `vhost`, `member_count` and `rule_count`
+- The members route returns one object per member: `{"username": "..."}`
+- The group list routes and the members route accept `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse` and `columns`, like the other list endpoints
+- The rules route returns the full rule list with `identifier`, `pattern`, `read` and `write` per rule
 
-For example, to allow every device to use only its own subtree under `chat/`:
+Example: allow every user to use only its own device subtrees under `chat/`.
 
 ```sh
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
@@ -152,13 +188,12 @@ curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/r
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
-Changes take effect immediately, including for connected clients. Groups are part of definitions export and import under the `mqtt_permissions` key.
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key.
 
-Patterns use MQTT wildcards (`+`, `#`) and support the `{client_id}` substitution variable, bound per connection to the client id of the connection being authorized, never another client's. The client id must be a single topic level; if it contains `/`, `+`, or `#`, the affected `{client_id}` rules are skipped for that connection so they cannot widen into another client's subtree.
+### Upgrading
 
-A SUBSCRIBE is always accepted; read permissions are enforced at delivery, so a subscription to a filter the client cannot read simply receives no messages (matching Mosquitto's behavior).
-
-Read authorization is decided once, when a message is accepted into a session, not when it is delivered from that session to a client. A message accepted while read access was granted is still delivered later even if read is revoked in the meantime; only messages published after the revocation are refused and never delivered. One consequence of this is worth stating plainly because it looks odd when encountered: a client whose read access has just been revoked stops receiving new messages on a filter, while still receiving older messages on that same filter that were already queued in its session from before the revocation.
+- The `permission_check_enabled` option under `[mqtt]` is removed. It applied the AMQP permission model to the MQTT exchange. Topic permissions replace it. A config that still sets the option gets a warning at startup and the option is ignored
+- A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication
 
