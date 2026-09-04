@@ -254,6 +254,10 @@ module LavinMQ
       store_limits
     end
 
+    def connection_limit_reached? : Bool
+      @max_connections.try { |max| connections_size >= max } || false
+    end
+
     def max_queues=(value : Int32) : Nil
       value = nil if value < 0
       @max_queues = value
