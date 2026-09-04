@@ -55,6 +55,10 @@ Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits),
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
 - Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
 
+## Connection Limits
+
+The `max-connections` vhost limit applies to MQTT connections as well as AMQP ones. When the vhost is at its cap, a CONNECT is answered with a CONNACK carrying return code 3 (server unavailable) and the socket is closed. A client reconnecting with a client ID that already has an active connection is still accepted, because [session takeover](#session-takeover) replaces that connection instead of adding one. See [Connections](connections.md#connection-limits).
+
 ## Retained Messages
 
 Retained messages are stored per topic and delivered to new subscribers upon subscription.
