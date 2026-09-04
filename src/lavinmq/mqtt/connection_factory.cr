@@ -23,7 +23,7 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
-            user, broker = authenticate(io, packet)
+            user, broker = authenticate(io, packet, connection_info)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?
             validate_client_id!(packet.client_id, user.name)
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
@@ -49,7 +49,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io : Protocol::IO, packet)
+      def authenticate(io : Protocol::IO, packet, connection_info : ConnectionInfo)
         username = packet.username
         password = packet.password
         raise Protocol::Error::NotAuthorized.new("missing credentials") unless username && password
@@ -60,7 +60,7 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        context = Auth::Context.new(username, password, io.io)
+        context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
 
         user = @authenticator.authenticate(context)
         raise Protocol::Error::NotAuthorized.new("authentication failure for user \"#{username}\"") unless user

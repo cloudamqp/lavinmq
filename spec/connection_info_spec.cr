@@ -30,3 +30,40 @@ describe LavinMQ::ConnectionInfo::IPAddress do
     end
   end
 end
+
+describe LavinMQ::ConnectionInfo do
+  loopback = Socket::IPAddress.new("127.0.0.1", 5672)
+  remote = Socket::IPAddress.new("10.1.2.3", 5672)
+
+  describe "#proxied?" do
+    it "is false for a connection info built from the real socket addresses" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback).proxied?.should be_false
+    end
+
+    it "is true when built from a PROXY protocol header" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true).proxied?.should be_true
+    end
+
+    it "is false for the local placeholder" do
+      LavinMQ::ConnectionInfo.local.proxied?.should be_false
+    end
+  end
+
+  describe "#loopback?" do
+    it "is true when the real peer is a loopback address" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback).loopback?.should be_true
+    end
+
+    it "is false when the real peer is not a loopback address" do
+      LavinMQ::ConnectionInfo.new(remote, loopback).loopback?.should be_false
+    end
+
+    it "is false when a PROXY protocol header claims a loopback address" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true).loopback?.should be_false
+    end
+
+    it "is true for the local placeholder" do
+      LavinMQ::ConnectionInfo.local.loopback?.should be_true
+    end
+  end
+end

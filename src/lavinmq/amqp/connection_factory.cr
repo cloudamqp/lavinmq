@@ -22,7 +22,7 @@ module LavinMQ
         if confirm_header(socket, logger)
           stream = AMQ::Protocol::Stream.new(socket)
           if start_ok = start(stream, logger)
-            if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
+            if user = authenticate(stream, connection_info, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -109,12 +109,12 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, start_ok, log)
+      def authenticate(socket, connection_info : ConnectionInfo, start_ok, log)
         username, password = credentials(start_ok)
         context = Auth::Context.new(
           username,
           password.to_slice,
-          loopback: remote_address.loopback?
+          loopback: connection_info.loopback?
         )
         user = @authenticator.authenticate(context)
         return user if user
