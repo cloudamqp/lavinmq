@@ -31,6 +31,8 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 
 PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
 
+The address in a PROXY header is used for logging and for the connection listing. It only counts as loopback for the `default_user_only_loopback` check when the header comes from a trusted source, that is a peer listed in `proxy_protocol_trusted_sources` or a cluster follower. If the trusted sources list is empty, the header is used but the connection is never treated as loopback, because any peer could send a header that claims `127.0.0.1`. To keep the default user working behind a local proxy, list the proxy address in `proxy_protocol_trusted_sources`.
+
 ## Low Disk Space
 
 When free disk space drops below `3 * segment_size` or below `free_disk_min`, `basic.publish` returns a `precondition_failed` channel error until resources recover.
