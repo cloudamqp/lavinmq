@@ -265,7 +265,7 @@ describe "ProxyProtocol" do
 
     it "raises when every entry is invalid instead of collapsing to trust-all" do
       # Regression for #2083: an all-invalid list must not parse to an empty
-      # array (which trusted_proxy_source? treats as trust-all).
+      # array (which extract_conn_info treats as trust-all).
       expect_raises(ArgumentError, /Invalid IP\/CIDR/) do
         LavinMQ::IPMatcher.parse_list("10.0.0.0/33, 300.0.0.1")
       end
