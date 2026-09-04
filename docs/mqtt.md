@@ -45,6 +45,10 @@ When a client connects with `clean_session=false`:
 
 If a client connects with a client ID that already has an active connection, the existing connection is closed and the new client takes over the session.
 
+### Session Limits
+
+Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. A session is created on the client's first SUBSCRIBE, so CONNECT still succeeds when the vhost is at the limit, but the SUBSCRIBE is answered with a SUBACK where every topic filter gets return code `0x80` (failure). Clients that already have a session can keep subscribing, since reusing a session consumes no new resource.
+
 ### Message Delivery
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
