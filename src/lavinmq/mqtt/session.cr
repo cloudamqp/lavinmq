@@ -40,11 +40,11 @@ module LavinMQ
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
       @client_id : String
-      # Carries the user of the last attached client. The username is persisted
-      # next to the messages so a restored session keeps its member rules until
-      # a client reconnects.
+      # Carries the user of the last attached client. The username is kept in
+      # the .metadata file so a restored session keeps its member rules until a
+      # client reconnects.
       @permission_context : PermissionService::Context
-      @username_file : String
+      @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
@@ -59,6 +59,7 @@ module LavinMQ
         @unacked = Hash(UInt16, SegmentPosition).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
+        @log = Logger.new(Log, @metadata)
         data_dir = File.join(
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
@@ -66,15 +67,16 @@ module LavinMQ
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = MessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
-        @username_file = File.join(data_dir, "username")
+        @metadata_file = File.join(data_dir, ".metadata")
         username = nil
-        if File.exists?(@username_file)
-          username = File.read(@username_file)
-          @replicator.try &.register_file(@username_file)
+        if File.exists?(@metadata_file)
+          @replicator.try &.register_file(@metadata_file)
+          username = read_metadata_file
+        else
+          write_metadata_file(nil)
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
 
-        @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -115,9 +117,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.delete
         end
-        if File.delete?(@username_file)
-          @replicator.try &.delete_file(@username_file)
-        end
+        @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
       end
@@ -174,7 +174,7 @@ module LavinMQ
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
-          persist_username(username) if durable?
+          write_metadata_file(username)
         end
 
         @log.debug { "client set to '#{client.try &.name}'" }
@@ -184,9 +184,21 @@ module LavinMQ
         !clean_session?
       end
 
-      private def persist_username(username : String) : Nil
-        File.write(@username_file, username)
-        @replicator.try &.replace_file(@username_file)
+      # The .metadata file is to a session what .queue is to a queue: it names
+      # the owner of a data directory. It also holds the last attached username.
+      private def read_metadata_file : String?
+        JSON.parse(File.read(@metadata_file))["username"]?.try(&.as_s?)
+      rescue ex : JSON::ParseException
+        @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
+        nil
+      end
+
+      private def write_metadata_file(username : String?) : Nil
+        File.open(@metadata_file, "w") do |f|
+          f.sync = true
+          {name: @name, client_id: @client_id, username: username}.to_json(f)
+        end
+        @replicator.try &.replace_file(@metadata_file)
       end
 
       def subscribe(tf, qos)
