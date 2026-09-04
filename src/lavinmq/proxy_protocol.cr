@@ -62,7 +62,7 @@ module LavinMQ
         header.split(' ') do |v|
           case i
           when 0 then raise InvalidSignature.new(v) if v != "PROXY"
-          when 1 then nil
+          when 1 then return if v.starts_with?("UNKNOWN")
           when 2 then src_addr = v
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32

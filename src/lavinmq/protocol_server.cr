@@ -231,24 +231,31 @@ module LavinMQ
       remote_address = client.remote_address
 
       if @config.tcp_proxy_protocol?
-        parsed_proxy = ProxyProtocol.parse(client)
-        if trusted_proxy_source?(remote_address.address)
-          return parsed_proxy if parsed_proxy
-        else
-          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
+        if parsed_proxy = ProxyProtocol.parse(client)
+          case
+          when @config.proxy_protocol_trusted_sources.empty?
+            # Accept from all sources for backward compatibility, only a follower's address can be trusted
+            parsed_proxy.untrusted_proxy = !follower?(remote_address)
+            return parsed_proxy
+          when listed_proxy_source?(remote_address.address)
+            return parsed_proxy
+          else
+            Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" }
+          end
         end
-      else
-        if @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          parsed_proxy = ProxyProtocol.parse(client)
-          return parsed_proxy if parsed_proxy
+      elsif follower?(remote_address)
+        if parsed_proxy = ProxyProtocol.parse(client)
+          return parsed_proxy
         end
       end
       ConnectionInfo.new(remote_address, client.local_address)
     end
 
-    private def trusted_proxy_source?(address : String) : Bool
-      # If no trusted sources are configured, accept from all sources for backward compatibility
-      return true if @config.proxy_protocol_trusted_sources.empty?
+    private def follower?(remote_address) : Bool
+      @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+    end
+
+    private def listed_proxy_source?(address : String) : Bool
       @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 

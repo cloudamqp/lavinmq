@@ -47,6 +47,8 @@ LavinMQ creates a default user on first start with the `administrator` tag.
 | `default_password_hash` | `[main]` | (hash of `guest`) | Hashed password for the default user. Expects a hash value, not plaintext. |
 | `default_user_only_loopback` | `[main]` | `true` | If true, the default user can only connect from loopback (127.0.0.1, ::1) |
 
+Without a PROXY protocol header, the check uses the real socket address. With a header, the header address counts as loopback only when the sender is trusted. See the Proxy Protocol section in [connections](connections.md#proxy-protocol).
+
 ## OAuth2 / OIDC Authentication
 
 JWT-based authentication using an external identity provider.

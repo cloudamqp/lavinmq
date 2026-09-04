@@ -30,3 +30,28 @@ describe LavinMQ::ConnectionInfo::IPAddress do
     end
   end
 end
+
+describe LavinMQ::ConnectionInfo do
+  loopback = Socket::IPAddress.new("127.0.0.1", 5672)
+  remote = Socket::IPAddress.new("10.1.2.3", 5672)
+
+  describe "#loopback?" do
+    it "is true when the peer is a loopback address" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback).loopback?.should be_true
+    end
+
+    it "is false when the peer is not a loopback address" do
+      LavinMQ::ConnectionInfo.new(remote, loopback).loopback?.should be_false
+    end
+
+    it "is false when a loopback address comes from an untrusted PROXY header" do
+      info = LavinMQ::ConnectionInfo.new(loopback, loopback)
+      info.untrusted_proxy = true
+      info.loopback?.should be_false
+    end
+
+    it "is true for the local placeholder" do
+      LavinMQ::ConnectionInfo.local.loopback?.should be_true
+    end
+  end
+end
