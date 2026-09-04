@@ -73,7 +73,7 @@ module LavinMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        ConnectionInfo.new(src, dst, proxied: true)
+        ConnectionInfo.new(src, dst)
       ensure
         io.read_timeout = nil
       end
@@ -208,7 +208,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst, proxied: true), 12}
+          {ConnectionInfo.new(src, dst), 12}
         when Family::TCPv6
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
@@ -228,7 +228,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst, proxied: true), 36}
+          {ConnectionInfo.new(src, dst), 36}
         else
           raise InvalidFamily.new family.to_s
         end

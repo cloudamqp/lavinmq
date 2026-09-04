@@ -13,15 +13,6 @@ describe "ProxyProtocol" do
       conn_info.ssl?.should be_false
     end
 
-    it "marks the connection info as proxied" do
-      r, w = IO.pipe
-      w.write "PROXY TCP4 127.0.0.1 127.0.0.1 34567 1234\r\n".to_slice
-
-      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
-      conn_info.proxied?.should be_true
-      conn_info.loopback?.should be_false
-    end
-
     it "can handle invalid data" do
       r, w = IO.pipe
       w.write "GET / HTTP/1.1\r\n".to_slice
@@ -131,8 +122,6 @@ describe "ProxyProtocol" do
       conn_info.should_not be_nil
       conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
       conn_info.not_nil!.ssl?.should be_true
-      conn_info.not_nil!.proxied?.should be_true
-      conn_info.not_nil!.loopback?.should be_false
     end
 
     it "returns nil for AMQP protocol header" do

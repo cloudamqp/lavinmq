@@ -45,17 +45,20 @@ ensure
   socket.try &.close
 end
 
-private def with_proxy_protocol(&)
+private def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
   config = LavinMQ::Config.instance
   previous_loopback = config.default_user_only_loopback?
   previous_proxy = config.tcp_proxy_protocol?
+  previous_sources = config.proxy_protocol_trusted_sources
   config.default_user_only_loopback = true
   config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = trusted_sources
   yield
 ensure
   config = LavinMQ::Config.instance
   config.default_user_only_loopback = previous_loopback.nil? ? true : previous_loopback
   config.tcp_proxy_protocol = previous_proxy.nil? ? false : previous_proxy
+  config.proxy_protocol_trusted_sources = previous_sources || Array(LavinMQ::IPMatcher).new
 end
 
 describe LavinMQ::Auth::Chain do
@@ -115,6 +118,29 @@ describe LavinMQ::Auth::Chain do
         with_proxy_protocol do
           frame = amqp_login(amqp_port(s), "guest", "guest")
           frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+        end
+      end
+    end
+
+    it "accepts the default user when a trusted proxy reports a loopback source" do
+      with_amqp_server do |s|
+        with_proxy_protocol([LavinMQ::IPMatcher.parse("127.0.0.1"), LavinMQ::IPMatcher.parse("::1")]) do
+          port = amqp_port(s)
+          header = "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{port}\r\n"
+          frame = amqp_login(port, "guest", "guest", header)
+          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+        end
+      end
+    end
+
+    it "rejects the default user when a trusted proxy reports a remote source" do
+      with_amqp_server do |s|
+        with_proxy_protocol([LavinMQ::IPMatcher.parse("127.0.0.1"), LavinMQ::IPMatcher.parse("::1")]) do
+          port = amqp_port(s)
+          header = "PROXY TCP4 10.1.2.3 127.0.0.1 54321 #{port}\r\n"
+          frame = amqp_login(port, "guest", "guest", header)
+          frame.should be_a AMQ::Protocol::Frame::Connection::Close
+          frame.as(AMQ::Protocol::Frame::Connection::Close).reply_code.should eq 403
         end
       end
     end
