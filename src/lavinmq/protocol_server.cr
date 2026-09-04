@@ -234,19 +234,21 @@ module LavinMQ
         parsed_proxy = ProxyProtocol.parse(client)
         if trusted_proxy_source?(remote_address.address)
           if parsed_proxy
-            parsed_proxy.untrusted_proxy = @config.proxy_protocol_trusted_sources.empty?
+            parsed_proxy.untrusted_proxy = @config.proxy_protocol_trusted_sources.empty? && !follower?(remote_address)
             return parsed_proxy
           end
         else
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
         end
-      else
-        if @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          parsed_proxy = ProxyProtocol.parse(client)
-          return parsed_proxy if parsed_proxy
-        end
+      elsif follower?(remote_address)
+        parsed_proxy = ProxyProtocol.parse(client)
+        return parsed_proxy if parsed_proxy
       end
       ConnectionInfo.new(remote_address, client.local_address)
+    end
+
+    private def follower?(remote_address) : Bool
+      @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
     end
 
     private def trusted_proxy_source?(address : String) : Bool
