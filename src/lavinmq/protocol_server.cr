@@ -233,7 +233,10 @@ module LavinMQ
       if @config.tcp_proxy_protocol?
         parsed_proxy = ProxyProtocol.parse(client)
         if trusted_proxy_source?(remote_address.address)
-          return parsed_proxy if parsed_proxy
+          if parsed_proxy
+            parsed_proxy.untrusted_proxy = @config.proxy_protocol_trusted_sources.empty?
+            return parsed_proxy
+          end
         else
           Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
         end
