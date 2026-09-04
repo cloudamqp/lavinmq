@@ -151,6 +151,29 @@ module LavinMQ
       end
     end
 
+    private def import_mqtt_permissions(body, skip_existing = false)
+      if groups = body["mqtt_permissions"]?
+        # Validate every group before applying any: an invalid group later in
+        # the file must not leave earlier groups live in memory while disk
+        # stays on the old state.
+        parsed = Array({VHost, MQTT::PermissionGroup}).new
+        groups.as_a.each do |g|
+          next unless v = fetch_vhost?(g)
+          name = g["name"].as_s
+          next if skip_existing && v.mqtt_permission_service[name]?
+          members = (m = g["members"]?) ? Array(String).from_json(m.to_json) : Array(String).new
+          rules = (r = g["rules"]?) ? Array(MQTT::PermissionGroup::Rule).from_json(r.to_json) : Array(MQTT::PermissionGroup::Rule).new
+          parsed << {v, MQTT::PermissionGroup.new(name, v.name, members, rules).validate!}
+        end
+        touched = Set(VHost).new
+        parsed.each do |v, group|
+          v.mqtt_permission_service.put(group, save: false)
+          touched << v
+        end
+        touched.each(&.mqtt_permission_service.save!)
+      end
+    end
+
     private def parse_regex(pattern, field, user, vhost)
       Regex.new(pattern)
     rescue ex : ArgumentError
@@ -378,6 +401,14 @@ module LavinMQ
       end
     end
 
+    private def export_mqtt_permissions(json)
+      json.array do
+        vhosts.each_value do |v|
+          v.mqtt_permission_service.values.each(&.to_json(json))
+        end
+      end
+    end
+
     private def export_users(json)
       json.array do
         @amqp_server.users.values.reject(&.hidden?).each do |u|
@@ -407,6 +438,7 @@ module LavinMQ
       fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
+      import_mqtt_permissions(body, skip_existing)
     end
 
     def export(response)
@@ -418,6 +450,7 @@ module LavinMQ
           json.field("bindings") { export_bindings(json) }
           json.field("policies") { export_policies(json) }
           json.field("parameters") { export_vhost_parameters(json) }
+          json.field("mqtt_permissions") { export_mqtt_permissions(json) }
         end
       end
     end
@@ -438,6 +471,7 @@ module LavinMQ
     def import(body, skip_existing = false)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
+      import_mqtt_permissions(body, skip_existing)
       import_vhosts(body)
       import_queues(body)
       import_exchanges(body)
@@ -455,6 +489,7 @@ module LavinMQ
           json.field("users") { export_users(json) }
           json.field("vhosts", @amqp_server.vhosts)
           json.field("permissions") { export_permissions(json) }
+          json.field("mqtt_permissions") { export_mqtt_permissions(json) }
           json.field("queues") { export_queues(json) }
           json.field("exchanges") { export_exchanges(json) }
           json.field("bindings") { export_bindings(json) }

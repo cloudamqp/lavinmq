@@ -29,6 +29,10 @@ module LavinMQ
         @exchange = @vhost.mqtt_exchange
       end
 
+      def permission_service : PermissionService
+        @vhost.mqtt_permission_service
+      end
+
       def session_present?(client_id : String, clean_session) : Bool
         return false if clean_session
         session = sessions[client_id]? || return false
@@ -57,7 +61,9 @@ module LavinMQ
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
-          sessions[client.client_id]?.try &.client = client
+          if session = sessions[client.client_id]?
+            session.client = client
+          end
         end
         @clients[packet.client_id] = client
         @vhost.add_connection client

@@ -153,7 +153,6 @@ describe LavinMQ::Config do
           port = 1884
           tls_port = 8884
           unix_path = /tmp/mqtt.sock
-          permission_check_enabled = true
           max_packet_size = 536870910
           max_inflight_messages = 100
           default_vhost = /mqtt
@@ -239,7 +238,6 @@ describe LavinMQ::Config do
     config.mqtt_port.should eq 1884
     config.mqtts_port.should eq 8884
     config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
-    config.mqtt_permission_check_enabled?.should be_true
     config.mqtt_max_packet_size.should eq 536870910
     config.max_inflight_messages.should eq 100
     config.default_mqtt_vhost.should eq "/mqtt"
