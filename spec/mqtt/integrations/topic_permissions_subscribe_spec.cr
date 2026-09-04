@@ -9,6 +9,8 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        server.users.create("pub", "pub")
+        server.users.add_permission("pub", "/", /.*/, /.*/, /.*/)
         # alice may read only her own subtree.
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "alice-read", "/", ["alice"],
@@ -32,7 +34,7 @@ module MqttSpecs
           suback.return_codes[1].should eq(MQTT::Protocol::SubAck::ReturnCode::QoS1)
 
           with_client_io(server) do |pub_io|
-            connect(pub_io, client_id: "pub", username: "alice", password: "alice".to_slice)
+            connect(pub_io, client_id: "pub", username: "pub", password: "pub".to_slice)
             # Readable by alice, so it must arrive.
             publish(pub_io, topic: "chat/alice/room1", payload: "yes".to_slice, qos: 0u8)
             # Not readable by alice, though she holds a subscription matching it.

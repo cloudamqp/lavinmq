@@ -69,6 +69,7 @@ module LavinMQ
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
         @protocol = protocol_version.name
+        @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -184,8 +185,8 @@ module LavinMQ
 
       def recieve_publish(packet : Protocol::Publish)
         # A denial acks and drops, it never closes the connection.
-        unless @broker.permission_service.can_write?(@client_id, packet.topic)
-          Log.debug { "Publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{packet.topic}'" }
+        unless @broker.permission_service.can_write?(@permission_context, packet.topic)
+          Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
           if packet.qos > 0 && (packet_id = packet.packet_id)
             send(Protocol::PubAck.new(packet_id))
           end
@@ -253,8 +254,8 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          unless @broker.permission_service.can_write?(@client_id, will.topic)
-            Log.debug { "Will publish refused: no topic permission rule allows client '#{@client_id}' to write topic '#{will.topic}'" }
+          unless @broker.permission_service.can_write?(@permission_context, will.topic)
+            Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
           @broker.publish(Protocol::Publish.new(

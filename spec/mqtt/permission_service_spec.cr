@@ -10,6 +10,10 @@ private def rule(pattern, read = false, write = false)
   LavinMQ::MQTT::PermissionGroup::Rule.new(identifier, pattern, read: read, write: write)
 end
 
+private def ctx(username, client_id = "dev")
+  LavinMQ::MQTT::PermissionService::Context.new(username, client_id)
+end
+
 private def with_service(&)
   data_dir = File.tempname
   Dir.mkdir_p data_dir
@@ -24,7 +28,7 @@ describe LavinMQ::MQTT::PermissionService do
   it "allows everything with no groups" do
     with_service do |service|
       service.in_use?.should be_false
-      service.can_write?("c1", "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_true
     end
   end
 
@@ -40,16 +44,16 @@ describe LavinMQ::MQTT::PermissionService do
   it "grants only the requested verb" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      service.can_read?("c1", "a/b").should be_true
-      service.can_write?("c1", "a/b").should be_false
+      service.can_read?(ctx("c1"), "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_false
     end
   end
 
   it "applies a group only to its members" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", write: true)]))
-      service.can_write?("c1", "a/b").should be_true
-      service.can_write?("c2", "a/b").should be_false
+      service.can_write?(ctx("c1"), "a/b").should be_true
+      service.can_write?(ctx("c2"), "a/b").should be_false
     end
   end
 
@@ -58,48 +62,48 @@ describe LavinMQ::MQTT::PermissionService do
       service.put(group("a", ["c1"], [rule("a/#", read: true)]))
       service.put(group("b", ["c2"], [rule("b/#", write: true)]))
 
-      service.can_read?("c1", "a/x").should be_true
-      service.can_read?("c2", "a/x").should be_false
-      service.can_write?("c1", "b/x").should be_false
-      service.can_write?("c2", "b/x").should be_true
+      service.can_read?(ctx("c1"), "a/x").should be_true
+      service.can_read?(ctx("c2"), "a/x").should be_false
+      service.can_write?(ctx("c1"), "b/x").should be_false
+      service.can_write?(ctx("c2"), "b/x").should be_true
 
-      service.can_write?("c1", "a/x").should be_false
-      service.can_read?("c2", "b/x").should be_false
+      service.can_write?(ctx("c1"), "a/x").should be_false
+      service.can_read?(ctx("c2"), "b/x").should be_false
     end
   end
 
   it "applies a wildcard-member group to every client" do
     with_service do |service|
       service.put(group("g", ["*"], [rule("a/#", write: true)]))
-      service.can_write?("anything", "a/b").should be_true
+      service.can_write?(ctx("anyone", "anything"), "a/b").should be_true
     end
   end
 
   it "binds {client_id} to the requesting client" do
     with_service do |service|
       service.put(group("g", ["*"], [rule("data/{client_id}/#", read: true, write: true)]))
-      service.can_write?("c1", "data/c1/temp").should be_true
-      service.can_write?("c1", "data/c2/temp").should be_false
+      service.can_write?(ctx("u", "c1"), "data/c1/temp").should be_true
+      service.can_write?(ctx("u", "c1"), "data/c2/temp").should be_false
     end
   end
 
   it "reflects an update on the next check" do
     with_service do |service|
       service.put(group("g", ["*"], [rule("a/#", write: true)]))
-      service.can_write?("c1", "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_true
 
       service.put(group("g", ["*"], [rule("a/#", read: true)]))
-      service.can_write?("c1", "a/b").should be_false
-      service.can_read?("c1", "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_false
+      service.can_read?(ctx("c1"), "a/b").should be_true
     end
   end
 
   it "reflects a delete on the next check" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      service.can_read?("c2", "a/b").should be_false
+      service.can_read?(ctx("c2"), "a/b").should be_false
       service.delete("g")
-      service.can_read?("c2", "a/b").should be_true
+      service.can_read?(ctx("c2"), "a/b").should be_true
       service.in_use?.should be_false
     end
   end
@@ -110,8 +114,8 @@ describe LavinMQ::MQTT::PermissionService do
         rule("data/{client_id}/#", read: true),
         rule("static/topic", read: true),
       ]))
-      service.can_read?("#", "data/anything/temp").should be_false
-      service.can_read?("#", "static/topic").should be_true
+      service.can_read?(ctx("u", "#"), "data/anything/temp").should be_false
+      service.can_read?(ctx("u", "#"), "static/topic").should be_true
     end
   end
 
@@ -124,7 +128,7 @@ describe LavinMQ::MQTT::PermissionService do
 
       second = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
       second.in_use?.should be_true
-      second.can_write?("c1", "a/b").should be_true
+      second.can_write?(ctx("c1"), "a/b").should be_true
     ensure
       FileUtils.rm_rf data_dir
     end
@@ -141,8 +145,8 @@ describe LavinMQ::MQTT::PermissionService do
         JSON
       service = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
       service.in_use?.should be_true
-      service.can_write?("c1", "ok/x").should be_true
-      service.can_write?("c1", "bad/y/x").should be_false
+      service.can_write?(ctx("c1"), "ok/x").should be_true
+      service.can_write?(ctx("c1"), "bad/y/x").should be_false
     ensure
       FileUtils.rm_rf data_dir
     end
@@ -152,7 +156,7 @@ describe LavinMQ::MQTT::PermissionService do
     with_service do |service|
       service.put(group("g", Array(String).new, [rule("a/#", read: true)]))
       service.in_use?.should be_false
-      service.can_read?("c1", "a/b").should be_true
+      service.can_read?(ctx("c1"), "a/b").should be_true
     end
   end
 
@@ -176,10 +180,19 @@ describe LavinMQ::MQTT::PermissionService do
     with_service do |service|
       service.put(group("a", ["c1"], [rule("a/#", read: true)]))
       service.put(group("b", ["c1"], [rule("b/#", write: true)]))
-      service.can_read?("c1", "a/x").should be_true
-      service.can_write?("c1", "b/x").should be_true
-      service.can_write?("c1", "a/x").should be_false
-      service.can_read?("c1", "b/x").should be_false
+      service.can_read?(ctx("c1"), "a/x").should be_true
+      service.can_write?(ctx("c1"), "b/x").should be_true
+      service.can_write?(ctx("c1"), "a/x").should be_false
+      service.can_read?(ctx("c1"), "b/x").should be_false
+    end
+  end
+
+  it "applies only wildcard-member rules when the username is unknown" do
+    with_service do |service|
+      service.put(group("a", ["*"], [rule("a/#", read: true)]))
+      service.put(group("b", ["c1"], [rule("b/#", read: true)]))
+      service.can_read?(ctx(nil), "a/x").should be_true
+      service.can_read?(ctx(nil), "b/x").should be_false
     end
   end
 
@@ -187,9 +200,9 @@ describe LavinMQ::MQTT::PermissionService do
     with_service do |service|
       service.put(group("a", ["c1", "c2"], [rule("a/#", read: true)]))
       service.put(group("b", ["c1"], [rule("b/#", write: true)]))
-      service.can_write?("c1", "b/x").should be_true
-      service.can_write?("c2", "b/x").should be_false
-      service.can_read?("c2", "a/x").should be_true
+      service.can_write?(ctx("c1"), "b/x").should be_true
+      service.can_write?(ctx("c2"), "b/x").should be_false
+      service.can_read?(ctx("c2"), "a/x").should be_true
     end
   end
 end

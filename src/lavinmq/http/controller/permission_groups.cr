@@ -28,15 +28,15 @@ module LavinMQ
     struct PermissionGroupMemberView
       include SortableJSON
 
-      def initialize(@client_id : String)
+      def initialize(@username : String)
       end
 
       def details_tuple
-        {client_id: @client_id}
+        {username: @username}
       end
 
       protected def search_value
-        @client_id
+        @username
       end
     end
 
@@ -115,13 +115,13 @@ module LavinMQ
           end
         end
 
-        put "/api/mqtt/permission-groups/:vhost/:name/members/:member" do |context, params|
+        put "/api/mqtt/permission-groups/:vhost/:name/members/:username" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service
             group = service[params["name"]]?
             not_found(context) unless group
-            member = params["member"]
+            member = params["username"]
             if group.members.includes?(member)
               context.response.status = ::HTTP::Status::NO_CONTENT
             else
@@ -131,13 +131,13 @@ module LavinMQ
           end
         end
 
-        delete "/api/mqtt/permission-groups/:vhost/:name/members/:member" do |context, params|
+        delete "/api/mqtt/permission-groups/:vhost/:name/members/:username" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             service = vhost.mqtt_permission_service
             group = service[params["name"]]?
             not_found(context) unless group
-            member = params["member"]
+            member = params["username"]
             not_found(context) unless group.members.includes?(member)
             service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members - [member], group.rules))
             context.response.status = ::HTTP::Status::NO_CONTENT

@@ -104,9 +104,9 @@ Earlier LavinMQ versions had a `permission_check_enabled` config option under `[
 
 Because it is default-deny, creating the first group switches every MQTT client to default-deny, members and non-members alike: from that point a client needs a matching rule to publish or receive, and there is no administrator bypass. Deleting the last group restores unrestricted topic access for authenticated clients.
 
-Because group membership is keyed on client id, and a client chooses its own client id at CONNECT time, **these groups only isolate clients from one another when `client_id_validation` is set to something other than `none`.** Under `none`, any authenticated client can present any client id and inherit that client's permissions.
+Group membership is keyed on the authenticated username, not on the client id. Every connection that authenticates as a member gets the group's rules, so a user with many devices is one member. The client id is chosen by the client and is not trusted for membership; it only feeds the `{client_id}` variable, which gives each device its own slice of the topic tree. A member name must match the user name as LavinMQ shows it in the connections list; for OAuth users that is the claim selected by `preferred_username_claims`.
 
-The only mode currently available besides `none` is `username`, which forces the client id to equal the username, so `{client_id}` in a rule is just the username. Because connecting with a client id that is already in use takes over that session (see Session Takeover above), this also means a user can hold exactly one MQTT connection at a time under `username` mode. This makes per-device isolation with distinct client ids per user currently unreachable: a fleet of devices sharing one set of credentials cannot each get their own client id and their own slice of a topic subtree at the same time.
+Read checks on a session use the username of the client that last attached to it. When a persistent session is taken over by a connection with a different username (see Session Takeover above), new messages are checked against the new user, but messages already queued under the previous user are still delivered. The session stores the username on disk, so a session restored after a restart keeps its member rules until a client reconnects. A session that has never had a client since the username was first stored, for example a durable session created before this version, is checked against `"*"` rules only until its first reconnect.
 
 Permission groups are per-vhost objects. A group has a member list and a set of named rules, where each rule is an MQTT topic filter with `read` and `write` booleans:
 
@@ -114,7 +114,7 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 {
   "name": "devices",
   "vhost": "/",
-  "members": ["device-1"],
+  "members": ["alice"],
   "rules": [
     { "identifier": "own-chat", "pattern": "chat/{client_id}/#", "read": true, "write": true }
   ]
@@ -122,7 +122,7 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 ```
 
 - Group names consist of alphanumerics, hyphens and underscores, at most 255 characters.
-- `members` is a list of client ids the group applies to. The entry `"*"` applies the group to every client.
+- `members` is a list of usernames the group applies to. The entry `"*"` applies the group to every client.
 - Every rule has an `identifier` (alphanumerics and hyphens, unique within the group), which is how the rule is addressed in the HTTP API.
 
 ### HTTP API
@@ -135,13 +135,13 @@ Permission groups are per-vhost objects. A group has a member list and a set of 
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
 | GET | `/api/mqtt/permission-groups/{vhost}/{name}/members` | List the members of a group |
-| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Add a member |
-| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{client-id}` | Remove a member |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Add a member |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Remove a member |
 | GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules` | List the rules of a group |
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
-The group GET routes return one summary object per group: `name`, `vhost`, `member_count`, and `rule_count`. The members route returns one object per member: `{"client_id": "..."}`. The group list routes and the members route accept the same query parameters as the other list endpoints: `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse`, and `columns`. The rules route returns the full rule list with `identifier`, `pattern`, `read`, and `write` per rule.
+The group GET routes return one summary object per group: `name`, `vhost`, `member_count`, and `rule_count`. The members route returns one object per member: `{"username": "..."}`. The group list routes and the members route accept the same query parameters as the other list endpoints: `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse`, and `columns`. The rules route returns the full rule list with `identifier`, `pattern`, `read`, and `write` per rule.
 
 For example, to allow every device to use only its own subtree under `chat/`:
 

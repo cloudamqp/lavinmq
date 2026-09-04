@@ -10,7 +10,7 @@ module MqttSpecs
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
-        # alice has read on chat/alice/#; writer has write on everything
+        # alice has read on chat/alice/#; guest (the writer) has write on everything
         group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-read", "/",
           ["alice"],
@@ -22,7 +22,7 @@ module MqttSpecs
 
         writer_group = LavinMQ::MQTT::PermissionGroup.new(
           "writer-all", "/",
-          ["writer"],
+          ["guest"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("-", "#", read: true, write: true),
           ]
@@ -73,10 +73,10 @@ module MqttSpecs
         )
         server.vhosts["/"].mqtt_permission_service.put(group)
 
-        # seeder/seeder2: write on everything so they can seed retained messages
+        # guest (the seeders) may write everything so they can seed retained messages
         writer_group = LavinMQ::MQTT::PermissionGroup.new(
           "seeder-write-all", "/",
-          ["seeder", "seeder2"],
+          ["guest"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("-", "#", read: true, write: true),
           ]

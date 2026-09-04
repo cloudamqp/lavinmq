@@ -32,13 +32,12 @@ module MqttSpecs
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
 
-        # Grant alice write on chat/{client_id}/# and read on chat/#.
-        # The subscriber connects as "sub" (read: chat/sub/#) but also gets
-        # the broad read rule via the second entry so it can receive messages
-        # on any chat/ topic.
+        # Grant alice write on chat/{client_id}/# and read on chat/#. Both
+        # connections authenticate as alice, so the subscriber gets the broad
+        # read rule and the publisher may only write under its own client id.
         group = LavinMQ::MQTT::PermissionGroup.new(
           "alice-chat", "/",
-          ["alice", "sub"],
+          ["alice"],
           [
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat--client-id---", "chat/{client_id}/#", read: true, write: true),
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false),

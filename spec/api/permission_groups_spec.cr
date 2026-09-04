@@ -115,7 +115,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
         group["member_count"].as_i.should eq 2
         members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
-        members.map(&.["client_id"].as_s).should eq ["device-1", "*"]
+        members.map(&.["username"].as_s).should eq ["device-1", "*"]
 
         http.delete("/api/mqtt/permission-groups/%2f/grp/members/device-1").status_code.should eq 204
         http.delete("/api/mqtt/permission-groups/%2f/grp/members/device-1").status_code.should eq 404
@@ -123,7 +123,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         group = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp").body)
         group["member_count"].as_i.should eq 1
         members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
-        members.map(&.["client_id"].as_s).should eq ["*"]
+        members.map(&.["username"].as_s).should eq ["*"]
       end
     end
 
@@ -135,12 +135,12 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         end
 
         paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members?page=2&page_size=2").body)
-        paged["items"].as_a.map(&.["client_id"].as_s).should eq ["device-2"]
+        paged["items"].as_a.map(&.["username"].as_s).should eq ["device-2"]
         paged["total_count"].as_i.should eq 3
         paged["page_count"].as_i.should eq 2
 
         filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members?name=device-1").body).as_a
-        filtered.map(&.["client_id"].as_s).should eq ["device-1"]
+        filtered.map(&.["username"].as_s).should eq ["device-1"]
       end
     end
 

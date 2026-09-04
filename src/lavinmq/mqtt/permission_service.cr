@@ -14,6 +14,13 @@ module LavinMQ
         read : Bool,
         write : Bool
 
+      # What a check knows about the connection. The username selects the
+      # member rules, the client id feeds the {client_id} substitution. The
+      # username is nil for a restored session no client has attached to yet.
+      record Context,
+        username : String?,
+        client_id : String
+
       class Compiled
         getter by_member : Hash(String, Array(CompiledRule))
         getter global_rules : Array(CompiledRule)
@@ -70,14 +77,14 @@ module LavinMQ
         end
       end
 
-      def can_write?(client_id : String, topic : String) : Bool
+      def can_write?(context : Context, topic : String) : Bool
         return true unless in_use?
-        matches?(client_id, topic, write: true)
+        matches?(context, topic, write: true)
       end
 
-      def can_read?(client_id : String, topic : String) : Bool
+      def can_read?(context : Context, topic : String) : Bool
         return true unless in_use?
-        matches?(client_id, topic, write: false)
+        matches?(context, topic, write: false)
       end
 
       def to_json(json : JSON::Builder)
@@ -85,10 +92,12 @@ module LavinMQ
       end
 
       # Read @compiled once so a concurrent rebuild is never observed halfway.
-      private def matches?(client_id : String, topic : String, write : Bool) : Bool
+      private def matches?(context : Context, topic : String, write : Bool) : Bool
         compiled = @compiled
+        client_id = context.client_id
         return true if rules_match?(compiled.global_rules, client_id, topic, write)
-        return false unless own = compiled.by_member[client_id]?
+        return false unless username = context.username
+        return false unless own = compiled.by_member[username]?
         rules_match?(own, client_id, topic, write)
       end
 

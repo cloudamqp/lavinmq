@@ -40,6 +40,12 @@ module LavinMQ
       # Derived from the queue name, so a restored session with no client
       # attached still knows its client id.
       @client_id : String
+      # Carries the user of the last attached client. The username is persisted
+      # next to the messages so a restored session keeps its member rules until
+      # a client reconnects.
+      @permission_context : PermissionService::Context
+      @username_file : String
+      @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
 
@@ -58,8 +64,15 @@ module LavinMQ
           Digest::SHA1.hexdigest(@name)
         )
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
-        replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+        @replicator = durable? ? @vhost.@replicator : nil
+        @msg_store = MessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
+        @username_file = File.join(data_dir, "username")
+        username = nil
+        if File.exists?(@username_file)
+          username = File.read(@username_file)
+          @replicator.try &.register_file(@username_file)
+        end
+        @permission_context = PermissionService::Context.new(username, @client_id)
 
         @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
@@ -101,6 +114,9 @@ module LavinMQ
         close
         @msg_store_lock.synchronize do
           @msg_store.delete
+        end
+        if File.delete?(@username_file)
+          @replicator.try &.delete_file(@username_file)
         end
         @vhost.delete_queue(@name)
         true
@@ -156,12 +172,21 @@ module LavinMQ
 
         @client = client
         @has_client.set(!client.nil?)
+        if client && (username = client.user.name) != @permission_context.username
+          @permission_context = PermissionService::Context.new(username, @client_id)
+          persist_username(username) if durable?
+        end
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
       def durable?
         !clean_session?
+      end
+
+      private def persist_username(username : String) : Nil
+        File.write(@username_file, username)
+        @replicator.try &.replace_file(@username_file)
       end
 
       def subscribe(tf, qos)
@@ -180,7 +205,7 @@ module LavinMQ
       end
 
       def publish(msg : Message) : Bool
-        return true unless @permission_service.can_read?(@client_id, msg.routing_key)
+        return true unless @permission_service.can_read?(@permission_context, msg.routing_key)
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
