@@ -46,6 +46,48 @@ module MqttSpecs
       end
     end
 
+    # Regression: `bind` and `unbind` used to be a pair of overloads, one for
+    # MQTT::Session and one for the `Destination` union that refuses. Since
+    # `Destination` contains `MQTT::Session`, both matched a session and the
+    # winner depended on the order the definitions were compiled in. Requiring
+    # `mqtt/broker` before `server` (which an embedder does, and our own spec
+    # helper happens not to) selected the refusing one, and every SUBSCRIBE
+    # died with "Access refused to mqtt.default".
+    #
+    # Calling through a `Destination`-typed variable is what reproduces it:
+    # that is the static type at the real call site in DefinitionsStore.
+    it "binds a session reached through a Destination-typed reference" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        exchange = vhost.mqtt_exchange
+        vhost.declare_queue("mqtt.sub", true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+        destination = vhost.session("mqtt.sub").as(LavinMQ::Destination)
+
+        exchange.bind(destination, "a/b", LavinMQ::MQTT::QOS0_ARGUMENTS).should be_true
+        exchange.bindings_details.size.should eq 1
+
+        exchange.unbind(destination, "a/b", LavinMQ::MQTT::QOS0_ARGUMENTS).should be_true
+        exchange.bindings_details.should be_empty
+      end
+    end
+
+    it "refuses a destination that is not an MQTT session" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        exchange = vhost.mqtt_exchange
+        vhost.declare_queue("plain", false, false)
+        destination = vhost.queue("plain").as(LavinMQ::Destination)
+
+        expect_raises(LavinMQ::Exchange::AccessRefused) do
+          exchange.bind(destination, "a/b", nil)
+        end
+        expect_raises(LavinMQ::Exchange::AccessRefused) do
+          exchange.unbind(destination, "a/b", nil)
+        end
+      end
+    end
+
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

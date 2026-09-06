@@ -58,7 +58,23 @@ module LavinMQ
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
 
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
+      # Only an MQTT session may bind here, and the check is a runtime one on
+      # purpose.
+      #
+      # The obvious spelling is two overloads, one restricted to
+      # `MQTT::Session` and one to `Destination` that refuses. That does not
+      # work: `Destination` is an alias union that *contains* `MQTT::Session`,
+      # so both overloads match a session and which one Crystal picks depends
+      # on the order the definitions were compiled in, which depends on the
+      # require graph. Embedding LavinMQ as a shard and requiring
+      # `mqtt/broker` before `server` was enough to flip it, and the symptom
+      # was every SUBSCRIBE failing with "Access refused to mqtt.default"
+      # while CONNECT still worked.
+      #
+      # One overload and an `is_a?` cannot be reordered into being wrong.
+      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
+        raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
+
         qos = MQTT.qos(arguments)
         @tree.subscribe(routing_key, destination, qos)
 
@@ -68,7 +84,9 @@ module LavinMQ
         true
       end
 
-      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
+        raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
+
         qos = MQTT.qos(arguments)
         @tree.unsubscribe(routing_key, destination)
 
@@ -78,14 +96,6 @@ module LavinMQ
 
         delete if @auto_delete && @tree.empty?
         true
-      end
-
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
       private def apply_policy_argument(key : String, value : JSON::Any)
