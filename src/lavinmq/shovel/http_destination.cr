@@ -77,10 +77,10 @@ module LavinMQ
       end
 
       # A single delivery attempt. A transport-level failure (timeout, reset,
-      # connection refused) closes and reopens the client so the next attempt
-      # starts clean, and counts as a transient Retry.
+      # connection refused) counts as a transient Retry. The client is closed
+      # but kept: HTTP::Client reopens the socket on the next request, so the
+      # next attempt starts on a fresh connection.
       private def attempt(headers, path, body_io) : Outcome
-        start unless started?
         body_io.rewind
         c = @client || raise "Not started"
         resp = c.post(path, headers: headers, body: body_io)
@@ -88,7 +88,6 @@ module LavinMQ
       rescue ex : IO::Error | OpenSSL::SSL::Error
         Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
         @client.try &.close
-        @client = nil
         Outcome::Retry
       end
 
