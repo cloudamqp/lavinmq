@@ -79,6 +79,38 @@ module ShovelSpecHelpers
     end
   end
 
+  # A destination whose start can be made to fail, recording start/stop calls,
+  # so MultiDestinationHandler's failover order can be asserted.
+  class FlakyStartDestination < LavinMQ::Shovel::Destination
+    property start_error : Exception?
+    getter starts = 0
+    getter stops = 0
+    @started = false
+
+    def initialize(@start_error : Exception? = nil)
+    end
+
+    def start
+      @starts += 1
+      if err = @start_error
+        raise err
+      end
+      @started = true
+    end
+
+    def stop
+      @stops += 1
+      @started = false
+    end
+
+    def push(msg)
+    end
+
+    def started? : Bool
+      @started
+    end
+  end
+
   # Records every Outcome a Destination reports, for testing it in isolation
   # from the Runner/Source.
   class RecordingListener
@@ -1690,6 +1722,56 @@ describe LavinMQ::Shovel do
         {2_u64, LavinMQ::Shovel::Outcome::Confirmed},
         {3_u64, LavinMQ::Shovel::Outcome::Retry},
       ]
+    end
+
+    it "raises from start when no destination can be activated" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
+      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+      # An unreachable destination is a connection error for the Runner's
+      # reconnect loop, not a silent "started" that turns every push into an
+      # Abort and errors the shovel out within milliseconds.
+      expect_raises(Socket::ConnectError, "refused b") { multi.start }
+      multi.started?.should be_false
+    end
+
+    it "makes the runner reconnect with backoff while the destination is unreachable" do
+      with_amqp_server do |s|
+        # Accepts and immediately drops connections: every destination start
+        # fails, and the accept count shows the runner is still trying.
+        attempts = Atomic(Int32).new(0)
+        dead = TCPServer.new("127.0.0.1", 0)
+        spawn do
+          while client = dead.accept?
+            attempts.add(1)
+            client.close
+          end
+        end
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "nd_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec", URI.parse("amqp://127.0.0.1:#{dead.local_address.port}/"), "nd_q2", direct_user: s.users.direct_user)
+        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest] of LavinMQ::Shovel::Destination)
+        shovel = LavinMQ::Shovel::Runner.new(source, multi, "nd_shovel", vhost, reconnect_delay: 100.milliseconds)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("nd_q1")
+          x.publish_confirm "wait for me", "nd_q1"
+          spawn shovel.run
+          should_eventually(be_true) { shovel.state.error? }
+          # A connection failure that keeps being retried — not the terminal
+          # "destination unusable after 10 attempts" abort.
+          should_eventually(be_true) { attempts.get >= 3 }
+          shovel.details_tuple[:error].to_s.should_not contain "unusable"
+          shovel.details_tuple[:aborted].should eq 0
+          shovel.terminate
+          should_eventually(eq 1) { q1.message_count }
+        end
+      ensure
+        dead.try &.close
+      end
     end
   end
 end

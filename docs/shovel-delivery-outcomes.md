@@ -76,8 +76,9 @@ active at a time and it intercepts that destination's outcome:
 - `Abort` — advance to the next destination and retry the message there
   (forwarded as `Retry`). Only once **every** destination has aborted in a row,
   with no `Confirmed` in between, is `Abort` propagated so the runner errors out.
-- No usable destination (none could start) — reports `Abort` rather than
-  silently dropping the message.
+- No destination could be started — `start` raises the last connection
+  error, so the runner reconnects with backoff exactly as for a single
+  unreachable destination.
 
 ## Notes
 
