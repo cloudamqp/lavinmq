@@ -29,7 +29,7 @@ to an outcome:
 | --- | --- |
 | `200`–`299` | `Confirmed` |
 | `408`, `429`, `500`–`599` | `Retry` |
-| `400`, `422` | `Reject` |
+| `400`, `411`, `413`, `414`, `415`, `422`, `431` (the request — body size, `Content-Type`, `uri_path`, headers — comes from the message) | `Reject` |
 | Any other non-2xx (`401`, `403`, `404`, `405`, `410`, `3xx`, `418`, …) | `Abort` |
 | Transport failure during the request (connection refused/reset, read timeout, or TLS handshake error — `IO::Error` / `OpenSSL::SSL::Error`) | `Retry` |
 

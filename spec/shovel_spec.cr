@@ -1444,6 +1444,24 @@ describe LavinMQ::Shovel do
     end
   end
 
+  describe "HTTPDestination#classify" do
+    it "rejects statuses that describe the message rather than the endpoint" do
+      dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://localhost/"))
+      # Body size, Content-Type, uri_path and headers all come from the message,
+      # so these say "this message is unacceptable", not "the endpoint is gone":
+      # dead-letter the message and keep the shovel running.
+      {400, 411, 413, 414, 415, 422, 431}.each do |code|
+        dest.classify(HTTP::Client::Response.new(code)).should eq(LavinMQ::Shovel::Outcome::Reject), "status #{code}"
+      end
+      {301, 401, 403, 404, 405, 410, 418}.each do |code|
+        dest.classify(HTTP::Client::Response.new(code)).should eq(LavinMQ::Shovel::Outcome::Abort), "status #{code}"
+      end
+      {408, 429, 500, 503}.each do |code|
+        dest.classify(HTTP::Client::Response.new(code)).should eq(LavinMQ::Shovel::Outcome::Retry), "status #{code}"
+      end
+    end
+  end
+
   describe "HTTPDestination dest-timeout" do
     it "defaults to 30 seconds" do
       LavinMQ::Shovel::HTTPDestination.timeout_from(JSON.parse("{}")).should eq 30.seconds
