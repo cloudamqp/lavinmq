@@ -1350,6 +1350,42 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "retries a resumed shovel after it errored out on repeated Aborts" do
+      with_amqp_server do |s|
+        status = Atomic(Int32).new(404)
+        server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = status.get
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rs_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rs_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rs_q1")
+          x.publish_confirm "deliver me eventually", "rs_q1"
+          spawn shovel.run
+          should_eventually(be_true) { shovel.details_tuple[:error].to_s.includes?("unusable") }
+          # The operator fixes the endpoint and resumes the shovel. The new run
+          # must start with clean abort/failure counters and actually try again,
+          # not re-raise ShovelAborted on its first message.
+          status.set(200)
+          shovel.pause
+          shovel.resume
+          should_eventually(be_true) { shovel.details_tuple[:confirmed] == 1 }
+          shovel.running?.should be_true
+          shovel.terminate
+        end
+      end
+    end
+
     it "stops delivering once the shovel is paused, mid-stream (#1612 part 2 / #5.4)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)

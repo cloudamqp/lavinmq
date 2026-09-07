@@ -47,6 +47,7 @@ module LavinMQ
       def run
         Log.context.set(name: @name, vhost: @vhost.name)
         run_generation = @stop_generation.get(:acquire)
+        reset_delivery_state
         register_outcome_handler
         loop do
           break if should_stop_loop?(run_generation)
@@ -78,6 +79,16 @@ module LavinMQ
         end
       ensure
         terminate_if_needed(run_generation)
+      end
+
+      # A run starts with clean delivery state. The consecutive-failure and
+      # abort counters and the aborted flag describe the previous run; a resumed
+      # shovel must get a real delivery attempt rather than re-raise
+      # ShovelAborted on its first message or inherit a 30s backoff.
+      private def reset_delivery_state
+        @delivery_failures.set(0)
+        @delivery_aborts.set(0)
+        @aborted = false
       end
 
       # Register this Runner as the destination's outcome listener, once per run.
