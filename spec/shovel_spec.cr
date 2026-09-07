@@ -1685,6 +1685,46 @@ describe LavinMQ::Shovel do
       LavinMQ::Shovel::Runner.delivery_backoff(7).should eq 30.seconds
       LavinMQ::Shovel::Runner.delivery_backoff(50).should eq 30.seconds
     end
+
+    it "counts a burst of Retry outcomes as one failing round" do
+      with_amqp_server do |s|
+        source = ShovelSpecHelpers::PauseRaceSource.new
+        dest = ShovelSpecHelpers::PauseRaceDestination.new
+        runner = LavinMQ::Shovel::Runner.new(source, dest, "backoff", s.vhosts["/"])
+        # Confirms arrive one per in-flight publish (up to prefetch), so a
+        # reject-publish overflow nacks a whole window at once. That is one
+        # failing round to back off from, not hundreds of them.
+        10.times { |i| runner.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Retry) }
+        runner.details_tuple[:consecutive_failures].should eq 1
+      end
+    end
+
+    it "waits once until the backoff deadline and clears it on a Confirmed" do
+      with_amqp_server do |s|
+        source = ShovelSpecHelpers::PauseRaceSource.new
+        dest = ShovelSpecHelpers::PauseRaceDestination.new
+        runner = LavinMQ::Shovel::Runner.new(source, dest, "backoff", s.vhosts["/"])
+        runner.pending_backoff.should eq Time::Span.zero
+        runner.report(1_u64, LavinMQ::Shovel::Outcome::Retry)
+        runner.pending_backoff.should be <= 0.5.seconds
+        runner.pending_backoff.should be > 0.3.seconds
+        # A Retry inside the window belongs to the same failing round: it does
+        # not push the deadline out or count another failure...
+        runner.report(2_u64, LavinMQ::Shovel::Outcome::Retry)
+        runner.details_tuple[:consecutive_failures].should eq 1
+        runner.pending_backoff.should be <= 0.5.seconds
+        # ...whereas the next round after the deadline doubles the window.
+        sleep runner.pending_backoff
+        runner.report(3_u64, LavinMQ::Shovel::Outcome::Retry)
+        runner.details_tuple[:consecutive_failures].should eq 2
+        runner.pending_backoff.should be > 0.5.seconds
+        runner.pending_backoff.should be <= 1.second
+        # Recovery is immediate: no leftover sleep before the next message.
+        runner.report(4_u64, LavinMQ::Shovel::Outcome::Confirmed)
+        runner.details_tuple[:consecutive_failures].should eq 0
+        runner.pending_backoff.should eq Time::Span.zero
+      end
+    end
   end
 
   describe "Store.validate_config!" do
