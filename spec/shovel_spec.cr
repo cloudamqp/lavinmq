@@ -1133,6 +1133,38 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "keeps delivering after a transport failure instead of raising Not started" do
+      with_amqp_server do |s|
+        # The handler never reads the request body, so the server closes the
+        # connection after every response: the next request on the kept-alive
+        # socket fails at the transport level (a stale keep-alive).
+        server = HTTP::Server.new do |context|
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "ns_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ns_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("ns_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "ns_q1" }
+          spawn shovel.run
+          # A stale socket is a transient Retry that the next push recovers from
+          # on a fresh connection — not a "Not started" exception that tears the
+          # run down and waits out a 5s reconnect.
+          should_eventually(be_true, 4.seconds) { shovel.details_tuple[:confirmed] == 3 }
+          shovel.details_tuple[:error].should be_nil
+          shovel.terminate
+        end
+      end
+    end
+
     it "errors-out the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
       with_amqp_server do |s|
         server = HTTP::Server.new do |context|
