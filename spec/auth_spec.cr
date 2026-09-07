@@ -45,22 +45,6 @@ ensure
   socket.try &.close
 end
 
-private def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
-  config = LavinMQ::Config.instance
-  previous_loopback = config.default_user_only_loopback?
-  previous_proxy = config.tcp_proxy_protocol?
-  previous_sources = config.proxy_protocol_trusted_sources
-  config.default_user_only_loopback = true
-  config.tcp_proxy_protocol = true
-  config.proxy_protocol_trusted_sources = trusted_sources
-  yield
-ensure
-  config = LavinMQ::Config.instance
-  config.default_user_only_loopback = previous_loopback.nil? ? true : previous_loopback
-  config.tcp_proxy_protocol = previous_proxy.nil? ? false : previous_proxy
-  config.proxy_protocol_trusted_sources = previous_sources || Array(LavinMQ::IPMatcher).new
-end
-
 describe LavinMQ::Auth::Chain do
   it "creates a default authentication chain if not configured" do
     with_amqp_server do |s|

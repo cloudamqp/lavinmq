@@ -4,19 +4,6 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  private def self.with_proxy_protocol(&)
-    config = LavinMQ::Config.instance
-    previous_loopback = config.default_user_only_loopback?
-    previous_proxy = config.tcp_proxy_protocol?
-    config.default_user_only_loopback = true
-    config.tcp_proxy_protocol = true
-    yield
-  ensure
-    config = LavinMQ::Config.instance
-    config.default_user_only_loopback = previous_loopback.nil? ? true : previous_loopback
-    config.tcp_proxy_protocol = previous_proxy.nil? ? false : previous_proxy
-  end
-
   describe "MQTT default user loopback gate with PROXY protocol" do
     it "rejects the default user when a PROXY header claims a loopback source" do
       with_server do |server|
