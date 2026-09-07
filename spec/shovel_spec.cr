@@ -362,9 +362,10 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "does not deadlock when the final message of a queue-length shovel fails delivery" do
+    it "keeps retrying the final message of a queue-length shovel instead of finishing without it" do
       with_amqp_server do |s|
         server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
           context.response.status_code = 503 # Retry -> reject(requeue: true), never Confirmed
           context.response.print "busy"
           context
@@ -381,13 +382,55 @@ describe LavinMQ::Shovel do
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "qf_shovel", vhost)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
-          ch.queue("qf_q1")
+          q1 = ch.queue("qf_q1")
           x.publish_confirm "only msg", "qf_q1"
           finished = false
           spawn { shovel.run; finished = true }
-          # The final (only) message fails; the shovel must still finish instead
-          # of blocking forever on @done.wait waiting for an ack that never comes.
+          # A requeued message is redelivered and retried with backoff. The run
+          # must neither hang forever nor declare the queue drained (and delete
+          # the shovel) while the message is still on the source.
+          should_eventually(be_true, 5.seconds) { shovel.details_tuple[:retried] >= 2 }
+          finished.should be_false
+          shovel.terminate
           should_eventually(be_true, 5.seconds) { finished }
+          should_eventually(eq 1) { q1.message_count }
+        end
+      end
+    end
+
+    it "finishes a queue-length shovel only once every message is delivered, retries included" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          # the second request fails once; everything else succeeds
+          context.response.status_code = received.add(1) == 1 ? 503 : 200
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "qr_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "qr_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("qr_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "qr_q1" }
+          shovel.run
+          # The redelivery carries a delivery tag past the snapshot, but it is
+          # one of the snapshot's messages: it must be delivered before the run
+          # counts as done, not skipped while the shovel deletes itself.
+          d = shovel.details_tuple
+          d[:confirmed].should eq 3
+          d[:retried].should eq 1
+          received.get.should eq 4
+          q1.message_count.should eq 0
         end
       end
     end
@@ -1116,21 +1159,21 @@ describe LavinMQ::Shovel do
 
         vhost = s.vhosts["/"]
         source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "rt_q1",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          direct_user: s.users.direct_user)
+          "spec", [URI.parse(s.amqp_server.url)], "rt_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "rt_shovel", vhost)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           q1 = ch.queue("rt_q1")
           x.publish_confirm "retry me", "rt_q1"
-          # A persistent 503: one push makes exactly 1 + MAX_RETRIES in-place
-          # attempts, then reports Retry so the Runner requeues the message. The
-          # endpoint sees a bounded burst, not a busy-loop of hundreds/sec.
-          shovel.run
-          received.get.should eq 1
-          shovel.details_tuple[:retried].should eq 1
+          # A 503 is the endpoint answering, not a dead connection, so there is
+          # no in-place retry: one attempt, then Retry so the Runner requeues the
+          # message and backs off. The endpoint sees paced attempts, not a
+          # busy-loop of hundreds per second.
+          spawn shovel.run
+          should_eventually(be_true) { shovel.details_tuple[:retried] >= 1 }
+          received.get.should be <= 2
+          shovel.terminate
           # the message is never lost: it's back on the source queue
           should_eventually(eq 1) { q1.message_count }
         end

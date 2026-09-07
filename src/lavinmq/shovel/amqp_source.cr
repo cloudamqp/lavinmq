@@ -1,5 +1,4 @@
 require "amqp-client"
-require "wait_group"
 require "./source"
 
 module LavinMQ
@@ -10,6 +9,10 @@ module LavinMQ
       @ch : ::AMQP::Client::Channel?
       @q : NamedTuple(queue_name: String, message_count: UInt32, consumer_count: UInt32)?
       @last_unacked : UInt64?
+      # Queue-length mode: how many of the messages that were on the queue at
+      # start (the message_count snapshot) have been settled for good — acked,
+      # or rejected without requeue.
+      @settled = 0_u32
 
       getter delete_after, last_unacked
 
@@ -59,22 +62,40 @@ module LavinMQ
         # If we have any outstanding messages when closing, ack them first.
         @ch.try &.basic_cancel(@tag, no_wait: true)
         @settle.synchronize do
-          @last_unacked.try { |delivery_tag| ack_locked(delivery_tag, batch: false) }
+          if (ch = @ch) && !ch.closed? && (tag = @last_unacked)
+            flush_ack(ch, tag)
+          end
         end
         @conn.try &.close(no_wait: false)
         @q = nil
         @ch = nil
       end
 
-      private def at_end?(delivery_tag)
-        (q = @q) && @delete_after.queue_length? && q[:message_count] == delivery_tag
+      # Queue-length mode moves the messages that were on the queue at start
+      # and no more. A delivery tag past the snapshot is a newer message —
+      # unless it is a redelivery of one of ours that was requeued (Retry,
+      # Abort), which still has to be moved.
+      private def past_end?(msg : ::AMQP::Client::DeliverMessage) : Bool
+        return false unless (q = @q) && @delete_after.queue_length?
+        msg.delivery_tag > q[:message_count] && !msg.redelivered
       end
 
-      private def past_end?(delivery_tag)
-        (q = @q) && @delete_after.queue_length? && q[:message_count] < delivery_tag
+      # Records one message settled for good. Returns true when it was the last
+      # of the snapshot, i.e. the queue-length run is complete.
+      private def settle_one : Bool
+        return false unless (q = @q) && @delete_after.queue_length?
+        @settled += 1
+        @settled >= q[:message_count]
       end
 
-      @done = WaitGroup.new(1)
+      # Every message of the snapshot is settled: stop consuming. Cancelling
+      # closes the consumer's delivery channel, so the blocking consume in #each
+      # returns and the Runner finishes the shovel. Any final ack was written
+      # before the cancel, so it is on the wire first.
+      private def finish(ch)
+        ch.basic_cancel(@tag, no_wait: true)
+      end
+
       # Serializes settlement (ack/reject/timeout-flush/stop). @last_unacked is
       # written from the confirm fiber and the ack-timeout fiber, which run on
       # separate threads under -Dpreview_mt; the read-decide-emit-update must be
@@ -90,15 +111,22 @@ module LavinMQ
         return unless ch
         return if ch.closed?
 
+        final = settle_one
         # We batch ack for faster shovel
         batch_full = delivery_tag % ack_batch_size == 0
-        if !batch || batch_full || at_end?(delivery_tag)
-          @last_unacked = nil
-          ch.basic_ack(delivery_tag, multiple: true)
-          @done.done if at_end?(delivery_tag)
+        if !batch || batch_full || final
+          flush_ack(ch, delivery_tag)
+          finish(ch) if final
         else
           @last_unacked = delivery_tag
         end
+      end
+
+      # Ack `delivery_tag` and everything deferred before it. A flush, not a
+      # settlement: the deferred tag was counted when its ack came in.
+      private def flush_ack(ch, delivery_tag)
+        @last_unacked = nil
+        ch.basic_ack(delivery_tag, multiple: true)
       end
 
       # Return a single message to the source. We ack with multiple: true for
@@ -113,16 +141,12 @@ module LavinMQ
         return unless ch
         return if ch.closed?
         if last = @last_unacked
-          if last < delivery_tag
-            @last_unacked = nil
-            ch.basic_ack(last, multiple: true)
-          end
+          flush_ack(ch, last) if last < delivery_tag
         end
         ch.basic_reject(delivery_tag, requeue: requeue)
-        # A queue-length shovel's `each` blocks on @done.wait after the final
-        # message; signal it here too so a failed (non-Confirmed) final delivery
-        # doesn't hang the run fiber forever.
-        @done.done if at_end?(delivery_tag)
+        # A requeued message comes back redelivered and is settled then; a
+        # dead-lettered (or dropped) one is settled now.
+        finish(ch) if !requeue && settle_one
       end
 
       def started? : Bool
@@ -170,11 +194,11 @@ module LavinMQ
           # We have nothing in memory
           next if last_unacked.nil?
 
-          # Re-check and ack under the settlement lock so a concurrent ack/reject
-          # can't change @last_unacked between the check and the flush. If it has
-          # moved on (or been settled), there's nothing for us to do.
+          # Re-check and flush under the settlement lock so a concurrent
+          # ack/reject can't change @last_unacked between the check and the
+          # flush. If it has moved on (or been settled), there's nothing to do.
           @settle.synchronize do
-            ack_locked(last_unacked, batch: false) if last_unacked == @last_unacked
+            flush_ack(ch, last_unacked) if !ch.closed? && last_unacked == @last_unacked
           end
         end
         Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
@@ -191,11 +215,10 @@ module LavinMQ
           block: true,
           args: @args,
           tag: @tag) do |msg|
-          blk.call(msg) unless past_end?(msg.delivery_tag)
-          if at_end?(msg.delivery_tag)
-            ch.basic_cancel(@tag, no_wait: true)
-            @done.wait # wait for last ack before returning, which will close connection
-          end
+          blk.call(msg) unless past_end?(msg)
+          # no-ack settles nothing, so with nothing to requeue the snapshot is
+          # complete once its last message has been delivered.
+          finish(ch) if @ack_mode.no_ack? && @delete_after.queue_length? && msg.delivery_tag == q[:message_count]
         end
       rescue e
         Log.warn { "name=#{@name} #{e.message}" }

@@ -10,7 +10,7 @@ Each shovel runs as an independent fiber owned by its vhost. When started, it op
 2. **Pull loop.** Messages from the source consumer are pushed one by one to the destination's `push` method. For AMQP destinations this becomes `basic.publish` to `dest-exchange` with `dest-exchange-key` (or to the default exchange when `dest-queue` is set). For HTTP destinations, the message body is POSTed to `dest-uri`.
 3. **Acknowledgment.** The destination classifies each delivery into an [outcome](#delivery-outcomes), and the shovel acks, retries, dead-letters, or aborts the source message accordingly. The configured `ack-mode` controls *when* the outcome is reported (see [Acknowledgment Modes](#acknowledgment-modes)).
 4. **Lifecycle.** A state machine moves the shovel between `starting`, `running`, `paused`, `error`, `stopped`, and `terminated` (see [Shovel States](#shovel-states)). Errors trigger an exponential-backoff reconnect; pause is persisted to disk so a paused shovel stays paused across server restarts.
-5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once the source queue has been drained.
+5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once every message that was in the source queue when it started has been delivered or dead-lettered. Messages published after the start are left alone. A message whose delivery keeps failing transiently is redelivered and retried with backoff, so the shovel does not finish (or delete itself) while such a message remains.
 
 ## Components
 
