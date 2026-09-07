@@ -61,7 +61,7 @@ document.querySelector('#exportDefinitions').addEventListener('submit', function
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-  })
+  }).catch(() => {})
 })
 
 const raw = window.sessionStorage.getItem(cacheKey())
@@ -96,7 +96,7 @@ function update (cb) {
     if (cb) {
       cb(response)
     }
-  })
+  }).catch(() => {})
 }
 
 function render (data) {

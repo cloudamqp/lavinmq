@@ -11,20 +11,21 @@ HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('messages_ready').textContent = item.messages_ready.toLocaleString()
   document.getElementById('messages_unacknowledged').textContent = item.messages_unacknowledged.toLocaleString()
   document.getElementById('messages_total').textContent = item.messages.toLocaleString()
-})
+}).catch(() => {})
 
-function fetchLimits () {
-  HTTP.request('GET', HTTP.url`api/vhost-limits/${vhost}`).then(arr => {
-    const limits = arr[0] || { value: {} }
-    const maxConnections = limits.value['max-connections'] || ''
-    document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
-    document.forms.setLimits['max-connections'].value = maxConnections
-    const maxQueues = limits.value['max-queues'] || ''
-    document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
-    document.forms.setLimits['max-queues'].value = maxQueues
-  })
+async function fetchLimits () {
+  const arr = await HTTP.request('GET', HTTP.url`api/vhost-limits/${vhost}`)
+  const limits = arr[0] || { value: {} }
+  const maxConnections = limits.value['max-connections'] || ''
+  document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
+  document.forms.setLimits['max-connections'].value = maxConnections
+  const maxQueues = limits.value['max-queues'] || ''
+  document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
+  document.forms.setLimits['max-queues'].value = maxQueues
 }
-fetchLimits()
+try {
+  fetchLimits()
+} catch {}
 
 const permissionsUrl = HTTP.url`api/vhosts/${vhost}/permissions`
 const tableOptions = { url: permissionsUrl, keyColumns: ['user'], countId: 'permissions-count' }
@@ -37,7 +38,9 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
       text: 'Clear',
       click: function () {
         const url = HTTP.url`api/permissions/${vhost}/${item.user}`
-        HTTP.request('DELETE', url).then(() => tr.parentNode.removeChild(tr))
+        HTTP.request('DELETE', url)
+          .then(() => tr.parentNode.removeChild(tr))
+          .catch(() => {})
       }
     })
     const userLink = document.createElement('a')
@@ -92,6 +95,7 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
       permissionsTable.reload()
       evt.target.reset()
     })
+    .catch(() => {})
 })
 
 document.forms.setLimits.addEventListener('submit', function (evt) {
@@ -100,10 +104,12 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
   const maxConnectionsBody = { value: Number(this['max-connections'].value || -1) }
   const maxQueuesUrl = HTTP.url`api/vhost-limits/${vhost}/max-queues`
   const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
-  Promise.all([
-    HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
-    HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody })
-  ]).then(fetchLimits)
+  Promise.allSettled([
+    HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }).catch(() => {}),
+    HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody }).catch(() => {})
+  ])
+    .then(fetchLimits)
+    .catch(() => {})
 })
 
 document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
@@ -112,5 +118,6 @@ document.querySelector('#deleteVhost').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'vhosts' })
+      .catch(() => {})
   }
 })
