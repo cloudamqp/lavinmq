@@ -18,13 +18,18 @@ module LavinMQ
       def initialize(@destinations : Array(Destination))
       end
 
+      # Try destinations in order until one starts, so an unreachable primary
+      # fails over at startup too. If none can be started, raise the last
+      # failure: to the Runner it is a connection error like any other, retried
+      # with backoff.
       def start
         return if started?
-        # Try destinations in order until one starts, so an unreachable primary
-        # fails over at startup too.
+        error = nil
         @destinations.size.times do |i|
-          return if activate(@index + i)
+          error = activate(@index + i)
+          return if error.nil?
         end
+        raise(error || ArgumentError.new("No destinations configured"))
       end
 
       def stop
@@ -40,27 +45,22 @@ module LavinMQ
       end
 
       def push(msg)
-        if dest = @current
-          dest.push(msg)
-        else
-          # No usable destination at all — surface it rather than dropping.
-          @listener.report(msg.delivery_tag, Outcome::Abort)
-        end
+        dest = @current || raise "Not started"
+        dest.push(msg)
       end
 
       # Activate destination at `index`, routing its outcomes through our handler.
-      # Returns true if it started.
-      private def activate(index) : Bool
-        return false if @destinations.empty?
+      # Returns nil if it started, else the exception its start raised.
+      private def activate(index) : Exception?
         @index = index % @destinations.size
         dest = @destinations[@index]
         dest.listener = self
         dest.start
         @current = dest
-        true
+        nil
       rescue ex
         Log.warn { "Destination #{@index} failed to start: #{ex.message}" }
-        false
+        ex
       end
 
       # Intercepts each active destination's outcome. A non-Abort is forwarded
@@ -85,7 +85,7 @@ module LavinMQ
 
       private def start_next
         @destinations.size.times do |i|
-          return if activate(@index + 1 + i)
+          return if activate(@index + 1 + i).nil?
         end
       end
 
