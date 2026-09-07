@@ -24,6 +24,7 @@ module LavinMQ
       # with backoff.
       def start
         return if started?
+        @consecutive_aborts = 0
         error = nil
         each_index_from(@index) do |i|
           error = activate(i)
@@ -35,6 +36,7 @@ module LavinMQ
       def stop
         @current.try &.stop
         @current = nil
+        @consecutive_aborts = 0
       end
 
       def started? : Bool
@@ -73,8 +75,11 @@ module LavinMQ
       end
 
       # Intercepts each active destination's outcome. A non-Abort is forwarded
-      # unchanged. An Abort fails over to the next destination (and retries the
-      # message there) until all have aborted in a row, then propagates Abort.
+      # unchanged. An Abort fails over to the next destination, so the
+      # redelivery goes there rather than to the destination that just aborted.
+      # Until every destination has aborted in a row that is a Retry; from then
+      # on Abort propagates so the Runner's abort threshold applies, while the
+      # handler keeps rotating for each redelivery.
       def report(delivery_tag : UInt64, outcome : Outcome)
         case outcome
         in Outcome::Confirmed, Outcome::Retry, Outcome::Reject
@@ -82,11 +87,11 @@ module LavinMQ
           @listener.report(delivery_tag, outcome)
         in Outcome::Abort
           @consecutive_aborts += 1
+          @current.try &.stop
+          start_next
           if @consecutive_aborts >= @destinations.size
             @listener.report(delivery_tag, Outcome::Abort) # every destination is unusable
           else
-            @current.try &.stop
-            start_next
             @listener.report(delivery_tag, Outcome::Retry) # re-deliver on the new active one
           end
         end
