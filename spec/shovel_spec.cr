@@ -1347,11 +1347,14 @@ describe LavinMQ::Shovel do
           x = ch.exchange("", "direct", passive: true)
           ch.queue("ct_q1")
           x.publish_confirm "hi", "ct_q1"
-          config = %({
-            "src-uri": "#{s.amqp_server.url}",
-            "src-queue": "ct_q1",
-            "dest-uri": "http://#{addr}/",
-            "dest-timeout": 0.2})
+          config = <<-JSON
+            {
+              "src-uri": "#{s.amqp_server.url}",
+              "src-queue": "ct_q1",
+              "dest-uri": "http://#{addr}/",
+              "dest-timeout": 0.2
+            }
+            JSON
           vhost.add_parameter(LavinMQ::Parameter.new("shovel", "ct_shovel", JSON.parse(config)))
           # With the 0.2s timeout wired through, each attempt times out long before
           # the server's 1s response and is retried, so the endpoint is hit
