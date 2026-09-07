@@ -336,6 +336,32 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "does not report Retry for confirms voided by a connection close" do
+      with_amqp_server do |s|
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec", URI.parse(s.amqp_server.url), "pc_q2", direct_user: s.users.direct_user)
+        listener = ShovelSpecHelpers::RecordingListener.new
+        dest.listener = listener
+        with_channel(s) do |ch|
+          ch.queue("pc_q2")
+          dest.start
+          props = AMQ::Protocol::Properties.new
+          50.times do |i|
+            msg = AMQP::Client::DeliverMessage.new(ch, "", "pc_q2", i.to_u64 + 1, props, IO::Memory.new("m#{i}"), false)
+            dest.push(msg)
+          end
+          # amqp-client voids every pending confirm with `false` when the
+          # connection goes (pause, terminate, a server-side close). That is not
+          # a nack: the unconfirmed messages come back through the source's own
+          # channel close, so reporting Retry for each of them only inflates the
+          # retry counters and arms the delivery backoff for the next run.
+          dest.@ch.not_nil!.cleanup
+          listener.outcomes.map(&.last).should_not contain LavinMQ::Shovel::Outcome::Retry
+        end
+        dest.stop
+      end
+    end
+
     it "does not deadlock when the final message of a queue-length shovel fails delivery" do
       with_amqp_server do |s|
         server = HTTP::Server.new do |context|

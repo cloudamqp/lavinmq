@@ -65,8 +65,12 @@ module LavinMQ
         in AckMode::OnConfirm
           # The confirm callback's Bool is the broker's ack/nack. A nack (e.g.
           # reject-publish overflow) is transient — the queue may drain — so it
-          # becomes Retry, never a silent ack.
+          # becomes Retry, never a silent ack. When the connection goes away
+          # amqp-client voids every pending confirm with `false` as well; that is
+          # not a nack (the messages are requeued when the source's channel
+          # closes), so it is not an outcome.
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do |confirmed|
+            next if !confirmed && ch.closed?
             @listener.report(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
           end
         in AckMode::OnPublish

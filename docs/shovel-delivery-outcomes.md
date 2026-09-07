@@ -54,6 +54,7 @@ chunked transfer encoding.
 | Publisher-confirm **ack** | `Confirmed` |
 | Publisher-confirm **nack** (e.g. `x-overflow: reject-publish` on a full destination queue) | `Retry` |
 | Connection / channel error mid-publish | Not an outcome — the exception is handled by the runner's reconnect loop. A `404` channel-close ("queue deleted") stops the shovel. |
+| Pending confirms voided by a connection close (pause, terminate, server-side close) | Not an outcome either — the client fires those callbacks with `false`, but the messages were never nacked; they are requeued when the source's channel closes. |
 
 ## Ack-mode interaction
 
