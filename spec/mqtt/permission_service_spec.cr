@@ -134,21 +134,28 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  it "tolerates invalid patterns loaded from disk" do
-    data_dir = File.tempname
-    Dir.mkdir_p data_dir
-    begin
-      File.write File.join(data_dir, "mqtt_permissions.json"), <<-JSON
-        [
-          {"name":"g","vhost":"/","members":["c1"],"rules":[{"identifier":"bad","pattern":"bad/#/x","write":true},{"identifier":"ok","pattern":"ok/#","write":true}]}
-        ]
-        JSON
-      service = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
-      service.in_use?.should be_true
-      service.can_write?(ctx("c1"), "ok/x").should be_true
-      service.can_write?(ctx("c1"), "bad/y/x").should be_false
-    ensure
-      FileUtils.rm_rf data_dir
+  # Everything put accepts is valid, so an invalid group on disk is a hand
+  # edit or a foreign writer. Loading it would make the group unmodifiable
+  # through the API, since every put revalidates the whole group.
+  {
+    {"an invalid pattern", /Invalid MQTT topic filter/,
+     %([{"name":"g","vhost":"/","members":["c1"],"rules":[{"identifier":"bad","pattern":"bad/#/x","write":true}]}])},
+    {"an invalid name", /Invalid group name/,
+     %([{"name":"my group","vhost":"/","members":["c1"],"rules":[{"identifier":"ok","pattern":"ok/#","write":true}]}])},
+    {"duplicate rule identifiers", /Duplicate rule identifier/,
+     %([{"name":"g","vhost":"/","members":["c1"],"rules":[{"identifier":"r","pattern":"a/#","write":true},{"identifier":"r","pattern":"b/#","write":true}]}])},
+  }.each do |what, message, json|
+    it "refuses to load a group with #{what} from disk" do
+      data_dir = File.tempname
+      Dir.mkdir_p data_dir
+      begin
+        File.write File.join(data_dir, "mqtt_permissions.json"), json
+        expect_raises(ArgumentError, message) do
+          LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+        end
+      ensure
+        FileUtils.rm_rf data_dir
+      end
     end
   end
 
