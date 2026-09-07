@@ -186,18 +186,24 @@ module LavinMQ
 
       # The .metadata file is to a session what .queue is to a queue: it names
       # the owner of a data directory. It also holds the last attached username.
+      # Anything that is not a JSON object with a string username is treated
+      # as an unknown user; a bad file must never stop the session from loading.
       private def read_metadata_file : String?
-        JSON.parse(File.read(@metadata_file))["username"]?.try(&.as_s?)
-      rescue ex : JSON::ParseException
+        JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
+      rescue ex : JSON::ParseException | IO::Error
         @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
         nil
       end
 
+      # Written to a temporary file and renamed into place, so a crash
+      # mid-write leaves the previous file rather than a truncated one.
       private def write_metadata_file(username : String?) : Nil
-        File.open(@metadata_file, "w") do |f|
-          f.sync = true
+        tmpfile = "#{@metadata_file}.tmp"
+        File.open(tmpfile, "w") do |f|
           {name: @name, client_id: @client_id, username: username}.to_json(f)
+          f.fsync
         end
+        File.rename tmpfile, @metadata_file
         @replicator.try &.replace_file(@metadata_file)
       end
 
