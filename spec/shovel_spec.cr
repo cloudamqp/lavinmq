@@ -1735,6 +1735,32 @@ describe LavinMQ::Shovel do
       multi.started?.should be_false
     end
 
+    it "tries every destination once at start when the first ones are down" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
+      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
+      c = ShovelSpecHelpers::FlakyStartDestination.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b, c] of LavinMQ::Shovel::Destination)
+      multi.start
+      # The walk must not revisit a slot it already tried (and so skip c).
+      {a.starts, b.starts, c.starts}.should eq({1, 1, 1})
+      c.started?.should be_true
+    end
+
+    it "fails over past a destination that cannot start to the next one" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
+      c = ShovelSpecHelpers::FlakyStartDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b, c] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # a is unusable: fail over
+      # b is down, so c must become active — not a restarted a.
+      {a.starts, b.starts, c.starts}.should eq({1, 1, 1})
+      c.started?.should be_true
+      parent.outcomes.should eq [{1_u64, LavinMQ::Shovel::Outcome::Retry}]
+    end
+
     it "makes the runner reconnect with backoff while the destination is unreachable" do
       with_amqp_server do |s|
         # Accepts and immediately drops connections: every destination start
