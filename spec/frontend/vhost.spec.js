@@ -120,6 +120,35 @@ test.describe("vhost", _ => {
     expect(errors).toEqual([])
   })
 
+  test('failed limits load on page load does not raise a page error', async ({ page }) => {
+    const errors = []
+    let limitsRequests = 0
+    page.on('pageerror', err => errors.push(err.message))
+    page.on('dialog', dialog => dialog.dismiss())
+    await page.route(url => url.pathname === `/api/vhosts/${vhostName}`, async route => {
+      await route.fulfill({ json: { messages_ready: 0, messages_unacknowledged: 0, messages: 0 } })
+    })
+    await page.route(url => url.pathname === `/api/vhosts/${vhostName}/permissions`, async route => {
+      await route.fulfill({ json: permissionsResponse })
+    })
+    await page.route(url => url.pathname === '/api/users', async route => {
+      await route.fulfill({ json: usersResponse })
+    })
+    await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}`, async route => {
+      limitsRequests += 1
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'access_refused', reason: 'No permission' })
+      })
+    })
+
+    await page.goto(`/vhost#name=${vhostName}`)
+    await expect.poll(() => limitsRequests).toBe(1)
+    await expect(page.locator('#permissions tbody tr')).toHaveCount(permissionsResponse.length)
+    expect(errors).toEqual([])
+  })
+
   test('delete button works', async ({ page }) => {
     await page.goto(`/vhost#name=${vhostName}`)
 
