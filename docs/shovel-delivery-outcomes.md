@@ -75,7 +75,10 @@ active at a time and it intercepts that destination's outcome:
   non-abort resets the failover cycle).
 - `Abort` — advance to the next destination and retry the message there
   (forwarded as `Retry`). Only once **every** destination has aborted in a row,
-  with no `Confirmed` in between, is `Abort` propagated so the runner errors out.
+  with no `Confirmed` in between, is `Abort` propagated so the runner's abort
+  threshold applies; the handler keeps advancing for each redelivery even then,
+  so no single destination is hammered. The streak is cleared by any non-abort
+  outcome and whenever the handler is stopped or started.
 - No destination could be started — `start` raises the last connection
   error, so the runner reconnects with backoff exactly as for a single
   unreachable destination.

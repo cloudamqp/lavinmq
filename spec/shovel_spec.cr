@@ -1724,6 +1724,43 @@ describe LavinMQ::Shovel do
       ]
     end
 
+    it "keeps rotating destinations while Aborts continue past a full cycle" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      b = ShovelSpecHelpers::FlakyStartDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      4.times { |i| multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Abort) }
+      # Once every destination has aborted in a row the Abort propagates (so the
+      # Runner's threshold applies), but each redelivery still goes to the next
+      # destination rather than hammering the one that just aborted.
+      parent.outcomes.map(&.last).should eq [
+        LavinMQ::Shovel::Outcome::Retry,
+        LavinMQ::Shovel::Outcome::Abort,
+        LavinMQ::Shovel::Outcome::Abort,
+        LavinMQ::Shovel::Outcome::Abort,
+      ]
+      {a.starts, b.starts}.should eq({3, 2})
+    end
+
+    it "resets the abort streak when stopped and started again" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      b = ShovelSpecHelpers::FlakyStartDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)
+      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # full cycle: propagated
+      multi.stop
+      multi.start
+      # A fresh run (pause/resume, reconnect) starts with a clean streak: the
+      # first Abort fails over instead of propagating straight away.
+      multi.report(2_u64, LavinMQ::Shovel::Outcome::Abort)
+      parent.outcomes.last.should eq({2_u64, LavinMQ::Shovel::Outcome::Retry})
+    end
+
     it "raises from start when no destination can be activated" do
       a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
       b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
