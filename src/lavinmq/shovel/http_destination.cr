@@ -124,16 +124,29 @@ module LavinMQ
         ex.is_a?(IO::Error) && ex.os_error.in?(Errno::ECONNRESET, Errno::EPIPE)
       end
 
+      # Statuses that describe the request rather than the endpoint. The body,
+      # Content-Type, uri_path and headers all come from the message, so these
+      # mean "this message is unacceptable" (Reject), not "the endpoint is
+      # unusable" (Abort).
+      MESSAGE_STATUSES = {
+        400, # Bad Request
+        411, # Length Required
+        413, # Payload Too Large
+        414, # URI Too Long
+        415, # Unsupported Media Type
+        422, # Unprocessable Content
+        431, # Request Header Fields Too Large
+      }
+
       def classify(response : ::HTTP::Client::Response) : Outcome
         code = response.status_code
         case
-        when 200 <= code < 300 then Outcome::Confirmed
-        when code == 408       then Outcome::Retry
-        when code == 429       then Outcome::Retry
-        when 500 <= code < 600 then Outcome::Retry
-        when code == 400       then Outcome::Reject
-        when code == 422       then Outcome::Reject
-        else                        Outcome::Abort
+        when 200 <= code < 300                then Outcome::Confirmed
+        when code == 408                      then Outcome::Retry
+        when code == 429                      then Outcome::Retry
+        when 500 <= code < 600                then Outcome::Retry
+        when MESSAGE_STATUSES.includes?(code) then Outcome::Reject
+        else                                       Outcome::Abort
         end
       end
     end

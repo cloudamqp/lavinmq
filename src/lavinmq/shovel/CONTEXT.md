@@ -48,7 +48,8 @@ the Runner decides what each one does. One of:
 - **Retry** — transient failure (HTTP 5xx/429/408/timeout/connection-refused;
   AMQP nack such as reject-publish overflow). Runner requeues (`requeue: true`)
   and retries with backoff, unbounded.
-- **Reject** — the *message* is unacceptable (HTTP 400/422). Runner rejects
+- **Reject** — the *message* is unacceptable (HTTP 400/422, or 413/415 and
+  the other statuses about the request's size, type or headers). Runner rejects
   without requeue (`requeue: false`) so the source queue's dead-letter exchange
   handles it, then continues with the next message.
 - **Abort** — the *destination* is unusable (HTTP 404, auth failure). Runner
