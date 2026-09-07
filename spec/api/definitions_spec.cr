@@ -375,6 +375,25 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "imports permission groups for a vhost created by the same definitions" do
+      with_http_server do |http, s|
+        body = <<-JSON
+          {
+            "vhosts": [{ "name": "iot" }],
+            "mqtt_permissions": [{
+              "name": "devices", "vhost": "iot", "members": ["*"],
+              "rules": [{ "identifier": "all", "pattern": "#", "read": true, "write": true }]
+            }]
+          }
+          JSON
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        service = s.vhosts["iot"].mqtt_permission_service
+        service["devices"]?.should_not be_nil
+        service.in_use?.should be_true
+      end
+    end
+
     # https://github.com/cloudamqp/lavinmq/issues/276
     context "if default user has been replaced" do
       it "imports with new default user" do

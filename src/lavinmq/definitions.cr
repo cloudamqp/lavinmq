@@ -471,7 +471,6 @@ module LavinMQ
     def import(body, skip_existing = false)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
-      import_mqtt_permissions(body, skip_existing)
       import_vhosts(body)
       import_queues(body)
       import_exchanges(body)
@@ -479,6 +478,7 @@ module LavinMQ
       fsync_definition_files
       import_policies(body, skip_existing)
       import_parameters(body, skip_existing)
+      import_mqtt_permissions(body, skip_existing)
       import_global_parameters(body, skip_existing)
     end
 
