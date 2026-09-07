@@ -378,7 +378,12 @@ module LavinMQ
           e.bindings_details.each do |binding|
             args = binding.arguments || AMQP::Table.new
             frame = case d = binding.destination
-                    when Queue
+                    # `bindings_details` is duck-typed: MQTT's default
+                    # exchange returns subscribers, while AMQP exchanges return
+                    # destinations. Narrow the two queue implementations
+                    # explicitly so an `x-mqtt-topic` exchange (also an MQTT
+                    # subscriber) cannot reach `persist_binding?`.
+                    when AMQP::Queue, MQTT::Session
                       if persist_binding?(e, d)
                         AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name,
                           binding.routing_key, false, args)

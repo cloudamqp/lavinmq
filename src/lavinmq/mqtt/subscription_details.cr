@@ -12,7 +12,7 @@ module LavinMQ
       getter source, vhost, binding_key, destination
 
       def initialize(@source : String, @vhost : String,
-                     @binding_key : SubscriptionKey, @destination : MQTT::Session)
+                     @binding_key : SubscriptionKey, @destination : LavinMQ::MQTT::Subscriber)
       end
 
       def arguments

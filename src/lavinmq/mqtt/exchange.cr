@@ -48,11 +48,9 @@ module LavinMQ
       # `x-mqtt-topic` exchange are that exchange's bindings, not ours.
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
-          next unless subscriber.is_a?(MQTT::Session)
-          arguments = AMQP::Table.new
-          arguments[QOS_HEADER] = qos
-          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
+        @tree.each_entry do |entry, qos, filter|
+          next unless entry.is_a?(MQTT::Session)
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), entry)
         end
         result
       end
