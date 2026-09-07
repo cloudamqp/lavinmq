@@ -26,9 +26,9 @@ _Avoid_: sink, target, output, downstream.
 **Runner**:
 The single fiber that owns a Shovel's run loop and its **policy**: it maps each
 **Outcome** to a Source action and owns requeue timing, backoff, and the abort
-threshold. The Source classifies nothing. (An HTTP Destination may retry a
-transient failure in place a few times before reporting an Outcome, but it owns
-no Source policy.)
+threshold. The Source classifies nothing. (An HTTP Destination retries a request
+once on a fresh connection when a kept-alive connection turns out to be dead,
+but it owns no Source policy.)
 _Avoid_: worker, driver, supervisor.
 
 **MultiDestinationHandler**:
