@@ -1,28 +1,51 @@
 import * as helpers from './helpers.js'
 import * as qHelpers from './queues_helpers.js'
-import { test, expect } from './fixtures.js';
+import { test, expect } from './fixtures.js'
 
-test.describe("queues", _ => {
-    const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
-    const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
+test.describe('queues', _ => {
+  const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
+  const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
 
-    test.beforeEach(async ({ apimap, page }) => {
-      const queuesLoaded = apimap.get('/api/queues', queues_response)
-      page.goto('/queues')
-      await queuesLoaded
-    })
+  test.beforeEach(async ({ apimap, page }) => {
+    const queuesLoaded = apimap.get('/api/queues', queues_response)
+    page.goto('/queues')
+    await queuesLoaded
+  })
 
-  test('are refreshed automatically', async({ page }) => {
+  test('are refreshed automatically', async ({ page }) => {
     await page.clock.install()
     await page.goto('/queues')
     // Verify that at least 3 requests are made
-    for (let i=0; i<3; i++) {
+    for (let i = 0; i < 3; i++) {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await page.clock.runFor(10000) // advance time by 10 seconds
       await expect(apiQueuesRequest).toBeRequested()
     }
   })
 
+  test('stop refreshing while hidden and refresh immediately when visible again', async ({ page }) => {
+    await page.clock.install()
+    let count = 0
+    await page.route(/\/api\/queues/, route => {
+      count++
+      route.fulfill({ json: qHelpers.response([], { total_count: 0, page: 1, page_count: 1, page_size: 100 }) })
+    })
+    await page.goto('/queues')
+    await expect.poll(() => count).toBeGreaterThanOrEqual(1)
+    const whenHidden = count
+
+    // Hidden: advancing the clock must not trigger any new requests
+    await helpers.setPageVisibility(page, 'hidden')
+    await page.clock.runFor(20000)
+    expect(count).toBe(whenHidden)
+
+    // Visible again: reload immediately, then resume auto-reloading
+    await helpers.setPageVisibility(page, 'visible')
+    await expect.poll(() => count).toBe(whenHidden + 1)
+    const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
+    await page.clock.runFor(10000)
+    await expect(apiQueuesRequest).toBeRequested()
+  })
 
   // Test that different combination of hash params are sent in the request
   test.describe('are loaded with params when hash params', _ => {
@@ -104,9 +127,9 @@ test.describe("queues", _ => {
       const checkboxes = page.locator('#table tbody').getByRole('checkbox')
       await expect(checkboxes).toHaveCount(10)
 
-      const count = await checkboxes.count();
+      const count = await checkboxes.count()
       for (let i = 0; i < count; i++) {
-        await expect(checkboxes.nth(i)).toBeChecked();
+        await expect(checkboxes.nth(i)).toBeChecked()
       }
     })
 
