@@ -535,11 +535,13 @@ capability flag for it.
 
 ### F. Retained messages lose v5 properties
 
-The retain store keeps only the body (`retain_store.cr#retain` takes topic +
-body + size). A retained v5 message therefore reaches a later subscriber with
-its properties stripped. Needs a store-format change, so it is the most invasive
-of the remaining items. `topic_tree.cr` (which backs the retain store) also
-still uses `StringTokenIterator`, unlike the publish-path subscription tree.
+The retain store keeps only the body: `retain_store.cr#retain` takes the whole
+`Publish` but writes just `packet.payload` to the file. A retained v5 message
+therefore reaches a later subscriber with its properties stripped. The call
+already has `packet.properties` in hand, so the work is entirely in the store
+format, which is still the most invasive of the remaining items. `topic_tree.cr`
+(which backs the retain store) also still uses `StringTokenIterator`, unlike the
+publish-path subscription tree.
 
 ### G. Shard release and open items
 
