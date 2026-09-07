@@ -5,6 +5,34 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "MQTT topic permissions: read at delivery" do
+    it "does not count a read-denied message as routed" do
+      with_server do |server|
+        server.users.create("bob", "bob")
+        server.users.add_permission("bob", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+        service.put(LavinMQ::MQTT::PermissionGroup.new("writer", "/", ["guest"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("all", "#", read: true, write: true)]))
+        service.put(LavinMQ::MQTT::PermissionGroup.new("bob-read", "/", ["bob"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("public", "public/#", read: true)]))
+
+        with_client_io(server) do |bob_io|
+          connect(bob_io, client_id: "bob", username: "bob", password: "bob".to_slice)
+          subscribe(bob_io, topic_filters: mk_topic_filters({"secret/#", 0}))
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            publish(pub_io, topic: "secret/x", payload: "x".to_slice, qos: 0u8)
+            pingpong(pub_io)
+          end
+
+          read_packet(bob_io).should be_nil
+          exchange = server.vhosts["/"].exchange("mqtt.default")
+          exchange.publish_in_count.should eq 1
+          exchange.publish_out_count.should eq 0
+        end
+      end
+    end
+
     it "filters a wildcard subscription to only authorized topics" do
       with_server do |server|
         server.users.create("alice", "alice")

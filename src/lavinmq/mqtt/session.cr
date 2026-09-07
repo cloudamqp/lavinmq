@@ -222,8 +222,13 @@ module LavinMQ
         end
       end
 
+      # Returns whether the message was accepted, so the exchange only counts
+      # deliveries that happened.
       def publish(msg : Message) : Bool
-        return true unless @permission_service.can_read?(@permission_context, msg.routing_key)
+        unless @permission_service.can_read?(@permission_context, msg.routing_key)
+          @log.debug { "Message refused: no topic permission rule allows user '#{@permission_context.username}' to read topic '#{msg.routing_key}'" }
+          return false
+        end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
