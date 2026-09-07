@@ -37,7 +37,8 @@ module LavinMQ
 
       getter address : String
       getter port : UInt16
-      getter? loopback : Bool
+      # Only ConnectionInfo#loopback? may read this, it also accounts for PROXY headers
+      protected getter? loopback : Bool
 
       def initialize(ip_address : Socket::IPAddress)
         @address = unmap_ipv6(ip_address.address)

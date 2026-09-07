@@ -22,7 +22,7 @@ module MqttSpecs
           details[:port].should be > 0
           details[:peer_host].should_not be_empty
           details[:peer_port].should be > 0
-          conn.connection_info.remote_address.loopback?.should be_true
+          conn.connection_info.loopback?.should be_true
 
           details[:ssl].should be_false
           details[:tls_version].should be_nil

@@ -22,13 +22,6 @@ describe LavinMQ::ConnectionInfo::IPAddress do
       addr.address.should eq "::1"
     end
   end
-
-  describe "#loopback?" do
-    it "recognizes IPv4-mapped IPv6 loopback as loopback" do
-      addr = LavinMQ::ConnectionInfo::IPAddress.new(Socket::IPAddress.new("::ffff:127.0.0.1", 0))
-      addr.loopback?.should be_true
-    end
-  end
 end
 
 describe LavinMQ::ConnectionInfo do
@@ -50,6 +43,11 @@ describe LavinMQ::ConnectionInfo do
 
     it "is true for the local placeholder" do
       LavinMQ::ConnectionInfo.local.loopback?.should be_true
+    end
+
+    it "recognizes IPv4-mapped IPv6 loopback as loopback" do
+      mapped = Socket::IPAddress.new("::ffff:127.0.0.1", 0)
+      LavinMQ::ConnectionInfo.new(mapped, mapped).loopback?.should be_true
     end
   end
 end
