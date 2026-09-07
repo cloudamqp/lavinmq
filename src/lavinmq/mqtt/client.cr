@@ -28,7 +28,8 @@ module LavinMQ
       include SortableJSON
 
       getter log, name, user, client_id, socket, connection_info
-      # This client's session queue name, built once rather than per use.
+      # This client's session queue name, built once. Read on every publish to
+      # resolve No Local, so it must not allocate per message.
       getter session_name : String
       # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
       # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
@@ -289,7 +290,7 @@ module LavinMQ
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           return refuse_publish(packet)
         end
-        matched = @broker.publish(packet)
+        matched = @broker.publish(packet, session_name)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -414,6 +415,8 @@ module LavinMQ
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
+          # The will's publisher is this client, so No Local applies to it by
+          # the same rule as any other publish [MQTT-3.8.3-3].
           @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
@@ -421,7 +424,7 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ))
+          ), session_name)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }

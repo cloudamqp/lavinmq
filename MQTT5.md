@@ -10,20 +10,20 @@ Last reconciled against the code: **2026-08-21**.
 ## 1. TL;DR
 
 MQTT 5.0 spans two repos. The **wire codec is done**; the **broker semantics are
-about 80% done**.
+about 90% done**.
 
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 33 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + session expiry + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 36 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + session expiry + subscription options + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, gets a session whose lifetime
-it controls, and gets a spec-correct rejection for every feature we don't
-implement. What is missing is subscription options, will properties and will
-delay, and properties on retained messages.
+it controls, gets its subscription options honoured, and gets a spec-correct
+rejection for every feature we don't implement. What is missing is will
+properties and will delay, and properties on retained messages.
 
-**On `main` (`77c9ceb2`) and verified green on 2026-08-21: 2125 examples,
+**On `main` (`02e97d70`) and verified green on 2026-09-07: 2216 examples,
 0 failures, lint and format clean.** See section 7.
 
 ---
@@ -388,6 +388,66 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
 - Subscription Identifier rejected `0xA1`; `$share/` rejected `0x9E`, including
   when mixed with valid filters (the whole packet fails)
 
+**Subscription options** (item B)
+- All three per-filter options are honoured. They are **not** advertisable
+  features: v5 CONNACK has no flag for any of them, so unlike QoS 2 or shared
+  subscriptions this was a real compliance gap rather than a legal deferral.
+- **No Local** - `Exchange#publish` takes the publishing client's session name
+  and skips a matching subscription that set the bit [MQTT-3.8.3-3]. Identity is
+  the ClientID, and a session's name is `mqtt.<client_id>`, so a name compare is
+  the spec's test. One Bool test per matched entry; the string compare is paid
+  for only by a subscription that asked for it. Applies to the will too, whose
+  publisher is the connection that died - so a takeover suppresses the
+  predecessor's will if it had such a subscription, since the will is published
+  while that session is still attached.
+- **Retain As Published** - the retain flag is resolved per matched entry in
+  `Exchange#publish`, next to the `delivery_mode` it already varies there, and
+  read back unchanged by `build_packet`. Written for *every* matched entry, not
+  just the ones that set it, or a `true` leaks into every later subscriber in
+  the same tree walk. Skipped entirely unless the publish is retained, so the
+  ordinary path is untouched. Safe only because `MessageStore#push` serializes
+  properties synchronously - the same invariant `delivery_mode` already relies
+  on, and worth knowing before anyone makes that store lazy.
+- **Retain Handling** - gates the existing retain-store replay in
+  `Broker#subscribe`. `Session#subscribe` returns whether the filter was new.
+  Existence is by **topic filter alone** [MQTT-3.8.4-3], so a re-subscribe that
+  changes the QoS or the options is a replacement, not a new subscription.
+  Value 1 sends retained messages only for a subscription that did **not**
+  already exist. Worth knowing before you verify that by grepping, since the
+  documented workflow here is to grep the local spec text: our
+  `MQTT-v5.0-spec.txt` has an **Appendix B row for [MQTT-3.3.1-10] that states
+  the value-1 case inverted**, contradicting the four body locations that agree
+  with each other - §3.3.1.3 (where the statement is defined), §3.8.3.1's value
+  list, and §3.8.4's separate new-vs-replaced rules, which match this
+  implementation clause for clause. The body governs. Whether the inversion is
+  a defect in the OASIS document itself or an artifact of our local text
+  extraction was **not** determined: the OASIS HTML truncates before chapter 3
+  and the PDF resists text extraction. Third-party restatements of
+  [MQTT-3.3.1-10] agree with the body text.
+- Persisted in binding arguments as `mqtt.no-local` and
+  `mqtt.retain-as-published`, **omitted when false** - so a default
+  subscription's arguments table stays byte-identical to what LavinMQ has always
+  written, older definitions files load unchanged, and the shared
+  `QOS0_ARGUMENTS`/`QOS1_ARGUMENTS` constants remain the zero-allocation path.
+  `SubscriptionKey#arguments` renders them, which is required rather than
+  cosmetic: `compact!` re-derives every binding from that method instead of
+  replaying frames, so anything it cannot reconstruct survives a restart and
+  then vanishes at the first compaction.
+- `SubscriptionOptions` carries QoS plus the two delivery-time options through
+  the subscription tree, replacing the bare `UInt8`. Stored inline as a `Hash`
+  value, so no extra allocation. Retain Handling is deliberately not in it: it
+  is consulted only during the SUBSCRIBE.
+- **v3.1.1 is unaffected by construction, not by convention.**
+  `IO::V3#validate_subscription_options` rejects a v3 SUBSCRIBE with any of bits
+  7-2 set, so these paths are unreachable from v3 and need no version gating.
+- Two things fixed on the way, both prerequisites: `Session#find_binding`
+  matched a **synthetic default-exchange binding** whose routing key is the
+  queue's own name, so a client subscribing to the literal filter
+  `mqtt.<its own client id>` looked like an existing subscription - a spurious
+  unbind before, a wrong Retain Handling answer after. And `MQTT.granted_qos` now
+  replaces three different spellings of the same clamp, one of which bypassed
+  `MAX_QOS` entirely.
+
 **UNSUBSCRIBE / UNSUBACK**
 - Per-topic reason codes, `Success` vs `NoSubscriptionExisted`;
   `Session#unsubscribe` now returns a Bool to drive that [MQTT-3.11.3]
@@ -505,22 +565,8 @@ measured, not counted by hand.
 
 ## 5. What is left
 
-Ordered roughly easiest-first. **B is independent of everything else** and is
-the clean hand-off. (C, D and all of J are done; see section 4.)
-
-### B. Honor subscription options
-
-The shard already parses the per-filter options byte and exposes `no_local`,
-`retain_as_published` and `retain_handling` on `TopicFilter`.
-`Broker#subscribe` currently reads only `tf.qos` and always replays the retain
-store. Pure LavinMQ behaviour, no shard work, well-bounded.
-
-- **Retain Handling** (0 = send retained on subscribe, 1 = only if the
-  subscription is new, 2 = never). We currently always behave as 0.
-- **No Local** - do not deliver a message back to the client that published it.
-- **Retain As Published** - preserve the publisher's retain flag on delivery
-  instead of clearing it.
-- Files: `broker.cr#subscribe`, `session.cr#build_packet`, `client.cr#recieve_subscribe`.
+Ordered roughly easiest-first. **E is the clean hand-off** now that B has
+landed. (B, C, D and all of J are done; see section 4.)
 
 ### E. Will properties and Will Delay
 
@@ -554,6 +600,11 @@ publish-path subscription tree.
   identifier `0` accepted where a non-zero id is required; **O1** zero-entry
   SUBSCRIBE / UNSUBSCRIBE / SUBACK accepted at decode; **O2** AUTH accepted on a
   v3 connection; **O3** some receiver-side property value validations missing.
+- **Retain Handling 3** is a Protocol Error (spec 3.8.3.1), so v5 wants a
+  DISCONNECT. The shard raises `ArgumentError` in the `TopicFilter` constructor
+  and `Subscribe.from_io` maps it to `Error::PacketDecode`, which is the
+  just-close case, so the client gets no reason code. Low severity; belongs with
+  N3/O1/O2/O3 above.
 - Optional test gaps: **N5** no malformed property-*value* test (the UTF-8 / NUL
   validation branch has zero coverage); **N6** the `consumed != total`
   intra-section property guard is untested; **U2** v3 CONNACK return-code byte
@@ -673,6 +724,22 @@ the docs, not in a bug tracker.
   is no longer upgraded, so it is no longer stored while that subscriber is
   offline. A spec titled "[LavinMQ non-normative]" used to assert the old
   behaviour. **Release note.**
+- **Replacing a subscription has a message-loss window.** [MQTT-3.8.4-4] says
+  Application Messages MUST NOT be lost when a subscription is replaced, but
+  `Session#subscribe` unbinds before it binds and each call can reach disk and
+  therefore yield, so a publish landing in between is lost. Pre-existing - it
+  already triggered on a QoS change - and now reachable by changing a
+  subscription option too. Not fixed here because bind-then-unbind does not
+  work: `SubscriptionTree#unsubscribe` removes by (filter, session) and would
+  delete the entry the bind just wrote, so a correct fix needs the tree's
+  removal to become options-aware.
+- **An UNSUBSCRIBE of a non-canonically stored binding can be undone by a
+  restart.** Definitions replay cancels a stored `Queue::Bind` only on exact
+  argument-table equality, while `Session#unsubscribe` sends the canonical table
+  from `SubscriptionKey#arguments`. A binding an operator created with, say,
+  `{mqtt.qos: 2i32}` is therefore removed in memory but restored on the next
+  boot. Pre-existing and QoS-only until now; the two option keys multiply the
+  permutations.
 - **QoS 2 unsupported.** Advertised as Maximum QoS 1. Follow-up work, section 9.
 - **Receive Maximum ignored.** We do not pace QoS 1 inflight against the
   client's advertised Receive Maximum, and we do not advertise our own (so
@@ -715,24 +782,33 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-08-21** after J1/J2, item I, item D and the item D
-review fixes, on `main` `77c9ceb2`:
+**LavinMQ, measured 2026-09-07** after J1/J2, item I, item D, the item D review
+fixes and item B, on `main` `02e97d70`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **280 examples, 0 failures, 0 errors, 0 pending** |
-| `make test TAGS=~etcd` | **2125 examples, 0 failures, 0 errors, 9 pending** |
-| `make lint` | 403 inspected, 0 failures |
+| `make test SPEC=spec/mqtt` | **348 examples, 0 failures, 0 errors, 0 pending** |
+| `make test TAGS=~etcd` | **2220 examples, 0 failures, 0 errors, 9 pending** |
+| `make lint` | 412 inspected, 0 failures |
 | `crystal tool format --check` | clean |
 
-(The +32 over the 248/2093 of 2026-08-19 breaks down as five with J1/J2, seven
-with item I, sixteen with item D - thirteen in `v5/session_expiry_spec.cr`, two
-in the new `session_spec.cr` and one takeover case in `connect_spec.cr` - and
-four with the item D review fixes, two more in each of those two new files. Two
-of the expiry specs are tagged `slow`: the interval's unit is seconds, so the
-shortest honest test of elapse and of reconnect-cancels-it is one second each. An
-earlier reconciliation recorded 233 for `spec/mqtt`; that figure was mistyped,
-not a lost spec.)
+(The 2026-08-21 figures were 280/2125 against the older `main`; the rebase onto
+`02e97d70` itself added 31 to `spec/mqtt` - `main`'s new `retain_store_spec.cr`
+and some auth specs - taking the pre-item-B baseline to 311/2183, re-measured on
+2026-09-07 rather than carried over. Item B adds the remaining 37: 19 in the new
+`v5/subscription_options_spec.cr`, 11 in `consts_spec.cr` for `granted_qos` and
+the arguments round-trip, four in `subscription_key_spec.cr` for the compaction
+guard, two in `exchange_spec.cr` for out-of-band binds, and one will/takeover
+case in `integrations/will_spec.cr`. Two of the expiry specs are tagged `slow`:
+the interval's unit is seconds, so the shortest honest test of elapse and of
+reconnect-cancels-it is one second each.)
+
+Every item B spec was run against the unfixed code first, and each failed for
+the intended reason. That check earned its keep twice: the restart spec passed
+even with the options stripped from `SubscriptionKey#arguments`, because the
+restart path reads the stored frame rather than the key - which is exactly the
+compaction gap, so it needed its own unit spec. And the retain-flag leak is
+caught in only one of the two subscriber orders, which is why both are asserted.
 
 The 9 pending are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
@@ -789,13 +865,13 @@ denying a topic.
 
 ## 8. Sequencing to ship
 
-1. Finish B / E (F and G in parallel, different people). D is done. ~~The poison-message
+1. Finish E (F and G in parallel, different people). B and D are done. ~~The poison-message
    and hot-path-allocation findings in I should land before the PR regardless of
    who takes the feature work.~~ Done 2026-08-20, along with three of the other
    five; only the two section 2 `[~]` enforcement gaps remain in I. Item I's
    second round, the item D review, is done as of 2026-08-21.
 2. ~~External smoke test against a real v5 client.~~ Done 2026-08-19, see
-   section 7 and `MQTT5-INTEROP.md`. Re-run it once B/E/F land - the same
+   section 7 and `MQTT5-INTEROP.md`. Re-run it once E/F land - the same
    harness grades them. It has **not** been re-run since the J1/J2 and item I
    fixes; the interop doc's delivery-QoS and DISCONNECT `0x82` rows are the
    expectations to confirm when it is.
