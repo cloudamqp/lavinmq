@@ -58,37 +58,42 @@ module LavinMQ
                end
         case @ack_mode
         in AckMode::OnConfirm
-          outcome = attempt(headers, path, msg.body_io)
-          @listener.report(msg.delivery_tag, outcome)
+          @listener.report(msg.delivery_tag, attempt(c, path, headers, msg.body_io))
         in AckMode::OnPublish
           begin
-            c.post(path, headers: headers, body: msg.body_io)
+            post(c, path, headers, msg.body_io)
             @listener.report(msg.delivery_tag, Outcome::Confirmed)
           rescue IO::Error | OpenSSL::SSL::Error
             @listener.report(msg.delivery_tag, Outcome::Retry)
           end
         in AckMode::NoAck
           begin
-            c.post(path, headers: headers, body: msg.body_io)
+            post(c, path, headers, msg.body_io)
           rescue IO::Error | OpenSSL::SSL::Error
-            # no_ack mode just ignore
+            # nothing to settle in no-ack mode
           end
         end
       end
 
-      # A single delivery attempt. A transport-level failure (timeout, reset,
-      # connection refused) counts as a transient Retry. The client is closed
-      # but kept: HTTP::Client reopens the socket on the next request, so the
-      # next attempt starts on a fresh connection.
-      private def attempt(headers, path, body_io) : Outcome
+      # A single delivery attempt, classified into an Outcome. A transport-level
+      # failure counts as a transient Retry.
+      private def attempt(c, path, headers, body_io) : Outcome
+        classify post(c, path, headers, body_io)
+      rescue IO::Error | OpenSSL::SSL::Error
+        Outcome::Retry
+      end
+
+      # POST the message body. On a transport failure (timeout, reset,
+      # connection refused, TLS error) the client is closed before re-raising:
+      # HTTP::Client never drops a dead keep-alive socket by itself for a POST
+      # with a body, and closing makes the next request open a fresh connection.
+      private def post(c, path, headers, body_io) : ::HTTP::Client::Response
         body_io.rewind
-        c = @client || raise "Not started"
-        resp = c.post(path, headers: headers, body: body_io)
-        classify resp
+        c.post(path, headers: headers, body: body_io)
       rescue ex : IO::Error | OpenSSL::SSL::Error
         Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
-        @client.try &.close
-        Outcome::Retry
+        c.close
+        raise ex
       end
 
       def classify(response : ::HTTP::Client::Response) : Outcome
