@@ -74,7 +74,7 @@ With the `on-confirm` ack mode, the HTTP response status is classified into a [d
 
 A shovel can have multiple destinations configured. They form an **ordered failover list**, not a load-balanced or round-robin pool: one destination is active at a time, starting with the first one that can be reached. All consumed messages go to the active destination.
 
-When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A successful — or otherwise non-abort — delivery resets the failover cycle. Only once *every* destination has failed in a row, with no successful delivery in between, does the shovel error out.
+When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A destination that keeps failing transiently (three consecutive `Retry` outcomes, e.g. connection refused on a host that is down) is skipped in favour of the next one as well. A successful — or otherwise non-abort — delivery resets the failover cycle. Only once *every* destination has failed in a row, with no successful delivery in between, does the shovel error out. Every (re)start of the shovel begins again with the first destination in the list.
 
 ## Acknowledgment Modes
 

@@ -72,7 +72,12 @@ When a shovel is configured with more than one `dest-uri`, the
 active at a time and it intercepts that destination's outcome:
 
 - `Confirmed` / `Retry` / `Reject` — forwarded to the runner unchanged (any
-  non-abort resets the failover cycle).
+  non-abort resets the abort streak). Three `Retry` outcomes in a row on the
+  active destination also advance to the next one when more than one is
+  configured: an HTTP destination's start never contacts the endpoint, so a
+  host that is down only ever shows up as connection-refused `Retry`s.
+- A stop (pause, reconnect, terminate) resets the walk, so the next start
+  begins again with the first destination in the list.
 - `Abort` — advance to the next destination and retry the message there
   (forwarded as `Retry`). Only once **every** destination has aborted in a row,
   with no `Confirmed` in between, is `Abort` propagated so the runner's abort
