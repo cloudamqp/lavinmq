@@ -229,30 +229,26 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      parse_proxy_header(client, remote_address) || ConnectionInfo.new(remote_address, client.local_address)
-    end
 
-    # A header from an unlisted peer is consumed and ignored, so the connection continues with the socket address
-    private def parse_proxy_header(client, remote_address) : ConnectionInfo?
       if @config.tcp_proxy_protocol?
         parsed_proxy = ProxyProtocol.parse(client)
-        return parsed_proxy if accepted_proxy_source?(remote_address)
-        Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
-      elsif follower?(remote_address)
-        ProxyProtocol.parse(client)
+        if trusted_proxy_source?(remote_address.address)
+          return parsed_proxy if parsed_proxy
+        else
+          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
+        end
+      else
+        if @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+          parsed_proxy = ProxyProtocol.parse(client)
+          return parsed_proxy if parsed_proxy
+        end
       end
+      ConnectionInfo.new(remote_address, client.local_address)
     end
 
-    # With no trusted sources configured, headers are accepted from all peers for backward compatibility
-    private def accepted_proxy_source?(remote_address) : Bool
-      @config.proxy_protocol_trusted_sources.empty? || listed_proxy_source?(remote_address.address)
-    end
-
-    private def follower?(remote_address) : Bool
-      @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
-    end
-
-    private def listed_proxy_source?(address : String) : Bool
+    private def trusted_proxy_source?(address : String) : Bool
+      # If no trusted sources are configured, accept from all sources for backward compatibility
+      return true if @config.proxy_protocol_trusted_sources.empty?
       @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 
