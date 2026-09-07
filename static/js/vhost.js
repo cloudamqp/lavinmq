@@ -23,9 +23,7 @@ async function fetchLimits () {
   document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
   document.forms.setLimits['max-queues'].value = maxQueues
 }
-try {
-  fetchLimits()
-} catch {}
+fetchLimits().catch(() => {})
 
 const permissionsUrl = HTTP.url`api/vhosts/${vhost}/permissions`
 const tableOptions = { url: permissionsUrl, keyColumns: ['user'], countId: 'permissions-count' }
