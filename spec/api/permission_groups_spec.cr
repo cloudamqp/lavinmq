@@ -190,10 +190,12 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
         [
-          {path: "ok", body: %({})},                           # missing pattern
-          {path: "ok", body: %({"pattern": 1})},               # wrong type
-          {path: "ok", body: %({"pattern": "secret/#/temp"})}, # malformed filter
-          {path: "not%20ok", body: %({"pattern": "a/#"})},     # invalid identifier
+          {path: "ok", body: %({})},                                 # missing pattern
+          {path: "ok", body: %({"pattern": 1})},                     # wrong type
+          {path: "ok", body: %({"pattern": "secret/#/temp"})},       # malformed filter
+          {path: "not%20ok", body: %({"pattern": "a/#"})},           # invalid identifier
+          {path: "ok", body: %({"pattern": "a/#", "read": "true"})}, # string, not bool
+          {path: "ok", body: %({"pattern": "a/#", "write": 1})},     # number, not bool
         ].each do |c|
           http.put("/api/mqtt/permission-groups/%2f/grp/rules/#{c[:path]}", body: c[:body]).status_code.should eq 400
         end
