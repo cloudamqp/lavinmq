@@ -142,12 +142,15 @@ module LavinMQ
         @compiled = Compiled.new(by_member, global_rules)
       end
 
+      # Groups are validated on load as they are on put, so everything in
+      # memory always passes validate! and every later put of a loaded group
+      # can only fail on the change being made.
       private def load!
         path = File.join(@data_dir, "mqtt_permissions.json")
         return unless File.exists? path
         File.open(path) do |f|
           Array(PermissionGroup).from_json(f) do |group|
-            @groups[group.name] = group
+            @groups[group.name] = group.validate!
           end
           @replicator.try &.register_file f
         end
