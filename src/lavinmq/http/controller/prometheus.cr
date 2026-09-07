@@ -340,29 +340,30 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
+        deleted_stats = @server.vhosts.deleted_stats
         message_stats = @server.vhosts.map { |_, v| v.message_details[:message_stats] }
         writer.write({name:  "global_messages_delivered_total",
-                      value: @server.deleted_vhosts_messages_delivered_total +
+                      value: deleted_stats.deliver_get +
                              message_stats.sum { |ms| ms[:deliver_get] },
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
-                      value: @server.deleted_vhosts_messages_redelivered_total +
+                      value: deleted_stats.redeliver +
                              message_stats.sum { |ms| ms[:redeliver] },
                       type: "counter",
                       help: "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
-                      value: @server.deleted_vhosts_messages_acknowledged_total +
+                      value: deleted_stats.ack +
                              message_stats.sum { |ms| ms[:ack] },
                       type: "counter",
                       help: "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: @server.deleted_vhosts_messages_confirmed_total +
+                      value: deleted_stats.confirm +
                              message_stats.sum { |ms| ms[:confirm] },
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
         writer.write({name:  "global_messages_unroutable_returned_total",
-                      value: @server.deleted_vhosts_messages_unroutable_returned_total +
+                      value: deleted_stats.return_unroutable +
                              message_stats.sum { |ms| ms[:return_unroutable] },
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
@@ -473,8 +474,9 @@ module LavinMQ
                         :queue_declared, :queue_deleted, :consumer_added, :consumer_removed}
 
       private def vhost_stats(vhosts)
+        deleted_stats = @server.vhosts.deleted_stats
         {% for sm in SERVER_METRICS %}
-          {{ sm.id }} = 0_u64
+          {{ sm.id }} = deleted_stats.{{ sm.id }}
         {% end %}
         vhosts.each do |vhost|
           stats_details = vhost.stats_details

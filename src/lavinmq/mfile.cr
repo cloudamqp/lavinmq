@@ -1,3 +1,5 @@
+require "./filesystem"
+
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -313,7 +315,7 @@ class MFile < IO
   end
 
   def rename(new_path : String) : Nil
-    File.rename @path, new_path
+    LavinMQ::FileSystem.durable_rename(@path, new_path)
     @path = new_path
   end
 

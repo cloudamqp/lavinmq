@@ -387,6 +387,124 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 end
 
+describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
+  # Counter series must never decrease: rate()/increase() read a drop as a reset
+  # and fabricate a spike. These exercise the queue/vhost churn that caused it.
+
+  it "keeps global_messages_delivered_total monotonic when a queue is deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_qdel")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("doomed", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      before.should be >= 3
+
+      # Deleting the queue must not drop the global counter.
+      vhost.delete_queue("doomed")
+
+      after = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      after.should be >= before
+    end
+  end
+
+  it "keeps queues_declared_total monotonic when a vhost is deleted" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = prometheus_counter(http, "lavinmq_queues_declared_total")
+      before.should be >= 2
+
+      s.vhosts.delete("mono_vdel")
+
+      after = prometheus_counter(http, "lavinmq_queues_declared_total")
+      after.should be >= before
+    end
+  end
+
+  it "keeps global_messages_delivered_total monotonic when a vhost is deleted via the store" do
+    with_metrics_server do |http, s|
+      vhost = s.vhosts.create("mono_vdel_msg")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      before.should be >= 3
+
+      # Must survive the canonical VHostStore#delete path, not just HTTP DELETE.
+      s.vhosts.delete("mono_vdel_msg")
+
+      after = prometheus_counter(http, "lavinmq_global_messages_delivered_total")
+      after.should be >= before
+    end
+  end
+
+  it "counts a fan-out publish once, not once per bound queue" do
+    with_metrics_server do |_, s|
+      vhost = s.vhosts.create("fanout_publish")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      vhost.declare_exchange("fx", "fanout", false, false)
+      %w[q1 q2 q3].each do |q|
+        vhost.declare_queue(q, false, false)
+        vhost.bind_queue(q, "fx", "")
+      end
+
+      with_channel(s, vhost: vhost.name) do |ch|
+        ch.basic_publish_confirm("m", "fx", "")
+      end
+
+      # One publish fanned out to 3 queues must still count as 1.
+      vhost.message_details[:message_stats][:publish].should eq 1
+    end
+  end
+
+  it "keeps /api/overview message_stats monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("ov_mono")
+      s.users.add_permission("guest", vhost.name, /.*/, /.*/, /.*/)
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue("q", durable: true)
+        3.times { q.publish_confirm "m" }
+        3.times { q.get(no_ack: true).should_not be_nil }
+      end
+
+      before = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      before.should be >= 3
+
+      s.vhosts.delete("ov_mono")
+
+      after = JSON.parse(http.get("/api/overview").body).dig("message_stats", "deliver_get").as_i64
+      after.should be >= before
+    end
+  end
+
+  it "keeps /api/nodes queue_declared monotonic when a vhost is deleted" do
+    with_http_server do |http, s|
+      vhost = s.vhosts.create("node_mono")
+      vhost.declare_queue("q1", true, false)
+      vhost.declare_queue("q2", true, false)
+
+      before = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      before.should be >= 2
+
+      s.vhosts.delete("node_mono")
+
+      after = JSON.parse(http.get("/api/nodes").body)[0]["queue_declared"].as_i64
+      after.should be >= before
+    end
+  end
+end
+
 describe LavinMQ::HTTP::FollowerPrometheusController do
   it "returns gc metrics on /metrics" do
     with_follower_metrics_server do |http|
@@ -406,6 +524,12 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
     end
   end
+end
+
+# Scrape /metrics and return the value of a single (unlabeled) counter series.
+def prometheus_counter(http, key : String) : Float64
+  raw = http.get("/metrics").body
+  PrometheusSpecHelper.parse_prometheus(raw).find! { |m| m[:key] == key }[:value]
 end
 
 class PrometheusSpecHelper

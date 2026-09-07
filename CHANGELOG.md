@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
+- `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher
+- The vhost `max-connections` limit is now enforced for MQTT connections [#2222](https://github.com/cloudamqp/lavinmq/pull/2222)
 
 ### Changed
 
@@ -20,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MQTT sessions are decoupled from AMQP queues as part of separating protocol-specific queue/session handling [#1920](https://github.com/cloudamqp/lavinmq/pull/1920)
 - The management UI version is advertised via the `LavinMQ-Version` response header instead of being injected at build time [#2123](https://github.com/cloudamqp/lavinmq/pull/2123)
 - CC and BCC headers are removed from dead-lettered messages when `x-dead-letter-routing-key` is set, instead of being preserved, matching RabbitMQ [#1993](https://github.com/cloudamqp/lavinmq/pull/1993)
+
+### Fixed
+
+- Per-vhost `message_stats` no longer over-counts published messages by the fan-out factor; cumulative message counters are read from the vhost's own counters instead of summing per-queue [#2092](https://github.com/cloudamqp/lavinmq/issues/2092)
+- Prometheus and HTTP API counters (`global_messages_*`, churn `*_total`, `/api/overview`, `/api/nodes`) no longer decrease when a queue or vhost is deleted, which previously made `rate()`/`increase()` fabricate spikes [#2093](https://github.com/cloudamqp/lavinmq/issues/2093)
+- MQTT sessions now respect the vhost `max-queues` limit; a SUBSCRIBE that would create a session beyond the cap is answered with failure return codes instead of exceeding the limit
 
 ## [2.9.1] - 2026-07-01
 

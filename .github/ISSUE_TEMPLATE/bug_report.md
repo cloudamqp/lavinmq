@@ -8,15 +8,24 @@ assignees: ''
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+A clear and concise human readable description of what the bug is.
 
-**Describe your setup**
-Please describe the environment you are using by including the build info. Please also include any relevant information about the client software or amqp libraries that you may be using. 
+<details>
+<summary>Investigation details</summary>
 
-To retrieve the build info: `bin/lavinmq --build-info`
+**Setup**
+Build info from `bin/lavinmq --build-info`, and client libraries.
 
 **How to reproduce**
-Please provide steps to reproduce the behavior.
+Steps to reproduce the behavior.
 
 **Expected behavior**
-A clear and concise description of what you expected to happen.
+What you expected to happen.
+
+**Logs**
+Relevant log output.
+
+**AI investigation**
+Root cause analysis, call chains, evidence.
+
+</details>

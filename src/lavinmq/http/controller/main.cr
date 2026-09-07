@@ -42,6 +42,16 @@ module LavinMQ
           {{ name.id }}_rate = 0_f64
           {% end %}
 
+          unless x_vhost
+            deleted_stats = @server.vhosts.deleted_stats
+            {% for name in OVERVIEW_STATS %}
+            {{ name.id }}_count += deleted_stats.{{ name.id }}
+            {% end %}
+            {% for name in CHURN_STATS %}
+            {{ name.id }} += deleted_stats.{{ name.id }}
+            {% end %}
+          end
+
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
             vhost.each_connection do |c|

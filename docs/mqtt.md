@@ -45,11 +45,19 @@ When a client connects with `clean_session=false`:
 
 If a client connects with a client ID that already has an active connection, the existing connection is closed and the new client takes over the session.
 
+### Session Limits
+
+Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. A session is created on the client's first SUBSCRIBE, so CONNECT still succeeds when the vhost is at the limit, but the SUBSCRIBE is answered with a SUBACK where every topic filter gets return code `0x80` (failure). Clients that already have a session can keep subscribing, since reusing a session consumes no new resource.
+
 ### Message Delivery
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
 - Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
+
+## Connection Limits
+
+The `max-connections` vhost limit applies to MQTT connections as well as AMQP ones. When the vhost is at its cap, a CONNECT is answered with a CONNACK carrying return code 3 (server unavailable) and the socket is closed. A client reconnecting with a client ID that already has an active connection is still accepted, because [session takeover](#session-takeover) replaces that connection instead of adding one. See [Connections](connections.md#connection-limits).
 
 ## Retained Messages
 

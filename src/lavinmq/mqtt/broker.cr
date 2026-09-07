@@ -11,6 +11,7 @@ module LavinMQ
   module MQTT
     class Broker
       getter vhost, sessions
+      Log = LavinMQ::Log.for "mqtt.broker"
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -34,6 +35,13 @@ module LavinMQ
         session = sessions[client_id]? || return false
         return false if session.clean_session?
         true
+      end
+
+      # A reconnecting client_id displaces the existing connection in
+      # `add_client`, so the connection count doesn't grow
+      def connection_limit_reached?(client_id : String) : Bool
+        return false if @clients.has_key?(client_id)
+        @vhost.connection_limit_reached?
       end
 
       def add_client(io, connection_info, user, packet) : Client
@@ -91,8 +99,12 @@ module LavinMQ
         @exchange.publish(packet)
       end
 
-      def subscribe(client, topics)
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
         session = sessions.declare(client)
+        unless session
+          Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
+          return topics.map { Protocol::SubAck::ReturnCode::Failure }
+        end
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
@@ -108,7 +120,7 @@ module LavinMQ
       end
 
       def unsubscribe(client_id, topics)
-        session = sessions[client_id]
+        session = sessions[client_id]? || return
         topics.each do |tf|
           session.unsubscribe(tf)
         end

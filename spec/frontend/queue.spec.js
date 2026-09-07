@@ -99,6 +99,49 @@ test.describe('queue', _ => {
       await page.locator('#bindings-table').getByRole('button', { name: /unbind/i }).click()
       await expect(unbindRequest).toBeRequested()
     })
+
+    test('keeps binding form values and table unchanged when add fails', async ({ page }) => {
+      const errors = []
+      let bindingsReloaded = false
+      const source = 'missing.exchange'
+      const bindingPath = `/api/bindings/${encodeURIComponent(queueVhost)}/e/${source}/q/${queueName}`
+      const bindingsPath = `/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`
+
+      page.on('pageerror', err => errors.push(err.message))
+      page.on('dialog', dialog => dialog.dismiss())
+      page.on('request', request => {
+        const url = new URL(request.url())
+        if (request.method() === 'GET' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingsPath)) {
+          bindingsReloaded = true
+        }
+      })
+      await page.route(url => decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath), async route => {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'access_refused', reason: 'No permission' })
+        })
+      })
+
+      const form = page.locator('#addBinding')
+      await form.getByLabel('From exchange').fill(source)
+      await form.getByLabel('Binding key').fill('rk')
+      await form.getByLabel('Arguments').fill('{"x":1}')
+
+      const failedRequest = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return response.request().method() === 'POST' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath)
+      })
+      await form.getByRole('button', { name: /bind/i }).click()
+      await failedRequest
+      await page.waitForTimeout(100)
+
+      await expect(form.getByLabel('From exchange')).toHaveValue(source)
+      await expect(form.getByLabel('Binding key')).toHaveValue('rk')
+      await expect(form.getByLabel('Arguments')).toHaveValue('{"x":1}')
+      expect(bindingsReloaded).toBe(false)
+      expect(errors).toEqual([])
+    })
   })
 
   test.describe('messages tab', _ => {

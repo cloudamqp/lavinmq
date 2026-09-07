@@ -17,6 +17,7 @@ tls_key = /etc/lavinmq/key.pem
 | `tls_cert` | `[main]` | (empty) | Certificate file (including chain) |
 | `tls_key` | `[main]` | (empty) | Private key file. If empty, the cert file is expected to contain both. |
 | `tls_ciphers` | `[main]` | (empty) | Allowed cipher list, in OpenSSL cipher list format |
+| `tls_prefer_server_ciphers` | `[main]` | `false` | Use the server's cipher order instead of the client's preference |
 | `tls_min_version` | `[main]` | (empty) | Minimum TLS version. Empty falls back to the TLS library default (1.2). |
 | `tls_ktls` | `[main]` | `false` | Enable kernel TLS offloading |
 | `tls_keylog_file` | `[main]` | (empty) | Key log file for debugging |
@@ -77,7 +78,19 @@ amqp_tls_ca_cert = /etc/lavinmq/clients-ca.pem
 mqtt_tls_keylog_file = /var/log/lavinmq/mqtt-keys.log
 ```
 
-The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `tls_ciphers`, `tls_verify_peer`, `tls_ca_cert`, `tls_keylog_file`.
+The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `tls_ciphers`, `tls_prefer_server_ciphers`, `tls_verify_peer`, `tls_ca_cert`, `tls_keylog_file`.
+
+## Cipher order
+
+By default the client decides which cipher is used: the server walks the client's preference list and picks the first cipher it also supports, so the order of `tls_ciphers` only decides which ciphers are allowed, not which one wins. Setting `tls_prefer_server_ciphers = true` (OpenSSL's `SSL_OP_CIPHER_SERVER_PREFERENCE`) flips that around, so the highest-ranked cipher on the server that the client also supports is the one negotiated.
+
+```ini
+[main]
+tls_ciphers = ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305
+tls_prefer_server_ciphers = true
+```
+
+The setting can also be given per SNI host and per protocol, like the other TLS settings, and it is applied on reload.
 
 ## Reloading certificates
 

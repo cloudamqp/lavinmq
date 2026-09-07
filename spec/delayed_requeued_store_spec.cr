@@ -74,6 +74,27 @@ describe LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeu
       store.shift?.should eq sp2
       store.shift?.should eq sp3
     end
+
+    it "should shift by expiration then segment position for randomized inserts" do
+      store = LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore.new
+      timestamp = 1000i64
+      sps = Array(LavinMQ::SegmentPosition).new(500) do |i|
+        LavinMQ::SegmentPosition.new(Random.rand(3).to_u32, i.to_u32, 10u32,
+          delay: (Random.rand(5) * 100).to_u32)
+      end
+      sps.each { |sp| store.insert(sp, timestamp) }
+      store.size.should eq sps.size
+
+      expected = sps.sort do |a, b|
+        r = (timestamp + a.delay) <=> (timestamp + b.delay)
+        r.zero? ? a <=> b : r
+      end
+      shifted = Array(LavinMQ::SegmentPosition).new
+      while sp = store.shift?
+        shifted << sp
+      end
+      shifted.should eq expected
+    end
   end
 
   describe "#time_to_next_expiration?" do
