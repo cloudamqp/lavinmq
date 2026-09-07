@@ -13,8 +13,9 @@ module LavinMQ
       @message_count : UInt64 = 0
       @retries : Int64 = 0
       @stop_generation = Atomic(UInt64).new(0_u64)
-      # Consecutive transient (Retry) delivery failures, written by the outcome
-      # handler (confirm fiber) and read by the consuming loop for backoff.
+      # Consecutive failing rounds of transient (Retry) deliveries (see
+      # extend_backoff), written by the outcome handler (confirm fiber) and
+      # read by the consuming loop for backoff.
       @delivery_failures = Atomic(Int32).new(0)
       # Consecutive Abort outcomes; past ABORT_THRESHOLD the shovel errors out.
       @delivery_aborts = Atomic(Int32).new(0)
@@ -86,7 +87,7 @@ module LavinMQ
       # shovel must get a real delivery attempt rather than re-raise
       # ShovelAborted on its first message or inherit a 30s backoff.
       private def reset_delivery_state
-        @delivery_failures.set(0)
+        clear_backoff
         @delivery_aborts.set(0)
         @aborted = false
       end
@@ -104,7 +105,7 @@ module LavinMQ
         case outcome
         in Outcome::Confirmed
           @confirmed_total.add(1)
-          @delivery_failures.set(0)
+          clear_backoff
           @delivery_aborts.set(0)
           @source.ack(delivery_tag)
         in Outcome::Retry
@@ -112,13 +113,13 @@ module LavinMQ
           # destination is reachable, just not accepting this message yet.
           @retried_total.add(1)
           @delivery_aborts.set(0)
-          @delivery_failures.add(1)
+          extend_backoff
           @source.reject(delivery_tag, requeue: true)
         in Outcome::Reject
           # The endpoint responded (it just refused this message), so it is
           # healthy — clear the backoff and the abort streak.
           @rejected_total.add(1)
-          @delivery_failures.set(0)
+          clear_backoff
           @delivery_aborts.set(0)
           @source.reject(delivery_tag, requeue: false)
         in Outcome::Abort
@@ -130,13 +131,48 @@ module LavinMQ
         end
       end
 
-      # Sleep before the next delivery in proportion to recent transient
-      # failures, so a persistently-rejecting destination is retried with
-      # capped exponential backoff rather than in a tight loop.
+      # Monotonic nanoseconds until which deliveries wait; 0 when not backing off.
+      @backoff_deadline = Atomic(Int64).new(0_i64)
+
+      # Transient failures are backed off per failing *round*, not per message.
+      # Confirms arrive one per in-flight publish (up to prefetch), so a
+      # reject-publish overflow nacks a whole window at once: the first Retry
+      # opens a backoff window (0.5s, 1s, 2s, … capped, see delivery_backoff)
+      # and the rest of the burst falls inside it. Only a Retry after the
+      # deadline counts as the next failing round.
+      private def extend_backoff
+        now = monotonic_ns
+        return if now < @backoff_deadline.get
+        failures = @delivery_failures.add(1) + 1
+        @backoff_deadline.set(now + self.class.delivery_backoff(failures).total_nanoseconds.to_i64)
+      end
+
+      private def clear_backoff
+        @delivery_failures.set(0)
+        @backoff_deadline.set(0_i64)
+      end
+
+      # Time left before the next delivery may be attempted; zero when the
+      # destination is healthy.
+      def pending_backoff : Time::Span
+        remaining = @backoff_deadline.get - monotonic_ns
+        remaining > 0 ? remaining.nanoseconds : Time::Span.zero
+      end
+
+      # Monotonic clock as an Int64 so the deadline can live in an Atomic.
+      ORIGIN = Time.instant
+
+      private def monotonic_ns : Int64
+        (Time.instant - ORIGIN).total_nanoseconds.to_i64
+      end
+
+      # Wait out the current backoff window before the next delivery — once,
+      # until the deadline, not a full backoff per message — so a failing
+      # destination is probed with capped exponential backoff rather than in a
+      # tight loop, and a recovered one is back at full speed immediately.
       private def backoff_if_failing
-        failures = @delivery_failures.get
-        return if failures.zero?
-        sleep self.class.delivery_backoff(failures)
+        wait = pending_backoff
+        sleep wait unless wait.zero?
       end
 
       # Backoff before the next delivery attempt after `failures` consecutive
