@@ -1,5 +1,7 @@
-### WHAT is this pull request doing?
-Please fill me in.
+### What does this pull request do?
 
-### HOW can this pull request be tested?
-Specs? Manual steps? Please fill me in.
+<!-- Write a short, technical description in flowing text. -->
+
+### How can it be tested?
+
+<!-- Specs, or manual steps. -->
