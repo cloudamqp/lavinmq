@@ -1,5 +1,6 @@
 require "../../../message_store"
 require "../../../message_store/requeued_store"
+require "../../../min_heap"
 require "../queue"
 
 module LavinMQ::AMQP
@@ -8,9 +9,17 @@ module LavinMQ::AMQP
       class DelayedRequeuedStore < MessageStore::RequeuedStore
         record DelayedSegmentPosition,
           sp : SegmentPosition,
-          expire_at : Int64
+          expire_at : Int64 do
+          include Comparable(self)
 
-        @segment_positions = Deque(DelayedSegmentPosition).new
+          def <=>(other : self)
+            r = expire_at <=> other.expire_at
+            return r unless r.zero?
+            sp <=> other.sp
+          end
+        end
+
+        @segment_positions = MinHeap(DelayedSegmentPosition).new
 
         def shift? : SegmentPosition?
           @segment_positions.shift?.try &.sp
@@ -31,20 +40,7 @@ module LavinMQ::AMQP
         end
 
         def insert(sp : SegmentPosition, timestamp : Int64) : Nil
-          sp = DelayedSegmentPosition.new(sp, timestamp + sp.delay)
-          idx = @segment_positions.bsearch_index do |rsp|
-            if rsp.expire_at == sp.expire_at
-              rsp.sp > sp.sp
-            else
-              rsp.expire_at > sp.expire_at
-            end
-          end
-
-          if idx
-            @segment_positions.insert(idx, sp)
-          else
-            @segment_positions.push(sp)
-          end
+          @segment_positions.push(DelayedSegmentPosition.new(sp, timestamp + sp.delay))
         end
 
         def size
@@ -52,7 +48,7 @@ module LavinMQ::AMQP
         end
 
         def clear : Nil
-          @segment_positions = Deque(DelayedSegmentPosition).new
+          @segment_positions.clear
         end
       end
     end
