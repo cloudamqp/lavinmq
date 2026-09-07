@@ -25,8 +25,8 @@ module LavinMQ
       def start
         return if started?
         error = nil
-        @destinations.size.times do |i|
-          error = activate(@index + i)
+        each_index_from(@index) do |i|
+          error = activate(i)
           return if error.nil?
         end
         raise(error || ArgumentError.new("No destinations configured"))
@@ -49,17 +49,26 @@ module LavinMQ
         dest.push(msg)
       end
 
+      # Yields each destination index once, starting at `base` and wrapping
+      # around. `activate` moves @index as it goes, so the walk must not be
+      # computed from @index itself or it revisits slots and skips others.
+      private def each_index_from(base, &)
+        @destinations.size.times do |i|
+          yield (base + i) % @destinations.size
+        end
+      end
+
       # Activate destination at `index`, routing its outcomes through our handler.
       # Returns nil if it started, else the exception its start raised.
       private def activate(index) : Exception?
-        @index = index % @destinations.size
-        dest = @destinations[@index]
+        @index = index
+        dest = @destinations[index]
         dest.listener = self
         dest.start
         @current = dest
         nil
       rescue ex
-        Log.warn { "Destination #{@index} failed to start: #{ex.message}" }
+        Log.warn { "Destination #{index} failed to start: #{ex.message}" }
         ex
       end
 
@@ -84,8 +93,8 @@ module LavinMQ
       end
 
       private def start_next
-        @destinations.size.times do |i|
-          return if activate(@index + 1 + i).nil?
+        each_index_from(@index + 1) do |i|
+          return if activate(i).nil?
         end
       end
 
