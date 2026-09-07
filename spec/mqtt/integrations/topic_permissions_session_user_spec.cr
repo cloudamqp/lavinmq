@@ -85,41 +85,45 @@ module MqttSpecs
       end
     end
 
-    it "loads a session with a corrupt metadata file and applies wildcard rules only" do
-      with_server do |server|
-        server.users.create("alice", "alice")
-        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
-        service = server.vhosts["/"].mqtt_permission_service
-        service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
-        service.put(LavinMQ::MQTT::PermissionGroup.new("public", "/", ["*"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("public", "public/#", read: true, write: true)]))
-        service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
-          [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
+    # An empty file is a parse error, a JSON array is valid JSON that is not
+    # an object; both must degrade to an unknown user, never fail the load.
+    ["", "[]"].each do |content|
+      it "loads a session with a metadata file holding #{content.inspect} and applies wildcard rules only" do
+        with_server do |server|
+          server.users.create("alice", "alice")
+          server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+          service = server.vhosts["/"].mqtt_permission_service
+          service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
+          service.put(LavinMQ::MQTT::PermissionGroup.new("public", "/", ["*"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("public", "public/#", read: true, write: true)]))
+          service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", write: true)]))
 
-        with_client_io(server) do |io|
-          connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
-          subscribe(io, topic_filters: mk_topic_filters({"chat/#", 1}, {"public/#", 1}))
-          disconnect(io)
-        end
+          with_client_io(server) do |io|
+            connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
+            subscribe(io, topic_filters: mk_topic_filters({"chat/#", 1}, {"public/#", 1}))
+            disconnect(io)
+          end
 
-        metadata_file = File.join(server.vhosts["/"].data_dir, Digest::SHA1.hexdigest("mqtt.dev"), ".metadata")
-        File.write(metadata_file, "")
-        restart_server(server)
+          metadata_file = File.join(server.vhosts["/"].data_dir, Digest::SHA1.hexdigest("mqtt.dev"), ".metadata")
+          File.write(metadata_file, content)
+          restart_server(server)
 
-        with_client_io(server) do |pub_io|
-          connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 0u8)
-          publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 0u8)
-          pingpong(pub_io)
-        end
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 0u8)
+            publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 0u8)
+            pingpong(pub_io)
+          end
 
-        with_client_io(server) do |io|
-          connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
-          msg = read_packet(io)
-          msg.should be_a(MQTT::Protocol::Publish)
-          msg.as(MQTT::Protocol::Publish).payload.should eq("for-all".to_slice)
-          read_packet(io).should be_nil
+          with_client_io(server) do |io|
+            connect(io, client_id: "dev", clean_session: false, username: "alice", password: "alice".to_slice)
+            msg = read_packet(io)
+            msg.should be_a(MQTT::Protocol::Publish)
+            msg.as(MQTT::Protocol::Publish).payload.should eq("for-all".to_slice)
+            read_packet(io).should be_nil
+          end
         end
       end
     end
