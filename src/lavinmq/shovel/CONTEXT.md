@@ -13,8 +13,9 @@ _Avoid_: pump, bridge, forwarder.
 
 **Source**:
 Where a Shovel reads messages from and settles them (ack / reject). Today only
-AMQP queues. The Source owns consume and settlement; it never decides *whether*
-a message succeeded.
+AMQP queues (an exchange source is consumed through a temporary queue). The
+Source owns consume and settlement; it never decides *whether* a message
+succeeded.
 _Avoid_: origin, input, upstream.
 
 **Destination**:
@@ -33,10 +34,13 @@ _Avoid_: worker, driver, supervisor.
 
 **MultiDestinationHandler**:
 The failover Destination wrapping a Shovel's list of `dest-uri`s. Holds one
-*active* destination at a time; on an **Abort** outcome, a connection failure, or
-a run of **Retry** outcomes it advances to the next, and emits Abort upward only
-once every destination has aborted with no intervening **Confirmed**. Name kept for continuity — it is a
-failover handler, not fan-out or load-balancing.
+*active* destination at a time; on an **Abort** outcome, a failure to start, or
+a run of **Retry** outcomes it advances to the next. It emits Abort upward only
+once every destination has aborted in a row with no other outcome in between,
+and keeps advancing even then. Every start begins with the first destination in
+the list, and start raises if none can be started, so the Runner reconnects.
+Name kept for continuity — it is a failover handler, not fan-out or
+load-balancing.
 _Avoid_: RandomDestination, load-balancer, fan-out, round-robin.
 
 **Outcome**:
@@ -54,7 +58,15 @@ the Runner decides what each one does. One of:
   handles it, then continues with the next message.
 - **Abort** — the *destination* is unusable (HTTP 404, auth failure). Runner
   keeps the message (`requeue: true`) and, after a threshold of consecutive
-  Aborts, errors-out the whole Shovel for an operator to resolve.
+  Aborts, moves the Shovel to the **Aborted** state for an operator to resolve.
 
 _Avoid_: result, status, ack-mode (ack-mode is the separate
-Confirmed/OnPublish/NoAck delivery-guarantee setting).
+OnConfirm/OnPublish/NoAck delivery-guarantee setting).
+
+**Aborted** (state):
+The terminal state a Runner enters once the abort threshold is crossed: the
+Destination is unusable, the Shovel stays put with the reason in `error`, and it
+does not reconnect until it is resumed or its parameter is recreated. Distinct
+from **Error**, the transient state of a Shovel that is about to reconnect with
+backoff.
+_Avoid_: errored-out, failed, dead.
