@@ -28,6 +28,8 @@ module LavinMQ
       include SortableJSON
 
       getter log, name, user, client_id, socket, connection_info
+      # This client's session queue name, built once rather than per use.
+      getter session_name : String
       # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
       # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
       getter max_packet_size : UInt32?
@@ -80,6 +82,7 @@ module LavinMQ
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
+        @session_name = MQTT.session_name(@client_id)
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
       end
@@ -346,7 +349,7 @@ module LavinMQ
       def recieve_subscribe(packet : Protocol::Subscribe)
         validate_v5_subscribe!(packet)
         if Config.instance.mqtt_permission_check_enabled?
-          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, session_name)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             # A v3 SUBACK can only say 0x00-0x02 or 0x80, so v3 keeps closing
             # without an explanation.

@@ -37,10 +37,10 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(topic) do |queue, qos, _filter|
+        @tree.each_entry(topic) do |queue, options, _filter|
           # The minimum of the publish and subscription QoS [MQTT-3.8.4-8];
           # the subscription's alone would upgrade a fire-and-forget publish.
-          msg.properties.delivery_mode = Math.min(packet.qos, qos)
+          msg.properties.delivery_mode = Math.min(packet.qos, options.qos)
           if queue.publish(msg)
             count += 1
             msg.body_io.rewind
@@ -53,8 +53,8 @@ module LavinMQ
 
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
-          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
+        @tree.each_entry do |session, options, filter|
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, options), session)
         end
         result
       end
@@ -68,20 +68,20 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
+        options = MQTT.subscription_options(arguments)
+        @tree.subscribe(routing_key, destination, options)
 
-        binding_key = SubscriptionKey.new(routing_key, qos)
+        binding_key = SubscriptionKey.new(routing_key, options)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
+        options = MQTT.subscription_options(arguments)
         @tree.unsubscribe(routing_key, destination)
 
-        binding_key = SubscriptionKey.new(routing_key, qos)
+        binding_key = SubscriptionKey.new(routing_key, options)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 

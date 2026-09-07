@@ -18,6 +18,37 @@ describe LavinMQ::MQTT::SubscriptionKey do
     end
   end
 
+  describe "#arguments with subscription options" do
+    # This is the definitions-compaction guard. `compact!` does not replay the
+    # original Queue::Bind frames, it re-derives every binding from
+    # `bindings_details` -> `SubscriptionKey#arguments`, so anything this
+    # method cannot reconstruct survives a plain restart and then vanishes at
+    # the first compaction.
+    it "renders No Local" do
+      key = LavinMQ::MQTT::SubscriptionKey.new("a/b",
+        LavinMQ::MQTT::SubscriptionOptions.new(1u8, no_local: true))
+      key.arguments.not_nil![LavinMQ::MQTT::NO_LOCAL_HEADER].should be_true
+    end
+
+    it "renders Retain As Published" do
+      key = LavinMQ::MQTT::SubscriptionKey.new("a/b",
+        LavinMQ::MQTT::SubscriptionOptions.new(1u8, retain_as_published: true))
+      key.arguments.not_nil![LavinMQ::MQTT::RETAIN_AS_PUBLISHED_HEADER].should be_true
+    end
+
+    it "round-trips through subscription_options" do
+      options = LavinMQ::MQTT::SubscriptionOptions.new(1u8,
+        no_local: true, retain_as_published: true)
+      key = LavinMQ::MQTT::SubscriptionKey.new("a/b", options)
+      LavinMQ::MQTT.subscription_options(key.arguments).should eq options
+    end
+
+    it "still returns the shared constant for a subscription with no options" do
+      LavinMQ::MQTT::SubscriptionKey.new("a/b", 1u8).arguments
+        .should be(LavinMQ::MQTT::QOS1_ARGUMENTS)
+    end
+  end
+
   describe "#properties_key" do
     it "returns ~ for an empty topic filter" do
       LavinMQ::MQTT::SubscriptionKey.new("", 0u8).properties_key.should eq "~"

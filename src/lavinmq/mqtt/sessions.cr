@@ -8,11 +8,11 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.session?("mqtt.#{client_id}")
+        @vhost.session?(MQTT.session_name(client_id))
       end
 
       def [](client_id : String) : Session
-        @vhost.session("mqtt.#{client_id}")
+        @vhost.session(MQTT.session_name(client_id))
       end
 
       # Returns nil if creating the session would exceed the vhost's max-queues
@@ -28,7 +28,7 @@ module LavinMQ
             "x-queue-type"     => "mqtt",
             SESSION_EXPIRY_ARG => interval,
           })
-          @vhost.declare_queue("mqtt.#{client.client_id}", !interval.zero?, interval.zero?, arguments)
+          @vhost.declare_queue(MQTT.session_name(client.client_id), !interval.zero?, interval.zero?, arguments)
           self[client.client_id].client = client
           self[client.client_id]
         end
