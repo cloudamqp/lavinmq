@@ -1761,6 +1761,48 @@ describe LavinMQ::Shovel do
       parent.outcomes.last.should eq({2_u64, LavinMQ::Shovel::Outcome::Retry})
     end
 
+    it "fails over after repeated Retry outcomes when more than one destination is configured" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      b = ShovelSpecHelpers::FlakyStartDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      # HTTP start never contacts the endpoint, so a dead host only ever shows
+      # up as connection-refused Retries. A destination that keeps failing
+      # transiently must not hold the shovel forever while a healthy one waits.
+      2.times { |i| multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Retry) }
+      b.starts.should eq 0
+      multi.report(3_u64, LavinMQ::Shovel::Outcome::Retry)
+      {a.stops, b.starts}.should eq({1, 1})
+      parent.outcomes.map(&.last).uniq!.should eq [LavinMQ::Shovel::Outcome::Retry]
+    end
+
+    it "does not fail over on Retry with a single destination" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a] of LavinMQ::Shovel::Destination)
+      multi.listener = ShovelSpecHelpers::RecordingListener.new
+      multi.start
+      5.times { |i| multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Retry) }
+      # Nothing to fail over to: restarting the same destination would only
+      # churn its connection while the Runner backs off anyway.
+      {a.starts, a.stops}.should eq({1, 0})
+    end
+
+    it "starts from the first destination again after a stop" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      b = ShovelSpecHelpers::FlakyStartDestination.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+      multi.listener = ShovelSpecHelpers::RecordingListener.new
+      multi.start
+      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # fail over to b
+      multi.stop
+      multi.start
+      # The list is an ordered preference: a restart (pause/resume, reconnect)
+      # goes back to the primary rather than staying on whatever was active.
+      {a.starts, b.starts}.should eq({2, 1})
+    end
+
     it "raises from start when no destination can be activated" do
       a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
       b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))

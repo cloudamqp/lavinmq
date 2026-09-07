@@ -33,9 +33,9 @@ _Avoid_: worker, driver, supervisor.
 
 **MultiDestinationHandler**:
 The failover Destination wrapping a Shovel's list of `dest-uri`s. Holds one
-*active* destination at a time; on an **Abort** outcome or a connection failure
-it advances to the next, and emits Abort upward only once every destination has
-failed with no intervening **Confirmed**. Name kept for continuity — it is a
+*active* destination at a time; on an **Abort** outcome, a connection failure, or
+a run of **Retry** outcomes it advances to the next, and emits Abort upward only
+once every destination has aborted with no intervening **Confirmed**. Name kept for continuity — it is a
 failover handler, not fan-out or load-balancing.
 _Avoid_: RandomDestination, load-balancer, fan-out, round-robin.
 

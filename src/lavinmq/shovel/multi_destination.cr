@@ -2,18 +2,27 @@ require "./destination"
 
 module LavinMQ
   module Shovel
-    # Coarse failover across a shovel's list of destinations. One destination is
-    # active at a time; when it is classified unusable (Abort) or fails to start,
-    # the handler advances to the next and the in-flight message is retried there.
-    # Only once every destination has failed in a row — with no Confirmed in
-    # between — does it emit Abort upward so the Runner errors-out the shovel.
-    # Name kept for continuity; this is a failover handler, not fan-out.
+    # Coarse failover across a shovel's ordered list of destinations. One
+    # destination is active at a time; when it is classified unusable (Abort),
+    # fails to start, or keeps failing transiently (a run of Retry outcomes),
+    # the handler advances to the next and the in-flight message is retried
+    # there. Only once every destination has aborted in a row — with no
+    # Confirmed in between — does it emit Abort upward so the Runner errors-out
+    # the shovel. Name kept for continuity; this is a failover handler, not
+    # fan-out.
     class MultiDestinationHandler < Destination
       include OutcomeListener
+
+      # Consecutive Retry outcomes on the active destination before the handler
+      # gives another destination a chance. An HTTP destination's start never
+      # contacts the endpoint, so a host that is down only ever shows up as
+      # connection-refused Retries.
+      RETRY_FAILOVER_THRESHOLD = 3
 
       @current : Destination?
       @index = 0
       @consecutive_aborts = 0
+      @consecutive_retries = 0
 
       def initialize(@destinations : Array(Destination))
       end
@@ -24,7 +33,7 @@ module LavinMQ
       # with backoff.
       def start
         return if started?
-        @consecutive_aborts = 0
+        reset_streaks
         error = nil
         each_index_from(@index) do |i|
           error = activate(i)
@@ -33,10 +42,13 @@ module LavinMQ
         raise(error || ArgumentError.new("No destinations configured"))
       end
 
+      # The list is an ordered preference: the next start begins with the first
+      # destination again rather than wherever failover had got to.
       def stop
         @current.try &.stop
         @current = nil
-        @consecutive_aborts = 0
+        @index = 0
+        reset_streaks
       end
 
       def started? : Bool
@@ -74,21 +86,29 @@ module LavinMQ
         ex
       end
 
-      # Intercepts each active destination's outcome. A non-Abort is forwarded
-      # unchanged. An Abort fails over to the next destination, so the
-      # redelivery goes there rather than to the destination that just aborted.
-      # Until every destination has aborted in a row that is a Retry; from then
-      # on Abort propagates so the Runner's abort threshold applies, while the
-      # handler keeps rotating for each redelivery.
+      # Intercepts each active destination's outcome and forwards it, failing
+      # over first where the outcome calls for it:
+      #   Confirmed / Reject - the destination answered; clear both streaks.
+      #   Retry              - forwarded as is; after RETRY_FAILOVER_THRESHOLD in
+      #                        a row the redelivery goes to the next destination
+      #                        (only when there is another one to go to).
+      #   Abort              - fail over for the redelivery. Until every
+      #                        destination has aborted in a row that is a Retry;
+      #                        from then on Abort propagates so the Runner's abort
+      #                        threshold applies, while still rotating.
       def report(delivery_tag : UInt64, outcome : Outcome)
         case outcome
-        in Outcome::Confirmed, Outcome::Retry, Outcome::Reject
-          @consecutive_aborts = 0
+        in Outcome::Confirmed, Outcome::Reject
+          reset_streaks
           @listener.report(delivery_tag, outcome)
+        in Outcome::Retry
+          @consecutive_aborts = 0
+          @consecutive_retries += 1
+          fail_over if @consecutive_retries >= RETRY_FAILOVER_THRESHOLD && @destinations.size > 1
+          @listener.report(delivery_tag, Outcome::Retry)
         in Outcome::Abort
           @consecutive_aborts += 1
-          @current.try &.stop
-          start_next
+          fail_over
           if @consecutive_aborts >= @destinations.size
             @listener.report(delivery_tag, Outcome::Abort) # every destination is unusable
           else
@@ -97,10 +117,18 @@ module LavinMQ
         end
       end
 
-      private def start_next
+      # Stop the active destination and activate the next one that starts.
+      private def fail_over
+        @consecutive_retries = 0
+        @current.try &.stop
         each_index_from(@index + 1) do |i|
           return if activate(i).nil?
         end
+      end
+
+      private def reset_streaks
+        @consecutive_aborts = 0
+        @consecutive_retries = 0
       end
 
       Log = LavinMQ::Log.for "shovel.multi_destination"
