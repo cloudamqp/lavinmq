@@ -65,7 +65,7 @@ With the `on-confirm` ack mode, the HTTP response status is classified into a [d
 
 - `2xx` acks the message.
 - `408`, `429`, and `5xx`, as well as transport-level failures such as connection refused, read timeout, or a TLS handshake error, requeue the message; it is retried on the source with capped exponential backoff. There is no in-place retry of a failed request, with one exception: an endpoint that has silently closed an idle keep-alive connection is only detected by the next request dying on it (EOF or a reset), and that request is retried once on a fresh connection before it counts as a failure.
-- `400` and `422` reject the message without requeue, so the source queue's dead-letter exchange handles it.
+- `400`, `411`, `413`, `414`, `415`, `422` and `431` describe the message (its body size, content type, `uri_path` or headers), so they reject it without requeue and the source queue's dead-letter exchange handles it.
 - Any other status (e.g. `401`, `403`, `404`, `405`, `410`) is treated as an unusable endpoint; after repeated consecutive failures the shovel errors out for an operator to resolve.
 
 `on-publish` behaves differently: the message is POSTed once and acked as soon as the request completes, **regardless of the response status** (so even a `5xx` is treated as delivered); only a transport-level failure requeues it. There is no status classification; the stale keep-alive retry above still applies. `no-ack` POSTs once and never settles the source. See [Shovel delivery outcomes](shovel-delivery-outcomes.md) for the full status-to-outcome mapping.
