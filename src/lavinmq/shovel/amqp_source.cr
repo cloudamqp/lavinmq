@@ -196,8 +196,6 @@ module LavinMQ
             ch.basic_cancel(@tag, no_wait: true)
             @done.wait # wait for last ack before returning, which will close connection
           end
-        rescue FailedDeliveryError
-          msg.reject
         end
       rescue e
         Log.warn { "name=#{@name} #{e.message}" }
