@@ -11,8 +11,8 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
-    # Set when the addresses come from a PROXY header that any peer could have sent
-    property? untrusted_proxy : Bool = false
+    # False when the addresses come from a PROXY header that any peer could have sent
+    property? trusted_proxy : Bool = true
 
     # Remote and local addresses from the server's perspective
     def initialize(remote_address, local_address)
@@ -21,7 +21,7 @@ module LavinMQ
     end
 
     def loopback? : Bool
-      !@untrusted_proxy && @remote_address.loopback?
+      @trusted_proxy && @remote_address.loopback?
     end
 
     def self.local

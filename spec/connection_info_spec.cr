@@ -46,7 +46,7 @@ describe LavinMQ::ConnectionInfo do
 
     it "is false when a loopback address comes from an untrusted PROXY header" do
       info = LavinMQ::ConnectionInfo.new(loopback, loopback)
-      info.untrusted_proxy = true
+      info.trusted_proxy = false
       info.loopback?.should be_false
     end
 

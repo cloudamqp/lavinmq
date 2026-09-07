@@ -235,7 +235,7 @@ module LavinMQ
           case
           when @config.proxy_protocol_trusted_sources.empty?
             # Accept from all sources for backward compatibility, only a follower's address can be trusted
-            parsed_proxy.untrusted_proxy = !follower?(remote_address)
+            parsed_proxy.trusted_proxy = follower?(remote_address)
             return parsed_proxy
           when listed_proxy_source?(remote_address.address)
             return parsed_proxy
