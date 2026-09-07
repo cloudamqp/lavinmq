@@ -44,10 +44,8 @@ describe LavinMQ::ConnectionInfo do
       LavinMQ::ConnectionInfo.new(remote, loopback).loopback?.should be_false
     end
 
-    it "is false when a loopback address comes from an untrusted PROXY header" do
-      info = LavinMQ::ConnectionInfo.new(loopback, loopback)
-      info.trusted_proxy = false
-      info.loopback?.should be_false
+    it "is false when a loopback address comes from a PROXY header" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true).loopback?.should be_false
     end
 
     it "is true for the local placeholder" do

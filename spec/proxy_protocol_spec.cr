@@ -11,6 +11,7 @@ describe "ProxyProtocol" do
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
       conn_info.local_address.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
+      conn_info.proxied?.should be_true
     end
 
     it "returns nil for the UNKNOWN family so the socket address is used" do

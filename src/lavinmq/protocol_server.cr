@@ -229,11 +229,7 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      if parsed_proxy = parse_proxy_header(client, remote_address)
-        parsed_proxy.trusted_proxy = trusted_proxy_source?(remote_address)
-        return parsed_proxy
-      end
-      ConnectionInfo.new(remote_address, client.local_address)
+      parse_proxy_header(client, remote_address) || ConnectionInfo.new(remote_address, client.local_address)
     end
 
     # A header from an unlisted peer is consumed and ignored, so the connection continues with the socket address
@@ -250,11 +246,6 @@ module LavinMQ
     # With no trusted sources configured, headers are accepted from all peers for backward compatibility
     private def accepted_proxy_source?(remote_address) : Bool
       @config.proxy_protocol_trusted_sources.empty? || listed_proxy_source?(remote_address.address)
-    end
-
-    # Only a listed source or a cluster follower can vouch for the address in its header
-    private def trusted_proxy_source?(remote_address) : Bool
-      follower?(remote_address) || listed_proxy_source?(remote_address.address)
     end
 
     private def follower?(remote_address) : Bool

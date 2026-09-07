@@ -11,17 +11,18 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
-    # False when the addresses come from a PROXY header that any peer could have sent
-    property? trusted_proxy : Bool = true
+    # True when the addresses come from a PROXY protocol header
+    getter? proxied : Bool
 
     # Remote and local addresses from the server's perspective
-    def initialize(remote_address, local_address)
+    def initialize(remote_address, local_address, *, @proxied : Bool = false)
       @remote_address = IPAddress.new(remote_address)
       @local_address = IPAddress.new(local_address)
     end
 
+    # A proxied address describes the client as seen by the proxy, not a connection on this host
     def loopback? : Bool
-      @trusted_proxy && @remote_address.loopback?
+      @remote_address.loopback? && !@proxied
     end
 
     def self.local

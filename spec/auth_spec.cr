@@ -122,18 +122,19 @@ describe LavinMQ::Auth::Chain do
       end
     end
 
-    it "accepts the default user when a trusted proxy reports a loopback source" do
+    it "rejects the default user when a listed proxy reports a loopback source" do
       with_amqp_server do |s|
         with_proxy_protocol([LavinMQ::IPMatcher.parse("127.0.0.1"), LavinMQ::IPMatcher.parse("::1")]) do
           port = amqp_port(s)
           header = "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{port}\r\n"
           frame = amqp_login(port, "guest", "guest", header)
-          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+          frame.should be_a AMQ::Protocol::Frame::Connection::Close
+          frame.as(AMQ::Protocol::Frame::Connection::Close).reply_code.should eq 403
         end
       end
     end
 
-    it "rejects the default user when a trusted proxy reports a remote source" do
+    it "rejects the default user when a listed proxy reports a remote source" do
       with_amqp_server do |s|
         with_proxy_protocol([LavinMQ::IPMatcher.parse("127.0.0.1"), LavinMQ::IPMatcher.parse("::1")]) do
           port = amqp_port(s)
