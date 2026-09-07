@@ -33,11 +33,17 @@ to an outcome:
 | Any other non-2xx (`401`, `403`, `404`, `405`, `410`, `3xx`, `418`, …) | `Abort` |
 | Transport failure during the request (connection refused/reset, read timeout, or TLS handshake error — `IO::Error` / `OpenSSL::SSL::Error`) | `Retry` |
 
-Under `on-confirm`, a `Retry` outcome (a `5xx`/`429`/`408` response or a transport
-failure) is retried **in place** up to 5 times with a small random jitter (no
-backoff) before it is reported to the runner; `Confirmed`, `Reject`, and `Abort`
-are reported immediately. Once the in-place budget is exhausted the runner
-requeues the message and applies its own capped backoff.
+There is no in-place retry of a failed request: every outcome is reported to
+the runner immediately, and a `Retry` makes the runner requeue the message and
+apply its own capped backoff. The one exception is a kept-alive connection the
+endpoint has silently closed. That is only detectable by the next request dying
+on it (EOF or a reset, on a connection that already served a request), so that
+request is retried once on a fresh connection before anything is reported. A
+timeout, a refused connection, or a failure on a fresh connection is not retried
+in place.
+
+The body is sent with a `Content-Length` header (its size is known), not with
+chunked transfer encoding.
 
 ## AMQP destination
 

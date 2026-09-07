@@ -14,6 +14,9 @@ module LavinMQ
       end
 
       @client : ::HTTP::Client?
+      # True once a request has completed on the client's current connection,
+      # i.e. the next request reuses a kept-alive socket.
+      @reused = false
 
       getter timeout : Time::Span
 
@@ -27,10 +30,12 @@ module LavinMQ
         client.read_timeout = @timeout
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
+        @reused = false
       end
 
       def stop
         @client.try &.close
+        @reused = false
       end
 
       def started? : Bool
@@ -56,19 +61,20 @@ module LavinMQ
                else
                  "/"
                end
+        body = msg.body_io.to_slice
         case @ack_mode
         in AckMode::OnConfirm
-          @listener.report(msg.delivery_tag, attempt(c, path, headers, msg.body_io))
+          @listener.report(msg.delivery_tag, attempt(c, path, headers, body))
         in AckMode::OnPublish
           begin
-            post(c, path, headers, msg.body_io)
+            post(c, path, headers, body)
             @listener.report(msg.delivery_tag, Outcome::Confirmed)
           rescue IO::Error | OpenSSL::SSL::Error
             @listener.report(msg.delivery_tag, Outcome::Retry)
           end
         in AckMode::NoAck
           begin
-            post(c, path, headers, msg.body_io)
+            post(c, path, headers, body)
           rescue IO::Error | OpenSSL::SSL::Error
             # nothing to settle in no-ack mode
           end
@@ -77,23 +83,45 @@ module LavinMQ
 
       # A single delivery attempt, classified into an Outcome. A transport-level
       # failure counts as a transient Retry.
-      private def attempt(c, path, headers, body_io) : Outcome
-        classify post(c, path, headers, body_io)
+      private def attempt(c, path, headers, body : Bytes) : Outcome
+        classify post(c, path, headers, body)
       rescue IO::Error | OpenSSL::SSL::Error
         Outcome::Retry
       end
 
-      # POST the message body. On a transport failure (timeout, reset,
+      # POST the message body (as Bytes, so the request carries a Content-Length
+      # rather than chunked encoding). On a transport failure (timeout, reset,
       # connection refused, TLS error) the client is closed before re-raising:
       # HTTP::Client never drops a dead keep-alive socket by itself for a POST
       # with a body, and closing makes the next request open a fresh connection.
-      private def post(c, path, headers, body_io) : ::HTTP::Client::Response
-        body_io.rewind
-        c.post(path, headers: headers, body: body_io)
+      #
+      # An endpoint that closed an idle keep-alive is only detected by the next
+      # request dying on it. That one case — EOF or a reset on a connection that
+      # already served a request — is retried once on a fresh connection before
+      # the failure counts. @reused is false by then, so the recursion is
+      # bounded to a single retry.
+      private def post(c, path, headers, body : Bytes) : ::HTTP::Client::Response
+        reused = @reused
+        resp = c.post(path, headers: headers, body: body)
+        @reused = true
+        resp
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
         c.close
-        raise ex
+        @reused = false
+        if reused && stale_connection?(ex)
+          Log.debug { "shovel=#{@name} stale keep-alive (#{ex.message}), retrying on a fresh connection" }
+          post(c, path, headers, body)
+        else
+          Log.warn { "shovel=#{@name} HTTP delivery failed: #{ex.message}" }
+          raise ex
+        end
+      end
+
+      # EOF or a reset mid-request is how a server-side close of an idle
+      # keep-alive surfaces; a timeout or a refused connection is not that.
+      private def stale_connection?(ex : Exception) : Bool
+        return true if ex.is_a?(IO::EOFError)
+        ex.is_a?(IO::Error) && ex.os_error.in?(Errno::ECONNRESET, Errno::EPIPE)
       end
 
       def classify(response : ::HTTP::Client::Response) : Outcome

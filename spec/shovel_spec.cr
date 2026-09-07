@@ -965,6 +965,10 @@ describe LavinMQ::Shovel do
           h["Authorization"].should eq "Basic YTpi" # base64 encoded "a:b"
           h["X-a"].should eq "b"
           body.should eq "shovel me"
+          # The body size is known up front, so the request carries a
+          # Content-Length rather than chunked transfer encoding.
+          h["Content-Length"].should eq "shovel me".bytesize.to_s
+          h.has_key?("Transfer-Encoding").should be_false
 
           s.vhosts["/"].shovels.empty?.should be_true
         end
@@ -1040,7 +1044,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "bounds in-place retries to 1 + MAX_RETRIES then requeues when the 503 persists (#5 Retry)" do
+    it "requeues the message when the HTTP destination returns 503 (#5 Retry)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)
         server = HTTP::Server.new do |context|
@@ -1160,6 +1164,40 @@ describe LavinMQ::Shovel do
           # run down and waits out a 5s reconnect.
           should_eventually(be_true, 4.seconds) { shovel.details_tuple[:confirmed] == 3 }
           shovel.details_tuple[:error].should be_nil
+          shovel.terminate
+        end
+      end
+    end
+
+    it "retries once on a fresh connection when a kept-alive socket has gone stale" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        # Non-draining handler: the server closes the connection after every
+        # response, so every other request lands on a dead keep-alive socket.
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "sk_q1", direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "sk_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("sk_q1")
+          4.times { |i| x.publish_confirm "m#{i}", "sk_q1" }
+          spawn shovel.run
+          # A stale keep-alive is only detectable by the next request dying on
+          # it. That request is retried once on a fresh connection, so the
+          # endpoint never saw a failure and the runner never sees a Retry.
+          should_eventually(be_true, 3.seconds) { shovel.details_tuple[:confirmed] == 4 }
+          shovel.details_tuple[:retried].should eq 0
+          received.get.should eq 4
           shovel.terminate
         end
       end
