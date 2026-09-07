@@ -1165,6 +1165,67 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "reconnects after a transport failure in on-publish mode" do
+      with_amqp_server do |s|
+        # Non-draining handler: the server closes the connection after every
+        # response, so every other request lands on a dead keep-alive socket.
+        server = HTTP::Server.new do |context|
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        ack_mode = LavinMQ::Shovel::AckMode::OnPublish
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "op2_q1", ack_mode: ack_mode, direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"), ack_mode)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "op2_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("op2_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "op2_q1" }
+          spawn shovel.run
+          # Crystal's HTTP::Client never drops a dead socket by itself for a
+          # POST with a body; unless the destination closes it after the
+          # failure, every later delivery fails on the same socket forever.
+          should_eventually(be_true, 4.seconds) { shovel.details_tuple[:confirmed] == 3 }
+          shovel.terminate
+        end
+      end
+    end
+
+    it "reconnects after a transport failure in no-ack mode" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        server = HTTP::Server.new do |context|
+          received.add(1)
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        ack_mode = LavinMQ::Shovel::AckMode::NoAck
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "na2_q1", ack_mode: ack_mode, direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"), ack_mode)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "na2_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("na2_q1")
+          4.times { |i| x.publish_confirm "m#{i}", "na2_q1" }
+          spawn shovel.run
+          # no-ack drops a message whose POST fails, but the failure must not
+          # wedge the client: later messages still reach the endpoint.
+          should_eventually(be_true, 3.seconds) { received.get >= 2 }
+          shovel.terminate
+        end
+      end
+    end
+
     it "errors-out the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
       with_amqp_server do |s|
         server = HTTP::Server.new do |context|
