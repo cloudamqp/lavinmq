@@ -12,7 +12,11 @@ module LavinMQ
       Stopped
       Paused
       Terminated
+      # A connection or runtime failure; the Runner reconnects with backoff.
       Error
+      # Terminal: the destination was classified unusable ABORT_THRESHOLD times
+      # in a row. No reconnect; an operator resumes or recreates the shovel.
+      Aborted
     end
 
     enum DeleteAfter

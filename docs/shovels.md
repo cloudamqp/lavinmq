@@ -107,6 +107,7 @@ How each destination type maps its native result (HTTP status, AMQP publisher co
 | `paused` | Temporarily paused |
 | `terminated` | Permanently terminated |
 | `error` | Failed (will attempt reconnection) |
+| `aborted` | The destination was classified unusable 10 times in a row (see [Delivery Outcomes](#delivery-outcomes)). The shovel stays here, with the reason in `error`, and does not reconnect; resume it or recreate its parameter once the destination is fixed. |
 
 ## Reconnection
 
