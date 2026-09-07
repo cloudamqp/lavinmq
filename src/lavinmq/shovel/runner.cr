@@ -191,11 +191,12 @@ module LavinMQ
         raise ShovelAborted.new("destination unusable after #{ABORT_THRESHOLD} attempts")
       end
 
-      # Terminal: the destination is unusable. Stay in Error for the operator
+      # Terminal: the destination is unusable. Stay in Aborted — distinct from
+      # the transient Error state of a reconnecting shovel — for the operator
       # rather than reconnecting.
       private def error_out(ex)
         @aborted = true
-        @state = State::Error
+        @state = State::Aborted
         @error = ex.message
         Log.warn { "Aborted: #{ex.message}" }
         @source.stop

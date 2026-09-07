@@ -1322,9 +1322,12 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "errors-out the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
+    it "aborts the shovel after repeated Abort responses from the HTTP destination (#5 Abort)" do
       with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
         server = HTTP::Server.new do |context|
+          received.add(1)
+          context.request.body.try &.skip_to_end
           context.response.status_code = 404
           context.response.print "not found"
           context
@@ -1343,8 +1346,14 @@ describe LavinMQ::Shovel do
           x.publish_confirm "no route", "ab_q1"
           spawn shovel.run
           # 404 = endpoint unusable: after a threshold of consecutive Aborts the
-          # shovel errors out for an operator to resolve, rather than looping.
-          should_eventually(be_true) { shovel.state.error? }
+          # shovel gives up for an operator to resolve, rather than looping. That
+          # is its own terminal state — distinct from the transient Error state
+          # of a shovel that is about to reconnect — with the reason attached.
+          should_eventually(be_true) { shovel.state.to_s == "Aborted" }
+          d = shovel.details_tuple
+          d[:error].to_s.should contain "destination unusable after 10 attempts"
+          d[:aborted].should eq 10
+          received.get.should eq 10
           should_eventually(eq 1) { q1.message_count }
         end
       end
