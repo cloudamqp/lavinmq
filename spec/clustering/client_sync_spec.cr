@@ -999,7 +999,12 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, payload.bytesize) + record_size("$#{filename}", 0))
 
           client.fsync_requests.should eq [filename]
+          client.parent_dirs_fsynced.should eq [data_dir]
           File.read(File.join(data_dir, filename)).should eq payload
+
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("$#{filename}", 0))
+          client.parent_dirs_fsynced.should eq [data_dir]
 
           client_socket.close
           close_client(client)

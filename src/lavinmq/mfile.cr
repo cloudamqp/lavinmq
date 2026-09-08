@@ -32,6 +32,7 @@ class MFile < IO
   @closed = Atomic(Bool).new(false)
   # Hold across msync and operations that unmap any part of the mapping.
   @mapping_lock = Mutex.new
+  @directory_synced = false
   @@mmap_count = Atomic(Int64).new(0)
 
   def self.mmap_count : Int64
@@ -219,9 +220,14 @@ class MFile < IO
       check_open
       # Read the range while locked: truncate may shrink it before we acquire
       # the lock, and neither truncate nor close may unmap it until we finish.
-      return if @size.zero?
-      code = LibC.msync(@buffer, @size, flag)
-      raise RuntimeError.from_errno("msync") if code < 0
+      unless @size.zero?
+        code = LibC.msync(@buffer, @size, flag)
+        raise RuntimeError.from_errno("msync") if code < 0
+      end
+      if flag == LibC::MS_SYNC && !@directory_synced && !deleted?
+        LavinMQ::FileSystem.fsync_parent_dirs(@path)
+        @directory_synced = true
+      end
     end
   end
 

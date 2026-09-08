@@ -1,5 +1,16 @@
 module LavinMQ
   module FileSystem
+    # Persist a new file's name and any newly created ancestor directories.
+    def self.fsync_parent_dirs(path : String) : Nil
+      dir = File.dirname(File.expand_path(path))
+      loop do
+        File.open(dir, &.fsync)
+        parent = File.dirname(dir)
+        break if parent == dir
+        dir = parent
+      end
+    end
+
     # Atomically install an already-synced file and make the changed directory
     # entry durable before returning. Most callers rename within one directory;
     # syncing both parents also makes cross-directory renames safe.

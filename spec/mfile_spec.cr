@@ -17,6 +17,19 @@ class MFile
 end
 
 describe MFile do
+  it "persists the parent directories on the first synchronous flush" do
+    file = File.tempfile "mfile_spec"
+    mfile = MFile.new(file.path, capacity: 4096)
+    mfile.write "message".to_slice
+    mfile.flush
+    mfile.@directory_synced.should be_false
+    mfile.fsync
+    mfile.@directory_synced.should be_true
+  ensure
+    mfile.try &.close
+    file.try &.delete
+  end
+
   {% for operation in [:close, :truncate] %}
     it "prevents {{ operation.id }} from unmapping during fsync" do
       file = File.tempfile "mfile_spec"

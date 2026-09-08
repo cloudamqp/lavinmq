@@ -41,6 +41,7 @@ module LavinMQ
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
+      @unsynced_directory_files = Set(String).new
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
@@ -55,6 +56,7 @@ module LavinMQ
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
           Dir.mkdir_p File.dirname(path)
+          @unsynced_directory_files << k
           h[k] = File.open(path, "a").tap &.sync = true
         end
         Dir.mkdir_p @data_dir
@@ -192,6 +194,7 @@ module LavinMQ
         finalize_digests
         @files.each_value &.close
         @files.clear
+        @unsynced_directory_files.clear
       end
 
       # Adopt the running digests as the files' checksums and stop tracking them.
@@ -421,6 +424,7 @@ module LavinMQ
           # synced: the leader assumes the whole baseline is on disk and only
           # sends fsync requests for files written after that.
           f.fsync if @config.sync?
+          fsync_parent_dir(path)
           # Persist immediately too: a file received here is complete and
           # stable, so a crash mid-sync won't force re-hashing it on restart.
           @checksums.append(filename, sha1.final, length)
@@ -505,6 +509,7 @@ module LavinMQ
         File.delete? File.join(@data_dir, filename)
         @checksums.delete(filename)
         @file_digests.delete(filename)
+        @unsynced_directory_files.delete(filename)
         delete_empty_dirs File.dirname(filename)
       end
 
@@ -562,6 +567,7 @@ module LavinMQ
           f.fsync if @config.sync?
           f.rename final_path
           fsync_parent_dir(final_path)
+          @unsynced_directory_files.delete(filename)
           @file_digests[filename] = sha1
           ack(deferred)
         end
@@ -573,7 +579,7 @@ module LavinMQ
       # cannot expose the old name-to-inode mapping.
       private def fsync_parent_dir(path : String) : Nil
         return unless @config.sync?
-        File.open(File.dirname(path), &.fsync)
+        FileSystem.fsync_parent_dirs(path)
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
@@ -639,6 +645,9 @@ module LavinMQ
           f.fsync
         else
           File.open(File.join(@data_dir, filename), &.fsync)
+        end
+        if @unsynced_directory_files.delete(filename)
+          fsync_parent_dir(File.join(@data_dir, filename))
         end
       rescue File::NotFoundError
       rescue ex
