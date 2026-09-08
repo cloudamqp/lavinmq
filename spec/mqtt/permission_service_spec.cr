@@ -14,21 +14,89 @@ private def ctx(username, client_id = "dev")
   LavinMQ::MQTT::PermissionService::Context.new(username, client_id)
 end
 
-private def with_service(&)
+private def with_data_dir(&)
   data_dir = File.tempname
   Dir.mkdir_p data_dir
   begin
-    yield LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+    yield data_dir
   ensure
     FileUtils.rm_rf data_dir
   end
 end
 
+private def lock_down(service)
+  service.delete(LavinMQ::MQTT::PermissionService::DEFAULT_GROUP)
+  service
+end
+
+# A fresh vhost is open through its default group. Most examples test what a
+# rule grants, so they start from a locked-down service.
+private def with_service(&)
+  with_data_dir do |data_dir|
+    yield lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
+  end
+end
+
 describe LavinMQ::MQTT::PermissionService do
-  it "allows everything with no groups" do
-    with_service do |service|
-      service.in_use?.should be_false
+  it "seeds a default group that allows every user every topic" do
+    with_data_dir do |data_dir|
+      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      default = service[LavinMQ::MQTT::PermissionService::DEFAULT_GROUP]?.should_not be_nil
+      default.members.should eq ["*"]
       service.can_write?(ctx("c1"), "a/b").should be_true
+      service.can_read?(ctx(nil), "a/b").should be_true
+    end
+  end
+
+  it "keeps the default group's grant next to a narrower group" do
+    with_data_dir do |data_dir|
+      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      service.can_write?(ctx("c2"), "b/c").should be_true
+    end
+  end
+
+  it "is untouched until the first change, and never after a load from disk" do
+    with_data_dir do |data_dir|
+      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      service.untouched?.should be_true
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      service.untouched?.should be_false
+      LavinMQ::MQTT::PermissionService.new("/", data_dir, nil).untouched?.should be_false
+    end
+    with_data_dir do |data_dir|
+      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      service.delete("nonexistent")
+      service.untouched?.should be_true
+      service.delete(LavinMQ::MQTT::PermissionService::DEFAULT_GROUP)
+      service.untouched?.should be_false
+    end
+  end
+
+  it "denies everything once the default group is deleted" do
+    with_service do |service|
+      service.can_write?(ctx("c1"), "a/b").should be_false
+      service.can_read?(ctx("c1"), "a/b").should be_false
+    end
+  end
+
+  it "keeps the automatic default group in memory only" do
+    with_data_dir do |data_dir|
+      LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      File.exists?(File.join(data_dir, "mqtt_permissions.json")).should be_false
+      # The next start creates it again, so an unchanged vhost stays open.
+      again = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      again.untouched?.should be_true
+      again.can_write?(ctx("c1"), "a/b").should be_true
+    end
+  end
+
+  it "does not create the default group again after it was deleted" do
+    with_data_dir do |data_dir|
+      lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
+      reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      reloaded.size.should eq 0
+      reloaded.can_write?(ctx("c1"), "a/b").should be_false
     end
   end
 
@@ -37,7 +105,7 @@ describe LavinMQ::MQTT::PermissionService do
       expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
         service.put(group("g", ["*"], [rule("a/#/b", write: true)]))
       end
-      service.in_use?.should be_false
+      service.can_write?(ctx("c1"), "a/b").should be_false
     end
   end
 
@@ -101,10 +169,9 @@ describe LavinMQ::MQTT::PermissionService do
   it "reflects a delete on the next check" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      service.can_read?(ctx("c2"), "a/b").should be_false
+      service.can_read?(ctx("c1"), "a/b").should be_true
       service.delete("g")
-      service.can_read?(ctx("c2"), "a/b").should be_true
-      service.in_use?.should be_false
+      service.can_read?(ctx("c1"), "a/b").should be_false
     end
   end
 
@@ -120,17 +187,13 @@ describe LavinMQ::MQTT::PermissionService do
   end
 
   it "survives a reload from disk" do
-    data_dir = File.tempname
-    Dir.mkdir_p data_dir
-    begin
-      first = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+    with_data_dir do |data_dir|
+      first = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
       first.put(group("g", ["c1"], [rule("a/#", write: true)]))
 
-      second = LavinMQ::MQTT::PermissionService.new(data_dir, nil)
-      second.in_use?.should be_true
+      second = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
       second.can_write?(ctx("c1"), "a/b").should be_true
-    ensure
-      FileUtils.rm_rf data_dir
+      second.can_write?(ctx("c2"), "a/b").should be_false
     end
   end
 
@@ -151,7 +214,7 @@ describe LavinMQ::MQTT::PermissionService do
       begin
         File.write File.join(data_dir, "mqtt_permissions.json"), json
         expect_raises(ArgumentError, message) do
-          LavinMQ::MQTT::PermissionService.new(data_dir, nil)
+          LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
         end
       ensure
         FileUtils.rm_rf data_dir
@@ -159,27 +222,19 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  it "leaves in_use? false for a group with rules but no members" do
+  it "grants nothing for a group with rules but no members" do
     with_service do |service|
       service.put(group("g", Array(String).new, [rule("a/#", read: true)]))
-      service.in_use?.should be_false
-      service.can_read?(ctx("c1"), "a/b").should be_true
+      service.can_read?(ctx("c1"), "a/b").should be_false
     end
   end
 
-  it "leaves in_use? false for a group with an empty rules array" do
+  it "grants nothing for a group with an empty rules array" do
     with_service do |service|
-      service.put(group("g", ["*"], [] of LavinMQ::MQTT::PermissionGroup::Rule))
-      service.in_use?.should be_false
-    end
-  end
-
-  it "flips in_use? true when an empty-rules group gains a valid rule" do
-    with_service do |service|
-      service.put(group("g", ["*"], [] of LavinMQ::MQTT::PermissionGroup::Rule))
-      service.in_use?.should be_false
+      service.put(group("g", ["*"], Array(LavinMQ::MQTT::PermissionGroup::Rule).new))
+      service.can_read?(ctx("c1"), "a/b").should be_false
       service.put(group("g", ["*"], [rule("a/#", read: true)]))
-      service.in_use?.should be_true
+      service.can_read?(ctx("c1"), "a/b").should be_true
     end
   end
 

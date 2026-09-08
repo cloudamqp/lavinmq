@@ -50,8 +50,8 @@ describe LavinMQ::HTTP::PermissionGroupsController do
 
         paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?page=1&page_size=1").body)
         paged["items"].as_a.size.should eq 1
-        paged["total_count"].as_i.should eq 2
-        paged["page_count"].as_i.should eq 2
+        paged["total_count"].as_i.should eq 3
+        paged["page_count"].as_i.should eq 3
 
         filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?name=chat").body).as_a
         filtered.size.should eq 1
@@ -71,7 +71,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         ].each do |name|
           http.put("/api/mqtt/permission-groups/%2f/#{name}").status_code.should eq 400
         end
-        JSON.parse(http.get("/api/mqtt/permission-groups/%2f").body).as_a.should be_empty
+        JSON.parse(http.get("/api/mqtt/permission-groups/%2f").body).as_a.map(&.["name"]).should eq ["default"]
       end
     end
 

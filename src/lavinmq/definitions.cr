@@ -159,15 +159,20 @@ module LavinMQ
         parsed = Array({VHost, MQTT::PermissionGroup}).new
         groups.as_a.each do |g|
           next unless v = fetch_vhost?(g)
+          service = v.mqtt_permission_service
           name = g["name"].as_s
-          next if skip_existing && v.mqtt_permission_service[name]?
+          next if skip_existing && !service.untouched? && service[name]?
           members = (m = g["members"]?) ? Array(String).from_json(m.to_json) : Array(String).new
           rules = (r = g["rules"]?) ? Array(MQTT::PermissionGroup::Rule).from_json(r.to_json) : Array(MQTT::PermissionGroup::Rule).new
           parsed << {v, MQTT::PermissionGroup.new(name, v.name, members, rules).validate!}
         end
         touched = Set(VHost).new
         parsed.each do |v, group|
-          v.mqtt_permission_service.put(group, save: false)
+          service = v.mqtt_permission_service
+          # The definitions JSON decides the groups of a vhost nobody has configured
+          # yet, so the automatic allow-all default group must not stay next to them.
+          service.delete(MQTT::PermissionService::DEFAULT_GROUP, save: false) if service.untouched?
+          service.put(group, save: false)
           touched << v
         end
         touched.each(&.mqtt_permission_service.save!)
