@@ -502,7 +502,7 @@ button {
   font-size: 0.875rem;
   line-height: 1.25rem;
   font-weight: 600;
-  border-radius: 800px;
+  border-radius: 0.75rem;
   padding: 0.625rem 1rem;
   box-shadow: none;
   display: flex !important;
@@ -1415,6 +1415,9 @@ footer .logo {
 
   .btn-holder {
     width: 30%;
+    margin-left: auto;
+    display: flex;
+    justify-content: flex-end;
   }
 }
 
@@ -2140,6 +2143,64 @@ pre.arguments .inactive-argument:before {
   text-decoration: none;
   color: var(--color-text-primary);
   float: right;
+}
+
+.dialog {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  width: 100%;
+  max-width: 600px;
+  box-shadow: 0 1px 15px 1px var(--color-shadow);
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.dialog>:first-child,
+.dialog form>:first-child {
+  margin-top: 0;
+}
+
+.dialog-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.dialog-header h3 {
+  color: var(--color-text-primary);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  min-width: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
+
+.dialog-close:hover {
+  color: var(--color-text-primary);
+  background: none;
+}
+
+@media (max-width: 768px) {
+  .dialog {
+    max-width: calc(100% - 2rem);
+  }
 }
 
 #livelog td {
