@@ -5,7 +5,7 @@ describe "ProxyProtocol" do
   describe "v1" do
     it "can parse valid data" do
       r, w = IO.pipe
-      w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+      w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
       conn_info = LavinMQ::ProxyProtocol::V1.parse(r).not_nil!
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
@@ -19,6 +19,15 @@ describe "ProxyProtocol" do
       w.write "PROXY UNKNOWN\r\n".to_slice
 
       expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) do
+        LavinMQ::ProxyProtocol::V1.parse(r)
+      end
+    end
+
+    it "raises for a family that is not TCP4 or TCP6" do
+      r, w = IO.pipe
+      w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+
+      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily, "TCP") do
         LavinMQ::ProxyProtocol::V1.parse(r)
       end
     end

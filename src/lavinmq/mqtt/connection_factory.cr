@@ -23,7 +23,7 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
-            user, broker = authenticate(io, packet, connection_info)
+            user, broker = authenticate(packet, connection_info)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?
             validate_client_id!(packet.client_id, user.name)
             if broker.connection_limit_reached?(packet.client_id)
@@ -53,7 +53,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io : Protocol::IO, packet, connection_info : ConnectionInfo)
+      def authenticate(packet, connection_info : ConnectionInfo)
         username = packet.username
         password = packet.password
         raise Protocol::Error::NotAuthorized.new("missing credentials") unless username && password
