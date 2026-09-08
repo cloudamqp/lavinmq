@@ -224,7 +224,7 @@ module LavinMQ
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
-      @mqtt_permission_service = MQTT::PermissionService.new(@data_dir, @replicator)
+      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)

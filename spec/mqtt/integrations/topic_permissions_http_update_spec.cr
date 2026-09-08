@@ -17,6 +17,7 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
+        http.delete("/api/mqtt/permission-groups/%2f/default").status_code.should eq 204
         http.put("/api/mqtt/permission-groups/%2f/g").status_code.should eq 201
         http.put("/api/mqtt/permission-groups/%2f/g/members/*").status_code.should eq 201
         rule = {pattern: "chat/#", read: true, write: true}.to_json
@@ -50,6 +51,7 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
+        http.delete("/api/mqtt/permission-groups/%2f/default").status_code.should eq 204
         http.put("/api/mqtt/permission-groups/%2f/g").status_code.should eq 201
         http.put("/api/mqtt/permission-groups/%2f/g/members/*").status_code.should eq 201
         rule = {pattern: "chat/#", read: true, write: true}.to_json
@@ -88,6 +90,7 @@ module MqttSpecs
       with_server do |server|
         http = MqttSpecs.serve_http(server)
 
+        http.delete("/api/mqtt/permission-groups/%2f/default").status_code.should eq 204
         http.put("/api/mqtt/permission-groups/%2f/g").status_code.should eq 201
         http.put("/api/mqtt/permission-groups/%2f/g/members/*").status_code.should eq 201
         rule = {pattern: "chat/#", read: true, write: true}.to_json

@@ -1,6 +1,18 @@
 require "../spec_helper"
 require "../../src/lavinmq/definitions"
 
+private def import_defs(s, defs)
+  tmpfile = File.tempname("lavinmq-defs", ".json")
+  File.write(tmpfile, defs.to_json)
+  LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+ensure
+  File.delete?(tmpfile) if tmpfile
+end
+
+private def ctx(username)
+  LavinMQ::MQTT::PermissionService::Context.new(username, "dev")
+end
+
 describe LavinMQ::GlobalDefinitions do
   describe ".import_from_file" do
     it "does not overwrite existing users" do
@@ -390,7 +402,53 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         service = s.vhosts["iot"].mqtt_permission_service
         service["devices"]?.should_not be_nil
-        service.in_use?.should be_true
+      end
+    end
+
+    describe "mqtt_permissions on a vhost nobody has configured" do
+      it "applies a narrowed default group from the file over the automatic one" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "default", "vhost" => "/", "members" => ["*"],
+           "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        ]}
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          service = s.vhosts["/"].mqtt_permission_service
+          service.can_write?(ctx("guest"), "public/x").should be_true
+          service.can_write?(ctx("guest"), "private/x").should be_false
+        end
+      end
+
+      it "replaces the automatic default group with the groups from the file" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+           "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+        ]}
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          service = s.vhosts["/"].mqtt_permission_service
+          service["default"]?.should be_nil
+          service.can_write?(ctx("alice"), "sensors/1").should be_true
+          service.can_write?(ctx("guest"), "sensors/1").should be_false
+        end
+      end
+
+      it "keeps the groups of a configured vhost and adds only new names" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+           "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+          {"name" => "default", "vhost" => "/", "members" => ["*"],
+           "rules" => [{"identifier" => "none", "pattern" => "nothing", "read" => false, "write" => false}]},
+        ]}
+        with_amqp_server do |s|
+          service = s.vhosts["/"].mqtt_permission_service
+          service.put(LavinMQ::MQTT::PermissionGroup.new("mine", "/", ["bob"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("m", "mine/#", read: true, write: true)]))
+          import_defs(s, defs)
+          service["mine"]?.should_not be_nil
+          service["sensors"]?.should_not be_nil
+          service.can_write?(ctx("guest"), "anything").should be_true
+        end
       end
     end
 
@@ -625,8 +683,7 @@ describe LavinMQ::HTTP::Server do
         # A valid group followed by one with an invalid topic filter pattern.
         # Groups are parsed and validated up front, so a malformed later entry
         # makes the whole import a clean no-op: the earlier group is neither
-        # applied in memory (so in_use? does not flip and put every MQTT
-        # client into default-deny) nor written to disk.
+        # applied in memory nor written to disk.
         body = <<-JSON
           { "mqtt_permissions": [
             {
@@ -644,7 +701,6 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         s.vhosts["/"].mqtt_permission_service["regression_group_ok"]?.should be_nil
-        s.vhosts["/"].mqtt_permission_service.in_use?.should be_false
         groups_file = File.join(s.vhosts["/"].data_dir, "mqtt_permissions.json")
         File.read(groups_file).should_not contain("regression_group_ok") if File.exists?(groups_file)
       end

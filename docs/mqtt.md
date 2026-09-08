@@ -98,11 +98,13 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 
 Topic permissions restrict which topics a user's MQTT clients can publish to and receive from. They are defined as permission groups on a vhost.
 
-- With no groups on a vhost, any authenticated client can publish and subscribe to any topic
-- When the first group is created, the vhost becomes default deny: a client can only publish to or receive on topics granted by a matching rule
+- A client can only publish to or receive on topics granted by a matching rule
+- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic
+- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything
+- A vhost with no groups denies every topic
 - There is no administrator bypass
-- Deleting the last group restores unrestricted topic access
 - A user still needs a permission entry on the vhost to connect
+- The `permission_check_enabled` option under `[mqtt]` adds the AMQP permission check in front of the topic check, see [Upgrading](#upgrading)
 
 ### Groups
 
@@ -188,11 +190,12 @@ curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/r
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
-Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key.
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. On a vhost where nobody has changed the groups yet, an import with groups for that vhost replaces the automatic `default` group, so an import of a locked-down export gives a locked-down vhost. On a vhost with changes, an import adds groups and replaces groups by name, and deletes none.
 
 ### Upgrading
 
-- The `permission_check_enabled` option under `[mqtt]` is removed. It applied the AMQP permission model to the MQTT exchange. Topic permissions replace it. A config that still sets the option gets a warning at startup and the option is ignored
+- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication

@@ -184,7 +184,12 @@ module LavinMQ
       end
 
       def recieve_publish(packet : Protocol::Publish)
-        # A denial acks and drops, it never closes the connection.
+        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+          close_socket
+          return
+        end
+        # A topic denial acks and drops, it never closes the connection.
         unless @broker.permission_service.can_write?(@permission_context, packet.topic)
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
           if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -206,8 +211,16 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : Protocol::Subscribe)
+        if Config.instance.mqtt_permission_check_enabled?
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            close_socket
+            return
+          end
+        end
         # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
-        # may subscribe to a filter it cannot read. Mosquitto behaves the same way.
+        # may subscribe to a filter it cannot read. Mosquitto also filters at
+        # delivery, but it additionally refuses the filter in the SUBACK.
         qos = @broker.subscribe(self, packet.topic_filters)
         send(Protocol::SubAck.new(qos, packet.packet_id))
       end
@@ -254,6 +267,10 @@ module LavinMQ
 
       private def publish_will
         if will = @will
+          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            return
+          end
           unless @broker.permission_service.can_write?(@permission_context, will.topic)
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return

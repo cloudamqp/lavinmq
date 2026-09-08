@@ -34,7 +34,27 @@ describe LavinMQCtl::DefinitionsGenerator do
     end
   end
 
-  it "emits an empty mqtt_permissions array when no vhost has groups" do
+  it "emits the automatic default group for a vhost without mqtt_permissions.json" do
+    with_data_dir do |data_dir|
+      File.write(File.join(data_dir, "vhosts.json"), %([{"name": "/", "dir": "vh1"}]))
+      vhost_dir = File.join(data_dir, "vh1")
+      Dir.mkdir_p vhost_dir
+      File.open(File.join(vhost_dir, "definitions.amqp"), "w") { |f| f.write_bytes(1i32) }
+
+      io = IO::Memory.new
+      LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)
+      body = JSON.parse(io.to_s)
+
+      groups = body["mqtt_permissions"].as_a
+      groups.size.should eq 1
+      groups[0]["name"].as_s.should eq "default"
+      groups[0]["vhost"].as_s.should eq "/"
+      groups[0]["members"].as_a.map(&.as_s).should eq ["*"]
+      groups[0]["rules"][0]["pattern"].as_s.should eq "#"
+    end
+  end
+
+  it "emits an empty mqtt_permissions array when there is no vhost" do
     with_data_dir do |data_dir|
       io = IO::Memory.new
       LavinMQCtl::DefinitionsGenerator.new(data_dir).generate(io)

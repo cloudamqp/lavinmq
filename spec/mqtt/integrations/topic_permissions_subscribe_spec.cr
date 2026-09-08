@@ -12,6 +12,7 @@ module MqttSpecs
         server.users.create("pub", "pub")
         server.users.add_permission("pub", "/", /.*/, /.*/, /.*/)
         # alice may read only her own subtree.
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "alice-read", "/", ["alice"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false)]))

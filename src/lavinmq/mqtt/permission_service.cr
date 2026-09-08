@@ -6,8 +6,14 @@ module LavinMQ
   module MQTT
     # Every change rebuilds the compiled state and publishes it with one
     # reference assignment, so readers never see stale or partial state.
+    #
+    # A topic is allowed only when a rule grants it. A vhost is still open by
+    # default: the DEFAULT_GROUP grants every user every topic, and the
+    # operator locks the vhost down by deleting or narrowing that group.
     class PermissionService
       Log = LavinMQ::Log.for "mqtt.permission_service"
+
+      DEFAULT_GROUP = PermissionGroup::DEFAULT_NAME
 
       record CompiledRule,
         chain : TopicRuleSegment,
@@ -21,21 +27,18 @@ module LavinMQ
         username : String?,
         client_id : String
 
-      class Compiled
-        getter by_member : Hash(String, Array(CompiledRule))
-        getter global_rules : Array(CompiledRule)
-        getter? empty : Bool
-
-        def initialize(@by_member : Hash(String, Array(CompiledRule)),
-                       @global_rules : Array(CompiledRule))
-          @empty = @by_member.empty? && @global_rules.empty?
-        end
-      end
+      record Compiled,
+        by_member : Hash(String, Array(CompiledRule)),
+        global_rules : Array(CompiledRule)
 
       @save_lock = Mutex.new
       @compiled : Compiled
+      # True while the only group is the default group this service created
+      # itself. A definitions import may then replace it, because nobody has
+      # made a change that the import must not undo.
+      getter? untouched = false
 
-      def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(@vhost : String, @data_dir : String, @replicator : Clustering::Replicator?)
         @groups = Hash(String, PermissionGroup).new
         @compiled = Compiled.new(Hash(String, Array(CompiledRule)).new, Array(CompiledRule).new)
         load!
@@ -57,12 +60,9 @@ module LavinMQ
         @groups.each_value { |group| yield group }
       end
 
-      def in_use? : Bool
-        !@compiled.empty?
-      end
-
       def put(group : PermissionGroup, save = true) : PermissionGroup
         group.validate!
+        @untouched = false
         @groups[group.name] = group
         rebuild
         save! if save
@@ -71,6 +71,7 @@ module LavinMQ
 
       def delete(name : String, save = true) : PermissionGroup?
         if group = @groups.delete(name)
+          @untouched = false
           rebuild
           save! if save
           group
@@ -78,12 +79,10 @@ module LavinMQ
       end
 
       def can_write?(context : Context, topic : String) : Bool
-        return true unless in_use?
         matches?(context, topic, write: true)
       end
 
       def can_read?(context : Context, topic : String) : Bool
-        return true unless in_use?
         matches?(context, topic, write: false)
       end
 
@@ -124,8 +123,7 @@ module LavinMQ
             end
             compiled_rules << CompiledRule.new(chain, rule.read?, rule.write?)
           end
-          # A group with no valid rule grants nothing; skip it so its members
-          # don't get empty entries that would flip every client to default-deny.
+          # A group with no valid rule grants nothing, so its members need no entry.
           next if compiled_rules.empty?
           if group.members.includes?("*")
             global_rules.concat(compiled_rules)
@@ -147,7 +145,7 @@ module LavinMQ
       # can only fail on the change being made.
       private def load!
         path = File.join(@data_dir, "mqtt_permissions.json")
-        return unless File.exists? path
+        return create_default_group unless File.exists? path
         File.open(path) do |f|
           Array(PermissionGroup).from_json(f) do |group|
             @groups[group.name] = group.validate!
@@ -158,6 +156,15 @@ module LavinMQ
       rescue ex
         Log.error(exception: ex) { "Failed to load permission groups" }
         raise ex
+      end
+
+      # Created only when mqtt_permissions.json is missing, and kept in memory
+      # only: the first real change writes mqtt_permissions.json, and from then
+      # on the groups on disk decide. A deleted default group stays deleted
+      # across restarts, because the delete leaves an empty list on disk.
+      private def create_default_group
+        put(PermissionGroup.default(@vhost), save: false)
+        @untouched = true
       end
 
       def save!
