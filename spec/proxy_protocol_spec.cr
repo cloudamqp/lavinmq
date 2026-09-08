@@ -14,11 +14,13 @@ describe "ProxyProtocol" do
       conn_info.proxied?.should be_true
     end
 
-    it "returns nil for the UNKNOWN family so the socket address is used" do
+    it "raises for the UNKNOWN family so the connection is closed" do
       r, w = IO.pipe
       w.write "PROXY UNKNOWN\r\n".to_slice
 
-      LavinMQ::ProxyProtocol::V1.parse(r).should be_nil
+      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) do
+        LavinMQ::ProxyProtocol::V1.parse(r)
+      end
     end
 
     it "can handle invalid data" do
