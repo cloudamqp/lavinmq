@@ -163,4 +163,90 @@ describe LavinMQ::HTTP::ChannelsController do
       end
     end
   end
+
+  describe "DELETE /api/channels/:channel" do
+    it "should close the channel and tell the client why" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          close_code = 0_u16
+          close_text = ""
+          ch.on_close do |code, text|
+            close_code = code
+            close_text = text
+          end
+
+          hdrs = ::HTTP::Headers{"X-Reason" => "Misbehaving client"}
+          response = http.delete("/api/channels/#{channel_name(http)}", headers: hdrs)
+          response.status_code.should eq 204
+
+          wait_for { close_code != 0 }
+          close_code.should eq 406
+          close_text.should contain "Misbehaving client"
+          wait_for { JSON.parse(http.get("/api/channels").body).as_a.empty? }
+        end
+      end
+    end
+
+    it "should requeue the channel's unacked messages" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("close_channel_requeue")
+          q.publish_confirm "msg"
+          q.get(no_ack: false).should_not be_nil
+          queue = s.vhosts["/"].queue("close_channel_requeue")
+          queue.message_count.should eq 0
+
+          response = http.delete("/api/channels/#{channel_name(http)}")
+          response.status_code.should eq 204
+
+          wait_for { queue.message_count == 1 }
+        end
+      end
+    end
+
+    it "should remove the channel without waiting for close-ok" do
+      with_http_server do |http, s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          name = channel_name(http)
+          connection = s.connections.first
+          connection.channel_count.should eq 1
+
+          http.delete("/api/channels/#{name}").status_code.should eq 204
+          connection.channel_count.should eq 0
+          JSON.parse(http.get("/api/channels").body).as_a.empty?.should be_true
+
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::Close)
+        end
+      end
+    end
+
+    it "should return 404 if the channel does not exist" do
+      with_http_server do |http, _|
+        response = http.delete("/api/channels/no-such-channel")
+        response.status_code.should eq 404
+      end
+    end
+
+    it "should refuse to close another user's channel" do
+      with_http_server do |http, s|
+        s.users.create("bob", "pw", [LavinMQ::Tag::Management])
+        s.users.add_permission("bob", "/", /.*/, /.*/, /.*/)
+        with_channel(s) do
+          hdrs = ::HTTP::Headers{"Authorization" => "Basic Ym9iOnB3"} # bob:pw
+          response = http.delete("/api/channels/#{channel_name(http)}", headers: hdrs)
+          response.status_code.should eq 403
+        end
+      end
+    end
+  end
+end
+
+# The name of the first open channel, encoded for use in a request path
+private def channel_name(http) : String
+  body = JSON.parse(http.get("/api/channels").body)
+  URI.encode_path(body[0]["name"].as_s)
 end

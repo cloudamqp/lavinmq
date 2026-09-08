@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
 - `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher
 - The vhost `max-connections` limit is now enforced for MQTT connections [#2222](https://github.com/cloudamqp/lavinmq/pull/2222)
+- Be able to close a specific channel [#2144](https://github.com/cloudamqp/lavinmq/issues/2144)
 
 ### Changed
 
