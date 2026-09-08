@@ -45,7 +45,7 @@ module LavinMQ
       # Fsync requests queued by request_fsync, written to the stream by
       # flush_loop (the socket must only be written from the default
       # execution context).
-      @pending_fsyncs : Sync::Exclusive(Array(String)) = Sync::Exclusive.new(Array(String).new, :unchecked)
+      @pending_fsyncs = Array(String).new # guarded by @write_lock
       # Per-file byte offset that this follower already received via full_sync
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
@@ -170,25 +170,20 @@ module LavinMQ
       # request_fsync makes ack_loop's deadline evict the follower if the
       # records never reach it.
       private def send_pending_fsyncs : Nil
-        paths = nil
-        @pending_fsyncs.replace do |pending|
-          if pending.empty?
-            pending
-          else
-            paths = pending
-            Array(String).new
-          end
-        end
-        return unless paths
-        @write_lock.synchronize do
-          paths.each do |path|
-            @lz4.write_bytes (1 + path.bytesize).to_i32, IO::ByteFormat::LittleEndian
-            @lz4.write_byte '$'.ord.to_u8
-            @lz4.write path.to_slice
-            @lz4.write_bytes 0i64 # fsync request marker (endian-agnostic)
-          end
-        end
+        @write_lock.synchronize { write_pending_fsyncs }
       rescue IO::Error | Socket::Error
+      end
+
+      # Called under @write_lock, before any later record is counted or written.
+      # The reserved byte count must have the same order as records on the wire.
+      private def write_pending_fsyncs : Nil
+        @pending_fsyncs.each do |path|
+          @lz4.write_bytes (1 + path.bytesize).to_i32, IO::ByteFormat::LittleEndian
+          @lz4.write_byte '$'.ord.to_u8
+          @lz4.write path.to_slice
+          @lz4.write_bytes 0i64 # fsync request marker (endian-agnostic)
+        end
+        @pending_fsyncs.clear
       end
 
       # Ask the follower to fsync `paths` (data-dir-relative); it acks the
@@ -199,8 +194,10 @@ module LavinMQ
       # records even before they hit the stream.
       def request_fsync(paths : Array(String)) : Nil
         lag_size = paths.sum(0i64) { |p| (sizeof(Int32) + 1 + p.bytesize + sizeof(Int64)).to_i64 }
-        @sent_bytes.add(lag_size)
-        @pending_fsyncs.lock(&.concat(paths))
+        @write_lock.synchronize do
+          @sent_bytes.add(lag_size)
+          @pending_fsyncs.concat(paths)
+        end
         request_flush
       end
 
@@ -330,6 +327,7 @@ module LavinMQ
 
       def replace(path) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           File.open(File.join(@data_dir, path)) do |file|
             file_size = file.size
             lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
@@ -349,6 +347,7 @@ module LavinMQ
       # (an emptied file carries no data to restore anyway).
       def replace(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -360,6 +359,7 @@ module LavinMQ
 
       def append(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -371,6 +371,7 @@ module LavinMQ
 
       def append(path : String, value : UInt32 | Int32) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -382,6 +383,7 @@ module LavinMQ
 
       def delete(path) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
