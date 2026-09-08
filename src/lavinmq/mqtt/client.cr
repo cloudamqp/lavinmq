@@ -424,10 +424,32 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
+            properties: will_properties(will.properties),
           ), session_name)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
+      end
+
+      # The six Will Properties that are also PUBLISH properties, carried onto
+      # the message the will becomes. `will_delay_interval` is deliberately not
+      # among them: it is server behaviour, not wire content.
+      #
+      # Needs no version gate - v3 CONNECT has no will properties, so these are
+      # all nil there and `IO::V3#write_properties` would discard them anyway.
+      private def will_properties(will : Protocol::WillProperties) : Protocol::PublishProperties
+        properties = Protocol::PublishProperties.new
+        properties.payload_format_indicator = will.payload_format_indicator
+        properties.message_expiry_interval = will.message_expiry_interval
+        properties.content_type = will.content_type
+        properties.response_topic = will.response_topic
+        properties.correlation_data = will.correlation_data
+        # Nilable reader, and assigned whole: the repeatable-property getters
+        # don't memoize, so appending to one is not supported.
+        if user_properties = will.user_properties?
+          properties.user_properties = user_properties
+        end
+        properties
       end
 
       # should only be used when server needs to froce close client

@@ -167,6 +167,142 @@ module MqttSpecs
       end
     end
 
+    it "carries the Will Properties onto the published message" do
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
+
+          with_client_socket(server) do |dying_socket|
+            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            props = MQTT::Protocol::WillProperties.new
+            props.payload_format_indicator = true
+            props.message_expiry_interval = 120u32
+            props.content_type = "text/plain"
+            props.response_topic = "reply/here"
+            props.correlation_data = "cid".to_slice
+            props.user_properties = [{"a", "1"}, {"b", "2"}]
+            # will_delay_interval is set but ignored for now: it is server
+            # behaviour, not wire content, and must not reach the subscriber.
+            props.will_delay_interval = 0u32
+            will = MQTT::Protocol::Will.new(topic: "will/t", payload: "bye".to_slice,
+              qos: 1u8, retain: false, properties: props)
+            connect(dying, version: MQTT::Protocol::Version::V5,
+              client_id: "dying", will: will)
+            # 0x04 publishes the will without an error path [MQTT-3.14.4-3]
+            MQTT::Protocol::Disconnect.new(
+              MQTT::Protocol::Disconnect::ReasonCode::DisconnectWithWillMessage).to_io(dying)
+            dying.flush
+          end
+
+          pub = read_packet(sub).as(MQTT::Protocol::Publish)
+          pub.topic.should eq "will/t"
+          String.new(pub.payload).should eq "bye"
+          pub.properties.payload_format_indicator.should be_true
+          pub.properties.message_expiry_interval.should eq 120u32
+          pub.properties.content_type.should eq "text/plain"
+          pub.properties.response_topic.should eq "reply/here"
+          String.new(pub.properties.correlation_data.not_nil!).should eq "cid"
+          pub.properties.user_properties.should eq [{"a", "1"}, {"b", "2"}]
+        end
+      end
+    end
+
+    it "keeps Will user property order and duplicate keys [MQTT-3.3.2-18]" do
+      # The reason they are an array of {key, value} tables rather than a flat
+      # table: a Hash would lose both.
+      with_server do |server|
+        with_client_socket(server) do |sub_socket|
+          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
+
+          with_client_socket(server) do |dying_socket|
+            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            props = MQTT::Protocol::WillProperties.new
+            props.user_properties = [{"k", "1"}, {"k", "2"}, {"a", "3"}]
+            will = MQTT::Protocol::Will.new(topic: "will/t", payload: "x".to_slice,
+              qos: 1u8, retain: false, properties: props)
+            connect(dying, version: MQTT::Protocol::Version::V5,
+              client_id: "dying", will: will)
+            MQTT::Protocol::Disconnect.new(
+              MQTT::Protocol::Disconnect::ReasonCode::DisconnectWithWillMessage).to_io(dying)
+            dying.flush
+          end
+
+          pub = read_packet(sub).as(MQTT::Protocol::Publish)
+          pub.properties.user_properties.should eq [{"k", "1"}, {"k", "2"}, {"a", "3"}]
+        end
+      end
+    end
+
+    it "drops the Will Properties cleanly for a v3 subscriber" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
+
+          with_client_socket(server) do |dying_socket|
+            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            props = MQTT::Protocol::WillProperties.new
+            props.content_type = "text/plain"
+            props.user_properties = [{"a", "1"}]
+            will = MQTT::Protocol::Will.new(topic: "will/t", payload: "bye".to_slice,
+              qos: 1u8, retain: false, properties: props)
+            connect(dying, version: MQTT::Protocol::Version::V5,
+              client_id: "dying", will: will)
+            MQTT::Protocol::Disconnect.new(
+              MQTT::Protocol::Disconnect::ReasonCode::DisconnectWithWillMessage).to_io(dying)
+            dying.flush
+          end
+
+          pub = read_packet(sub).as(MQTT::Protocol::Publish)
+          String.new(pub.payload).should eq "bye"
+          pub.properties.content_type.should be_nil
+          pub.properties.user_properties.should be_empty
+        end
+      end
+    end
+
+    it "refuses a v5 Will above maximum_qos with QoSNotSupported (0x9B)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          will = MQTT::Protocol::Will.new(topic: "will/t", payload: "x".to_slice,
+            qos: 2u8, retain: false)
+          connect(io, false, version: MQTT::Protocol::Version::V5,
+            client_id: "qos2will", will: will)
+          io.flush
+          connack = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::Connack)
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::QoSNotSupported
+          io.should be_closed
+        end
+      end
+    end
+
+    it "still accepts a v3 Will at QoS 2, clamped at delivery" do
+      # Deliberate asymmetry: v3 has no return code meaning "QoS not
+      # supported", so refusing would mean a misleading code or a bare close.
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub")
+          subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
+
+          with_client_io(server) do |dying|
+            will = MQTT::Protocol::Will.new(topic: "will/t", payload: "bye".to_slice,
+              qos: 2u8, retain: false)
+            connect(dying, client_id: "dying", will: will)
+            dying.io.close # ungraceful, so the will fires
+          end
+
+          pub = read_packet(sub).as(MQTT::Protocol::Publish)
+          String.new(pub.payload).should eq "bye"
+          pub.qos.should eq 1u8
+        end
+      end
+    end
+
     it "No Local suppresses a will sent to the dying client's own session" do
       # The will's publisher is the connection that died, so [MQTT-3.8.3-3]
       # applies to it like any other publish. Worth pinning down because the

@@ -39,6 +39,15 @@ module LavinMQ
             reject_connack(io, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
             return socket.close
           end
+          # We advertise maximum_qos = MAX_QOS, and 3.1.2.6 wants a Will above
+          # it refused rather than quietly clamped. v5 only, and deliberately:
+          # v3 has no return code meaning "QoS not supported", so a v3 Will at
+          # QoS 2 stays accepted and is clamped at delivery, as it always was.
+          if packet.version.v5? && packet.will.try { |w| w.qos > MAX_QOS }
+            logger.warn { "Will QoS #{packet.will.try(&.qos)} exceeds maximum_qos #{MAX_QOS}" }
+            reject_connack(io, Protocol::Connack::ReasonCode::QoSNotSupported)
+            return socket.close
+          end
           user, broker = authenticate(io, packet)
           # A client that sends an empty client id gets one assigned; a v5
           # CONNACK must echo it back so the client learns its id [MQTT-3.2.2-16].

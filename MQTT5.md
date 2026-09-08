@@ -3,25 +3,26 @@
 Status and design doc for the MQTT 5.0 work in LavinMQ, spanning both this repo
 and the `mqtt-protocol.cr` shard.
 
-Last reconciled against the code: **2026-08-21**.
+Last reconciled against the code: **2026-09-08**.
 
 ---
 
 ## 1. TL;DR
 
 MQTT 5.0 spans two repos. The **wire codec is done**; the **broker semantics are
-about 90% done**.
+about 92% done**.
 
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 29 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 36 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + session expiry + subscription options + full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 37 commits, on current `main` | none | foundation + PUBLISH + SUBSCRIBE/UNSUBSCRIBE + PUBACK/DISCONNECT + delivery QoS + session expiry + subscription options + will properties + full compliance contract |
 
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, gets a session whose lifetime
-it controls, gets its subscription options honoured, and gets a spec-correct
-rejection for every feature we don't implement. What is missing is will
-properties and will delay, and properties on retained messages.
+it controls, gets its subscription options honoured, gets its will published
+with its properties intact, and gets a spec-correct rejection for every feature
+we don't implement. What is missing is the Will Delay Interval and properties on
+retained messages.
 
 **On `main` (`02e97d70`) and verified green on 2026-09-07: 2216 examples,
 0 failures, lint and format clean.** See section 7.
@@ -41,7 +42,7 @@ This is what makes our deferrals legal rather than broken.
 
 | Property advertised in CONNACK | Value | Enforcement on use | Adv. | Enf. |
 |---|---|---|---|---|
-| `maximum_qos` | `1` | QoS 2 PUBLISH -> DISCONNECT `0x9B` QoSNotSupported | [x] | [~] |
+| `maximum_qos` | `1` | QoS 2 PUBLISH -> DISCONNECT `0x9B`; QoS 2 Will -> CONNACK `0x9B` | [x] | [x] |
 | `topic_alias_maximum` | `0` | PUBLISH with a Topic Alias -> DISCONNECT `0x94` TopicAliasInvalid | [x] | [x] |
 | `subscription_identifier_available` | `0` | SUBSCRIBE with a Subscription Identifier -> DISCONNECT `0xA1` | [x] | [x] |
 | `shared_subscription_available` | `0` | `$share/...` filter -> DISCONNECT `0x9E` | [x] | [x] |
@@ -54,23 +55,20 @@ Plus: enhanced authentication (the AUTH-packet flow, [MQTT-4.12]) is rejected at
 CONNECT with CONNACK reason `0x8C` BadAuthenticationMethod, before
 username/password auth runs so the reason is accurate.
 
-**Two rows are `[~]`, not `[x]`** - the enforcement exists but does not cover
+**One row is `[~]`, not `[x]`** - the enforcement exists but does not cover
 every path the spec requires:
 
-- `maximum_qos`: inbound PUBLISH is checked in `client.cr#validate_v5_publish!`,
-  but the **Will QoS is not**. `Connect.from_io` accepts any `will_qos < 3`, and
-  nothing rejects a Will at QoS 2, so a v5 CONNECT that asks for one is accepted
-  where spec 3.1.2.6 wants CONNACK `0x9B`. The QoS is clamped at delivery in
-  `session.cr#build_packet`, so nothing breaks - but we accepted a connection we
-  advertised we could not serve.
 - `maximum_packet_size`: only the outbound **PUBLISH** path checks it
   (`session.cr#exceeds_max_packet_size?`). [MQTT-3.1.2-24] covers *every* packet
   the server sends, and a client may legally advertise any limit >= 1, so a very
   small limit already gets an oversized capability CONNACK, and a SUBSCRIBE with
   many filters gets an oversized SUBACK.
 
-Both are tracked as item I. Everything else in the table is implemented and
-spec'd, which was the largest single risk in the project.
+It is tracked as item I. `maximum_qos` was the other one until the Will QoS
+check landed with item E; both of its paths - inbound PUBLISH in
+`client.cr#validate_v5_publish!` and the Will at CONNECT - are now enforced.
+Everything else in the table is implemented and spec'd, which was the largest
+single risk in the project.
 
 ### Deliberately out of scope for the first release
 
@@ -448,6 +446,24 @@ All of this is committed on `feat/implement-mqtt5-support` with specs.
   replaces three different spellings of the same clamp, one of which bypassed
   `MAX_QOS` entirely.
 
+**Will properties** (item E, first half)
+- The six Will Properties that are also PUBLISH properties - payload format
+  indicator, message expiry interval, content type, response topic, correlation
+  data and user properties - are carried onto the message the will becomes.
+  `client.cr#publish_will` previously built a `Protocol::Publish` with no
+  properties at all, so every one was dropped. `will_delay_interval` is
+  deliberately not mapped: it is server behaviour, not wire content.
+- No version gate: v3 CONNECT has no will properties, so they are all nil there
+  and `IO::V3#write_properties` discards them regardless.
+- A will at QoS 2 is now refused with CONNACK `0x9B` QoSNotSupported rather
+  than quietly clamped (3.1.2.6), which closes the first of the two `[~]` rows
+  in the section 2 table. **v5 only, deliberately**: v3 has no return code
+  meaning "QoS not supported", so refusing there would mean a misleading code or
+  a bare close. A v3 will at QoS 2 stays accepted and clamped at delivery, as it
+  always was, and there is a spec pinning that asymmetry down.
+- A **retained** will inherits item F: its properties reach live subscribers but
+  not later ones, because the retain store keeps only the payload.
+
 **UNSUBSCRIBE / UNSUBACK**
 - Per-topic reason codes, `Success` vs `NoSubscriptionExisted`;
   `Session#unsubscribe` now returns a Bool to drive that [MQTT-3.11.3]
@@ -568,16 +584,35 @@ measured, not counted by hand.
 Ordered roughly easiest-first. **E is the clean hand-off** now that B has
 landed. (B, C, D and all of J are done; see section 4.)
 
-### E. Will properties and Will Delay
+### E. Will Delay Interval
 
-`client.cr#publish_will` constructs a `Protocol::Publish` with **no properties
-at all**, so every v5 Will Property (payload format, message expiry, content
-type, response topic, correlation data, user properties) is silently dropped.
-`WillProperties#will_delay_interval` is also unread; will delay is currently in
-the deferred list but is not advertised as unavailable, because MQTT has no
-capability flag for it.
+Will *properties* are done; see section 4. What remains is
+`WillProperties#will_delay_interval`, still unread. Like subscription options
+and unlike QoS 2, it has **no capability flag**, so it cannot be advertised as
+unavailable - shipping without it is a real gap, not a legal deferral.
 
-- Files: `client.cr#publish_will`, plus the `Will` plumbing through `Broker`.
+It is a bigger piece than the properties half was, and not a tweak:
+
+- **The will has to outlive its owner.** `@will` lives on `Client`, and all
+  seven `publish_will` call sites are inside `read_loop`'s rescues, so today the
+  will is always published by the dying connection's own fiber. A delayed will
+  must fire after that fiber is gone.
+- **Nothing downstream can publish it.** `Session` holds no reference to the
+  `Broker`, and `Broker#publish` is what applies the retain store, so a retained
+  delayed will routed straight through `@vhost.mqtt_exchange` would silently
+  skip retention.
+- **It belongs in the session-expiry timer, not a second one.** [MQTT-3.1.2-8]
+  and [MQTT-3.1.3-9] make it "the delay elapses **or** the session ends,
+  whichever first", cancelled by a reconnect - the exact shape of
+  `Session#wait_for_client`'s existing select. Spec 3.1.3.2.2 explicitly
+  supports a delay longer than the expiry as a way to be told the session
+  expired, so session-end has to win.
+- **Takeover has its own rule** (3.1.4): a takeover publishes the predecessor's
+  will *unless* the new connection has Clean Start 0 **and** will delay > 0. We
+  currently always publish on takeover.
+- A delayed will need not survive a broker restart: 3.1.3.2.2 lets a server
+  defer publication until after a restart, and session expiry already sets the
+  precedent of persisting no deadlines.
 
 ### F. Retained messages lose v5 properties
 
@@ -634,16 +669,18 @@ ours to fix before the PR.
 **Round 1 - full branch, 2026-08-19.** Seven findings, ordered by severity.
 **Five are fixed** on 2026-08-20 - the poison message and its `@unacked_*`
 corruption, the hot-path allocation, `protocol_name` exhaustiveness, and the v3
-property restore. See section 4. The two that remain are both enforcement gaps
-already tracked as the `[~]` rows in section 2:
+property restore. See section 4. **Six of seven are now fixed** - the Will QoS 2
+gap landed with item E's will properties. The one that remains is the
+enforcement gap still tracked as the `[~]` row in section 2:
 
-- **Will QoS 2 is accepted despite `maximum_qos = 1`** - section 2, first `[~]`
-  row. `Connect.from_io` accepts any `will_qos < 3` and nothing rejects a Will at
-  QoS 2, where spec 3.1.2.6 wants CONNACK `0x9B`. Confirmed from outside by the
-  interop run.
-- **Maximum Packet Size is only enforced for outbound PUBLISH** - section 2,
-  second `[~]` row. `Client#send` is the single outbound choke point and is the
-  place to put it, so no future packet type can forget it.
+- **Maximum Packet Size is only enforced for outbound PUBLISH** - section 2's
+  remaining `[~]` row. `Client#send` is the single outbound choke point and is
+  the place to put it, so no future packet type can forget it.
+
+~~**Will QoS 2 is accepted despite `maximum_qos = 1`**~~ - fixed with item E.
+`Connect.from_io` accepts any `will_qos < 3`, so nothing had rejected a Will at
+QoS 2 where spec 3.1.2.6 wants CONNACK `0x9B`. It was confirmed from outside by
+the interop run, so that run's expectation for it has changed.
 
 **Round 2 - item D only, 2026-08-21. All five are fixed**, in one commit with
 specs; each new spec was first run against the unfixed code to confirm it failed.
@@ -750,7 +787,9 @@ the docs, not in a bug tracker.
 - **Shared subscriptions unsupported.**
 - **Subscription identifiers unsupported.**
 - **Enhanced authentication unsupported.**
-- **Will delay interval ignored** (wills fire immediately).
+- **Will Delay Interval ignored** (wills fire immediately). Not advertisable -
+  MQTT has no capability flag for it - so this is a real gap rather than a
+  legal deferral. Section 5 item E has the shape of the work.
 - **Payload Format Indicator is not validated.** Spec 3.3.2.3.2 only says a
   server MAY check that a payload declared as UTF-8 really is, so we never
   answer `0x99` PayloadFormatInvalid. Validating means a String allocation plus
@@ -782,13 +821,13 @@ reason code). A blanket version matrix was deliberately dropped as redundant:
 the `IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ, measured 2026-09-07** after J1/J2, item I, item D, the item D review
-fixes and item B, on `main` `02e97d70`:
+**LavinMQ, measured 2026-09-08** after J1/J2, item I, item D, the item D review
+fixes, item B and item E's will properties, on `main` `02e97d70`:
 
 | what | result |
 |---|---|
-| `make test SPEC=spec/mqtt` | **348 examples, 0 failures, 0 errors, 0 pending** |
-| `make test TAGS=~etcd` | **2220 examples, 0 failures, 0 errors, 9 pending** |
+| `make test SPEC=spec/mqtt` | **353 examples, 0 failures, 0 errors, 0 pending** |
+| `make test TAGS=~etcd` | **2225 examples, 0 failures, 0 errors, 9 pending** |
 | `make lint` | 412 inspected, 0 failures |
 | `crystal tool format --check` | clean |
 
@@ -799,7 +838,10 @@ and some auth specs - taking the pre-item-B baseline to 311/2183, re-measured on
 `v5/subscription_options_spec.cr`, 11 in `consts_spec.cr` for `granted_qos` and
 the arguments round-trip, four in `subscription_key_spec.cr` for the compaction
 guard, two in `exchange_spec.cr` for out-of-band binds, and one will/takeover
-case in `integrations/will_spec.cr`. Two of the expiry specs are tagged `slow`:
+case in `integrations/will_spec.cr`. Item E's will properties add five more in
+that same file: three regression tests for the properties and the QoS 2
+refusal, plus two invariant guards for the deliberate v3 asymmetry, which pass
+before and after by design. Two of the expiry specs are tagged `slow`:
 the interval's unit is seconds, so the shortest honest test of elapse and of
 reconnect-cancels-it is one second each.)
 
@@ -842,12 +884,14 @@ to re-run it; the short version:
 - All six v5 PUBLISH properties survive paho -> paho, paho -> mqtt.js,
   mqtt.js -> paho and mosquitto -> paho. A v5 publisher to a v3.1.1 subscriber
   drops them cleanly, and the reverse works.
-- Both `[~]` rows in section 2 were confirmed from outside: a Will at QoS 2 is
-  accepted with CONNACK Success, and `maximum-packet-size 5` still gets a 23-byte
-  CONNACK (`maximum-packet-size 12` a 15-byte SUBACK).
+- Both of the then-`[~]` rows in section 2 were confirmed from outside: a Will at
+  QoS 2 was accepted with CONNACK Success, and `maximum-packet-size 5` still gets
+  a 23-byte CONNACK (`maximum-packet-size 12` a 15-byte SUBACK). The Will QoS one
+  has since been fixed with item E, so a re-run should now see CONNACK `0x9B`.
 - Items B, D, E, F, the Receive Maximum limitation and shard items N3/O2 each
   reproduced under a third-party client, so they were all real and correctly
-  described. D has since been fixed.
+  described. B, D and E's will properties have since been fixed; E's Will Delay
+  half and F have not.
 - Three defects were new information: they were item J. J1 (delivery QoS) and J2
   (unexpected packets) are now fixed, and J3 landed with session expiry - see
   section 4.
@@ -865,7 +909,7 @@ denying a topic.
 
 ## 8. Sequencing to ship
 
-1. Finish E (F and G in parallel, different people). B and D are done. ~~The poison-message
+1. Finish E's Will Delay half (F and G in parallel, different people). B, D and E's will properties are done. ~~The poison-message
    and hot-path-allocation findings in I should land before the PR regardless of
    who takes the feature work.~~ Done 2026-08-20, along with three of the other
    five; only the two section 2 `[~]` enforcement gaps remain in I. Item I's
