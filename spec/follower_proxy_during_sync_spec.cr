@@ -3,6 +3,7 @@ require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
 require "../src/lavinmq/clustering/etcd_coordinator"
 require "../src/lavinmq/proxy_protocol"
+require "mqtt-protocol"
 
 # Create a custom slow clustering server for testing
 class SlowClusteringServer < LavinMQ::Clustering::Server
@@ -152,6 +153,38 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
             response_str = String.new(buffer[0, bytes_read])
             response_str.should contain("LavinMQ")
           end
+        ensure
+          client_socket.close rescue nil
+        end
+
+        cluster.stop
+      end
+    end
+  end
+
+  it "refuses the default user over MQTT when a synced follower forwards a loopback client" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |leader_s|
+        leader_s.@config.clustering = true
+        leader_s.@config.default_user_only_loopback = true
+        mqtt_tcp = TCPServer.new("localhost", 0)
+        leader_s.mqtt_server.bind_tcp(mqtt_tcp)
+        spawn(name: "mqtt listener") { leader_s.mqtt_server.listen }
+        Fiber.yield
+
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+        mqtt_port = mqtt_tcp.local_address.port
+        client_socket = TCPSocket.new("localhost", mqtt_port)
+        client_socket.read_timeout = 1.second
+
+        begin
+          # The follower forwards a client that connected on the follower's own loopback
+          client_socket.write "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{mqtt_port}\r\n".to_slice
+          io = MQTT::Protocol::IO.new(client_socket)
+          MQTT::Protocol::Connect.new("c1", false, 30u16, "guest", "guest".to_slice, nil).to_io(io)
+          connack = MQTT::Protocol::Packet.from_io(io).should be_a(MQTT::Protocol::Connack)
+          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
         ensure
           client_socket.close rescue nil
         end

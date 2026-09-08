@@ -51,7 +51,7 @@ module LavinMQ
       # PROXY UNKNOWN\r\n
       def self.parse(io)
         io.read_timeout = HANDSHAKE_TIMEOUT
-        header = io.gets('\n', 107) || raise IO::EOFError.new
+        header = io.gets('\n', 107, chomp: true) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
         dst_addr = "127.0.0.1"
@@ -62,7 +62,7 @@ module LavinMQ
         header.split(' ') do |v|
           case i
           when 0 then raise InvalidSignature.new(v) if v != "PROXY"
-          when 1 then raise InvalidFamily.new(v.chomp) unless v.in?("TCP4", "TCP6")
+          when 1 then raise InvalidFamily.new(v) unless v.in?("TCP4", "TCP6")
           when 2 then src_addr = v
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32

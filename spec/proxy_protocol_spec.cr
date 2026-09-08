@@ -83,6 +83,7 @@ describe "ProxyProtocol" do
       conn_info.ssl?.should be_true
       conn_info.ssl_version.should eq "TLSv1.3"
       conn_info.ssl_cipher.should eq "TLS_AES_256_GCM_SHA384"
+      conn_info.proxied?.should be_true
     end
 
     it "can handle invalid data" do
@@ -141,6 +142,7 @@ describe "ProxyProtocol" do
       conn_info.should_not be_nil
       conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
       conn_info.not_nil!.ssl?.should be_true
+      conn_info.not_nil!.proxied?.should be_true
     end
 
     it "returns nil for AMQP protocol header" do
