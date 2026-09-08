@@ -24,17 +24,18 @@ end
 describe LavinMQ::Persister do
   {% if flag?(:linux) %}
     it "keeps the data directory descriptor open for its lifetime" do
-      data_dir = Dir.tempdir
-      persister = RecordingPersister.new(data_dir: data_dir)
-      fd = persister.data_dir_fd_public
+      with_datadir do |data_dir|
+        data_dir.should_not eq(Dir.tempdir)
+        persister = RecordingPersister.new(data_dir: data_dir)
+        fd = persister.data_dir_fd_public
 
-      fd.should be >= 0
-      File.realpath("/proc/self/fd/#{fd}").should eq File.realpath(data_dir)
-      Fiber.yield
-      persister.data_dir_fd_public.should eq fd
-    ensure
-      persister.try &.close
-      FileUtils.rm_rf(data_dir) if data_dir
+        fd.should be >= 0
+        File.realpath("/proc/self/fd/#{fd}").should eq File.realpath(data_dir)
+        Fiber.yield
+        persister.data_dir_fd_public.should eq fd
+      ensure
+        persister.try &.close
+      end
     end
   {% end %}
 
