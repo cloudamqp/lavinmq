@@ -22,6 +22,17 @@ private class RecordingPersister < LavinMQ::Persister
 end
 
 describe LavinMQ::Persister do
+  it "syncs transactions even when no message segments were marked dirty" do
+    with_datadir do |data_dir|
+      persister = RecordingPersister.new(data_dir: data_dir)
+      persister.sync
+      persister.syncfs_count.should eq(1)
+      persister.msynced.should be_empty
+    ensure
+      persister.try &.close
+    end
+  end
+
   {% if flag?(:linux) %}
     it "keeps the data directory descriptor open for its lifetime" do
       with_datadir do |data_dir|

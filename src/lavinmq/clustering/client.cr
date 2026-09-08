@@ -641,6 +641,9 @@ module LavinMQ
       # that would resurrect the deleted file as empty).
       private def fsync_file(filename : String) : Nil
         return unless @config.sync?
+        # `$.' fences transaction acknowledgments and reclaimed segments,
+        # whose writes are not represented by the leader's dirty file set.
+        return sync_filesystem if filename == "."
         if f = @files[filename]?
           f.fsync
         else
@@ -655,6 +658,16 @@ module LavinMQ
         # from the in-sync set and stops confirming publishes on our acks.
         Log.fatal(exception: ex) { "Failed to fsync #{filename}: #{ex.message}" }
         exit 1
+      end
+
+      private def sync_filesystem : Nil
+        {% if flag?(:linux) %}
+          File.open(@data_dir) do |dir|
+            raise IO::Error.from_errno("syncfs") if LibC.syncfs(dir.fd) != 0
+          end
+        {% else %}
+          LibC.sync
+        {% end %}
       end
 
       # Logs the streamed byte count until #stream_changes closes the done

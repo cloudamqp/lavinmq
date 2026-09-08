@@ -343,7 +343,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     FileUtils.rm_rf LavinMQ::Config.instance.data_dir
   end
 
-  it "holds tx.commit-ok until in-sync followers ack the transaction" do
+  it "holds acknowledgment-only tx.commit-ok until followers ack the filesystem fence" do
     Dir.mkdir_p LavinMQ::Config.instance.data_dir
     replicator = LavinMQ::Clustering::Server.new(
       LavinMQ::Config.instance, NullCoordinator.new, 0)
@@ -355,13 +355,15 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     client_io, client_lz4 = connect_synced_follower(replicator, tcp_server)
     acks_enabled = Atomic(Bool).new(true)
     unacked = Atomic(Int64).new(0)
+    filesystem_fences = Atomic(Int32).new(0)
     spawn(name: "synced follower reader spec") do
       loop do
         filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
         next if filename_len.zero?
-        client_lz4.skip filename_len
+        filename = client_lz4.read_string(filename_len)
         len = client_lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         client_lz4.skip len.abs
+        filesystem_fences.add(1) if filename == "$."
         unacked.add(sizeof(Int32).to_i64 + filename_len + sizeof(Int64) + len.abs)
       end
     rescue IO::Error
@@ -384,13 +386,16 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         q = ch.queue("tx_commit_wait", durable: true)
         ch.tx_select
         q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
+        ch.tx_commit
+        q.get(no_ack: false).not_nil!.ack
+        fences_before = filesystem_fences.get
         acks_enabled.set(false)
         committed = Channel(Nil).new
         spawn(name: "tx commit spec") do
           ch.tx_commit
           committed.send nil
         end
-        # The commit replicates the publish and must block in
+        # The commit replicates only an acknowledgment and must block in
         # wait_for_followers while the follower withholds its acks.
         select
         when committed.receive
@@ -403,7 +408,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         when timeout(5.seconds)
           fail "tx.commit-ok never arrived after the follower acked"
         end
-        s.vhosts["/"].queue("tx_commit_wait").message_count.should eq 1
+        filesystem_fences.get.should be > fences_before
+        s.vhosts["/"].queue("tx_commit_wait").message_count.should eq 0
       end
     end
   ensure

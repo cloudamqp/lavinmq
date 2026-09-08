@@ -13,6 +13,8 @@ module LavinMQ
   # publishes (mark_dirty); sync then msyncs exactly those files. Large batches fall back to one
   # filesystem-wide sync because many individual msync calls can cost more
   # than syncfs; the cutoff is configurable with `syncfs_threshold`.
+  # Transactions always fence the whole filesystem, including acknowledgment
+  # files and segment deletions that are not tracked in the dirty segment set.
   class Persister
     Log = LavinMQ::Log.for "persister"
 
@@ -33,10 +35,10 @@ module LavinMQ
     # be closed by the drain that made their writes durable.
     @sync_waiters : Sync::Exclusive(Array(::Channel(Nil))) = Sync::Exclusive.new(Array(::Channel(Nil)).new, :unchecked)
 
-    def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir)
+    def initialize(@replicator : Clustering::Replicator? = nil, *, @data_dir : String = Config.instance.data_dir)
       {% if flag?(:linux) %}
-        @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
-        raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
+        @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
+        raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
       {% end %}
       # Run on a dedicated thread so the blocking msync(2) syscalls only stall
       # this thread, not the worker threads handling client connections.
@@ -82,7 +84,7 @@ module LavinMQ
       # inline can't race it. Only the wake above raises — a waiter the final
       # drain picked up is signaled by close, not by an exception — so the
       # writes still need to be made durable here.
-      sync_dirty_files
+      sync_dirty_files(full: true)
       @replicator.try &.wait_for_followers
     end
 
@@ -110,7 +112,7 @@ module LavinMQ
       {% end %}
     end
 
-    private def sync_dirty_files : Nil
+    private def sync_dirty_files(full = false) : Nil
       dirty : Array(MFile)? = nil
       @dirty_files.replace do |current|
         if current.empty?
@@ -119,6 +121,15 @@ module LavinMQ
           dirty = current
           Array(MFile).new
         end
+      end
+      # Transactions can write acknowledgments without dirtying a message
+      # segment, or reclaim the acknowledged segment entirely. Fence the
+      # filesystem, including directory changes, even when the dirty set is empty.
+      if full
+        dirty.try &.each &.clear_needs_msync!
+        @replicator.try &.fsync_files([File.join(@data_dir, ".")])
+        syncfs if Config.instance.sync?
+        return
       end
       return unless dirty
 
@@ -140,12 +151,10 @@ module LavinMQ
         replicator.fsync_files(paths) unless paths.empty?
       end
       return unless Config.instance.sync?
-      begin
-        sync_files(dirty)
-      rescue ex
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
-        exit 1
-      end
+      sync_files(dirty)
+    rescue ex
+      Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+      exit 1
     end
 
     # Flush small batches file by file to avoid writing unrelated dirty data.
@@ -207,7 +216,7 @@ module LavinMQ
       end
       return unless acks || waiters
 
-      sync_dirty_files
+      sync_dirty_files(full: !waiters.nil?)
       # Ask each follower's flush fiber to push the pending replicated bytes,
       # so they persist and ack them while our own msync runs. Only a
       # request: this loop runs on an isolated thread and must never write

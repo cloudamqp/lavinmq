@@ -1,5 +1,14 @@
 require "./spec_helper"
 
+class LavinMQ::Persister
+  getter tx_spec_syncfs_count = Atomic(Int32).new(0)
+
+  protected def syncfs : Nil
+    previous_def
+    @tx_spec_syncfs_count.add(1)
+  end
+end
+
 describe "Transactions" do
   describe "publishes" do
     it "can be commited" do
@@ -113,6 +122,24 @@ describe "Transactions" do
   end
 
   describe "acks" do
+    it "fences acknowledgment-only commits on disk" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.tx_select
+          q = ch.queue("tx_ack_durability", durable: true)
+          q.publish "message"
+          ch.tx_commit
+          msg = q.get(no_ack: false).not_nil!
+          msg.ack
+          persister = s.vhosts["/"].persister
+          before = persister.tx_spec_syncfs_count.get
+          ch.tx_commit
+          persister.tx_spec_syncfs_count.get.should be > before
+          q.get.should be_nil
+        end
+      end
+    end
+
     it "can be commited" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
