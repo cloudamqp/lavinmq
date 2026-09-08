@@ -46,6 +46,55 @@ module MqttSpecs
       end
     end
 
+    it "reads subscription options from a binding made outside the MQTT protocol" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        exchange = vhost.mqtt_exchange
+        vhost.declare_queue("mqtt.sub", true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+
+        arguments = LavinMQ::AMQP::Table.new({
+          LavinMQ::MQTT::QOS_HEADER                 => 1,
+          LavinMQ::MQTT::NO_LOCAL_HEADER            => true,
+          LavinMQ::MQTT::RETAIN_AS_PUBLISHED_HEADER => true,
+        })
+        vhost.bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", arguments)
+
+        options = exchange.bindings_details.first
+          .binding_key.as(LavinMQ::MQTT::SubscriptionKey).options
+        options.qos.should eq 1u8
+        options.no_local?.should be_true
+        options.retain_as_published?.should be_true
+
+        # Same symmetry requirement as the QoS above: bind and unbind must read
+        # the options identically, or the unbind misses the binding it targets.
+        vhost.unbind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", arguments)
+        exchange.bindings_details.should be_empty
+      end
+    end
+
+    it "ignores an unusable subscription option value rather than raising" do
+      # Exchange#bind runs during definitions load!, so a raise here is a boot
+      # failure. An operator can put anything in these keys.
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        exchange = vhost.mqtt_exchange
+        vhost.declare_queue("mqtt.sub", true, false,
+          LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+
+        vhost.bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::AMQP::Table.new({
+            LavinMQ::MQTT::QOS_HEADER      => 1,
+            LavinMQ::MQTT::NO_LOCAL_HEADER => "yes",
+          }))
+
+        options = exchange.bindings_details.first
+          .binding_key.as(LavinMQ::MQTT::SubscriptionKey).options
+        options.qos.should eq 1u8
+        options.no_local?.should be_false
+      end
+    end
+
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

@@ -14,7 +14,7 @@ module MqttSpecs
           connect(io, client_id: "a")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0]
         end
 
         with_client_io(server) do |io|
@@ -22,8 +22,8 @@ module MqttSpecs
           ack = subscribe(io, topic_filters: mk_topic_filters({"c/d", 0}, {"e/f", 1}))
             .should be_a(MQTT::Protocol::SubAck)
           # One return code per topic filter [MQTT-3.8.4-5]
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure,
-                                      MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError,
+                                      MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
         end
 
         vhost.sessions_size.should eq 1
@@ -42,7 +42,7 @@ module MqttSpecs
           vhost.max_queues = 1
           ack = subscribe(io, topic_filters: mk_topic_filters({"c/d", 1}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS1]
           disconnect(io)
         end
 
@@ -52,7 +52,7 @@ module MqttSpecs
           connect(io, client_id: "a", clean_session: false)
           ack = subscribe(io, topic_filters: mk_topic_filters({"e/f", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0]
         end
       end
     end
@@ -67,7 +67,7 @@ module MqttSpecs
           connect(io, client_id: "a")
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::Failure]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::UnspecifiedError]
         end
 
         vhost.sessions_size.should eq 0
@@ -90,7 +90,7 @@ module MqttSpecs
           connect(io, client_id: "b", clean_session: true)
           ack = subscribe(io, topic_filters: mk_topic_filters({"a/b", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0]
         end
       end
     end

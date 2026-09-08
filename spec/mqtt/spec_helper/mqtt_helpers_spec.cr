@@ -56,12 +56,12 @@ module MqttHelpers
 
   def with_client_io(server)
     socket = with_client_socket(server)
-    MQTT::Protocol::IO.new(socket)
+    MQTT::Protocol::IO::V3.new(socket)
   end
 
   def with_client_io(server, &)
     with_client_socket(server) do |io|
-      with MqttHelpers yield MQTT::Protocol::IO.new(io)
+      with MqttHelpers yield MQTT::Protocol::IO::V3.new(io)
     end
   end
 
@@ -97,8 +97,10 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
 
-  def subtopic(topic : String, qos = 0)
-    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8)
+  def subtopic(topic : String, qos = 0, no_local = false,
+               retain_as_published = false, retain_handling = 0)
+    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8,
+      no_local, retain_as_published, retain_handling.to_u8)
   end
 
   def publish_packet(**args) : MQTT::Protocol::Publish

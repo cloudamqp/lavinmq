@@ -194,8 +194,8 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
 
     calls = 0
-    tree.each_entry "a/b" do |_session, qos, _filter|
-      qos.should eq 0u8
+    tree.each_entry "a/b" do |_session, options, _filter|
+      options.qos.should eq 0u8
       calls += 1
     end
     calls.should eq 4
@@ -223,7 +223,7 @@ describe LavinMQ::MQTT::SubscriptionTree do
       end
     end
     calls = 0
-    tree.each_entry "a/b" do |_session, _qos, _filter|
+    tree.each_entry "a/b" do |_session, _options, _filter|
       calls += 1
     end
     calls.should eq 2
@@ -233,9 +233,9 @@ describe LavinMQ::MQTT::SubscriptionTree do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     session = "session"
     tree.subscribe("a/b", session, 0u8)
-    tree.each_entry "a/b" { |_sess, qos, _filter| qos.should eq 0u8 }
+    tree.each_entry "a/b" { |_sess, options, _filter| options.qos.should eq 0u8 }
     tree.subscribe("a/b", session, 1u8)
-    tree.each_entry "a/b" { |_sess, qos, _filter| qos.should eq 1u8 }
+    tree.each_entry "a/b" { |_sess, options, _filter| options.qos.should eq 1u8 }
   end
 
   it "matches topic levels with multibyte UTF-8 characters" do
@@ -272,7 +272,7 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
 
     calls = 0
-    tree.each_entry do |_session, _qos, _filter|
+    tree.each_entry do |_session, _options, _filter|
       calls += 1
     end
     calls.should eq 7
