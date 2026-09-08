@@ -30,6 +30,8 @@ class MFile < IO
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
+  # Hold across msync and operations that unmap any part of the mapping.
+  @mapping_lock = Mutex.new
   @@mmap_count = Atomic(Int64).new(0)
 
   def self.mmap_count : Int64
@@ -123,6 +125,10 @@ class MFile < IO
 
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
+    @mapping_lock.synchronize { close_mapping(truncate_to_size) }
+  end
+
+  private def close_mapping(truncate_to_size)
     return if @closed.swap(true, :acquire_release)
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
@@ -139,6 +145,10 @@ class MFile < IO
   # Truncate the file to the given capacity (contracting only, no expansion)
   # The truncated part is unmapped from memory
   def truncate(new_capacity) : Nil
+    @mapping_lock.synchronize { truncate_mapping(new_capacity) }
+  end
+
+  private def truncate_mapping(new_capacity) : Nil
     return if closed?
     new_capacity = new_capacity.to_i64
     old_capacity = @capacity
@@ -181,14 +191,14 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer, @size, LibC::MS_ASYNC)
+    msync(LibC::MS_ASYNC)
   end
 
   # Block until all written pages are flushed to disk, the mmap equivalent
   # of fsync(2). Only actually dirty pages are written, so the cost is
   # proportional to what changed since the last sync, not to file size.
   def fsync : Nil
-    msync(@buffer, @size, LibC::MS_SYNC)
+    msync(LibC::MS_SYNC)
   end
 
   # Dirty-file bookkeeping for the Persister: set on first write after a sync,
@@ -204,11 +214,15 @@ class MFile < IO
     @needs_msync.set(false, :release)
   end
 
-  private def msync(addr, len, flag) : Nil
-    return if len.zero?
-    check_open
-    code = LibC.msync(addr, len, flag)
-    raise RuntimeError.from_errno("msync") if code < 0
+  private def msync(flag) : Nil
+    @mapping_lock.synchronize do
+      check_open
+      # Read the range while locked: truncate may shrink it before we acquire
+      # the lock, and neither truncate nor close may unmap it until we finish.
+      return if @size.zero?
+      code = LibC.msync(@buffer, @size, flag)
+      raise RuntimeError.from_errno("msync") if code < 0
+    end
   end
 
   # Append only

@@ -163,8 +163,8 @@ module LavinMQ
         begin
           sync_file(mfile)
         rescue IO::Error
-          # Closed in the window since the check above — a deleted segment's
-          # content no longer needs durability. A real msync failure raises an
+          # Closed before fsync acquired the mapping lock. Once acquired, the
+          # lock prevents unmapping during msync. A real msync failure raises an
           # errno-based RuntimeError, handled below.
         rescue ex
           Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
