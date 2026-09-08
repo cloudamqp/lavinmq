@@ -50,6 +50,7 @@ module LavinMQ
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
+      @tx_commit_mailbox : ::Channel(Bool)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
       @next_publish_exchange_name : String?
@@ -351,6 +352,21 @@ module LavinMQ
       private def confirm_writer(mailbox : ::Channel(UInt64))
         while msgid = mailbox.receive?
           do_confirm_ack(msgid, multiple: true)
+        end
+      end
+
+      # Non-blocking. tx.commit has no no-wait variant, so the client never
+      # has more than one commit in flight on this channel — a plain 1-slot
+      # send is enough, no merging needed.
+      def enqueue_commit_ok : Nil
+        mailbox = @tx_commit_mailbox || return
+        mailbox.try_send true
+      rescue ::Channel::ClosedError
+      end
+
+      private def tx_commit_writer(mailbox : ::Channel(Bool))
+        while mailbox.receive?
+          send AMQP::Frame::Tx::CommitOk.new(@id)
         end
       end
 
@@ -718,6 +734,7 @@ module LavinMQ
         return false unless @running
         @running = false
         @confirm_ack_mailbox.try &.close
+        @tx_commit_mailbox.try &.close
         @consumers.each_with_index(1) do |consumer, i|
           consumer.close
           consumer.queue.rm_consumer(consumer)
@@ -822,16 +839,24 @@ module LavinMQ
           @client.send_precondition_failed(frame, "Channel already in confirm mode")
           return
         end
+        unless @tx
+          @tx_commit_mailbox = mailbox = ::Channel(Bool).new(1)
+          spawn tx_commit_writer(mailbox), name: "Channel##{@id} tx commit writer"
+        end
         @tx = true
         send AMQP::Frame::Tx::SelectOk.new(frame.channel)
       end
 
+      # Applies the tx's acks/publishes synchronously (so they're visible
+      # before the next frame on this channel is processed), then hands the
+      # commit off to the Persister — same as a publish confirm, the
+      # Tx::CommitOk is sent asynchronously once the batched syncfs (and
+      # follower wait) completes, see `Persister#enqueue_tx_commit`.
       def tx_commit(frame)
         return @client.send_precondition_failed(frame, "Not in transaction mode") unless @tx
         process_tx_acks
         process_tx_publishes
-        @client.vhost.sync
-        send AMQP::Frame::Tx::CommitOk.new(frame.channel)
+        @client.vhost.enqueue_tx_commit(self)
       end
 
       private def process_tx_publishes
