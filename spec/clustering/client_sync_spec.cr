@@ -1,6 +1,31 @@
 require "../spec_helper"
 require "lz4"
 
+describe "Replication durability protocol compatibility" do
+  it "advertises version 2 and refuses a legacy leader's header response" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.instance.dup
+      config.data_dir = data_dir
+      config.metrics_http_port = -1
+      client = ClusteringSpecHelper::TestClient.new(config, 1, "password", proxy: false)
+      client_socket, leader_io = UNIXSocket.pair
+      legacy_start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
+      leader_io.write legacy_start
+
+      expect_raises(LavinMQ::Clustering::Client::Error, "Unknown response from authentication") do
+        client.authenticate_public(client_socket)
+      end
+      advertised = Bytes.new(8)
+      leader_io.read_fully(advertised)
+      advertised.should eq(Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0])
+    ensure
+      client_socket.try &.close
+      leader_io.try &.close
+      ClientSyncSpec.close_client(client) if client
+    end
+  end
+end
+
 module ClientSyncSpec
   extend ClusteringSpecHelper
   # `extend` only copies methods, not the module's nested types.

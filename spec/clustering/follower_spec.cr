@@ -16,6 +16,24 @@ module FollowerSpec
 
   describe LavinMQ::Clustering::Follower do
     describe "#negotiate!" do
+      it "rejects peers using implicit durability acknowledgments" do
+        with_datadir do |data_dir|
+          follower_socket, client_socket = FakeSocket.pair
+          follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+          legacy_start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
+          client_socket.write legacy_start
+
+          expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) { follower.negotiate!("password") }
+          advertised = Bytes.new(8)
+          client_socket.read_fully(advertised)
+          advertised.should eq(LavinMQ::Clustering::Start)
+          advertised.should_not eq(legacy_start)
+        ensure
+          follower_socket.try &.close
+          client_socket.try &.close
+        end
+      end
+
       it "should raise InvalidStartHeaderError on invalid start header" do
         with_datadir do |data_dir|
           follower_socket, client_socket = FakeSocket.pair

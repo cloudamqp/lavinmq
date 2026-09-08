@@ -4,7 +4,9 @@ require "digest/sha1"
 
 module LavinMQ
   module Clustering
-    Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
+    # Version 2 requires explicit durability fences. Version 1 peers treat
+    # ordinary byte acknowledgments as durable and must not join this protocol.
+    Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 2, 0, 0]
 
     class Error < Exception; end
 
