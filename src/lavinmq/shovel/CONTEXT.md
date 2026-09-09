@@ -27,7 +27,10 @@ _Avoid_: sink, target, output, downstream.
 **Runner**:
 The single fiber that owns a Shovel's run loop and its **policy**: it maps each
 **Outcome** to a Source action and owns requeue timing, backoff, and the abort
-threshold. The Source classifies nothing. (An HTTP Destination retries a request
+threshold. Only this fiber starts or stops a Source or Destination. Outcomes
+that arrive once the Source is stopped (confirms voided while the Shovel is
+pausing or terminating) are ignored: there is nothing left to settle. The
+Source classifies nothing. (An HTTP Destination retries a request
 once on a fresh connection when a kept-alive connection turns out to be dead,
 but it owns no Source policy.)
 _Avoid_: worker, driver, supervisor.
@@ -35,10 +38,14 @@ _Avoid_: worker, driver, supervisor.
 **MultiDestinationHandler**:
 The failover Destination wrapping a Shovel's list of `dest-uri`s. Holds one
 *active* destination at a time; on an **Abort** outcome, a failure to start, or
-a run of **Retry** outcomes it advances to the next. It emits Abort upward only
-once every destination has aborted in a row with no other outcome in between,
-and keeps advancing even then. Every start begins with the first destination in
-the list, and start raises if none can be started, so the Runner reconnects.
+a run of **Retry** outcomes it advances to the next. The outcome only *requests*
+the failover; the next push, on the **Runner**'s fiber, carries it out. Stopping
+a destination from its own confirm fiber would deadlock on the connection
+close, and stopping it requeues (via Retry) everything still in flight on it.
+It emits Abort upward only once every destination has aborted in a row with no
+other outcome in between, and keeps advancing even then. Every start begins
+with the first destination in the list, and start raises if none can be
+started, so the Runner reconnects.
 Name kept for continuity — it is a failover handler, not fan-out or
 load-balancing.
 _Avoid_: RandomDestination, load-balancer, fan-out, round-robin.
