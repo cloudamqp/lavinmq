@@ -63,7 +63,7 @@ The AMQP message is mapped to the HTTP request as follows:
 | `X-<header>` | One header per AMQP header on the message |
 | `User-Agent` | `LavinMQ` |
 
-With `on-confirm`, the response status decides the [delivery outcome](#delivery-outcomes): `2xx` acks the message, `408`/`429`/`5xx` and transport failures requeue it with backoff, statuses that describe the message itself (`400`, `413`, `415`, …) dead-letter it, and anything else marks the endpoint unusable. The full mapping is in [HTTP status classification](#http-status-classification). With `on-publish` the message is acked as soon as the request completes, **regardless of the response status**; only a transport failure requeues it. `no-ack` POSTs once and never settles the source.
+With `on-confirm` and `on-publish` alike, the response status decides the [delivery outcome](#delivery-outcomes): `2xx` acks the message, `408`/`429`/`5xx` and transport failures requeue it with backoff, statuses that describe the message itself (`400`, `413`, `415`, …) dead-letter it, and anything else marks the endpoint unusable. The full mapping is in [HTTP status classification](#http-status-classification). The two modes are the same for HTTP because the response is always awaited; there is no earlier "published" moment to ack at, and a failed POST is never acked. `no-ack` POSTs once and never settles the source.
 
 An in-flight request cannot be cancelled. On pause, the current request drains under `dest-timeout` while no new deliveries are started, and the in-flight message is redelivered on resume (the shovel is at-least-once).
 
@@ -96,7 +96,7 @@ With `src-delete-after: queue-length` the shovel takes the queue's message count
 | Mode | Source is settled | When the outcome is reported |
 |------|-------------------|------------------------------|
 | `on-confirm` (default) | After the destination confirms receipt | AMQP: on the asynchronous publisher-confirm callback (`Confirmed` or `Retry`). HTTP: after the response, classified by status. |
-| `on-publish` | After publishing, before any confirm | AMQP: `Confirmed` right after `basic.publish`. HTTP: `Confirmed` as soon as the request returns, whatever the status; only a transport failure reports `Retry`. |
+| `on-publish` | After publishing, before any confirm | AMQP: `Confirmed` right after `basic.publish`. HTTP: identical to `on-confirm`, the response status is classified. |
 | `no-ack` | Never (fastest, may lose messages) | Nothing is reported. The source consumes with `no-ack`, so there is nothing to settle. |
 
 ## Delivery Outcomes

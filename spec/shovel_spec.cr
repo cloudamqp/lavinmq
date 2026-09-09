@@ -1459,6 +1459,41 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "classifies the response status in on-publish mode like on-confirm, never acking a failed POST" do
+      with_amqp_server do |s|
+        status = Atomic(Int32).new(200)
+        server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = status.get
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"), LavinMQ::Shovel::AckMode::OnPublish)
+        listener = ShovelSpecHelpers::RecordingListener.new
+        dest.listener = listener
+        dest.start
+        with_channel(s) do |ch|
+          # For HTTP the response is always awaited, so there is no cheaper
+          # "published" moment than the status itself. Acking a 5xx or 404 would
+          # silently lose the message; on-publish and on-confirm are the same.
+          { {200, LavinMQ::Shovel::Outcome::Confirmed},
+           {503, LavinMQ::Shovel::Outcome::Retry},
+           {400, LavinMQ::Shovel::Outcome::Reject},
+           {404, LavinMQ::Shovel::Outcome::Abort} }.each_with_index do |(code, outcome), i|
+            status.set(code)
+            dest.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1))
+            listener.outcomes.last.should eq({i.to_u64 + 1, outcome})
+          end
+        end
+        dest.stop
+      ensure
+        server.try &.close
+      end
+    end
+
     it "reports Retry (and does not hang) when an on-publish HTTP destination is unreachable" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

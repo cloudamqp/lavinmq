@@ -64,15 +64,11 @@ module LavinMQ
                end
         body = msg.body_io.to_slice
         case @ack_mode
-        in AckMode::OnConfirm
+        in AckMode::OnConfirm, AckMode::OnPublish
+          # The response is always awaited, so there is no earlier "published"
+          # moment for HTTP: both modes classify the status. Acking on a failed
+          # POST would silently lose the message.
           @listener.report(msg.delivery_tag, attempt(c, path, headers, body))
-        in AckMode::OnPublish
-          begin
-            post(c, path, headers, body)
-            @listener.report(msg.delivery_tag, Outcome::Confirmed)
-          rescue IO::Error | OpenSSL::SSL::Error
-            @listener.report(msg.delivery_tag, Outcome::Retry)
-          end
         in AckMode::NoAck
           begin
             post(c, path, headers, body)
