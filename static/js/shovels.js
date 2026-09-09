@@ -165,6 +165,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
     e.classList.toggle('hide', isHttp)
   })
+  document.querySelectorAll('.http-dest-field').forEach(e => {
+    e.classList.toggle('hide', !isHttp)
+  })
 })
 
 document.querySelector('#createShovel').addEventListener('submit', function (evt) {
@@ -209,6 +212,8 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   const httpDest = data.get('dest-uri').startsWith('http')
   if (httpDest) {
     // HTTP destinations POST to the URI, there's no queue/exchange
+    const timeout = data.get('dest-timeout')
+    if (timeout) body.value['dest-timeout'] = parseFloat(timeout)
   } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
