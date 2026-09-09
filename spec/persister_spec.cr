@@ -91,6 +91,24 @@ describe LavinMQ::Persister do
         persister.try &.close
       end
     end
+
+    it "syncs inline with syncfs after close without losing the descriptor" do
+      LavinMQ::Config.instance.syncfs_threshold = 1
+      with_datadir do |data_dir|
+        persister = RecordingPersister.new(data_dir: data_dir)
+        file = MFile.new(File.join(data_dir, "segment"), 4096)
+        persister.close
+        sleep 10.milliseconds # let the confirm loop thread exit
+        persister.mark_dirty(file)
+        persister.sync
+        persister.syncfs_count.should eq 1
+        persister.data_dir_fd_public.should be >= 0
+      ensure
+        file.try &.close
+      end
+    ensure
+      LavinMQ::Config.instance.syncfs_threshold = 10
+    end
   {% end %}
 
   it "msyncs batches below the syncfs threshold" do

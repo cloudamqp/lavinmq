@@ -105,10 +105,13 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
-    ensure
+    end
+
+    # The descriptor outlives #close: a tx.commit racing shutdown syncs
+    # inline (see #sync) and may still need it for syncfs.
+    def finalize
       {% if flag?(:linux) %}
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @data_dir_fd = -1
       {% end %}
     end
 
