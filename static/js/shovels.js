@@ -206,7 +206,10 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-type') === 'queue') {
+  const httpDest = data.get('dest-uri').startsWith('http')
+  if (httpDest) {
+    // HTTP destinations POST to the URI, there's no queue/exchange
+  } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
