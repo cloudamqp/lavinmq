@@ -13,7 +13,8 @@ function editItem (form, item, valueFactories) {
     if (input instanceof window.HTMLSelectElement) {
       input.selectedIndex = Array.from(input.options).findIndex(i => i.value === value)
     } else {
-      input.value = value
+      // Missing values should render as empty, not as the string "undefined"
+      input.value = value ?? ''
     }
     input.dispatchEvent(new Event('change'))
   })
