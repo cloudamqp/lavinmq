@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MQTT sessions are decoupled from AMQP queues as part of separating protocol-specific queue/session handling [#1920](https://github.com/cloudamqp/lavinmq/pull/1920)
 - The management UI version is advertised via the `LavinMQ-Version` response header instead of being injected at build time [#2123](https://github.com/cloudamqp/lavinmq/pull/2123)
 - CC and BCC headers are removed from dead-lettered messages when `x-dead-letter-routing-key` is set, instead of being preserved, matching RabbitMQ [#1993](https://github.com/cloudamqp/lavinmq/pull/1993)
+- A connection with a PROXY protocol header never counts as loopback for `default_user_only_loopback`, including through a cluster follower. The default user can only connect directly on the broker host [#2224](https://github.com/cloudamqp/lavinmq/pull/2224)
 
 ### Fixed
 

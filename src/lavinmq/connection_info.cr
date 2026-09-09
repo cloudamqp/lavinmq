@@ -11,11 +11,18 @@ module LavinMQ
     property ssl_key_alg : String?
     property ssl_sig_alg : String?
     property ssl_cn : String?
+    # True when the addresses come from a PROXY protocol header
+    getter? proxied : Bool
 
     # Remote and local addresses from the server's perspective
-    def initialize(remote_address, local_address)
+    def initialize(remote_address, local_address, *, @proxied : Bool = false)
       @remote_address = IPAddress.new(remote_address)
       @local_address = IPAddress.new(local_address)
+    end
+
+    # A proxied address describes the client as seen by the proxy, not a connection on this host
+    def loopback? : Bool
+      @remote_address.loopback? && !@proxied
     end
 
     def self.local
@@ -30,7 +37,8 @@ module LavinMQ
 
       getter address : String
       getter port : UInt16
-      getter? loopback : Bool
+      # Only ConnectionInfo#loopback? may read this, it also accounts for PROXY headers
+      protected getter? loopback : Bool
 
       def initialize(ip_address : Socket::IPAddress)
         @address = unmap_ipv6(ip_address.address)

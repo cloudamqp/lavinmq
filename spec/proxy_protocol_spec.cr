@@ -5,12 +5,31 @@ describe "ProxyProtocol" do
   describe "v1" do
     it "can parse valid data" do
       r, w = IO.pipe
-      w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+      w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
 
-      conn_info = LavinMQ::ProxyProtocol::V1.parse(r)
+      conn_info = LavinMQ::ProxyProtocol::V1.parse(r).not_nil!
       conn_info.remote_address.to_s.should eq "1.2.3.4:34567"
       conn_info.local_address.to_s.should eq "127.0.0.2:1234"
       conn_info.ssl?.should be_false
+      conn_info.proxied?.should be_true
+    end
+
+    it "raises for the UNKNOWN family so the connection is closed" do
+      r, w = IO.pipe
+      w.write "PROXY UNKNOWN\r\n".to_slice
+
+      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily) do
+        LavinMQ::ProxyProtocol::V1.parse(r)
+      end
+    end
+
+    it "raises for a family that is not TCP4 or TCP6" do
+      r, w = IO.pipe
+      w.write "PROXY TCP 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+
+      expect_raises(LavinMQ::ProxyProtocol::InvalidFamily, "TCP") do
+        LavinMQ::ProxyProtocol::V1.parse(r)
+      end
     end
 
     it "can handle invalid data" do
@@ -64,6 +83,7 @@ describe "ProxyProtocol" do
       conn_info.ssl?.should be_true
       conn_info.ssl_version.should eq "TLSv1.3"
       conn_info.ssl_cipher.should eq "TLS_AES_256_GCM_SHA384"
+      conn_info.proxied?.should be_true
     end
 
     it "can handle invalid data" do
@@ -122,6 +142,7 @@ describe "ProxyProtocol" do
       conn_info.should_not be_nil
       conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
       conn_info.not_nil!.ssl?.should be_true
+      conn_info.not_nil!.proxied?.should be_true
     end
 
     it "returns nil for AMQP protocol header" do
