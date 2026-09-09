@@ -35,6 +35,7 @@ module LavinMQ
 
       def stop
         @client.try &.close
+        @client = nil
         @reused = false
       end
 

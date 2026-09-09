@@ -17,9 +17,8 @@ module LavinMQ
       # extend_backoff), written by the outcome handler (confirm fiber) and
       # read by the consuming loop for backoff.
       @delivery_failures = Atomic(Int32).new(0)
-      # Consecutive Abort outcomes; past ABORT_THRESHOLD the shovel errors out.
+      # Consecutive Abort outcomes; past ABORT_THRESHOLD the shovel aborts.
       @delivery_aborts = Atomic(Int32).new(0)
-      @aborted = false
       # Cumulative per-disposition counters, for the runtime view.
       @confirmed_total = Atomic(UInt64).new(0_u64)
       @retried_total = Atomic(UInt64).new(0_u64)
@@ -62,18 +61,15 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
-            # Paused/terminated: start no new delivery. An already in-flight push
-            # can't be interrupted, but we don't begin another one.
+            # Paused/terminated/aborted: start no new delivery. An already
+            # in-flight push can't be interrupted, but we don't begin another one.
             next if should_stop_loop?(run_generation)
-            check_abort_threshold
+            next if abort_if_unusable
             backoff_if_failing
             @destination.push(msg)
           end
-          break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated
+          break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated/aborted
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
-          break
-        rescue ex : ShovelAborted
-          error_out(ex)
           break
         rescue ex
           break if handle_run_error(ex, run_generation)
@@ -83,13 +79,12 @@ module LavinMQ
       end
 
       # A run starts with clean delivery state. The consecutive-failure and
-      # abort counters and the aborted flag describe the previous run; a resumed
-      # shovel must get a real delivery attempt rather than re-raise
-      # ShovelAborted on its first message or inherit a 30s backoff.
+      # abort counters describe the previous run; a resumed shovel must get a
+      # real delivery attempt rather than abort again on its first message or
+      # inherit a 30s backoff.
       private def reset_delivery_state
         clear_backoff
         @delivery_aborts.set(0)
-        @aborted = false
       end
 
       # Register this Runner as the destination's outcome listener, once per run.
@@ -190,41 +185,38 @@ module LavinMQ
         secs.seconds
       end
 
-      # Errors-out the shovel once a destination has been classified unusable
-      # (Abort) too many times in a row. Raised inside the consuming loop.
-      private def check_abort_threshold
-        return if @delivery_aborts.get < ABORT_THRESHOLD
-        raise ShovelAborted.new("destination unusable after #{ABORT_THRESHOLD} attempts")
-      end
-
-      # Terminal: the destination is unusable. Stay in Aborted — distinct from
-      # the transient Error state of a reconnecting shovel — for the operator
-      # rather than reconnecting.
-      private def error_out(ex)
-        @aborted = true
-        @state = State::Aborted
-        @error = ex.message
-        Log.warn { "Aborted: #{ex.message}" }
-        @source.stop
-        @destination.stop
+      # Aborts the shovel once a destination has been classified unusable
+      # (Abort) too many times in a row: the run is stopped the way pause stops
+      # it, and the shovel stays in Aborted — distinct from the transient Error
+      # state of a reconnecting shovel — until an operator resumes it. Called
+      # from the consuming loop, on this fiber; report must not stop anything
+      # (see OutcomeListener). Returns true when it aborted.
+      private def abort_if_unusable : Bool
+        return false if @delivery_aborts.get < ABORT_THRESHOLD
+        @error = "destination unusable after #{ABORT_THRESHOLD} attempts"
+        Log.warn { "Aborted: #{@error}" }
+        halt(State::Aborted)
+        true
       end
 
       # Handles a connection/runtime error during a run. Returns true if the run
       # loop should break (stopped, or the shoveled queue was deleted), false to
-      # reconnect with backoff.
+      # reconnect with backoff. A reconnect starts clean: both ends are stopped,
+      # so a failed-over destination list begins with its first entry again.
       private def handle_run_error(ex, run_generation) : Bool
         return true if should_stop_loop?(run_generation)
         @state = State::Error
         return true if ex.message.to_s.starts_with?("404") # shoveled queue was deleted
         Log.warn { ex.message }
         @error = ex.message
+        @source.stop
+        @destination.stop
         exponential_reconnect_delay
         false
       end
 
       private def terminate_if_needed(run_generation)
-        return if @aborted # keep the Error state for the operator
-        return if stopped_by_newer_generation?(run_generation)
+        return if stopped_by_newer_generation?(run_generation) # paused, aborted, or a newer run owns it
         terminate if !paused?
       end
 
@@ -254,8 +246,9 @@ module LavinMQ
         }
       end
 
+      # Start a new run for a paused or aborted shovel.
       def resume
-        return unless paused?
+        return unless paused? || aborted?
         delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
@@ -266,10 +259,7 @@ module LavinMQ
         return if terminated?
         File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
-        @state = State::Paused
-        @stop_generation.add(1_u64, :release)
-        @source.stop
-        @destination.stop
+        halt(State::Paused)
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
@@ -280,12 +270,19 @@ module LavinMQ
 
       # Does not trigger reconnect, but a graceful close
       def terminate
-        @state = State::Terminated
+        halt(State::Terminated)
+        return if terminated?
+        Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
+      end
+
+      # Stop the current run and leave the shovel in `state`. Bumping the stop
+      # generation makes the run loop exit without deleting the parameter or
+      # terminating, and stops it from reconnecting.
+      private def halt(state : State)
+        @state = state
         @stop_generation.add(1_u64, :release)
         @source.stop
         @destination.stop
-        return if terminated?
-        Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
       end
 
       def delete_paused_file
@@ -302,6 +299,10 @@ module LavinMQ
 
       def paused?
         @state.paused?
+      end
+
+      def aborted?
+        @state.aborted?
       end
 
       def terminated?

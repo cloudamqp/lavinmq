@@ -14,8 +14,8 @@ module LavinMQ
       Terminated
       # A connection or runtime failure; the Runner reconnects with backoff.
       Error
-      # Terminal: the destination was classified unusable ABORT_THRESHOLD times
-      # in a row. No reconnect; an operator resumes or recreates the shovel.
+      # The destination was classified unusable ABORT_THRESHOLD times in a
+      # row. No reconnect; an operator resumes or recreates the shovel.
       Aborted
     end
 
@@ -44,9 +44,5 @@ module LavinMQ
       Reject
       Abort
     end
-
-    # Raised by the Runner to error-out a shovel permanently (no reconnect)
-    # after a destination is classified unusable past the Abort threshold.
-    class ShovelAborted < Exception; end
   end
 end

@@ -56,7 +56,7 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             shovel_name = params["name"]
             if current_shovel = vhost.shovels[shovel_name]?
-              if !current_shovel.paused?
+              if !(current_shovel.paused? || current_shovel.aborted?)
                 context.response.status_code = 422
                 next
               end

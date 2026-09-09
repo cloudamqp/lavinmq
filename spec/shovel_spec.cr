@@ -1507,13 +1507,17 @@ describe LavinMQ::Shovel do
           x = ch.exchange("", "direct", passive: true)
           ch.queue("rs_q1")
           x.publish_confirm "deliver me eventually", "rs_q1"
+          q1 = ch.queue("rs_q1")
           spawn shovel.run
-          should_eventually(be_true) { shovel.details_tuple[:error].to_s.includes?("unusable") }
-          # The operator fixes the endpoint and resumes the shovel. The new run
-          # must start with clean abort/failure counters and actually try again,
-          # not re-raise ShovelAborted on its first message.
+          should_eventually(be_true) { shovel.state.aborted? }
+          shovel.details_tuple[:error].to_s.should contain "unusable"
+          # Aborting stops the run the way pause does: the source is closed
+          # cleanly and the message stays on it for the operator.
+          should_eventually(eq 1) { q1.message_count }
+          # The operator fixes the endpoint and resumes the shovel straight from
+          # Aborted. The new run must start with clean abort/failure counters
+          # and actually try again.
           status.set(200)
-          shovel.pause
           shovel.resume
           should_eventually(be_true) { shovel.details_tuple[:confirmed] == 1 }
           shovel.running?.should be_true
@@ -1671,6 +1675,19 @@ describe LavinMQ::Shovel do
           path.should eq "/some_path"
         end
       end
+    end
+  end
+
+  describe "HTTPDestination" do
+    it "is not started once stopped" do
+      # (port 1: start never connects, so no listener is needed)
+      dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://127.0.0.1:1/"))
+      dest.start
+      dest.started?.should be_true
+      dest.stop
+      # A failover handler decides whether to (re)start a destination from
+      # started?; a stopped one that still claims to be started is skipped.
+      dest.started?.should be_false
     end
   end
 
@@ -2132,6 +2149,35 @@ describe LavinMQ::Shovel do
       # The list is an ordered preference: a restart (pause/resume, reconnect)
       # goes back to the primary rather than staying on whatever was active.
       {a.starts, b.starts}.should eq({2, 1})
+    end
+
+    it "starts from the first destination again after the runner reconnects" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "rc_q1", direct_user: s.users.direct_user)
+        a = ShovelSpecHelpers::FlakyStartDestination.new
+        b = ShovelSpecHelpers::FlakyStartDestination.new
+        multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
+        shovel = LavinMQ::Shovel::Runner.new(source, multi, "rc_shovel", vhost, reconnect_delay: 50.milliseconds)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("rc_q1")
+          x.publish_confirm "one", "rc_q1"
+          spawn shovel.run
+          should_eventually(eq 1) { a.pushes }
+          multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # a is unusable
+          x.publish_confirm "two", "rc_q1"                     # the next push fails over to b
+          should_eventually(eq 1) { b.starts }
+          # The source connection drops. A reconnect is a fresh start: the
+          # destination is stopped and the ordered preference applies again, so
+          # the primary gets another chance rather than staying failed over.
+          vhost.connections.each { |c| c.close("spec") if c.client_name.includes?("source") }
+          should_eventually(eq 2) { a.starts }
+          b.stops.should eq 1
+          shovel.terminate
+        end
+      end
     end
 
     it "raises from start when no destination can be activated" do

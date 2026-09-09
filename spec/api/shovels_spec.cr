@@ -120,6 +120,30 @@ describe LavinMQ::HTTP::ShovelsController do
   end
 
   describe "PUT api/shovels/:vhost/:name/resume" do
+    it "should resume an aborted shovel and return 204" do
+      with_http_server do |http, s|
+        status = Atomic(Int32).new(404)
+        server = ::HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = status.get
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+        s.vhosts["/"].declare_queue("q2", true, false)
+        s.vhosts["/"].queue("q2").publish(LavinMQ::Message.new("", "q2", "m"))
+        shovel = create_shovel(s, config: {"dest-uri": "http://#{addr}/", "dest-queue": nil, "reconnect-delay": 1})
+        wait_for { shovel.state.aborted? }
+        status.set(200)
+        response = http.put("/api/shovels/#{URI.encode_path_segment("/")}/#{shovel.name}/resume")
+        response.status_code.should eq 204
+        wait_for { shovel.state.running? }
+      ensure
+        server.try &.close
+      end
+    end
+
     it "should return 404 for non-existing shovel" do
       with_http_server do |http, _s|
         vhost_url_encoded = URI.encode_path_segment("/")

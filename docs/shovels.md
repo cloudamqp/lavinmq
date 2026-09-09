@@ -92,7 +92,7 @@ For every message, the destination classifies the delivery attempt into one **ou
 | `Confirmed` | ack | Delivered. Resets the failure and abort counters. |
 | `Retry` | reject (requeue) | Transient failure. Retried on the source with capped exponential backoff (0.5s doubling to 30s, per failing round); retries are unbounded. |
 | `Reject` | reject (no requeue) | The message itself is unacceptable. Dead-lettered via the source queue's DLX; the shovel continues. |
-| `Abort` | reject (requeue) | The destination is unusable. The message is kept; after 10 consecutive aborts the shovel moves to the `aborted` state for an operator to resolve. |
+| `Abort` | reject (requeue) | The destination is unusable. The message is kept; after 10 consecutive aborts the shovel moves to the `aborted` state for an operator to resolve (see [Shovel States](#shovel-states)). |
 
 A `Reject` on a source queue with no dead-letter exchange drops the message silently. Surfacing a UI warning for this is tracked separately.
 
@@ -127,11 +127,13 @@ There is no in-place retry of a failed request; a `Retry` goes straight back to 
 | `paused` | Temporarily paused |
 | `terminated` | Permanently terminated |
 | `error` | Failed (will attempt reconnection) |
-| `aborted` | The destination was classified unusable 10 times in a row (see [Delivery Outcomes](#delivery-outcomes)). The shovel stays here, with the reason in `error`, and does not reconnect; resume it or recreate its parameter once the destination is fixed. |
+| `aborted` | The destination was classified unusable 10 times in a row (see [Delivery Outcomes](#delivery-outcomes)). The run is stopped the same way a pause stops it: both connections are closed cleanly and every unacked message stays on the source. The shovel stays here, with the reason in `error`, and does not reconnect. Resume it (`PUT /api/shovels/:vhost/:name/resume`, or the Resume button in the management UI) once the destination is fixed, or recreate its parameter. A resumed shovel starts with clean failure and abort counters. |
 
 ## Reconnection
 
 Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay increases exponentially up to a maximum of 300 seconds.
+
+A reconnect is a fresh start: both the source and the destination are stopped before the delay, and a [multi-destination](#multi-destination) shovel begins with the first destination in its list again rather than staying on whatever it had failed over to.
 
 ## Management
 

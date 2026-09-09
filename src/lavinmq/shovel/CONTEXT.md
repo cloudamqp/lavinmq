@@ -71,9 +71,11 @@ _Avoid_: result, status, ack-mode (ack-mode is the separate
 OnConfirm/OnPublish/NoAck delivery-guarantee setting).
 
 **Aborted** (state):
-The terminal state a Runner enters once the abort threshold is crossed: the
-Destination is unusable, the Shovel stays put with the reason in `error`, and it
-does not reconnect until it is resumed or its parameter is recreated. Distinct
-from **Error**, the transient state of a Shovel that is about to reconnect with
-backoff.
+The state a Runner enters once the abort threshold is crossed: the Destination
+is unusable, the Shovel stays put with the reason in `error`, and it does not
+reconnect until it is resumed (like a paused Shovel) or its parameter is
+recreated. Aborting is a stop, not an exception: the Runner halts the run the
+way pause does, on its own fiber, so the Source connection closes cleanly and
+every unacked message stays on it. Distinct from **Error**, the transient state
+of a Shovel that is about to reconnect with backoff.
 _Avoid_: errored-out, failed, dead.
