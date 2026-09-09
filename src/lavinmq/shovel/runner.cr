@@ -102,6 +102,12 @@ module LavinMQ
       # queue-based retry/DLX policies still apply. Called by the destination
       # (synchronously for HTTP, from the confirm fiber for AMQP on-confirm).
       def report(delivery_tag : UInt64, outcome : Outcome)
+        # Pause, terminate and abort stop the source before the destination, so
+        # the confirms the destination's close voids arrive here as Retry with
+        # nothing left to settle: the source's own close already requeued them.
+        # They are not a verdict on the destination, so neither counted nor
+        # backed off. On a failover the source is still open and they count.
+        return unless @source.started?
         case outcome
         in Outcome::Confirmed
           @confirmed_total.add(1)

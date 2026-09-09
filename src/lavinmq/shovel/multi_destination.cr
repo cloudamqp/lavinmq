@@ -23,6 +23,11 @@ module LavinMQ
       @index = 0
       @consecutive_aborts = 0
       @consecutive_retries = 0
+      # A failover the outcome handler asked for, carried out by the next push.
+      @failover_pending = false
+      # True while fail_over is stopping the active destination: the outcomes
+      # reported during that stop are its voided confirms, not verdicts.
+      @failing_over = false
 
       def initialize(@destinations : Array(Destination))
       end
@@ -48,6 +53,7 @@ module LavinMQ
         @current.try &.stop
         @current = nil
         @index = 0
+        @failover_pending = false
         reset_streaks
       end
 
@@ -58,7 +64,14 @@ module LavinMQ
         false
       end
 
+      # Deliver on the active destination, after carrying out a failover the
+      # outcome handler asked for. push runs on the Runner fiber; report may run
+      # on the destination's publisher-confirm fiber, where stopping that very
+      # destination would deadlock (its connection close waits for a reply that
+      # only the confirm fiber reads). So report only requests the failover and
+      # the redelivery, which comes back through here, performs it.
       def push(msg)
+        fail_over if @failover_pending
         dest = @current || raise "Not started"
         dest.push(msg)
       end
@@ -86,8 +99,8 @@ module LavinMQ
         ex
       end
 
-      # Intercepts each active destination's outcome and forwards it, failing
-      # over first where the outcome calls for it:
+      # Intercepts each active destination's outcome and forwards it, requesting
+      # a failover where the outcome calls for it:
       #   Confirmed / Reject - the destination answered; clear both streaks.
       #   Retry              - forwarded as is; after RETRY_FAILOVER_THRESHOLD in
       #                        a row the redelivery goes to the next destination
@@ -96,7 +109,11 @@ module LavinMQ
       #                        destination has aborted in a row that is a Retry;
       #                        from then on Abort propagates so the Runner's abort
       #                        threshold applies, while still rotating.
+      # Outcomes reported while the active destination is being stopped are its
+      # voided in-flight confirms: forwarded as Retry so the source requeues
+      # them, but they say nothing about the destination taking over.
       def report(delivery_tag : UInt64, outcome : Outcome)
+        return @listener.report(delivery_tag, Outcome::Retry) if @failing_over
         case outcome
         in Outcome::Confirmed, Outcome::Reject
           reset_streaks
@@ -104,11 +121,11 @@ module LavinMQ
         in Outcome::Retry
           @consecutive_aborts = 0
           @consecutive_retries += 1
-          fail_over if @consecutive_retries >= RETRY_FAILOVER_THRESHOLD && @destinations.size > 1
+          request_failover if @consecutive_retries >= RETRY_FAILOVER_THRESHOLD && @destinations.size > 1
           @listener.report(delivery_tag, Outcome::Retry)
         in Outcome::Abort
           @consecutive_aborts += 1
-          fail_over
+          request_failover
           if @consecutive_aborts >= @destinations.size
             @listener.report(delivery_tag, Outcome::Abort) # every destination is unusable
           else
@@ -117,10 +134,17 @@ module LavinMQ
         end
       end
 
+      private def request_failover
+        @consecutive_retries = 0
+        @failover_pending = true
+      end
+
       # Stop the active destination and activate the next one that starts.
       private def fail_over
-        @consecutive_retries = 0
+        @failover_pending = false
+        @failing_over = true
         @current.try &.stop
+        @failing_over = false
         each_index_from(@index + 1) do |i|
           return if activate(i).nil?
         end

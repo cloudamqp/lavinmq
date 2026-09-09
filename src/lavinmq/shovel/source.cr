@@ -11,6 +11,11 @@ module LavinMQ
       abstract def start
       abstract def stop
 
+      # True while the source can settle deliveries. Outcomes that arrive for a
+      # stopped source (confirms voided by a destination close during pause or
+      # terminate) have nothing to act on and are ignored by the Runner.
+      abstract def started? : Bool
+
       # Yields each consumed message. Returns when the source is exhausted
       # (delete-after) or stopped.
       abstract def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
