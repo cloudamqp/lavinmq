@@ -23,7 +23,7 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
-            if user_and_broker = authenticate(io, packet)
+            if user_and_broker = authenticate(packet, connection_info)
               user, broker = user_and_broker
               packet = assign_client_id(packet) if packet.client_id.empty?
               if broker.connection_limit_reached?(packet.client_id)
@@ -57,7 +57,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io : Protocol::IO, packet)
+      def authenticate(packet, connection_info : ConnectionInfo)
         return unless (username = packet.username) && (password = packet.password)
 
         vhost = @config.default_mqtt_vhost
@@ -66,7 +66,7 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        context = Auth::Context.new(username, password, io.io)
+        context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
 
         user = @authenticator.authenticate(context)
         return unless user

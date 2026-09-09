@@ -78,6 +78,15 @@ def amqp_port(s)
   s.@listeners.keys.select(TCPServer).first.local_address.port
 end
 
+# Enables the PROXY protocol with the default user limited to loopback. The config is reset after each example.
+def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
+  config = LavinMQ::Config.instance
+  config.default_user_only_loopback = true
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = trusted_sources
+  yield
+end
+
 # Poll interval for the wait_for/should_eventually loops below. We sleep
 # (rather than busy-spinning with Fiber.yield) so the polling fiber blocks on
 # an event-loop timer instead of re-enqueueing itself every round. A tight

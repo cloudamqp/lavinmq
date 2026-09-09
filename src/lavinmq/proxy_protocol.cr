@@ -53,7 +53,7 @@ module LavinMQ
       # PROXY UNKNOWN\r\n
       def self.parse(io)
         io.read_timeout = HANDSHAKE_TIMEOUT
-        header = io.gets('\n', 107) || raise IO::EOFError.new
+        header = io.gets('\n', 107, chomp: true) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
         dst_addr = "127.0.0.1"
@@ -64,7 +64,7 @@ module LavinMQ
         header.split(' ') do |v|
           case i
           when 0 then raise InvalidSignature.new(v) if v != "PROXY"
-          when 1 then nil
+          when 1 then raise InvalidFamily.new(v) unless v.in?("TCP4", "TCP6")
           when 2 then src_addr = v
           when 3 then dst_addr = v
           when 4 then src_port = v.to_i32
@@ -75,7 +75,7 @@ module LavinMQ
         end
         src = Socket::IPAddress.new(src_addr, src_port)
         dst = Socket::IPAddress.new(dst_addr, dst_port)
-        ConnectionInfo.new(src, dst)
+        ConnectionInfo.new(src, dst, proxied: true)
       ensure
         io.read_timeout = nil
       end
@@ -210,7 +210,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst), 12}
+          {ConnectionInfo.new(src, dst, proxied: true), 12}
         when Family::TCPv6
           # TODO: should be optmizied, now converted from binary to string to binary
           src_addr = String.build(39) do |str|
@@ -230,7 +230,7 @@ module LavinMQ
 
           src = Socket::IPAddress.new(src_addr, src_port.to_i32)
           dst = Socket::IPAddress.new(dst_addr, dst_port.to_i32)
-          {ConnectionInfo.new(src, dst), 36}
+          {ConnectionInfo.new(src, dst, proxied: true), 36}
         else
           raise InvalidFamily.new family.to_s
         end
