@@ -5,6 +5,7 @@ require "./clustering/replicator"
 require "./clustering/follower"
 require "./mfile"
 require "sync/exclusive"
+require "wait_group"
 
 module LavinMQ
   # Owns the dirty segment file set and the publish-confirm batching loop.
@@ -30,9 +31,9 @@ module LavinMQ
     # sync (see MFile#mark_needs_msync!), so this stays a handful of entries
     # per drain.
     @dirty_files : Sync::Exclusive(Array(MFile)) = Sync::Exclusive.new(Array(MFile).new, :unchecked)
-    # Fibers blocked in #sync (tx.commit), each waiting on its own channel to
-    # be closed by the drain that made their writes durable.
-    @sync_waiters : Sync::Exclusive(Array(::Channel(Nil))) = Sync::Exclusive.new(Array(::Channel(Nil)).new, :unchecked)
+    # Each #sync (tx.commit) waits for one completion from the drain that
+    # made its writes durable. Later requests belong to a separate batch.
+    @sync_waiters : Sync::Exclusive(Array(WaitGroup)) = Sync::Exclusive.new(Array(WaitGroup).new, :unchecked)
 
     def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir)
       {% if flag?(:linux) %}
@@ -74,14 +75,14 @@ module LavinMQ
     # same drain: the publish confirm loop is the only thread that msyncs,
     # so tx commits never sync concurrently with it, they wait for it.
     def sync : Nil
-      waiter = ::Channel(Nil).new
+      waiter = WaitGroup.new(1)
       @sync_waiters.lock { |waiters| waiters << waiter }
       @publish_confirm_requested.try_send true
-      waiter.receive?
+      waiter.wait
     rescue ::Channel::ClosedError
       # Persister closed (shutdown); the loop thread is gone, so syncing
       # inline can't race it. Only the wake above raises — a waiter the final
-      # drain picked up is signaled by close, not by an exception — so the
+      # drain picked up is signaled by done, not by an exception — so the
       # writes still need to be made durable here.
       sync_dirty_files
       @replicator.try &.wait_for_followers
@@ -195,13 +196,13 @@ module LavinMQ
           Hash(AMQP::Channel, UInt64).new
         end
       end
-      waiters : Array(::Channel(Nil))? = nil
+      waiters : Array(WaitGroup)? = nil
       @sync_waiters.replace do |current|
         if current.empty?
           current
         else
           waiters = current
-          Array(::Channel(Nil)).new
+          Array(WaitGroup).new
         end
       end
       return unless acks || waiters
@@ -226,7 +227,7 @@ module LavinMQ
       # Everything is durable: unblock the tx commits first (their connection
       # fibers send the CommitOk themselves), then hand the confirm acks to
       # the channels' confirm writer fibers.
-      waiters.try &.each &.close
+      waiters.try &.each &.done
       acks.try &.each do |channel, msgid|
         channel.enqueue_confirm_ack(msgid)
       end

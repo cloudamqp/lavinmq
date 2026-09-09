@@ -3,6 +3,12 @@ require "./spec_helper"
 private class RecordingPersister < LavinMQ::Persister
   getter msynced = Array(MFile).new
   getter syncfs_count = 0
+  property sync_started : Channel(Nil)?
+  property resume_sync : Channel(Nil)?
+
+  def pending_sync_waiters : Int32
+    @sync_waiters.lock(&.size)
+  end
 
   def sync_files_public(files : Array(MFile)) : Nil
     sync_files(files)
@@ -13,6 +19,8 @@ private class RecordingPersister < LavinMQ::Persister
   end
 
   protected def sync_file(file : MFile) : Nil
+    @sync_started.try &.send(nil)
+    @resume_sync.try &.receive
     @msynced << file
   end
 
@@ -22,6 +30,41 @@ private class RecordingPersister < LavinMQ::Persister
 end
 
 describe LavinMQ::Persister do
+  it "releases sync waiters only after their own batch completes" do
+    with_datadir do |data_dir|
+      persister = RecordingPersister.new(data_dir: data_dir)
+      started = Channel(Nil).new(2)
+      resume = Channel(Nil).new(2)
+      persister.sync_started = started
+      persister.resume_sync = resume
+      file = MFile.new(File.join(data_dir, "segment"), 4096)
+      first_done = Channel(Nil).new(1)
+      second_done = Channel(Nil).new(1)
+
+      persister.mark_dirty(file)
+      spawn { persister.sync; first_done.send(nil) }
+      started.receive
+      persister.mark_dirty(file)
+      spawn { persister.sync; second_done.send(nil) }
+      wait_for { persister.pending_sync_waiters == 1 }
+      resume.send(nil)
+      started.receive
+      first_done.receive
+      select
+      when second_done.receive
+        fail "second sync returned before its batch completed"
+      when timeout(20.milliseconds)
+      end
+      resume.send(nil)
+      second_done.receive
+    ensure
+      # Release either paused batch if an assertion failed.
+      2.times { resume.try &.try_send(nil) }
+      persister.try &.close
+      file.try &.close
+    end
+  end
+
   it "does not sync an empty transaction" do
     with_datadir do |data_dir|
       persister = RecordingPersister.new(data_dir: data_dir)
