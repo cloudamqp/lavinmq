@@ -15,7 +15,7 @@ test.describe("shovels", _ => {
       },
       {
         "name": httpShovelName,
-        "value": {"src-uri":"amqp://","dest-uri":"http://example.com/hook","src-prefetch-count":1000,"src-delete-after":"never","reconnect-delay":120,"ack-mode":"on-confirm","src-queue":"qsrc"},
+        "value": {"src-uri":"amqp://","dest-uri":"http://example.com/hook","dest-timeout":5,"src-prefetch-count":1000,"src-delete-after":"never","reconnect-delay":120,"ack-mode":"on-confirm","src-queue":"qsrc"},
         "component": "shovel",
         "vhost": shovelVhost
       }
@@ -62,8 +62,22 @@ test.describe("shovels", _ => {
     await page.locator('#createShovel').getByRole('button', { name: /update/i }).click()
     const body = (await putRequest).postDataJSON()
     expect(body.value['dest-uri']).toBe('http://example.com/hook')
+    expect(body.value['dest-timeout']).toBe(5)
     expect(body.value).not.toHaveProperty('dest-exchange')
     expect(body.value).not.toHaveProperty('dest-queue')
+  })
+
+  test('show the timeout field for http destinations only', async ({ page }) => {
+    const form = page.locator('#createShovel')
+    const timeout = form.locator('[name=dest-timeout]')
+    await expect(timeout).toBeHidden()
+    await form.locator('[name=dest-uri]').fill('http://example.com/hook')
+    await form.locator('[name=dest-uri]').dispatchEvent('change')
+    await expect(timeout).toBeVisible()
+    await expect(form.locator('[name=dest-endpoint]')).toBeHidden()
+    await form.locator('[name=dest-uri]').fill('amqp://')
+    await form.locator('[name=dest-uri]').dispatchEvent('change')
+    await expect(timeout).toBeHidden()
   })
 
   test('can be deleted', async ({ page }) => {

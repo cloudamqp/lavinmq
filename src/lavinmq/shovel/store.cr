@@ -63,6 +63,7 @@ module LavinMQ
 
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
         raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
+        validate_dest_timeout!(config["dest-timeout"]?)
 
         return unless user
 
@@ -101,6 +102,15 @@ module LavinMQ
             end
           end
         end
+      end
+
+      # A malformed dest-timeout fails the PUT like any other bad field, rather
+      # than being stored and silently replaced by the default at start.
+      private def self.validate_dest_timeout!(value : JSON::Any?)
+        return if value.nil?
+        secs = value.as_f? || value.as_i?.try(&.to_f)
+        return if secs && secs > 0
+        raise ConfigError.new("dest-timeout must be a positive number of seconds")
       end
 
       private def self.vhost_from_uri(uri : URI) : String

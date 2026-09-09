@@ -2137,6 +2137,31 @@ describe LavinMQ::Shovel do
       LavinMQ::Shovel::Store.validate_config!(config, nil)
     end
 
+    it "rejects a dest-timeout that is not a positive number of seconds" do
+      ["5", 0, -3, true].each do |bad|
+        config = JSON.parse({
+          "src-uri":      "amqp:///test",
+          "src-queue":    "q1",
+          "dest-uri":     "http://example.com/hook",
+          "dest-timeout": bad,
+        }.to_json)
+        # Like reconnect-delay and src-prefetch-count, a malformed value fails
+        # the PUT rather than being stored and silently replaced by the default.
+        expect_raises(LavinMQ::Shovel::ConfigError, "dest-timeout") do
+          LavinMQ::Shovel::Store.validate_config!(config, nil)
+        end
+      end
+      [5, 2.5].each do |good|
+        config = JSON.parse({
+          "src-uri":      "amqp:///test",
+          "src-queue":    "q1",
+          "dest-uri":     "http://example.com/hook",
+          "dest-timeout": good,
+        }.to_json)
+        LavinMQ::Shovel::Store.validate_config!(config, nil)
+      end
+    end
+
     it "still requires a dest queue or exchange for an AMQP destination" do
       config = JSON.parse({
         "src-uri":   "amqp:///test",
