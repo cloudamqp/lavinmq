@@ -2,8 +2,9 @@ import * as helpers from './helpers.js'
 import { test, expect } from './fixtures.js';
 
 test.describe("shovels", _ => {
-  const shovelVhost = '/';
+  const shovelVhost = 'foo'
   const shovelName = 'shovel1'
+  const httpShovelName = 'httpshovel'
   const parameterShovelsResponse = {
     "items": [
       {
@@ -11,17 +12,24 @@ test.describe("shovels", _ => {
         "value": {"src-uri":"amqp://","dest-uri":"amqp://","src-prefetch-count":1000,"src-delete-after":"never","reconnect-delay":120,"ack-mode":"on-confirm","src-queue":"qdest","dest-queue":"qsrc"},
         "component": "shovel",
         "vhost": shovelVhost
+      },
+      {
+        "name": httpShovelName,
+        "value": {"src-uri":"amqp://","dest-uri":"http://example.com/hook","src-prefetch-count":1000,"src-delete-after":"never","reconnect-delay":120,"ack-mode":"on-confirm","src-queue":"qsrc"},
+        "component": "shovel",
+        "vhost": shovelVhost
       }
     ]
-    ,"filtered_count": 1,
-    "item_count": 1,
+    ,"filtered_count": 2,
+    "item_count": 2,
     "page": 1,
     "page_count": 1,
     "page_size": 100,
-    "total_count": 1
+    "total_count": 2
   }
   const shovelsResponse = [
     {"name": shovelName, "vhost": shovelVhost, "state": "Running", "error": null, "message_count": 0},
+    {"name": httpShovelName, "vhost": shovelVhost, "state": "Running", "error": null, "message_count": 0},
   ]
 
   test.beforeEach(async ({ apimap, page }) => {
@@ -35,7 +43,7 @@ test.describe("shovels", _ => {
 
 
   test('are loaded', async ({ page, baseURL }) => {
-    await expect(page.locator('#pagename-label')).toHaveText("1")
+    await expect(page.locator('#pagename-label')).toHaveText("2")
   })
 
   test('are refreshed automatically', async({ page }) => {
@@ -45,6 +53,17 @@ test.describe("shovels", _ => {
       await page.clock.runFor(10000) // advance time by 10 seconds
       await expect(apiShovelsRequest).toBeRequested()
     }
+  })
+
+  test('with http destination keep http destination when updated', async ({ page }) => {
+    const actionPath = `/api/parameters/shovel/${encodeURIComponent(shovelVhost)}/${encodeURIComponent(httpShovelName)}`
+    const putRequest = helpers.waitForPathRequest(page, actionPath, { method: 'PUT' })
+    await page.locator(`#table tr[data-name='"${httpShovelName}"']`).getByRole('button', { name: /^edit$/i }).click()
+    await page.locator('#createShovel').getByRole('button', { name: /update/i }).click()
+    const body = (await putRequest).postDataJSON()
+    expect(body.value['dest-uri']).toBe('http://example.com/hook')
+    expect(body.value).not.toHaveProperty('dest-exchange')
+    expect(body.value).not.toHaveProperty('dest-queue')
   })
 
   test('can be deleted', async ({ page }) => {
