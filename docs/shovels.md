@@ -10,7 +10,7 @@ Each shovel runs as an independent fiber owned by its vhost. When started, it op
 2. **Pull loop.** Messages from the source consumer are pushed one by one to the destination's `push` method. For AMQP destinations this becomes `basic.publish` to `dest-exchange` with `dest-exchange-key` (or to the default exchange when `dest-queue` is set). For HTTP destinations, the message body is POSTed to `dest-uri`.
 3. **Acknowledgment.** The destination classifies each delivery into an [outcome](#delivery-outcomes), and the shovel acks, retries, dead-letters, or aborts the source message accordingly. The configured `ack-mode` controls *when* the outcome is reported (see [Acknowledgment Modes](#acknowledgment-modes)).
 4. **Lifecycle.** A state machine moves the shovel between `starting`, `running`, `paused`, `error`, `aborted`, `stopped`, and `terminated` (see [Shovel States](#shovel-states)). Errors trigger an exponential-backoff reconnect; pause is persisted to disk so a paused shovel stays paused across server restarts.
-5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once every message that was in the source queue when it started has been delivered or dead-lettered. Messages published after the start are left alone. A message whose delivery keeps failing transiently is redelivered and retried with backoff, so the shovel does not finish (or delete itself) while such a message remains.
+5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once it has moved as many messages as were in the source queue when it started (see [Queue-length runs](#queue-length-runs)).
 
 ## Components
 
@@ -74,6 +74,22 @@ A shovel can have multiple destinations configured. They form an **ordered failo
 When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A destination that keeps failing transiently (three consecutive `Retry` outcomes, e.g. connection refused on a host that is down) is skipped in favour of the next one as well. A successful — or otherwise non-abort — delivery resets the failover cycle.
 
 The switch itself happens on the next delivery, not inside the outcome that asked for it: the message is requeued on the source, and when it is redelivered the shovel stops the old destination and activates the next one before publishing. Stopping the old destination requeues every message that was still in flight on it (see [publisher-confirm classification](#amqp-publisher-confirm-classification)), so nothing published to a destination that never confirmed is lost. Only once *every* destination has aborted in a row, with no successful delivery in between, do the aborts count towards the shovel's abort threshold; even then each redelivery still goes to the next destination rather than hammering one. Every (re)start of the shovel begins again with the first destination in the list, and if no destination at all can be started the shovel reconnects with backoff exactly as it would for a single unreachable destination.
+
+## Source Acknowledgments
+
+Source messages are acked in batches for throughput: the shovel sends one cumulative ack (`multiple: true`) once half the prefetch window has been settled, or after a timeout of 3 seconds, whichever comes first. A cumulative ack only ever covers tags whose delivery has actually been settled (confirmed, or rejected). If a destination confirms out of order — RabbitMQ may confirm message 3 before message 2 — the ack stops at the lowest unconfirmed tag and the higher ones wait until the gap closes. Rejects (requeue or dead-letter) are sent individually and at once.
+
+Pause, terminate and abort flush the pending batch before closing the source connection. A message in flight at that moment is not acked; it stays on the source and is redelivered on the next run, so the shovel is at-least-once.
+
+### Queue-length runs
+
+With `src-delete-after: queue-length` the shovel takes the queue's message count when it starts and finishes once that many messages have been settled for good, i.e. acked or dead-lettered. Then it deletes its own parameter.
+
+- A message whose delivery fails transiently is requeued, redelivered and retried with backoff, so the run does not finish while such a message remains.
+- A message published after the start can be delivered into a slot a settled message freed. It is moved like any other and counts towards the total, so a run moves *as many* messages as were on the queue at start, which in practice are the ones that were there: a requeued message goes back to its place ahead of anything newer. Nothing delivered is ever skipped and left unacked.
+- If the broker drops a requeued message instead of redelivering it (a `x-delivery-limit` exceeded, or a TTL expiring), it can never be settled by the shovel. When a requeue leaves nothing in flight, the shovel checks the queue once the redelivery has had time to arrive, and finishes if the queue is empty.
+- Every start of a run, including a resume and a reconnect, takes a fresh snapshot of what is left on the queue and counts from zero against it.
+- Messages still in flight when the run finishes stay on the source; whether they were also delivered depends on the destination's confirm having arrived, so a very small number of duplicates is possible at the boundary (at-least-once).
 
 ## Acknowledgment Modes
 

@@ -15,8 +15,20 @@ _Avoid_: pump, bridge, forwarder.
 Where a Shovel reads messages from and settles them (ack / reject). Today only
 AMQP queues (an exchange source is consumed through a temporary queue). The
 Source owns consume and settlement; it never decides *whether* a message
-succeeded.
+succeeded. Acks are cumulative and batched behind a **settlement frontier**:
+the highest delivery tag below which everything is settled. Out-of-order
+confirms wait above it; a cumulative ack never covers an unsettled tag.
 _Avoid_: origin, input, upstream.
+
+**Queue-length run**:
+A Shovel with `src-delete-after: queue-length`. It snapshots the queue's message
+count at every start and finishes — deleting its parameter — once that many
+messages are settled for good (acked or dead-lettered). Requeued messages come
+back and count then; a newer message delivered into a freed slot is moved and
+counts too (the run moves *as many* messages as were there, never skipping a
+delivery). If a requeue leaves nothing in flight and the queue turns out empty
+(the broker dropped the message), the run finishes as well.
+_Avoid_: drain, one-shot, snapshot mode (as a name for the whole mode).
 
 **Destination**:
 Where a Shovel delivers messages (AMQP exchange/queue or HTTP endpoint). A

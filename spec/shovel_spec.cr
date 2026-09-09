@@ -275,7 +275,7 @@ describe LavinMQ::Shovel do
 
           s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           wg = WaitGroup.new(1)
-          spawn { source.each { |m| source.ack(m.delivery_tag) && wg.done } }
+          spawn { source.each { |m| source.ack(m.delivery_tag); wg.done } }
           wg.wait
           sleep 1.millisecond
           s.vhosts["/"].queue("source").unacked_count.should eq 0
@@ -479,6 +479,168 @@ describe LavinMQ::Shovel do
           should_eventually(be_true, 5.seconds) { finished }
           should_eventually(eq 1) { q1.message_count }
         end
+      end
+    end
+
+    it "moves a message published after the start rather than leaving it unacked to be swept away" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "nw_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("nw_q1")
+          delivered = [] of String
+          requests = Atomic(Int32).new(0)
+          server = HTTP::Server.new do |context|
+            body = context.request.body.try(&.gets_to_end).to_s
+            case requests.add(1)
+            when 0 # m1: delivered, and a newer message lands on the queue meanwhile
+              x.publish_confirm "newer", "nw_q1"
+              context.response.status_code = 200
+              delivered << body
+            when 1 # m2 fails once and is requeued
+              context.response.status_code = 503
+            else
+              context.response.status_code = 200
+              delivered << body
+            end
+            context.response.print "x"
+            context
+          end
+          addr = server.bind_unused_port
+          spawn server.listen
+          dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+          shovel = LavinMQ::Shovel::Runner.new(source, dest, "nw_shovel", vhost)
+          x.publish_confirm "m1", "nw_q1"
+          x.publish_confirm "m2", "nw_q1"
+          shovel.run
+          # "newer" was delivered into the slot m1 freed. Skipping it would leave
+          # it unacked, and the cumulative ack for m2's redelivery (a higher
+          # tag) would then settle it without it ever having been delivered.
+          # Queue-length moves as many messages as were on the queue at start;
+          # whatever is not moved must still be on the source.
+          should_eventually(eq 0) { s.vhosts["/"].queue("nw_q1").unacked_count }
+          left = q1.message_count
+          (delivered.size + left).should eq 3
+          delivered.uniq.size.should eq delivered.size
+          left_bodies = Array(String).new(left) { q1.get(no_ack: true).not_nil!.body_io.to_s }
+          (delivered + left_bodies).sort.should eq ["m1", "m2", "newer"]
+        ensure
+          server.try &.close
+        end
+      end
+    end
+
+    it "moves every message of a queue-length shovel across a pause and resume" do
+      with_amqp_server do |s|
+        received = Atomic(Int32).new(0)
+        third_started = Channel(Nil).new
+        release_third = Channel(Nil).new
+        server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          if received.add(1) == 2 # hold the third request open until the shovel is paused
+            third_started.send(nil)
+            release_third.receive
+          end
+          context.response.status_code = 200
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "pr_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          prefetch: 1_u16,
+          direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pr_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("pr_q1")
+          4.times { |i| x.publish_confirm "m#{i}", "pr_q1" }
+          spawn shovel.run
+          third_started.receive
+          shovel.pause # m1, m2 settled; m3 in flight is requeued; m3, m4 remain
+          release_third.send(nil)
+          # The resumed run takes a fresh snapshot of what is left. Counting the
+          # messages settled before the pause against it would finish the run —
+          # and delete the shovel — with messages still on the queue.
+          shovel.resume
+          should_eventually(be_true, 5.seconds) { shovel.terminated? }
+          q1.message_count.should eq 0
+          received.get.should be >= 4
+        end
+      ensure
+        server.try &.close
+      end
+    end
+
+    it "finishes a queue-length shovel when the broker drops a requeued message" do
+      with_amqp_server do |s|
+        server = HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = 503 # Retry: reject(requeue: true)
+          context.response.print "busy"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts["/"]
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "dl_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user, batch_ack_timeout: 100.milliseconds)
+        dest = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{addr}/"))
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "dl_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          args = AMQP::Client::Arguments.new
+          args["x-delivery-limit"] = 0_i64 # the first requeue dead-letters (here: drops) the message
+          q1 = ch.queue("dl_q1", args: args)
+          x.publish_confirm "doomed", "dl_q1"
+          finished = false
+          spawn { shovel.run; finished = true }
+          # The requeued message never comes back, so counting settlements alone
+          # would leave the shovel Running forever on an empty queue.
+          should_eventually(be_true, 5.seconds) { finished }
+          q1.message_count.should eq 0
+        end
+      ensure
+        server.try &.close
+      end
+    end
+
+    it "only acks up to the lowest unconfirmed tag when confirms arrive out of order" do
+      with_amqp_server do |s|
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "oo_q1",
+          prefetch: 3_u16, direct_user: s.users.direct_user, batch_ack_timeout: 50.milliseconds)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          ch.queue("oo_q1")
+          3.times { |i| x.publish_confirm "m#{i}", "oo_q1" }
+          q1 = s.vhosts["/"].queue("oo_q1")
+          source.start
+          spawn { source.each { } rescue nil }
+          should_eventually(eq 3) { q1.unacked_count }
+          # A RabbitMQ destination may confirm 1 and 3 before 2. Acks are
+          # cumulative, so the source may only ack up to 1 until 2 is confirmed;
+          # acking 3 would settle 2 before anyone has delivered it.
+          source.ack(1_u64)
+          source.ack(3_u64)
+          sleep 200.milliseconds # a couple of ack-timeout flushes
+          q1.unacked_count.should eq 2
+          source.ack(2_u64)
+          should_eventually(eq 0) { q1.unacked_count }
+        end
+        source.stop
       end
     end
 
@@ -834,7 +996,7 @@ describe LavinMQ::Shovel do
           # terminate would (correctly) requeue the unconfirmed message rather
           # than ack it, so wait for that confirm before terminating — otherwise
           # this races under load and leaves a message on q1.
-          wait_for { source.last_unacked == 4_u64 }
+          wait_for { source.pending_ack == 4_u64 }
           # Now when we terminate the shovel it should ack the last message(s)
           shovel.terminate
           wait_for { s.vhosts["/"].queue("prefetch2_q1").unacked_count == 0 }
