@@ -167,7 +167,7 @@ module LavinMQ::AMQP
       false
     end
 
-    def ack(sp : SegmentPosition) : Nil
+    def ack(sp : SegmentPosition, needs_sync = false) : Nil
       # noop, not supported
     end
 

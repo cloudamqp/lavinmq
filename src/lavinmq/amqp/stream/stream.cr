@@ -209,13 +209,13 @@ module LavinMQ::AMQP
       raise ClosedError.new(cause: ex)
     end
 
-    def ack(sp : SegmentPosition) : Nil
+    def ack(sp : SegmentPosition, needs_sync = false) : Nil
     end
 
-    def reject(sp : SegmentPosition, requeue : Bool)
+    def reject(sp : SegmentPosition, requeue : Bool, needs_sync = false)
     end
 
-    private def drop_overflow : Nil
+    private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil, needs_sync = false) : Nil
       # Overflow handling is done in StreamMessageStore
     end
 

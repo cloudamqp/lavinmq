@@ -343,7 +343,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     FileUtils.rm_rf LavinMQ::Config.instance.data_dir
   end
 
-  it "holds acknowledgment-only tx.commit-ok until followers ack the filesystem fence" do
+  it "holds acknowledgment-only tx.commit-ok until followers fsync the acknowledgment file" do
     Dir.mkdir_p LavinMQ::Config.instance.data_dir
     replicator = LavinMQ::Clustering::Server.new(
       LavinMQ::Config.instance, NullCoordinator.new, 0)
@@ -355,7 +355,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
     client_io, client_lz4 = connect_synced_follower(replicator, tcp_server)
     acks_enabled = Atomic(Bool).new(true)
     unacked = Atomic(Int64).new(0)
-    filesystem_fences = Atomic(Int32).new(0)
+    ack_file_fences = Atomic(Int32).new(0)
     spawn(name: "synced follower reader spec") do
       loop do
         filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -363,7 +363,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         filename = client_lz4.read_string(filename_len)
         len = client_lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         client_lz4.skip len.abs
-        filesystem_fences.add(1) if filename == "$."
+        ack_file_fences.add(1) if filename.starts_with?('$') && filename.includes?("/acks.")
         unacked.add(sizeof(Int32).to_i64 + filename_len + sizeof(Int64) + len.abs)
       end
     rescue IO::Error
@@ -388,7 +388,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         q.publish "m", props: AMQP::Client::Properties.new(delivery_mode: 2_u8)
         ch.tx_commit
         q.get(no_ack: false).not_nil!.ack
-        fences_before = filesystem_fences.get
+        fences_before = ack_file_fences.get
         acks_enabled.set(false)
         committed = Channel(Nil).new
         spawn(name: "tx commit spec") do
@@ -408,7 +408,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         when timeout(5.seconds)
           fail "tx.commit-ok never arrived after the follower acked"
         end
-        filesystem_fences.get.should be > fences_before
+        ack_file_fences.get.should be > fences_before
         s.vhosts["/"].queue("tx_commit_wait").message_count.should eq 0
       end
     end

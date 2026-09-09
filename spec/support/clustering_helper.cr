@@ -59,18 +59,12 @@ module ClusteringSpecHelper
     # sync is disabled).
     getter fsync_requests = Array(String).new
     getter parent_dirs_fsynced = Array(String).new
-    getter filesystem_syncs = 0
-    property filesystem_sync_started : Channel(Nil)?
-    property resume_filesystem_sync : Channel(Nil)?
-
-    private def sync_filesystem : Nil
-      @filesystem_sync_started.try &.send(nil)
-      @resume_filesystem_sync.try &.receive
-      super
-      @filesystem_syncs += 1
-    end
+    property file_sync_started : Channel(Nil)?
+    property resume_file_sync : Channel(Nil)?
 
     private def fsync_file(filename : String) : Nil
+      @file_sync_started.try &.send(nil)
+      @resume_file_sync.try &.receive
       @fsync_requests << filename
       super
     end

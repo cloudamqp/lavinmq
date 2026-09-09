@@ -5,6 +5,15 @@ class MFile
   # Pause just after the open check to exercise the former check/unmap race.
   property sync_checked : Channel(Nil)?
   property resume_sync : Channel(Nil)?
+  property directory_sync_started : Channel(Nil)?
+  property resume_directory_sync : Channel(Nil)?
+
+  private def fsync_parent_dir : Nil
+    @directory_sync_started.try &.send(nil)
+    @resume_directory_sync.try &.receive
+    previous_def
+  end
+
   private def check_open
     previous_def
     if checked = @sync_checked
@@ -30,6 +39,32 @@ describe MFile do
     mfile.try &.close
     File.delete?(file.path) if file
     Dir.delete(dir) if dir
+  end
+
+  it "does not expose a durable deletion until the directory is synced" do
+    file = File.tempfile "mfile_spec"
+    mfile = MFile.new(file.path, capacity: 4096)
+    started = Channel(Nil).new
+    resume = Channel(Nil).new
+    done = Channel(Nil).new
+    mfile.directory_sync_started = started
+    mfile.resume_directory_sync = resume
+    spawn do
+      mfile.delete(durable: true)
+      done.send(nil)
+    end
+    started.receive
+    begin
+      File.exists?(file.path).should be_false
+      mfile.deleted?.should be_false
+    ensure
+      resume.send(nil)
+      done.receive
+    end
+    mfile.deleted?.should be_true
+  ensure
+    mfile.try &.close
+    File.delete?(file.path) if file
   end
 
   it "persists the parent directory on the first synchronous flush" do

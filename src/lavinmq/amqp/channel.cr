@@ -574,7 +574,7 @@ module LavinMQ
         if c = unack.consumer
           c.ack(unack.sp)
         end
-        unack.queue.ack(unack.sp)
+        unack.queue.ack(unack.sp, needs_sync: @tx)
         unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
@@ -653,7 +653,7 @@ module LavinMQ
         if c = unack.consumer
           c.reject(unack.sp, requeue)
         end
-        unack.queue.reject(unack.sp, requeue)
+        unack.queue.reject(unack.sp, requeue, needs_sync: @tx)
         unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)

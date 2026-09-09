@@ -22,8 +22,6 @@ module LavinMQ
       # wait_for_followers issued after this returns means the files are
       # durable on every in-sync follower. Never writes the follower sockets
       # itself, so it's safe to call from any execution context.
-      # The data directory followed by "/." requests a filesystem-wide
-      # transaction fence, covering acknowledgment files and directory changes.
       abstract def fsync_files(paths : Array(String))
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)

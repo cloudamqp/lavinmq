@@ -193,13 +193,16 @@ module LavinMQ
       end
     end
 
-    def delete(sp) : Nil
+    def delete(sp, needs_sync = false) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
+        # As with publishes, register only after replication dispatch so the
+        # follower's fsync request cannot precede this acknowledgment.
+        @persister.try &.mark_dirty(afile) if needs_sync
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -208,11 +211,12 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
+          # Remove messages durably before their acknowledgment history.
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
+          end
+          if a = @acks.delete(sp.segment)
+            delete_file(a)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -287,7 +291,7 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      file.delete(raise_on_missing: false)
+      file.delete(raise_on_missing: false, durable: @durable && Config.instance.sync?)
       if replicator = @replicator
         replicator.delete_file(meta_file_name(file)) if including_meta
         replicator.delete_file(file.path)
@@ -691,10 +695,10 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
+          delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile, including_meta: true)
           true
         else
           false

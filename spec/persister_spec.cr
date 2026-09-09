@@ -22,11 +22,11 @@ private class RecordingPersister < LavinMQ::Persister
 end
 
 describe LavinMQ::Persister do
-  it "syncs transactions even when no message segments were marked dirty" do
+  it "does not sync an empty transaction" do
     with_datadir do |data_dir|
       persister = RecordingPersister.new(data_dir: data_dir)
       persister.sync
-      persister.syncfs_count.should eq(1)
+      persister.syncfs_count.should eq(0)
       persister.msynced.should be_empty
     ensure
       persister.try &.close

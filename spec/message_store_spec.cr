@@ -165,6 +165,41 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  it "only marks transactional acknowledgment writes as dirty" do
+    mktmpdir do |dir|
+      persister = DirtyRecordingPersister.new(data_dir: dir)
+      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+      2.times { store.push(msg) }
+      store.delete(store.shift?.not_nil!.segment_position)
+      persister.recorded_dirty_files.should be_empty
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      persister.recorded_dirty_files.map(&.path).should eq([File.join(dir, "acks.0000000001")])
+    ensure
+      store.try &.close
+      persister.try &.close
+    end
+  end
+
+  it "replicates segment removal before discarding its acknowledgment history" do
+    old_segment_size = LavinMQ::Config.instance.segment_size
+    LavinMQ::Config.instance.segment_size = 4096
+    replicator = SpyReplicator.new
+    with_store(replicator: replicator) do |store, dir|
+      msg = LavinMQ::Message.new("ex", "rk", "x" * 3000)
+      2.times { store.push(msg) }
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      deleted = replicator.deleted_files.to_a
+      msgs = File.join(dir, "msgs.0000000001")
+      acks = File.join(dir, "acks.0000000001")
+      deleted.index!(msgs).should be < deleted.index!(acks)
+      File.exists?(msgs).should be_false
+      File.exists?(acks).should be_false
+    end
+  ensure
+    LavinMQ::Config.instance.segment_size = old_segment_size if old_segment_size
+  end
+
   it "only marks segments written for confirms or transactions as dirty" do
     mktmpdir do |dir|
       persister = DirtyRecordingPersister.new(data_dir: dir)

@@ -117,12 +117,18 @@ class MFile < IO
     addr
   end
 
-  def delete(*, raise_on_missing = true) : Nil
-    return if @deleted.swap(true, :acquire_release) # avoid double deletes
-    if raise_on_missing
-      File.delete(@path)
-    else
-      File.delete?(@path)
+  def delete(*, raise_on_missing = true, durable = false) : Nil
+    @mapping_lock.synchronize do
+      return if deleted? # avoid double deletes
+      if raise_on_missing
+        File.delete(@path)
+      else
+        File.delete?(@path)
+      end
+      # Publish deleted? only once the removal is durable: the persister may
+      # skip this file as soon as it observes that flag.
+      fsync_parent_dir if durable
+      @deleted.set(true, :release)
     end
   end
 
