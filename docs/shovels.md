@@ -48,7 +48,7 @@ A shovel with an `http://` or `https://` `dest-uri` POSTs each consumed message 
 | Parameter | Description |
 |-----------|-------------|
 | `dest-uri` | HTTP/HTTPS URL to POST to. Userinfo (`user:password@host`) is sent as HTTP Basic Auth. |
-| `dest-timeout` | Connect and read timeout for each HTTP attempt, in seconds (int or float). Defaults to `30`. |
+| `dest-timeout` | Connect and read timeout for each HTTP attempt, in seconds (int or float). Defaults to `30`. Must be a positive number; any other value is rejected when the parameter is created. Editable in the management UI as the destination's *Timeout* field, shown for HTTP URIs. |
 
 The AMQP message is mapped to the HTTP request as follows:
 
