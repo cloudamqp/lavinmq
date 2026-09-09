@@ -26,6 +26,7 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
+    @directory : FileSystem::Directory?
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -39,6 +40,7 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       # Non-durable queues need no msync either.
       @persister = durable ? persister : nil
+      @directory = FileSystem::Directory.new(@msg_dir)
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -277,9 +279,11 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
+      @directory.try &.reopen unless @segments.empty? && @acks.empty?
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
+      @directory.try &.close
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -313,6 +317,7 @@ module LavinMQ
         @segments.each_value &.close
         @acks.each_value &.close
       end
+      @directory.try &.close
     end
 
     def avg_bytesize : UInt32
@@ -376,7 +381,7 @@ module LavinMQ
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = MFile.new(path, capacity)
+      wfile = MFile.new(path, capacity, directory: @directory)
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -406,7 +411,7 @@ module LavinMQ
     private def open_ack_file(id) : MFile
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
-      mfile = MFile.new(path, capacity, writeonly: true)
+      mfile = MFile.new(path, capacity, writeonly: true, directory: @directory)
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
@@ -479,9 +484,9 @@ module LavinMQ
         path = File.join(@msg_dir, filename)
         file = if idx == last_idx
                  # expand the last segment
-                 MFile.new(path, Config.instance.segment_size)
+                 MFile.new(path, Config.instance.segment_size, directory: @directory)
                else
-                 MFile.new(path)
+                 MFile.new(path, directory: @directory)
                end
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
@@ -497,7 +502,7 @@ module LavinMQ
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = MFile.new(path, Config.instance.segment_size)
+              file = MFile.new(path, Config.instance.segment_size, directory: @directory)
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else

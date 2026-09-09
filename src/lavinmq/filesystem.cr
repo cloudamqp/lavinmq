@@ -1,13 +1,28 @@
 module LavinMQ
   module FileSystem
-    # Persist a new file's name and any newly created ancestor directories.
-    def self.fsync_parent_dirs(path : String) : Nil
-      dir = File.dirname(File.expand_path(path))
-      loop do
-        File.open(dir, &.fsync)
-        parent = File.dirname(dir)
-        break if parent == dir
-        dir = parent
+    # Shared by the segments in a message store. The descriptor lives as long
+    # as the store; syncing entries never opens or walks ancestor directories.
+    class Directory
+      @lock = Mutex.new
+
+      def initialize(path : String)
+        @file = File.open(path)
+      end
+
+      def fsync : Nil
+        @lock.synchronize { @file.fsync }
+      end
+
+      def close : Nil
+        @lock.synchronize { @file.close }
+      end
+
+      # Queue deletion may follow close. Reopen once for that teardown, then
+      # reuse the descriptor for every removed segment before closing it again.
+      def reopen : Nil
+        @lock.synchronize do
+          @file = File.open(@file.path) if @file.closed?
+        end
       end
     end
 

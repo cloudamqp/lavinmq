@@ -46,6 +46,20 @@ describe FilesystemInfo do
 end
 
 describe LavinMQ::FileSystem do
+  it "syncs a directory through its retained descriptor after its path changes" do
+    with_datadir do |data_dir|
+      path = File.join(data_dir, "queue")
+      Dir.mkdir(path)
+      directory = LavinMQ::FileSystem::Directory.new(path)
+      fd = directory.@file.fd
+      File.rename(path, File.join(data_dir, "moved"))
+      2.times { directory.fsync }
+      directory.@file.fd.should eq(fd)
+    ensure
+      directory.try &.close
+    end
+  end
+
   describe ".durable_rename" do
     it "atomically replaces a file in the same directory" do
       with_datadir do |data_dir|

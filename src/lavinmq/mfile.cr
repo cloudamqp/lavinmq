@@ -50,9 +50,11 @@ class MFile < IO
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
-  def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
+  def initialize(@path : String, capacity : Int? = nil, @writeonly = false, *, directory : LavinMQ::FileSystem::Directory? = nil)
     @readonly = capacity.nil?
     raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
+    @owns_directory = directory.nil?
+    @directory = directory || LavinMQ::FileSystem::Directory.new(File.dirname(@path))
     fd = open_fd
     begin
       @size = file_size(fd)
@@ -141,6 +143,7 @@ class MFile < IO
         raise File::Error.from_errno("Error truncating file", file: @path)
       end
     end
+    @directory.close if @owns_directory
   end
 
   # Truncate the file to the given capacity (contracting only, no expansion)
@@ -225,10 +228,14 @@ class MFile < IO
         raise RuntimeError.from_errno("msync") if code < 0
       end
       if flag == LibC::MS_SYNC && !@directory_synced && !deleted?
-        LavinMQ::FileSystem.fsync_parent_dirs(@path)
+        fsync_parent_dir
         @directory_synced = true
       end
     end
+  end
+
+  private def fsync_parent_dir : Nil
+    @directory.fsync
   end
 
   # Append only
@@ -335,8 +342,33 @@ class MFile < IO
   end
 
   def rename(new_path : String) : Nil
-    LavinMQ::FileSystem.durable_rename(@path, new_path)
-    @path = new_path
+    @mapping_lock.synchronize do
+      old_directory = @directory
+      new_directory = if File.dirname(@path) == File.dirname(new_path)
+                        old_directory
+                      else
+                        LavinMQ::FileSystem::Directory.new(File.dirname(new_path))
+                      end
+      begin
+        File.rename(@path, new_path)
+      rescue ex
+        new_directory.close unless new_directory.same?(old_directory)
+        raise ex
+      end
+      @path = new_path
+      if new_directory.same?(old_directory)
+        old_directory.fsync
+      else
+        begin
+          old_directory.fsync
+          new_directory.fsync
+        ensure
+          old_directory.close if @owns_directory
+          @directory = new_directory
+          @owns_directory = true
+        end
+      end
+    end
   end
 
   private def check_open

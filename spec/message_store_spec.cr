@@ -134,6 +134,37 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "can durably delete a closed store and closes the reopened directory" do
+    with_datadir do |dir|
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      directory = store.@directory.not_nil!
+      store.close
+      directory.@file.closed?.should be_true
+      store.delete
+      Dir.exists?(dir).should be_false
+      directory.@file.closed?.should be_true
+    ensure
+      store.try &.close
+    end
+  end
+
+  it "shares one directory descriptor across segments and closes it with the store" do
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      fd = directory.@file.fd
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+      store.push(msg)
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      store.@segments.each_value { |file| file.@directory.should be(directory) }
+      store.@acks.each_value { |file| file.@directory.should be(directory) }
+      directory.fsync
+      directory.@file.fd.should eq(fd)
+      store.close
+      directory.@file.closed?.should be_true
+    end
+  end
+
   it "only marks segments written for confirms or transactions as dirty" do
     mktmpdir do |dir|
       persister = DirtyRecordingPersister.new(data_dir: dir)

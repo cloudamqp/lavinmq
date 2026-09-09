@@ -1028,14 +1028,24 @@ module ClientSyncSpec
 
           client.fsync_requests.should eq [filename]
           client.parent_dirs_fsynced.should eq [data_dir]
+          directory = client.@directories[data_dir]
+          directory_fd = directory.@file.fd
           File.read(File.join(data_dir, filename)).should eq payload
 
           write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
           read_acks(leader_io, record_size("$#{filename}", 0))
           client.parent_dirs_fsynced.should eq [data_dir]
 
+          # A different segment in the same queue reuses the open directory.
+          write_record(lz4_writer, "second_file", -1i64, "x".to_slice)
+          write_record(lz4_writer, "$second_file", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("second_file", 1) + record_size("$second_file", 0))
+          client.@directories[data_dir].should be(directory)
+          directory.@file.fd.should eq(directory_fd)
+
           client_socket.close
           close_client(client)
+          directory.@file.closed?.should be_true
         end
       end
 

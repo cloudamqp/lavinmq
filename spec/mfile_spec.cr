@@ -5,7 +5,6 @@ class MFile
   # Pause just after the open check to exercise the former check/unmap race.
   property sync_checked : Channel(Nil)?
   property resume_sync : Channel(Nil)?
-
   private def check_open
     previous_def
     if checked = @sync_checked
@@ -17,7 +16,23 @@ class MFile
 end
 
 describe MFile do
-  it "persists the parent directories on the first synchronous flush" do
+  it "updates its retained directory when renamed across directories" do
+    file = File.tempfile "mfile_spec"
+    dir = File.tempname("mfile_dir_spec")
+    Dir.mkdir(dir)
+    mfile = MFile.new(file.path, capacity: 4096)
+    original_directory = mfile.@directory
+    mfile.rename(File.join(dir, "renamed"))
+    original_directory.@file.closed?.should be_true
+    mfile.@directory.@file.path.should eq(dir)
+    mfile.delete(durable: true)
+  ensure
+    mfile.try &.close
+    File.delete?(file.path) if file
+    Dir.delete(dir) if dir
+  end
+
+  it "persists the parent directory on the first synchronous flush" do
     file = File.tempfile "mfile_spec"
     mfile = MFile.new(file.path, capacity: 4096)
     mfile.write "message".to_slice

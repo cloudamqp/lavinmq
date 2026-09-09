@@ -42,6 +42,9 @@ module LavinMQ
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
       @unsynced_directory_files = Set(String).new
+      @directories = Hash(String, FileSystem::Directory).new do |dirs, path|
+        dirs[path] = FileSystem::Directory.new(path)
+      end
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
@@ -195,6 +198,8 @@ module LavinMQ
         @files.each_value &.close
         @files.clear
         @unsynced_directory_files.clear
+        @directories.each_value &.close
+        @directories.clear
       end
 
       # Adopt the running digests as the files' checksums and stop tracking them.
@@ -525,6 +530,7 @@ module LavinMQ
         while dir != "."
           path = File.join(@data_dir, dir)
           rmdir(path) || break
+          @directories.delete(path).try &.close
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
@@ -579,7 +585,7 @@ module LavinMQ
       # cannot expose the old name-to-inode mapping.
       private def fsync_parent_dir(path : String) : Nil
         return unless @config.sync?
-        FileSystem.fsync_parent_dirs(path)
+        @directories[File.dirname(path)].fsync
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
@@ -727,6 +733,8 @@ module LavinMQ
         # Finalize all pending checksums
         finalize_digests
         @checksums.store
+        @directories.each_value &.close
+        @directories.clear
         @data_dir_lock.release
         @metrics_server.try &.close
       end
