@@ -184,7 +184,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       '422':
-        description: Shovel is not in paused state
+        description: Shovel is not in paused or aborted state
         content:
           application/json:
             schema:
