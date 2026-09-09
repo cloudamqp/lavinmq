@@ -6,7 +6,9 @@ module LavinMQ
     # (the single place that maps an Outcome to a source action), or a
     # MultiDestinationHandler that intercepts and forwards. Called synchronously
     # for HTTP, and from the publisher-confirm fiber for AMQP on-confirm; never
-    # called in NoAck mode (nothing to settle).
+    # called in NoAck mode (nothing to settle). A listener must not start or
+    # stop a destination from report: on the confirm fiber that deadlocks on
+    # the destination's own connection close.
     module OutcomeListener
       abstract def report(delivery_tag : UInt64, outcome : Outcome)
     end
