@@ -149,19 +149,68 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "shares one directory descriptor across segments and closes it with the store" do
+  it "syncs new segments through one retained directory descriptor" do
     with_store do |store, _|
       directory = store.@directory.not_nil!
       fd = directory.@file.fd
+      directory.sync_count.should eq(1)
       msg = LavinMQ::Message.new("ex", "rk", "body")
       store.push(msg)
+      directory.sync_count.should eq(1)
       store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
-      store.@segments.each_value { |file| file.@directory.should be(directory) }
-      store.@acks.each_value { |file| file.@directory.should be(directory) }
-      directory.fsync
+      directory.sync_count.should eq(2)
       directory.@file.fd.should eq(fd)
       store.close
       directory.@file.closed?.should be_true
+    end
+  end
+
+  it "syncs rolled-over segment entries before publishing their writes" do
+    old_segment_size = LavinMQ::Config.instance.segment_size
+    LavinMQ::Config.instance.segment_size = 4096
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      msg = LavinMQ::Message.new("ex", "rk", "x" * 3000)
+      store.push(msg)
+      directory.sync_count.should eq(1)
+      store.push(msg)
+      directory.sync_count.should eq(2)
+    end
+  ensure
+    LavinMQ::Config.instance.segment_size = old_segment_size if old_segment_size
+  end
+
+  it "persists durable segment names even when content syncing is temporarily disabled" do
+    old_sync = LavinMQ::Config.instance.sync?
+    LavinMQ::Config.instance.sync = false
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      directory.sync_count.should eq(1)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      store.delete(store.shift?.not_nil!.segment_position)
+      directory.sync_count.should eq(2)
+    end
+  ensure
+    LavinMQ::Config.instance.sync = old_sync unless old_sync.nil?
+  end
+
+  it "persists segment deletion before exposing it to the persister" do
+    with_datadir do |dir|
+      store = LavinMQ::MessageStore.new(dir, nil)
+      file = store.@segments.first_value
+      directory = store.@directory.not_nil!
+      observed = false
+      directory.before_sync = -> do
+        File.exists?(file.path).should be_false
+        file.deleted?.should be_false
+        observed = true
+        nil
+      end
+      store.delete
+      observed.should be_true
+      file.deleted?.should be_true
+    ensure
+      store.try &.close
     end
   end
 

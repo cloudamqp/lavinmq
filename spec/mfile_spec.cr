@@ -5,14 +5,6 @@ class MFile
   # Pause just after the open check to exercise the former check/unmap race.
   property sync_checked : Channel(Nil)?
   property resume_sync : Channel(Nil)?
-  property directory_sync_started : Channel(Nil)?
-  property resume_directory_sync : Channel(Nil)?
-
-  private def fsync_parent_dir : Nil
-    @directory_sync_started.try &.send(nil)
-    @resume_directory_sync.try &.receive
-    previous_def
-  end
 
   private def check_open
     previous_def
@@ -25,32 +17,32 @@ class MFile
 end
 
 describe MFile do
-  it "updates its retained directory when renamed across directories" do
+  it "updates its path when renamed across directories" do
     file = File.tempfile "mfile_spec"
     dir = File.tempname("mfile_dir_spec")
     Dir.mkdir(dir)
     mfile = MFile.new(file.path, capacity: 4096)
-    original_directory = mfile.@directory
     mfile.rename(File.join(dir, "renamed"))
-    original_directory.@file.closed?.should be_true
-    mfile.@directory.@file.path.should eq(dir)
-    mfile.delete(durable: true)
+    mfile.path.should eq(File.join(dir, "renamed"))
+    File.exists?(mfile.path).should be_true
+    mfile.delete
   ensure
     mfile.try &.close
     File.delete?(file.path) if file
     Dir.delete(dir) if dir
   end
 
-  it "does not expose a durable deletion until the directory is synced" do
+  it "does not expose deletion until the caller's bookkeeping completes" do
     file = File.tempfile "mfile_spec"
     mfile = MFile.new(file.path, capacity: 4096)
     started = Channel(Nil).new
     resume = Channel(Nil).new
     done = Channel(Nil).new
-    mfile.directory_sync_started = started
-    mfile.resume_directory_sync = resume
     spawn do
-      mfile.delete(durable: true)
+      mfile.delete do
+        started.send(nil)
+        resume.receive
+      end
       done.send(nil)
     end
     started.receive
@@ -65,19 +57,6 @@ describe MFile do
   ensure
     mfile.try &.close
     File.delete?(file.path) if file
-  end
-
-  it "persists the parent directory on the first synchronous flush" do
-    file = File.tempfile "mfile_spec"
-    mfile = MFile.new(file.path, capacity: 4096)
-    mfile.write "message".to_slice
-    mfile.flush
-    mfile.@directory_synced.should be_false
-    mfile.fsync
-    mfile.@directory_synced.should be_true
-  ensure
-    mfile.try &.close
-    file.try &.delete
   end
 
   {% for operation in [:close, :truncate] %}

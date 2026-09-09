@@ -291,7 +291,10 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      file.delete(raise_on_missing: false, durable: @durable && Config.instance.sync?)
+      file.delete(raise_on_missing: false) do
+        # Persist removal before deleted? lets the persister skip this mapping.
+        sync_directory
+      end
       if replicator = @replicator
         replicator.delete_file(meta_file_name(file)) if including_meta
         replicator.delete_file(file.path)
@@ -385,7 +388,8 @@ module LavinMQ
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = MFile.new(path, capacity, directory: @directory)
+      wfile = MFile.new(path, capacity)
+      sync_directory
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -415,10 +419,17 @@ module LavinMQ
     private def open_ack_file(id) : MFile
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
-      mfile = MFile.new(path, capacity, writeonly: true, directory: @directory)
+      mfile = MFile.new(path, capacity, writeonly: true)
+      sync_directory
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
+    end
+
+    private def sync_directory : Nil
+      # The sync setting can change while these segments remain open. Persist
+      # their names now so later confirms need only sync the mapped contents.
+      @directory.try &.fsync if @durable
     end
 
     private def load_acks_from_disk : Nil
@@ -488,10 +499,11 @@ module LavinMQ
         path = File.join(@msg_dir, filename)
         file = if idx == last_idx
                  # expand the last segment
-                 MFile.new(path, Config.instance.segment_size, directory: @directory)
+                 MFile.new(path, Config.instance.segment_size)
                else
-                 MFile.new(path, directory: @directory)
+                 MFile.new(path)
                end
+        sync_directory if was_empty
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
@@ -506,7 +518,8 @@ module LavinMQ
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = MFile.new(path, Config.instance.segment_size, directory: @directory)
+              file = MFile.new(path, Config.instance.segment_size)
+              sync_directory
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
@@ -650,7 +663,8 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      FileSystem.durable_rename(tmp_path, final_path)
+      File.rename(tmp_path, final_path)
+      @directory.try &.fsync
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the

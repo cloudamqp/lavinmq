@@ -1,5 +1,3 @@
-require "./filesystem"
-
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -32,7 +30,6 @@ class MFile < IO
   @closed = Atomic(Bool).new(false)
   # Hold across msync and operations that unmap any part of the mapping.
   @mapping_lock = Mutex.new
-  @directory_synced = false
   @@mmap_count = Atomic(Int64).new(0)
 
   def self.mmap_count : Int64
@@ -50,11 +47,9 @@ class MFile < IO
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
-  def initialize(@path : String, capacity : Int? = nil, @writeonly = false, *, directory : LavinMQ::FileSystem::Directory? = nil)
+  def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
     @readonly = capacity.nil?
     raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
-    @owns_directory = directory.nil?
-    @directory = directory || LavinMQ::FileSystem::Directory.new(File.dirname(@path))
     fd = open_fd
     begin
       @size = file_size(fd)
@@ -117,7 +112,12 @@ class MFile < IO
     addr
   end
 
-  def delete(*, raise_on_missing = true, durable = false) : Nil
+  def delete(*, raise_on_missing = true) : Nil
+    delete(raise_on_missing: raise_on_missing) { }
+  end
+
+  # Let the caller finish bookkeeping before the persister can skip this file.
+  def delete(*, raise_on_missing = true, & : ->) : Nil
     @mapping_lock.synchronize do
       return if deleted? # avoid double deletes
       if raise_on_missing
@@ -125,9 +125,7 @@ class MFile < IO
       else
         File.delete?(@path)
       end
-      # Publish deleted? only once the removal is durable: the persister may
-      # skip this file as soon as it observes that flag.
-      fsync_parent_dir if durable
+      yield
       @deleted.set(true, :release)
     end
   end
@@ -149,7 +147,6 @@ class MFile < IO
         raise File::Error.from_errno("Error truncating file", file: @path)
       end
     end
-    @directory.close if @owns_directory
   end
 
   # Truncate the file to the given capacity (contracting only, no expansion)
@@ -233,15 +230,7 @@ class MFile < IO
         code = LibC.msync(@buffer, @size, flag)
         raise RuntimeError.from_errno("msync") if code < 0
       end
-      if flag == LibC::MS_SYNC && !@directory_synced && !deleted?
-        fsync_parent_dir
-        @directory_synced = true
-      end
     end
-  end
-
-  private def fsync_parent_dir : Nil
-    @directory.fsync
   end
 
   # Append only
@@ -349,31 +338,8 @@ class MFile < IO
 
   def rename(new_path : String) : Nil
     @mapping_lock.synchronize do
-      old_directory = @directory
-      new_directory = if File.dirname(@path) == File.dirname(new_path)
-                        old_directory
-                      else
-                        LavinMQ::FileSystem::Directory.new(File.dirname(new_path))
-                      end
-      begin
-        File.rename(@path, new_path)
-      rescue ex
-        new_directory.close unless new_directory.same?(old_directory)
-        raise ex
-      end
+      File.rename(@path, new_path)
       @path = new_path
-      if new_directory.same?(old_directory)
-        old_directory.fsync
-      else
-        begin
-          old_directory.fsync
-          new_directory.fsync
-        ensure
-          old_directory.close if @owns_directory
-          @directory = new_directory
-          @owns_directory = true
-        end
-      end
     end
   end
 
