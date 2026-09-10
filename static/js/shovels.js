@@ -11,9 +11,12 @@ function renderState (item) {
   if (item.error) {
     const state = document.createElement('a')
     state.classList.add('arg-tooltip')
+    const anchorName = '--tt-' + `${item.vhost}-${item.name}`.replace(/[^a-zA-Z0-9_-]/g, '-')
+    state.style.setProperty('anchor-name', anchorName)
     state.appendChild(document.createTextNode(item.state))
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
+    tooltip.style.setProperty('position-anchor', anchorName)
     tooltip.textContent = item.error
     state.appendChild(tooltip)
     return state

@@ -2043,7 +2043,12 @@ fieldset.inline {
 
 .arg-tooltip,
 .prop-tooltip {
-  position: relative;
+  /* Must NOT be `position: relative` (or any other positioned value): an anchor
+     element can't also be its positioned element's containing block, so this
+     stays a normal-flow box and the tooltip's containing block bubbles up to
+     the nearest positioned ancestor (e.g. a modal dialog), which is what lets
+     the tooltip escape any intermediate overflow/scroll clipping. */
+  position: static;
   display: inline-block;
 }
 
@@ -2052,21 +2057,20 @@ fieldset.inline {
   visibility: hidden;
   background-color: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
-  padding: 10px 10px;
-  border-radius: 6px;
-  width: max-content;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
   max-width: 400px;
   min-width: 150px;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
   position: absolute;
+  position-area: top;
+  position-try-fallbacks: flip-block;
+  justify-self: anchor-center;
+  margin-bottom: 8px;
   z-index: 10000;
   white-space: normal;
-}
-
-.prop-tooltip .prop-tooltiptext {
-  margin-bottom: 5px;
 }
 
 .arg-tooltip:hover .tooltiptext,

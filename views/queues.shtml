@@ -63,8 +63,8 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
-          <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
+          <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-durable">Durable<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext" style="position-anchor: --tt-durable">"Durable" queues persist even when the server restarts,
           ensuring their availability and preventing data loss.</span>
           </a>
           </span>
@@ -72,8 +72,8 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
-          <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
+          <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-auto-delete">Auto-delete<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext" style="position-anchor: --tt-auto-delete">"Auto-delete" queues are automatically removed when the
           last consumer disconnects, freeing up system resources.</span>
           </a>
           </span>
@@ -83,56 +83,56 @@
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
-              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+            <a class="arg-tooltip" data-tag="x-expires" data-value="0" style="anchor-name: --tt-x-expires">Auto Expire
+              <span class="tooltiptext" style="position-anchor: --tt-x-expires">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-max-length" data-value="0">Max Length
-              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from
+            <a class="arg-tooltip" data-tag="x-max-length" data-value="0" style="anchor-name: --tt-x-max-length">Max Length
+              <span class="tooltiptext" style="position-anchor: --tt-x-max-length">How many (ready) messages a queue can contain before it starts to drop them from
                 its head.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-message-ttl" data-value="0">Message TTL
-              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+            <a class="arg-tooltip" data-tag="x-message-ttl" data-value="0" style="anchor-name: --tt-x-message-ttl">Message TTL
+              <span class="tooltiptext" style="position-anchor: --tt-x-message-ttl">How long a message published to a queue can live before it is discarded
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-delivery-limit" data-value="0">Delivery limit
-              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+            <a class="arg-tooltip" data-tag="x-delivery-limit" data-value="0" style="anchor-name: --tt-x-delivery-limit">Delivery limit
+              <span class="tooltiptext" style="position-anchor: --tt-x-delivery-limit">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
-              <span class="tooltiptext">Determines what happens to messages when the maximum length of a queue is
+            <a class="arg-tooltip" data-tag="x-overflow" style="anchor-name: --tt-x-overflow">Overflow behaviour
+              <span class="tooltiptext" style="position-anchor: --tt-x-overflow">Determines what happens to messages when the maximum length of a queue is
                 reached. Valid value are drop-head (default) and reject-publish.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-dead-letter-exchange">Dead letter exchange
-              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
+            <a class="arg-tooltip" data-tag="x-dead-letter-exchange" style="anchor-name: --tt-x-dead-letter-exchange">Dead letter exchange
+              <span class="tooltiptext" style="position-anchor: --tt-x-dead-letter-exchange">Optional name of an exchange to which messages will be republished if they are
                 rejected or expire.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-dead-letter-routing-key">Dead letter routing key
-              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
+            <a class="arg-tooltip" data-tag="x-dead-letter-routing-key" style="anchor-name: --tt-x-dead-letter-routing-key">Dead letter routing key
+              <span class="tooltiptext" style="position-anchor: --tt-x-dead-letter-routing-key">Optional replacement routing key to use when a message is dead-lettered. If not
                 set, the message's original routing key will be used.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-max-priority" data-value="0">Max Priority
-              <span class="tooltiptext">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
+            <a class="arg-tooltip" data-tag="x-max-priority" data-value="0" style="anchor-name: --tt-x-max-priority">Max Priority
+              <span class="tooltiptext" style="position-anchor: --tt-x-max-priority">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream">Stream Queue
-              <span class="tooltiptext">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
+            <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream" style="anchor-name: --tt-x-queue-type">Stream Queue
+              <span class="tooltiptext" style="position-anchor: --tt-x-queue-type">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-max-age" data-value="1M">Max age
-              <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+            <a class="arg-tooltip" data-tag="x-max-age" data-value="1M" style="anchor-name: --tt-x-max-age">Max age
+              <span class="tooltiptext" style="position-anchor: --tt-x-max-age">Stream queue segments will be deleted when all messages in the segmented is older than this.
                 Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
                 Segments are only deleted when new messages are published to the stream queue.</span>
             </a> |
-             <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
-              <span class="tooltiptext">Enable deduplication for this exchange</span>
+             <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true" style="anchor-name: --tt-x-message-deduplication">Message deduplication
+              <span class="tooltiptext" style="position-anchor: --tt-x-message-deduplication">Enable deduplication for this exchange</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100">Deduplication cache size
-              <span class="tooltiptext">Deduplication cache size, in number of entries</span>
+            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100" style="anchor-name: --tt-x-cache-size">Deduplication cache size
+              <span class="tooltiptext" style="position-anchor: --tt-x-cache-size">Deduplication cache size, in number of entries</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000">Deduplication cache ttl
-              <span class="tooltiptext">How long an entry lives in the deduplication cache, in milliseconds</span>
+            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000" style="anchor-name: --tt-x-cache-ttl">Deduplication cache ttl
+              <span class="tooltiptext" style="position-anchor: --tt-x-cache-ttl">How long an entry lives in the deduplication cache, in milliseconds</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-deduplication-header">Deduplication header
-              <span class="tooltiptext">Which header to check for deduplication, defaults to x-deduplication-header</span>
+            <a class="arg-tooltip" data-tag="x-deduplication-header" style="anchor-name: --tt-x-deduplication-header">Deduplication header
+              <span class="tooltiptext" style="position-anchor: --tt-x-deduplication-header">Which header to check for deduplication, defaults to x-deduplication-header</span>
             </a>
           </div>
         </label>
