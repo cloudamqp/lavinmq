@@ -149,6 +149,7 @@ module LavinMQ
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::PubRel      then recieve_pubrel(packet)
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
@@ -173,7 +174,8 @@ module LavinMQ
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when Protocol::PubAck
+        when Protocol::PubAck, Protocol::PubRec
+          # One confirm per inbound publish, whichever acknowledgement it takes.
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
@@ -188,12 +190,43 @@ module LavinMQ
           close_socket
           return
         end
+        packet_id = packet.packet_id
+        if packet.qos == 2 && packet_id
+          # Figure 4.3: the receiver stores the packet id and initiates onward
+          # delivery before answering PUBREC. Dedupe is by packet id alone -
+          # `dup` is never consulted, since a first send may carry dup=1 after
+          # the client's own reconnect and a re-send may carry dup=0
+          # [MQTT-3.3.1-3].
+          if @broker.qos2_publish_received?(@client_id, packet_id)
+            @broker.publish(packet)
+            vhost.event_tick(EventType::ClientPublish)
+          end
+          # Answered on both paths: a re-sent PUBLISH means our first PUBREC was
+          # lost, and re-answering is the only way the client can move on.
+          send(Protocol::PubRec.new(packet_id))
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
-        if packet.qos > 0 && (packet_id = packet.packet_id)
+        if packet.qos > 0 && packet_id
           send(Protocol::PubAck.new(packet_id))
         end
+      end
+
+      def recieve_pubrel(packet : Protocol::PubRel)
+        id = packet.packet_id
+        unless @broker.qos2_release(@client_id, id)
+          # MQTT 3.1.1 leaves the answer to an unknown id implementation
+          # defined, and PUBCOMP is the only one that lets the client release
+          # the id at all. An unknown id here is ordinary rather than
+          # exceptional: `@qos2_received` does not survive a broker restart, so
+          # every resuming QoS 2 publisher arrives with one. Raising would take
+          # that through `read_loop`'s rescue and publish the will of every such
+          # publisher in the vhost.
+          @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
+        end
+        send(Protocol::PubComp.new(id))
       end
 
       def recieve_puback(packet : Protocol::PubAck)

@@ -115,12 +115,40 @@ module MqttHelpers
   def publish(io, expect_response = true, **args)
     packet = publish_packet(**args)
     packet.to_io(io)
-    MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
+    return unless expect_response
+    # QoS 2 is answered with PUBREC, not PUBACK, so decoding blindly as a
+    # PubAck would fail on the flags rather than on the assertion.
+    case packet.qos
+    when 1u8 then read_packet(io).should be_a(MQTT::Protocol::PubAck)
+    when 2u8 then read_packet(io).should be_a(MQTT::Protocol::PubRec)
+    end
   end
 
   def puback(io, packet_id : UInt16?)
     return if packet_id.nil?
     MQTT::Protocol::PubAck.new(packet_id).to_io(io)
+  end
+
+  def pubrec(io, packet_id : UInt16)
+    MQTT::Protocol::PubRec.new(packet_id).to_io(io)
+  end
+
+  def pubrel(io, packet_id : UInt16)
+    MQTT::Protocol::PubRel.new(packet_id).to_io(io)
+  end
+
+  def pubcomp(io, packet_id : UInt16)
+    MQTT::Protocol::PubComp.new(packet_id).to_io(io)
+  end
+
+  # The receiver half of the QoS 2 flow: PUBLISH, PUBREC, PUBREL, PUBCOMP.
+  #
+  # Takes an explicit `packet_id` rather than using `next_packet_id`, because
+  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.3.1-5].
+  def publish_qos2(io, packet_id : UInt16, **args)
+    publish(io, **{packet_id: packet_id, qos: 2u8}.merge(args))
+    pubrel(io, packet_id)
+    read_packet(io).should be_a(MQTT::Protocol::PubComp)
   end
 
   def ping(io)
