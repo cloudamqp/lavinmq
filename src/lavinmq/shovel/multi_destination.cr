@@ -105,10 +105,11 @@ module LavinMQ
       #   Retry              - forwarded as is; after RETRY_FAILOVER_THRESHOLD in
       #                        a row the redelivery goes to the next destination
       #                        (only when there is another one to go to).
-      #   Abort              - fail over for the redelivery. Until every
-      #                        destination has aborted in a row that is a Retry;
-      #                        from then on Abort propagates so the Runner's abort
-      #                        threshold applies, while still rotating.
+      #   Abort              - fail over for the redelivery (when there is
+      #                        another destination). Until every destination has
+      #                        aborted in a row that is a Retry; from then on
+      #                        Abort propagates so the Runner's abort threshold
+      #                        applies, while still rotating.
       # Outcomes reported while the active destination is being stopped are its
       # voided in-flight confirms: forwarded as Retry so the source requeues
       # them, but they say nothing about the destination taking over.
@@ -125,7 +126,10 @@ module LavinMQ
           @listener.report(delivery_tag, Outcome::Retry)
         in Outcome::Abort
           @consecutive_aborts += 1
-          request_failover
+          # With a single destination there is nowhere to go, and an unusable
+          # endpoint is not fixed by reconnecting: leave it to the Runner's
+          # abort threshold rather than churn the connection on every Abort.
+          request_failover if @destinations.size > 1
           if @consecutive_aborts >= @destinations.size
             @listener.report(delivery_tag, Outcome::Abort) # every destination is unusable
           else
