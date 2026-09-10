@@ -31,6 +31,34 @@ module MqttSpecs
       end
     end
 
+    it "is not delivered when a PUBREL arrives for an unknown packet id" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_io(server) do |io2|
+            will = MQTT::Protocol::Will.new(
+              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+            connect(io2, client_id: "will_client", will: will, keepalive: 30u16)
+
+            # A PUBREL naming an id the broker is not holding is ordinary: the
+            # held ids do not survive a restart, so every resuming QoS 2
+            # publisher sends one. If it raised, read_loop would treat it as a
+            # lost connection and publish this client's will [MQTT-3.1.2-8].
+            pubrel(io2, 99u16)
+            read_packet(io2).should be_a(MQTT::Protocol::PubComp)
+            pingpong(io2)
+            disconnect(io2)
+          end
+
+          read_packet(io).should be_nil
+
+          disconnect(io)
+        end
+      end
+    end
+
     describe "is delivered on ungraceful disconnect" do
       it "when client unexpected closes tcp connection" do
         with_server do |server|
