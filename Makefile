@@ -36,6 +36,14 @@ bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 bin/stress: extras/stress.cr lib | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
+SHOVEL_TEST_SOURCES := $(shell find extras/shovel_test -name '*.cr' 2> /dev/null)
+bin/shovel-test: extras/shovel_test.cr $(SHOVEL_TEST_SOURCES) lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
+.PHONY: shovel-test
+shovel-test: bin/shovel-test
+	bin/shovel-test
+
 .PHONY: stress
 stress: bin/stress
 	$<
