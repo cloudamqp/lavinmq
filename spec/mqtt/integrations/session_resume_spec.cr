@@ -347,8 +347,10 @@ module MqttSpecs
           resent = read_publishes(io, 2)
           resent.map { |p| String.new(p.payload) }.should eq ["0", "1"]
           resent.first.packet_id.should eq first_id
-          # Both still booked, under different ids. `wait_for` because
-          # `@unacked[id] = sp` is written after the yielding send.
+          # Both still booked, under different ids. The booking now precedes the
+          # yielding send, so this holds by the time the client has the packets;
+          # `wait_for` is kept because it costs nothing and does not depend on
+          # that ordering.
           resent.last.packet_id.should_not eq first_id
           wait_for { session.@unacked.size == 2 }
 
