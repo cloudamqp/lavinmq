@@ -19,11 +19,12 @@ module MqttSpecs
       end
     end
 
-    it "qos is set according to subscription qos [LavinMQ non-normative]" do
+    it "delivers at the lower of the publish and the subscription qos [MQTT-3.3.5-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
-          # Subscribe with qos=0 means downgrade messages to qos=0
+          # A qos 0 subscription pins every delivery to qos 0, whatever it was
+          # published at.
           topic_filters = mk_topic_filters({"a/b", 0u8})
           subscribe(io, topic_filters: topic_filters)
 
@@ -46,6 +47,30 @@ module MqttSpecs
       end
     end
 
+    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.3.5-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+          with_client_io(server) do |publisher_io|
+            connect(publisher_io, client_id: "publisher")
+            publish(publisher_io, topic: "a/b", qos: 0u8)
+            disconnect(publisher_io)
+          end
+
+          # `read_publish` is what gives this teeth: it asserts the packet id is
+          # absent at qos 0 and present above it, so an upgrade to qos 1 fails
+          # here rather than silently delivering an acknowledgeable message the
+          # publisher never asked to have acknowledged.
+          pub = read_publish(io)
+          pub.qos.should eq 0u8
+
+          disconnect(io)
+        end
+      end
+    end
+
     it "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -59,7 +84,7 @@ module MqttSpecs
           connect(publisher_io, client_id: "publisher")
           100.times do
             # qos doesnt matter here
-            publish(publisher_io, topic: "a/b", qos: 0u8)
+            publish(publisher_io, topic: "a/b", qos: 1u8)
           end
           disconnect(publisher_io)
         end
@@ -87,8 +112,8 @@ module MqttSpecs
 
           with_client_io(server) do |publisher_io|
             connect(publisher_io, client_id: "publisher")
-            publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 0u8)
-            publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 0u8)
+            publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 1u8)
+            publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 1u8)
             pingpong(publisher_io)
             disconnect(publisher_io)
           end
@@ -128,7 +153,7 @@ module MqttSpecs
           with_client_io(server) do |publisher_io|
             connect(publisher_io, client_id: "publisher")
             10.times do |i|
-              publish(publisher_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8)
+              publish(publisher_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8)
             end
             pingpong(publisher_io)
             disconnect(publisher_io)
@@ -179,7 +204,7 @@ module MqttSpecs
 
           with_client_io(server) do |publisher_io|
             connect(publisher_io, client_id: "publisher")
-            publish(publisher_io, topic: "a/b", qos: 0u8)
+            publish(publisher_io, topic: "a/b", qos: 1u8)
             disconnect(publisher_io)
           end
 
@@ -213,7 +238,7 @@ module MqttSpecs
               data = Bytes.new(sizeof(UInt16))
               IO::ByteFormat::SystemEndian.encode(i, data)
               # qos doesnt matter here
-              publish(publisher_io, topic: "a/b", payload: data, qos: 0u8)
+              publish(publisher_io, topic: "a/b", payload: data, qos: 1u8)
             end
             disconnect(publisher_io)
           end
@@ -278,7 +303,7 @@ module MqttSpecs
 
             with_client_io(server) do |pub_io|
               connect(pub_io, client_id: "publisher")
-              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8) }
+              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
               disconnect(pub_io)
             end
 
@@ -301,7 +326,7 @@ module MqttSpecs
 
             with_client_io(server) do |pub_io|
               connect(pub_io, client_id: "publisher")
-              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8) }
+              4.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
               disconnect(pub_io)
             end
 
