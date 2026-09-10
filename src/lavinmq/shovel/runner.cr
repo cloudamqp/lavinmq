@@ -1,4 +1,5 @@
 require "../sortable_json"
+require "../rough_time"
 require "./constants"
 require "./destination"
 require "./source"
@@ -160,11 +161,13 @@ module LavinMQ
         remaining > 0 ? remaining.nanoseconds : Time::Span.zero
       end
 
-      # Monotonic clock as an Int64 so the deadline can live in an Atomic.
-      ORIGIN = Time.instant
+      # Monotonic clock as an Int64 so the deadline can live in an Atomic. The
+      # rough (100ms) clock is plenty for backoff windows of 0.5s and up, and
+      # spares a clock read per delivered message.
+      ORIGIN = RoughTime.instant
 
       private def monotonic_ns : Int64
-        (Time.instant - ORIGIN).total_nanoseconds.to_i64
+        (RoughTime.instant - ORIGIN).total_nanoseconds.to_i64
       end
 
       # Wait out the current backoff window before the next delivery — once,
