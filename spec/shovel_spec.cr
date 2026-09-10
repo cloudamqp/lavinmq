@@ -790,6 +790,32 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "finishes a queue-length shovel in no-ack mode once the last snapshot message is delivered" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        ack_mode = LavinMQ::Shovel::AckMode::NoAck
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec", [URI.parse(s.amqp_server.url)], "nq_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          ack_mode: ack_mode, direct_user: s.users.direct_user)
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec", URI.parse(s.amqp_server.url), "nq_q2", ack_mode: ack_mode, direct_user: s.users.direct_user)
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "nq_shovel", vhost)
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          q1 = ch.queue("nq_q1")
+          q2 = ch.queue("nq_q2")
+          3.times { |i| x.publish_confirm "m#{i}", "nq_q1" }
+          # Nothing is settled in no-ack mode, so the settlement count can never
+          # end the run; the delivery of the snapshot's last tag has to.
+          shovel.run
+          shovel.terminated?.should be_true
+          should_eventually(eq 3) { q2.message_count }
+          q1.message_count.should eq 0
+        end
+      end
+    end
+
     it "should shovel with ack mode no-ack" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
@@ -1452,7 +1478,7 @@ describe LavinMQ::Shovel do
           # the fix it escaped the rescue as an unhandled exception, driving the
           # runner's reconnect path instead — so `retried` would stay 0.
           should_eventually(be_true, 5.seconds) { shovel.details_tuple[:retried] >= 1 }
-          shovel.state.error?.should be_false
+          shovel.details_tuple[:error].should be_nil # the reconnect path records its error and never clears it
           shovel.terminate
           should_eventually(eq 1) { q1.message_count }
         end
@@ -1827,7 +1853,7 @@ describe LavinMQ::Shovel do
           # abort counter never reaches the threshold; the shovel keeps running
           # instead of erroring out as if the destination were unusable.
           should_eventually(be_true) { received.get >= 30 }
-          shovel.state.error?.should be_false
+          shovel.details_tuple[:error].should be_nil # neither aborted nor through the reconnect path
           shovel.terminate
         end
       end
