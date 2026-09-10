@@ -2364,6 +2364,27 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "does not restart a single destination on Abort" do
+      a = ShovelSpecHelpers::FlakyStartDestination.new
+      parent = ShovelSpecHelpers::RecordingListener.new
+      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a] of LavinMQ::Shovel::Destination)
+      multi.listener = parent
+      multi.start
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          2.times do |i|
+            multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Abort)
+            multi.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1))
+          end
+        end
+      end
+      # There is nothing to fail over to, and a 404 is not fixed by reconnecting:
+      # the Abort propagates so the Runner's threshold applies, on the same
+      # connection.
+      parent.outcomes.map(&.last).uniq!.should eq [LavinMQ::Shovel::Outcome::Abort]
+      {a.starts, a.stops}.should eq({1, 0})
+    end
+
     it "does not fail over on Retry with a single destination" do
       a = ShovelSpecHelpers::FlakyStartDestination.new
       multi = LavinMQ::Shovel::MultiDestinationHandler.new([a] of LavinMQ::Shovel::Destination)

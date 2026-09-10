@@ -73,6 +73,8 @@ A shovel can have multiple destinations configured. They form an **ordered failo
 
 When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A destination that keeps failing transiently (three consecutive `Retry` outcomes, e.g. connection refused on a host that is down) is skipped in favour of the next one as well. A successful — or otherwise non-abort — delivery resets the failover cycle.
 
+A shovel with a single destination never fails over: an `Abort` there counts straight towards the shovel's abort threshold, on the same connection, since reconnecting does not fix an unusable endpoint.
+
 The switch itself happens on the next delivery, not inside the outcome that asked for it: the message is requeued on the source, and when it is redelivered the shovel stops the old destination and activates the next one before publishing. Stopping the old destination requeues every message that was still in flight on it (see [publisher-confirm classification](#amqp-publisher-confirm-classification)), so nothing published to a destination that never confirmed is lost. Only once *every* destination has aborted in a row, with no successful delivery in between, do the aborts count towards the shovel's abort threshold; even then each redelivery still goes to the next destination rather than hammering one. Every (re)start of the shovel begins again with the first destination in the list, and if no destination at all can be started the shovel reconnects with backoff exactly as it would for a single unreachable destination.
 
 ## Source Acknowledgments
