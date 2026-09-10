@@ -30,8 +30,12 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
+        publish_qos = packet.qos
         @tree.each_entry(packet.topic) do |queue, qos, _filter|
-          msg.properties.delivery_mode = qos
+          # The effective QoS is the lower of the publish and the subscription
+          # [MQTT-3.3.5-1]. Read from a local, since the loop overwrites the
+          # property for every subscriber.
+          msg.properties.delivery_mode = Math.min(publish_qos, qos)
           if queue.publish(msg)
             count += 1
             msg.body_io.rewind
