@@ -70,11 +70,7 @@ module LavinMQ
           # POST would silently lose the message.
           @listener.report(msg.delivery_tag, attempt(c, path, headers, body))
         in AckMode::NoAck
-          begin
-            post(c, path, headers, body)
-          rescue IO::Error | OpenSSL::SSL::Error
-            # nothing to settle in no-ack mode
-          end
+          attempt(c, path, headers, body) # nothing to settle: the outcome is dropped
         end
       end
 
@@ -126,24 +122,29 @@ module LavinMQ
       # mean "this message is unacceptable" (Reject), not "the endpoint is
       # unusable" (Abort).
       MESSAGE_STATUSES = {
-        400, # Bad Request
-        411, # Length Required
-        413, # Payload Too Large
-        414, # URI Too Long
-        415, # Unsupported Media Type
-        422, # Unprocessable Content
-        431, # Request Header Fields Too Large
+        ::HTTP::Status::BAD_REQUEST,
+        ::HTTP::Status::LENGTH_REQUIRED,
+        ::HTTP::Status::PAYLOAD_TOO_LARGE,
+        ::HTTP::Status::URI_TOO_LONG,
+        ::HTTP::Status::UNSUPPORTED_MEDIA_TYPE,
+        ::HTTP::Status::UNPROCESSABLE_ENTITY,
+        ::HTTP::Status::REQUEST_HEADER_FIELDS_TOO_LARGE,
+      }
+
+      # Statuses that say "not right now" rather than "not this message".
+      TRANSIENT_STATUSES = {
+        ::HTTP::Status::REQUEST_TIMEOUT,
+        ::HTTP::Status::TOO_MANY_REQUESTS,
       }
 
       def classify(response : ::HTTP::Client::Response) : Outcome
-        code = response.status_code
+        status = response.status
         case
-        when 200 <= code < 300                then Outcome::Confirmed
-        when code == 408                      then Outcome::Retry
-        when code == 429                      then Outcome::Retry
-        when 500 <= code < 600                then Outcome::Retry
-        when MESSAGE_STATUSES.includes?(code) then Outcome::Reject
-        else                                       Outcome::Abort
+        when status.success?                      then Outcome::Confirmed
+        when status.server_error?                 then Outcome::Retry
+        when TRANSIENT_STATUSES.includes?(status) then Outcome::Retry
+        when MESSAGE_STATUSES.includes?(status)   then Outcome::Reject
+        else                                           Outcome::Abort
         end
       end
     end
