@@ -99,39 +99,39 @@
         <span>Properties</span>
         <textarea name="properties" placeholder='{ "key": value }'></textarea>
         <div id="dataTags" class="label">
-          <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
-            <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+          <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;" style="anchor-name: --tt-content_type">Content Type
+            <span class="tooltiptext" style="position-anchor: --tt-content_type">Type of the content used by application. Default set to 'application/json'</span>
           </a> |
-          <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
-            <span class="tooltiptext">Encoding of the content used by application.</span>
+          <a class="arg-tooltip" data-tag="content_encoding" style="anchor-name: --tt-content_encoding">Content Encoding
+            <span class="tooltiptext" style="position-anchor: --tt-content_encoding">Encoding of the content used by application.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
-            <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+          <a class="arg-tooltip" data-tag="expiration" data-value="0" style="anchor-name: --tt-expiration">Message TTL
+            <span class="tooltiptext" style="position-anchor: --tt-expiration">How long a message published to a queue can live before it is discarded
               (milliseconds).</span>
           </a> |
-          <a class="arg-tooltip" data-tag="priority" data-value="0">Priority
-            <span class="tooltiptext">Priority of the message in the queue.</span>
+          <a class="arg-tooltip" data-tag="priority" data-value="0" style="anchor-name: --tt-priority">Priority
+            <span class="tooltiptext" style="position-anchor: --tt-priority">Priority of the message in the queue.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="message_id">Message ID
-            <span class="tooltiptext">Message identifier of the message used by application.</span>
+          <a class="arg-tooltip" data-tag="message_id" style="anchor-name: --tt-message_id">Message ID
+            <span class="tooltiptext" style="position-anchor: --tt-message_id">Message identifier of the message used by application.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="timestamp" data-value="0">Timestamp
-            <span class="tooltiptext">Timestamp of the message used by application.</span>
+          <a class="arg-tooltip" data-tag="timestamp" data-value="0" style="anchor-name: --tt-timestamp">Timestamp
+            <span class="tooltiptext" style="position-anchor: --tt-timestamp">Timestamp of the message used by application.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="type">Type
-            <span class="tooltiptext">Type of the message used by application.</span>
+          <a class="arg-tooltip" data-tag="type" style="anchor-name: --tt-type">Type
+            <span class="tooltiptext" style="position-anchor: --tt-type">Type of the message used by application.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="user_id">User ID
-            <span class="tooltiptext">User identifier when impersonating another user.</span>
+          <a class="arg-tooltip" data-tag="user_id" style="anchor-name: --tt-user_id">User ID
+            <span class="tooltiptext" style="position-anchor: --tt-user_id">User identifier when impersonating another user.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="app_id">App ID
-            <span class="tooltiptext">Application identifier.</span>
+          <a class="arg-tooltip" data-tag="app_id" style="anchor-name: --tt-app_id">App ID
+            <span class="tooltiptext" style="position-anchor: --tt-app_id">Application identifier.</span>
           </a> |
-          <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
-            <span class="tooltiptext">Correlation identifier for RPC</span>
+          <a class="arg-tooltip" data-tag="correlation_id" style="anchor-name: --tt-correlation_id">Correlation ID
+            <span class="tooltiptext" style="position-anchor: --tt-correlation_id">Correlation identifier for RPC</span>
           </a> |
-          <a class="arg-tooltip" data-tag="reply_to">Reply To
-            <span class="tooltiptext">Reply to queue for RPC</span>
+          <a class="arg-tooltip" data-tag="reply_to" style="anchor-name: --tt-reply_to">Reply To
+            <span class="tooltiptext" style="position-anchor: --tt-reply_to">Reply to queue for RPC</span>
           </a>
         </div>
       </label>
