@@ -6,10 +6,6 @@ require "../../src/lavinmq/clustering/etcd_coordinator"
 # Shared by the clustering client specs; `extend` it in the spec module.
 module ClusteringSpecHelper
   class TestClient < LavinMQ::Clustering::Client
-    def authenticate_public(socket)
-      authenticate(socket)
-    end
-
     def sync_files_public(socket, lz4)
       sync_files(socket, lz4)
     end
