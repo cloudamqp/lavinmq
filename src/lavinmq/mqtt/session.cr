@@ -343,24 +343,107 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id).try &.sp
-          begin
-            @ack_count.add(1, :relaxed)
-            @unacked_count.sub(1, :relaxed)
-            @unacked_bytesize.sub(sp.bytesize, :relaxed)
-            delete_message(sp)
-          rescue ex
-            raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
-          ensure
-            refresh_capacity
-          end
-        else
-          raise ::IO::Error.new("No message inflight for id '#{id}'")
+        inflight = @unacked[id]?
+        raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
+        sp = inflight.sp
+        # A QoS 2 delivery is settled by PUBREC, never PUBACK. Checked before
+        # the delete, so acknowledging with the wrong packet type cannot drop an
+        # obligation the session still owes.
+        if sp.nil? || inflight.qos != 1u8
+          raise ::IO::Error.new("Packet id '#{id}' is not awaiting a PUBACK")
+        end
+        @unacked.delete(id)
+        begin
+          @ack_count.add(1, :relaxed)
+          @unacked_count.sub(1, :relaxed)
+          @unacked_bytesize.sub(sp.bytesize, :relaxed)
+          delete_message(sp)
+        rescue ex
+          raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+        ensure
+          refresh_capacity
         end
       end
 
+      # PUBREC: the receiver has taken ownership of the message [MQTT-4.3.3-1],
+      # so it is deleted here rather than at PUBCOMP - re-sending a PUBLISH once
+      # the receiver owns it is what exactly-once forbids. The packet id stays
+      # booked, now without a message, until PUBCOMP releases it.
+      #
+      # Never raises, unlike `ack`. An id we have no record of is the ordinary
+      # case rather than the exceptional one: nothing in the window survives a
+      # broker restart, so a client resuming a QoS 2 exchange across one always
+      # arrives with ids we have never seen. Raising would take that through
+      # `read_loop`'s rescue and publish the client's will.
+      def pubrec(packet : Protocol::PubRec) : Bool
+        id = packet.packet_id
+        unless inflight = @unacked[id]?
+          @log.warn { "PUBREC for unknown packet id '#{id}'" }
+          return false
+        end
+        unless sp = inflight.sp
+          # A repeat of a PUBREC we already answered, so our PUBREL was lost.
+          # Answering again is the only way the client can release the id.
+          send_pubrel(id)
+          return false
+        end
+        unless inflight.qos == 2u8
+          @log.warn { "PUBREC for QoS #{inflight.qos} packet id '#{id}'" }
+          return false
+        end
+        # State transition and delete before the send: if the write fails, this
+        # is still the correct post-PUBREC state and `client=` re-sends the
+        # PUBREL on the next attach.
+        @unacked[id] = Inflight.new(2u8, nil)
+        @ack_count.add(1, :relaxed)
+        @unacked_count.sub(1, :relaxed)
+        @unacked_bytesize.sub(sp.bytesize, :relaxed)
+        delete_message(sp)
+        send_pubrel(id)
+        # No `refresh_capacity`: the id is still booked, so `@unacked.size` has
+        # not moved. That is the point of the second phase.
+        true
+      end
+
+      # PUBCOMP releases the packet id and completes the exchange
+      # [MQTT-4.3.3-1]. Nothing else is owed, the message went at PUBREC.
+      def pubcomp(packet : Protocol::PubComp) : Bool
+        id = packet.packet_id
+        unless inflight = @unacked[id]?
+          @log.warn { "PUBCOMP for unknown packet id '#{id}'" }
+          return false
+        end
+        unless inflight.sp.nil?
+          @log.warn { "PUBCOMP for packet id '#{id}' that has not been PUBRECed" }
+          return false
+        end
+        @unacked.delete(id)
+        # Load-bearing: for a window full of ids awaiting PUBCOMP, this is the
+        # only event that can reopen the capacity gate.
+        refresh_capacity
+        true
+      end
+
+      # Leaves the id booked whether or not the write lands, so `client=`
+      # re-sends it on the next attach [MQTT-4.4.0-1]. Errors are swallowed
+      # because the two callers cannot usefully fail over a write the reconnect
+      # path already covers: `pubrec` runs on the client's read fiber, and
+      # `client=` runs inside `Broker#add_client`.
+      private def send_pubrel(id : UInt16) : Bool
+        client = @client
+        return false if client.nil?
+        client.send(Protocol::PubRel.new(id))
+        true
+      rescue ex
+        @log.debug { "Failed to send PUBREL for id '#{id}': #{ex.message}" }
+        false
+      end
+
       private def next_id : UInt16?
-        return if @unacked.size == Config.instance.max_inflight_messages
+        # `>=` rather than `==`: the limit is mutable at runtime and the window
+        # now has a second entry point in `pubcomp`, so exact equality is not
+        # something to rely on.
+        return if @unacked.size >= Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
         while @unacked.has_key?(next_id)

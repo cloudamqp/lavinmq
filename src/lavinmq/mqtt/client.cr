@@ -149,7 +149,9 @@ module LavinMQ
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::PubRec      then recieve_pubrec(packet)
         when Protocol::PubRel      then recieve_pubrel(packet)
+        when Protocol::PubComp     then recieve_pubcomp(packet)
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
@@ -212,6 +214,27 @@ module LavinMQ
         if packet.qos > 0 && packet_id
           send(Protocol::PubAck.new(packet_id))
         end
+      end
+
+      # PUBREC and PUBCOMP acknowledge something we sent, so without a session
+      # there is nothing they can refer to. Logged and dropped rather than
+      # closed: `recieve_puback`'s `close_socket` below also publishes the will,
+      # because the read loop's next read then raises into the IO::Error arm.
+      # The asymmetry is deliberate - see `Session#pubrec`.
+      def recieve_pubrec(packet : Protocol::PubRec)
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubRec from client without a session" }
+          return
+        end
+        vhost.event_tick(EventType::ClientAck) if session.pubrec(packet)
+      end
+
+      def recieve_pubcomp(packet : Protocol::PubComp)
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubComp from client without a session" }
+          return
+        end
+        session.pubcomp(packet)
       end
 
       def recieve_pubrel(packet : Protocol::PubRel)
