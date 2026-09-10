@@ -87,6 +87,12 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      unless @clustering_disk_watchdog_interval.positive?
+        raise Error.new("clustering_disk_watchdog_interval must be positive (got #{@clustering_disk_watchdog_interval})")
+      end
+      unless @clustering_disk_watchdog_timeout.positive?
+        raise Error.new("clustering_disk_watchdog_timeout must be positive (got #{@clustering_disk_watchdog_timeout})")
+      end
     end
 
     private def parse_config_from_cli(argv)
