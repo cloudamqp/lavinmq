@@ -24,12 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The management UI version is advertised via the `LavinMQ-Version` response header instead of being injected at build time [#2123](https://github.com/cloudamqp/lavinmq/pull/2123)
 - CC and BCC headers are removed from dead-lettered messages when `x-dead-letter-routing-key` is set, instead of being preserved, matching RabbitMQ [#1993](https://github.com/cloudamqp/lavinmq/pull/1993)
 - A connection with a PROXY protocol header never counts as loopback for `default_user_only_loopback`, including through a cluster follower. The default user can only connect directly on the broker host [#2224](https://github.com/cloudamqp/lavinmq/pull/2224)
+- `max_inflight_messages` must be at least `1`; `0` is now rejected at startup and on config reload instead of leaving every MQTT session accepting publishes it can never deliver [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 
 ### Fixed
 
 - Per-vhost `message_stats` no longer over-counts published messages by the fan-out factor; cumulative message counters are read from the vhost's own counters instead of summing per-queue [#2092](https://github.com/cloudamqp/lavinmq/issues/2092)
 - Prometheus and HTTP API counters (`global_messages_*`, churn `*_total`, `/api/overview`, `/api/nodes`) no longer decrease when a queue or vhost is deleted, which previously made `rate()`/`increase()` fabricate spikes [#2093](https://github.com/cloudamqp/lavinmq/issues/2093)
 - MQTT sessions now respect the vhost `max-queues` limit; a SUBSCRIBE that would create a session beyond the cap is answered with failure return codes instead of exceeding the limit
+- Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 
 ## [2.9.1] - 2026-07-01
 
