@@ -162,9 +162,18 @@ module LavinMQ
         @client
       end
 
+      # Reading `@unacked` here is safe against the connection being replaced:
+      # `Client#close` joins its read fiber on a waitgroup before
+      # `Broker#add_client` reaches this, and `run_client`'s ensure runs on that
+      # same fiber afterwards, so no `ack`/`pubrec`/`pubcomp` can be in flight.
+      # QoS 2 makes that load-bearing rather than merely tidy - a `pubrec`
+      # racing the loop below would delete an sp it has just requeued.
       def client=(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
+
+        # Ids past PUBREC, which owe a PUBREL rather than a message.
+        pubcomp_pending = Array(UInt16).new
 
         # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
         # persistent one requeues what it owes and remembers the packet ids, to
@@ -172,9 +181,12 @@ module LavinMQ
         unless clean_session?
           @msg_store_lock.synchronize do
             @unacked.each do |packet_id, inflight|
-              next unless sp = inflight.sp
-              @msg_store.remember_packet_id(sp, packet_id)
-              @msg_store.requeue(sp)
+              if sp = inflight.sp
+                @msg_store.remember_packet_id(sp, packet_id)
+                @msg_store.requeue(sp)
+              else
+                pubcomp_pending << packet_id
+              end
             end
           end
         end
@@ -182,9 +194,26 @@ module LavinMQ
         @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
+
+        # Re-booked whether or not anyone is attached. This also runs on the
+        # detach path (`client = nil` from `Broker#remove_client`), and booking
+        # only when a client is present would drop the obligation on exactly the
+        # disconnect the replay exists to survive. No delivery can be issued one
+        # of these ids, because nothing else runs before the re-booking.
+        pubcomp_pending.each { |id| @unacked[id] = Inflight.new(2u8, nil) }
         refresh_capacity
 
         @client = client
+        if client
+          @log.info { "resending #{pubcomp_pending.size} PUBREL" } unless pubcomp_pending.empty?
+          # Before `@has_client` opens the gate, so every PUBREL precedes the
+          # replayed PUBLISHes: `@has_client` is what unparks the deliver_loop,
+          # and `client.send` can yield on a full socket buffer. `pubcomp_pending`
+          # is a private array built above and never mutated, so it needs no
+          # further snapshotting. A failed write leaves the id booked and the
+          # next attach tries again.
+          pubcomp_pending.each { |id| send_pubrel(id) }
+        end
         @has_client.set(!client.nil?)
 
         @log.debug { "client set to '#{client.try &.name}'" }
