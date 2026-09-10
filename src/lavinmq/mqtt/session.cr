@@ -266,6 +266,12 @@ module LavinMQ
                 return false
               end
               packet = build_packet(env, id)
+              # Booked before the send, which yields: the client can answer
+              # before we return. An acknowledgement that finds no entry raises
+              # out of `ack` and publishes the client's will, and for QoS 2 it
+              # is worse than that - `pubrec` drops it, so the message is never
+              # deleted and the client waits for a PUBREL that never comes.
+              @unacked[id] = Inflight.new(packet.qos, sp)
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet, sp.bytesize
@@ -275,13 +281,17 @@ module LavinMQ
                 @deliver_count.add(1, :relaxed)
                 @deliver_get_count.add(1, :relaxed)
               end
-              @unacked[id] = Inflight.new(packet.qos, sp)
               @msg_store.forget_packet_id(sp)
               refresh_capacity
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              # Unbook through the hash: a delete that removes nothing means the
+              # client already acknowledged it, so the counters are settled and
+              # must not be rolled back twice.
+              if @unacked.delete(id)
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              end
               raise ex
             end
           end
