@@ -24,6 +24,16 @@ module LavinMQ
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
       EFFECTIVE_ARGS = {"x-queue-type"}
 
+      # A packet id the client has been handed and has not finished
+      # acknowledging, and the message it was issued for.
+      struct Inflight
+        getter qos : UInt8
+        getter sp : SegmentPosition?
+
+        def initialize(@qos : UInt8, @sp : SegmentPosition?)
+        end
+      end
+
       getter name : String
       getter vhost : VHost
       getter? auto_delete
@@ -44,7 +54,7 @@ module LavinMQ
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
-        @unacked = Hash(UInt16, SegmentPosition).new
+        @unacked = Hash(UInt16, Inflight).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
         data_dir = File.join(
@@ -161,7 +171,8 @@ module LavinMQ
         # resend under the ids the client already knows [MQTT-4.4.0-1].
         unless clean_session?
           @msg_store_lock.synchronize do
-            @unacked.each do |packet_id, sp|
+            @unacked.each do |packet_id, inflight|
+              next unless sp = inflight.sp
               @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
@@ -264,7 +275,7 @@ module LavinMQ
                 @deliver_count.add(1, :relaxed)
                 @deliver_get_count.add(1, :relaxed)
               end
-              @unacked[id] = sp
+              @unacked[id] = Inflight.new(packet.qos, sp)
               @msg_store.forget_packet_id(sp)
               refresh_capacity
             rescue ex # requeue failed delivery
@@ -322,7 +333,7 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
+        if sp = @unacked.delete(id).try &.sp
           begin
             @ack_count.add(1, :relaxed)
             @unacked_count.sub(1, :relaxed)
