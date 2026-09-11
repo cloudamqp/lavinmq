@@ -41,13 +41,16 @@ module LavinMQ
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
+      @unsynced_directory_files = Set(String).new
+      @directories = Hash(String, FileSystem::Directory).new do |dirs, path|
+        dirs[path] = FileSystem::Directory.new(path)
+      end
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
       @acks = Channel(Int64).new
-      # Tracks the ack-sending fiber: #close must wait for it to finish before
-      # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
-      # it sends — even acks still buffered in @acks after the stream ends.
+      # Tracks the ack-sending fiber: #close waits for it to drain any acks
+      # still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
@@ -56,11 +59,10 @@ module LavinMQ
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
           Dir.mkdir_p File.dirname(path)
+          @unsynced_directory_files << k
           h[k] = File.open(path, "a").tap &.sync = true
         end
         Dir.mkdir_p @data_dir
-        @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
-        raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
@@ -195,6 +197,9 @@ module LavinMQ
         finalize_digests
         @files.each_value &.close
         @files.clear
+        @unsynced_directory_files.clear
+        @directories.each_value &.close
+        @directories.clear
       end
 
       # Adopt the running digests as the files' checksums and stop tracking them.
@@ -420,6 +425,11 @@ module LavinMQ
             remaining &-= len
           end
           remaining.zero? || raise IO::EOFError.new
+          # Files received via full_sync must be durable before we turn
+          # synced: the leader assumes the whole baseline is on disk and only
+          # sends fsync requests for files written after that.
+          f.fsync if @config.sync?
+          fsync_parent_dir(path)
           # Persist immediately too: a file received here is complete and
           # stable, so a crash mid-sync won't force re-hashing it on restart.
           @checksums.append(filename, sha1.final, length)
@@ -448,6 +458,14 @@ module LavinMQ
           # it tells the leader the deletion is durable — so it's only acked
           # once the deletion has been applied.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          if filename.starts_with?('$')
+            # Fsync request (len is 0 on the wire): the leader holds publish
+            # confirms until this record is acked, so ack only after the
+            # named file is durable.
+            fsync_file(filename.lchop('$'))
+            ack(framing)
+            next
+          end
           case len
           when .negative? # append bytes to file
             ack(framing)
@@ -493,9 +511,15 @@ module LavinMQ
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
         @files.delete(filename).try &.close
-        File.delete? File.join(@data_dir, filename)
+        path = File.join(@data_dir, filename)
+        if File.delete?(path)
+          # The leader can reclaim a dirty acknowledgment file before sending
+          # its fsync request. Its delete record must itself be durable.
+          fsync_parent_dir(path)
+        end
         @checksums.delete(filename)
         @file_digests.delete(filename)
+        @unsynced_directory_files.delete(filename)
         delete_empty_dirs File.dirname(filename)
       end
 
@@ -511,6 +535,8 @@ module LavinMQ
         while dir != "."
           path = File.join(@data_dir, dir)
           rmdir(path) || break
+          @directories.delete(path).try &.close
+          fsync_parent_dir(path)
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
@@ -541,17 +567,31 @@ module LavinMQ
         sha1 = Digest::SHA1.new
 
         path = File.join(@data_dir, "#{filename}.tmp")
+        final_path = path[0..-5]
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
           # The record's final ack tells the leader the replace is durable, so
           # it must not be sent while the new content only exists as the .tmp
-          # file; hold it back until the rename has installed the file.
+          # file; hold it back until the content is on disk and the rename has
+          # installed the file.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
-          f.rename f.path[0..-5]
+          f.fsync if @config.sync?
+          f.rename final_path
+          fsync_parent_dir(final_path)
+          @unsynced_directory_files.delete(filename)
           @file_digests[filename] = sha1
           ack(deferred)
         end
+      end
+
+      # fsyncing the replacement file before rename makes its contents durable,
+      # but not the directory entry changed by rename(2). Persist the parent
+      # directory before acking the replace so promotion after a power loss
+      # cannot expose the old name-to-inode mapping.
+      private def fsync_parent_dir(path : String) : Nil
+        return unless @config.sync?
+        @directories[File.dirname(path)].fsync
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
@@ -588,18 +628,16 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent unless sync is disabled:
-      # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # Acked bytes are durable where it matters: the leader sends an explicit
+      # fsync request (see #fsync_file) for each file it needs durable before
+      # it confirms anything against our acks, and full_sync/replace fsync
+      # their files before the record's final ack.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
-          sync_to_disk
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
@@ -607,25 +645,28 @@ module LavinMQ
         socket.close rescue nil
       end
 
-      # Make all replicated writes durable before acking the leader.
-      private def sync_to_disk : Nil
+      # Make a file durable before acking the leader's fsync request. Uses the
+      # open append handle when there is one (it wrote the data); otherwise a
+      # throwaway fd — e.g. a file received via full_sync. A file that's gone
+      # was deleted after the leader dispatched the request, so there's
+      # nothing left to sync (never open via the @files default block here,
+      # that would resurrect the deleted file as empty).
+      private def fsync_file(filename : String) : Nil
         return unless @config.sync?
-
-        sync_data_dir
+        if f = @files[filename]?
+          f.fsync
+        else
+          File.open(File.join(@data_dir, filename), &.fsync)
+        end
+        if @unsynced_directory_files.delete(filename)
+          fsync_parent_dir(File.join(@data_dir, filename))
+        end
+      rescue File::NotFoundError
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
         # from the in-sync set and stops confirming publishes on our acks.
-        Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
+        Log.fatal(exception: ex) { "Failed to fsync #{filename}: #{ex.message}" }
         exit 1
-      end
-
-      private def sync_data_dir : Nil
-        {% if flag?(:linux) %}
-          ret = LibC.syncfs(@data_dir_fd)
-          raise IO::Error.from_errno("syncfs") if ret != 0
-        {% else %}
-          LibC.sync
-        {% end %}
       end
 
       # Logs the streamed byte count until #stream_changes closes the done
@@ -676,17 +717,17 @@ module LavinMQ
           Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
         end
         # The ack loop keeps draining acks buffered in @acks even after the
-        # channel is closed, syncing to disk before each send. Wait for it to
-        # finish before closing @data_dir_fd below, or its syncfs would hit a
-        # closed (or worse, reused) fd and the process would exit 1 mid
-        # shutdown/promotion. Closing @acks is normally done by stream_changes,
-        # but do it here too in case the follower loop is stuck.
+        # channel is closed; wait for it so nothing races the checksum
+        # finalization below. Closing @acks is normally done by
+        # stream_changes, but do it here too in case the follower loop is
+        # stuck.
         @acks.close
         @ack_loops.wait
         # Finalize all pending checksums
         finalize_digests
         @checksums.store
-        LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+        @directories.each_value &.close
+        @directories.clear
         @data_dir_lock.release
         @metrics_server.try &.close
       end

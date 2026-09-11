@@ -1,5 +1,6 @@
 require "amq-protocol"
 require "../../mfile"
+require "../../filesystem"
 require "../../clustering/replicator"
 
 module LavinMQ::AMQP
@@ -20,8 +21,9 @@ module LavinMQ::AMQP
     @mfile : MFile
     @positions = Hash(String, Int64).new # consumer_tag => file position of its offset
 
-    def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?)
+    def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?, @directory : FileSystem::Directory)
       @mfile = MFile.new(File.join(dir, "consumer_offsets"), capacity)
+      @directory.fsync
       @replicator.try &.register_file @mfile
       restore_positions
     end
@@ -109,7 +111,9 @@ module LavinMQ::AMQP
         @positions[consumer_tag] = @mfile.size
         @mfile.write_bytes offset
       end
+      @mfile.fsync
       @mfile.rename(old_mfile.path)
+      @directory.fsync
       @replicator.try &.replace_file(@mfile) # ship the compacted file whole; keeps the MFile registered
       old_mfile.close(truncate_to_size: false)
     end

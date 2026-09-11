@@ -1,5 +1,6 @@
-require "spec"
+require "./spec_helper"
 require "../src/stdlib/filesystem"
+require "../src/lavinmq/filesystem"
 
 describe FilesystemInfo do
   # Real statfs64 against the OS; only diverges from the bug on virtiofs/NFS
@@ -42,4 +43,69 @@ describe FilesystemInfo do
       info.available.should eq 400_u64 * 4096
     end
   {% end %}
+end
+
+describe LavinMQ::FileSystem do
+  it "syncs a directory through its retained descriptor after its path changes" do
+    with_datadir do |data_dir|
+      path = File.join(data_dir, "queue")
+      Dir.mkdir(path)
+      directory = LavinMQ::FileSystem::Directory.new(path)
+      fd = directory.@file.fd
+      File.rename(path, File.join(data_dir, "moved"))
+      2.times { directory.fsync }
+      directory.@file.fd.should eq(fd)
+    ensure
+      directory.try &.close
+    end
+  end
+
+  describe ".durable_rename" do
+    it "atomically replaces a file in the same directory" do
+      with_datadir do |data_dir|
+        source = File.join(data_dir, "state.tmp")
+        destination = File.join(data_dir, "state.json")
+        File.open(source, "w") { |file| file.print "new state"; file.fsync }
+        File.write(destination, "old state")
+
+        LavinMQ::FileSystem.durable_rename(source, destination)
+
+        File.read(destination).should eq "new state"
+        File.exists?(source).should be_false
+      end
+    end
+
+    it "renames between directories" do
+      with_datadir do |data_dir|
+        source_dir = File.join(data_dir, "source")
+        destination_dir = File.join(data_dir, "destination")
+        Dir.mkdir(source_dir)
+        Dir.mkdir(destination_dir)
+        source = File.join(source_dir, "state.tmp")
+        destination = File.join(destination_dir, "state.json")
+        File.open(source, "w") { |file| file.print "state"; file.fsync }
+
+        LavinMQ::FileSystem.durable_rename(source, destination)
+
+        File.read(destination).should eq "state"
+        File.exists?(source).should be_false
+      end
+    end
+
+    it "updates an open file's path" do
+      with_datadir do |data_dir|
+        source = File.join(data_dir, "state.tmp")
+        destination = File.join(data_dir, "state.json")
+
+        File.open(source, "w+") do |file|
+          file.print "state"
+          file.fsync
+          LavinMQ::FileSystem.durable_rename(file, destination)
+
+          file.path.should eq destination
+        end
+        File.read(destination).should eq "state"
+      end
+    end
+  end
 end

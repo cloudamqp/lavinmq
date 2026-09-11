@@ -17,7 +17,8 @@ module LavinMQ::AMQP
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
-      @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      directory = @directory || raise "Message store directory is not initialized"
+      @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator, directory)
       drop_overflow
     end
 
@@ -241,10 +242,10 @@ module LavinMQ::AMQP
       end
     end
 
-    def push(msg) : SegmentPosition
+    def push(msg, needs_sync = false) : SegmentPosition
       raise ClosedError.new if @closed
       @last_offset += 1
-      sp = write_to_disk(msg)
+      sp = write_to_disk(msg, needs_sync)
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
@@ -314,7 +315,7 @@ module LavinMQ::AMQP
       start_size - @size
     end
 
-    def delete(sp) : Nil
+    def delete(sp, needs_sync = false) : Nil
       raise "Only full segments should be deleted"
     end
 

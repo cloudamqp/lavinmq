@@ -971,6 +971,29 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "syncs compacted consumer offsets through its retained directory descriptor" do
+      with_datadir do |dir|
+        directory = LavinMQ::FileSystem::Directory.new(dir)
+        offsets = LavinMQ::AMQP::ConsumerOffsets.new(dir, 4096, nil, directory)
+        fd = directory.@file.fd
+        directory.sync_count.should eq(1)
+        offsets.store("consumer", 84_i64) { 0_i64 }
+        directory.before_sync = -> do
+          File.exists?(File.join(dir, "consumer_offsets.tmp")).should be_false
+          offsets.@mfile.path.should eq(File.join(dir, "consumer_offsets"))
+          nil
+        end
+        offsets.cleanup { 0_i64 }
+        directory.sync_count.should eq(2)
+        directory.@file.fd.should eq(fd)
+        offsets.close
+        directory.@file.closed?.should be_false # owned by the message store
+      ensure
+        offsets.try &.close
+        directory.try &.close
+      end
+    end
+
     it "cleanup_consumer_offsets does not overflow with many consumer offsets" do
       queue_name = Random::Secure.hex
       with_amqp_server do |s|

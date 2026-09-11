@@ -87,6 +87,9 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      unless @syncfs_threshold.positive?
+        raise Error.new("syncfs_threshold must be positive (got #{@syncfs_threshold})")
+      end
     end
 
     private def parse_config_from_cli(argv)

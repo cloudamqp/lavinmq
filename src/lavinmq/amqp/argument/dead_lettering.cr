@@ -13,7 +13,7 @@ module LavinMQ::AMQP
       end
 
       alias MessageRoutedCallback = Proc(Nil)
-      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
+      alias Task = {AMQP::Queue, Message, Bool} | MessageRoutedCallback
 
       struct Tasks
         @pending_tasks = Deque(Task).new
@@ -59,7 +59,7 @@ module LavinMQ::AMQP
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
 
-        def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
+        def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, needs_sync = false, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           return routed.call unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchange?(dlx.to_s).as?(AMQP::Exchange) || return routed.call
@@ -101,7 +101,7 @@ module LavinMQ::AMQP
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx.enqueue({q, dead_letter_msg})
+              ctx.enqueue({q, dead_letter_msg, needs_sync})
             end
           end
           ctx.enqueue(routed)
@@ -119,11 +119,11 @@ module LavinMQ::AMQP
                 @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
             else
-              dst_q, msg = task
+              dst_q, msg, needs_sync = task
               begin
                 # Result intentionally discarded: if the destination queue is closed
                 # or rejects on overflow we drop the dead-lettered message.
-                dst_q.publish_internal(msg, dlx_tasks: @tasks)
+                dst_q.publish_internal(msg, needs_sync: needs_sync, dlx_tasks: @tasks)
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end

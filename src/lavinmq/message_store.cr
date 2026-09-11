@@ -1,9 +1,11 @@
 require "./mfile"
+require "./filesystem"
 require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
+require "./persister"
 require "./bool_channel"
 require "./message_store/requeued_store"
 
@@ -24,17 +26,21 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
+    @directory : FileSystem::Directory?
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, persister : Persister? = nil, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
+      # Non-durable queues need no msync either.
+      @persister = durable ? persister : nil
+      @directory = FileSystem::Directory.new(@msg_dir)
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -50,9 +56,9 @@ module LavinMQ
       @empty.set empty? unless @closed
     end
 
-    def push(msg) : SegmentPosition
+    def push(msg, needs_sync = false) : SegmentPosition
       raise ClosedError.new if @closed
-      sp = write_to_disk(msg)
+      sp = write_to_disk(msg, needs_sync)
       was_empty = @size.zero?
       @bytesize += sp.bytesize
       @size += 1
@@ -187,13 +193,16 @@ module LavinMQ
       end
     end
 
-    def delete(sp) : Nil
+    def delete(sp, needs_sync = false) : Nil
       raise ClosedError.new if @closed
       afile = @acks[sp.segment]
       begin
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
+        # As with publishes, register only after replication dispatch so the
+        # follower's fsync request cannot precede this acknowledgment.
+        @persister.try &.mark_dirty(afile) if needs_sync
 
         # if all msgs in a segment are deleted then delete the segment
         return if sp.segment == @wfile_id # don't try to delete a segment we still write to
@@ -202,11 +211,12 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
+          # Remove messages durably before their acknowledgment history.
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
+          end
+          if a = @acks.delete(sp.segment)
+            delete_file(a)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -273,13 +283,18 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
+      @directory.try &.reopen unless @segments.empty? && @acks.empty?
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
+      @directory.try &.close
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      file.delete(raise_on_missing: false)
+      file.delete(raise_on_missing: false) do
+        # Persist removal before deleted? lets the persister skip this mapping.
+        sync_directory
+      end
       if replicator = @replicator
         replicator.delete_file(meta_file_name(file)) if including_meta
         replicator.delete_file(file.path)
@@ -309,6 +324,7 @@ module LavinMQ
         @segments.each_value &.close
         @acks.each_value &.close
       end
+      @directory.try &.close
     end
 
     def avg_bytesize : UInt32
@@ -344,7 +360,7 @@ module LavinMQ
       end
     end
 
-    private def write_to_disk(msg) : SegmentPosition
+    private def write_to_disk(msg, needs_sync : Bool) : SegmentPosition
       wfile = @wfile
       if wfile.capacity < wfile.size + msg.bytesize
         wfile = open_new_segment(msg.bytesize)
@@ -353,6 +369,12 @@ module LavinMQ
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      # Confirmed and transactional writes are marked dirty only after the
+      # replication dispatch: once this file is in a sync's dirty set, every
+      # marked write is already on the wire ahead of the `$` fsync request that
+      # must cover it (see Persister#mark_dirty). Ordinary publishes deliberately
+      # stay out of the set because no durability response depends on them.
+      @persister.try &.mark_dirty(wfile) if needs_sync
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -367,6 +389,7 @@ module LavinMQ
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
       wfile = MFile.new(path, capacity)
+      sync_directory
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -397,9 +420,16 @@ module LavinMQ
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
       mfile = MFile.new(path, capacity, writeonly: true)
+      sync_directory
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
+    end
+
+    private def sync_directory : Nil
+      # The sync setting can change while these segments remain open. Persist
+      # their names now so later confirms need only sync the mapped contents.
+      @directory.try &.fsync if @durable
     end
 
     private def load_acks_from_disk : Nil
@@ -473,6 +503,7 @@ module LavinMQ
                else
                  MFile.new(path)
                end
+        sync_directory if was_empty
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
@@ -488,6 +519,7 @@ module LavinMQ
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = MFile.new(path, Config.instance.segment_size)
+              sync_directory
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
@@ -632,6 +664,7 @@ module LavinMQ
       end
 
       File.rename(tmp_path, final_path)
+      @directory.try &.fsync
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the
@@ -676,10 +709,10 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
+          delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile, including_meta: true)
           true
         else
           false

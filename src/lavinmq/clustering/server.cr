@@ -165,6 +165,15 @@ module LavinMQ
         end
       end
 
+      # Ask every synced follower to fsync these files. Content is unchanged,
+      # so no checksum invalidation. Syncing followers are skipped: a follower
+      # fsyncs every file it receives during full_sync, so its baseline is
+      # durable when it turns synced.
+      def fsync_files(paths : Array(String))
+        stripped = paths.map { |path| strip_datadir path }
+        each_follower &.request_fsync(stripped)
+      end
+
       def delete_file(path : String)
         path = strip_datadir path
         @file_index.lock do |files, checksums|

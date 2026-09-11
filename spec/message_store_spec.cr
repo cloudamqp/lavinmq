@@ -44,6 +44,9 @@ class SpyReplicator
     @deleted_files << path
   end
 
+  def fsync_files(paths : Array(String))
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
@@ -77,6 +80,14 @@ class SpyReplicator
 
   def password : String
     ""
+  end
+end
+
+private class DirtyRecordingPersister < LavinMQ::Persister
+  getter recorded_dirty_files = Array(MFile).new
+
+  def mark_dirty(mfile : MFile) : Nil
+    @recorded_dirty_files << mfile
   end
 end
 
@@ -123,6 +134,138 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "can durably delete a closed store and closes the reopened directory" do
+    with_datadir do |dir|
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      directory = store.@directory.not_nil!
+      store.close
+      directory.@file.closed?.should be_true
+      store.delete
+      Dir.exists?(dir).should be_false
+      directory.@file.closed?.should be_true
+    ensure
+      store.try &.close
+    end
+  end
+
+  it "syncs new segments through one retained directory descriptor" do
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      fd = directory.@file.fd
+      directory.sync_count.should eq(1)
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+      store.push(msg)
+      directory.sync_count.should eq(1)
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      directory.sync_count.should eq(2)
+      directory.@file.fd.should eq(fd)
+      store.close
+      directory.@file.closed?.should be_true
+    end
+  end
+
+  it "syncs rolled-over segment entries before publishing their writes" do
+    old_segment_size = LavinMQ::Config.instance.segment_size
+    LavinMQ::Config.instance.segment_size = 4096
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      msg = LavinMQ::Message.new("ex", "rk", "x" * 3000)
+      store.push(msg)
+      directory.sync_count.should eq(1)
+      store.push(msg)
+      directory.sync_count.should eq(2)
+    end
+  ensure
+    LavinMQ::Config.instance.segment_size = old_segment_size if old_segment_size
+  end
+
+  it "persists durable segment names even when content syncing is temporarily disabled" do
+    old_sync = LavinMQ::Config.instance.sync?
+    LavinMQ::Config.instance.sync = false
+    with_store do |store, _|
+      directory = store.@directory.not_nil!
+      directory.sync_count.should eq(1)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      store.delete(store.shift?.not_nil!.segment_position)
+      directory.sync_count.should eq(2)
+    end
+  ensure
+    LavinMQ::Config.instance.sync = old_sync unless old_sync.nil?
+  end
+
+  it "persists segment deletion before exposing it to the persister" do
+    with_datadir do |dir|
+      store = LavinMQ::MessageStore.new(dir, nil)
+      file = store.@segments.first_value
+      directory = store.@directory.not_nil!
+      observed = false
+      directory.before_sync = -> do
+        File.exists?(file.path).should be_false
+        file.deleted?.should be_false
+        observed = true
+        nil
+      end
+      store.delete
+      observed.should be_true
+      file.deleted?.should be_true
+    ensure
+      store.try &.close
+    end
+  end
+
+  it "only marks transactional acknowledgment writes as dirty" do
+    mktmpdir do |dir|
+      persister = DirtyRecordingPersister.new(data_dir: dir)
+      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+      2.times { store.push(msg) }
+      store.delete(store.shift?.not_nil!.segment_position)
+      persister.recorded_dirty_files.should be_empty
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      persister.recorded_dirty_files.map(&.path).should eq([File.join(dir, "acks.0000000001")])
+    ensure
+      store.try &.close
+      persister.try &.close
+    end
+  end
+
+  it "replicates segment removal before discarding its acknowledgment history" do
+    old_segment_size = LavinMQ::Config.instance.segment_size
+    LavinMQ::Config.instance.segment_size = 4096
+    replicator = SpyReplicator.new
+    with_store(replicator: replicator) do |store, dir|
+      msg = LavinMQ::Message.new("ex", "rk", "x" * 3000)
+      2.times { store.push(msg) }
+      store.delete(store.shift?.not_nil!.segment_position, needs_sync: true)
+      deleted = replicator.deleted_files.to_a
+      msgs = File.join(dir, "msgs.0000000001")
+      acks = File.join(dir, "acks.0000000001")
+      deleted.index!(msgs).should be < deleted.index!(acks)
+      File.exists?(msgs).should be_false
+      File.exists?(acks).should be_false
+    end
+  ensure
+    LavinMQ::Config.instance.segment_size = old_segment_size if old_segment_size
+  end
+
+  it "only marks segments written for confirms or transactions as dirty" do
+    mktmpdir do |dir|
+      persister = DirtyRecordingPersister.new(data_dir: dir)
+      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      msg = LavinMQ::Message.new("ex", "rk", "body")
+
+      store.push(msg)
+      persister.recorded_dirty_files.should be_empty
+
+      store.push(msg, needs_sync: true)
+      persister.recorded_dirty_files.map(&.path).should eq [File.join(dir, "msgs.0000000001")]
+    ensure
+      store.try &.close
+      persister.try &.close
+    end
+  end
+
   describe "#copy" do
     # Regression: dead-lettering routes a message after releasing the queue's
     # @msg_store_lock, while a racing purge/queue delete can munmap the

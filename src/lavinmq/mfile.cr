@@ -28,6 +28,8 @@ class MFile < IO
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
+  # Hold across msync and operations that unmap any part of the mapping.
+  @mapping_lock = Mutex.new
   @@mmap_count = Atomic(Int64).new(0)
 
   def self.mmap_count : Int64
@@ -111,16 +113,29 @@ class MFile < IO
   end
 
   def delete(*, raise_on_missing = true) : Nil
-    return if @deleted.swap(true, :acquire_release) # avoid double deletes
-    if raise_on_missing
-      File.delete(@path)
-    else
-      File.delete?(@path)
+    delete(raise_on_missing: raise_on_missing) { }
+  end
+
+  # Let the caller finish bookkeeping before the persister can skip this file.
+  def delete(*, raise_on_missing = true, & : ->) : Nil
+    @mapping_lock.synchronize do
+      return if deleted? # avoid double deletes
+      if raise_on_missing
+        File.delete(@path)
+      else
+        File.delete?(@path)
+      end
+      yield
+      @deleted.set(true, :release)
     end
   end
 
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
+    @mapping_lock.synchronize { close_mapping(truncate_to_size) }
+  end
+
+  private def close_mapping(truncate_to_size)
     return if @closed.swap(true, :acquire_release)
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
@@ -137,6 +152,10 @@ class MFile < IO
   # Truncate the file to the given capacity (contracting only, no expansion)
   # The truncated part is unmapped from memory
   def truncate(new_capacity) : Nil
+    @mapping_lock.synchronize { truncate_mapping(new_capacity) }
+  end
+
+  private def truncate_mapping(new_capacity) : Nil
     return if closed?
     new_capacity = new_capacity.to_i64
     old_capacity = @capacity
@@ -179,14 +198,39 @@ class MFile < IO
   end
 
   def flush
-    msync(@buffer, @size, LibC::MS_ASYNC)
+    msync(LibC::MS_ASYNC)
   end
 
-  private def msync(addr, len, flag) : Nil
-    return if len.zero?
-    check_open
-    code = LibC.msync(addr, len, flag)
-    raise RuntimeError.from_errno("msync") if code < 0
+  # Block until all written pages are flushed to disk, the mmap equivalent
+  # of fsync(2). Only actually dirty pages are written, so the cost is
+  # proportional to what changed since the last sync, not to file size.
+  def fsync : Nil
+    msync(LibC::MS_SYNC)
+  end
+
+  # Dirty-file bookkeeping for the Persister: set on first write after a sync,
+  # so each file is registered for msync at most once per sync cycle.
+  @needs_msync = Atomic(Bool).new(false)
+
+  # Returns whether the flag was already set.
+  def mark_needs_msync! : Bool
+    @needs_msync.swap(true, :acquire_release)
+  end
+
+  def clear_needs_msync! : Nil
+    @needs_msync.set(false, :release)
+  end
+
+  private def msync(flag) : Nil
+    @mapping_lock.synchronize do
+      check_open
+      # Read the range while locked: truncate may shrink it before we acquire
+      # the lock, and neither truncate nor close may unmap it until we finish.
+      unless @size.zero?
+        code = LibC.msync(@buffer, @size, flag)
+        raise RuntimeError.from_errno("msync") if code < 0
+      end
+    end
   end
 
   # Append only
@@ -293,8 +337,10 @@ class MFile < IO
   end
 
   def rename(new_path : String) : Nil
-    File.rename @path, new_path
-    @path = new_path
+    @mapping_lock.synchronize do
+      File.rename(@path, new_path)
+      @path = new_path
+    end
   end
 
   private def check_open

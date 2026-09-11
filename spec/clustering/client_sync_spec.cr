@@ -146,7 +146,9 @@ module ClientSyncSpec
         end
       end
 
-      it "skips local sync before acking streamed bytes when sync is disabled" do
+      # Streamed appends are acked without any sync: durability is enforced
+      # separately by the leader's `$` fsync requests (see "fsync requests").
+      it "acks streamed bytes without fsyncing when sync is disabled" do
         with_datadir do |data_dir|
           client = make_client(data_dir, sync: false)
           client_socket, leader_io = FakeSocket.pair
@@ -176,7 +178,7 @@ module ClientSyncSpec
           end
 
           acked.should eq framing + payload.bytesize
-          client.syncs_started.should eq 0
+          client.fsync_requests.should be_empty
           File.read(File.join(data_dir, filename)).should eq payload
           client_socket.close
         end
@@ -310,6 +312,31 @@ module ClientSyncSpec
           acked.should eq framing + content.bytesize
           File.read(File.join(data_dir, filename)).should eq content
           File.exists?(File.join(data_dir, "#{filename}.tmp")).should be_false
+          client.parent_dirs_fsynced.should eq [data_dir]
+          client_socket.close
+        end
+      end
+
+      it "does not fsync the parent directory when sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "replaced_file"
+          content = "new content"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, filename, content.bytesize.to_i64, content.to_slice)
+          read_acks(leader_io, record_size(filename, content.bytesize))
+
+          client.parent_dirs_fsynced.should be_empty
           client_socket.close
         end
       end
@@ -923,16 +950,43 @@ module ClientSyncSpec
       end
     end
 
-    describe "#close" do
-      # Regression: close used to wait only for the follow loop, then close
-      # the data dir fd while the ack-sending fiber could still be draining
-      # buffered acks — each preceded by a syncfs on that fd. The resulting
-      # EBADF made the follower Log.fatal and exit 1 in the middle of a
-      # graceful shutdown or a promotion to leader.
-      it "waits for the ack loop's pending syncs before closing the data dir fd" do
+    describe "fsync requests" do
+      it "holds an acknowledgment-file fence ack until the file is synced" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
-          client.sync_delay = 50.milliseconds
+          started = Channel(Nil).new
+          resume = Channel(Nil).new
+          client.file_sync_started = started
+          client.resume_file_sync = resume
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          filename = "acks.0000000001"
+          File.write(File.join(data_dir, filename), "ack")
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          started.receive
+          leader_io.read_timeout = 20.milliseconds
+          expect_raises(IO::TimeoutError) { leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian) }
+          resume.send(nil)
+          leader_io.read_timeout = 2.seconds
+          read_acks(leader_io, record_size("$#{filename}", 0))
+          client.fsync_requests.should eq([filename])
+          client_socket.close
+          close_client(client)
+        end
+      end
+
+      # A `$`-prefixed zero-length record asks us to make that file durable;
+      # the leader holds publish confirms until the record is acked, so the
+      # ack may only be sent after the fsync.
+      it "fsyncs the named file and acks the record" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
           client_socket, leader_io = FakeSocket.pair
           lz4_reader = Compress::LZ4::Reader.new(client_socket)
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
@@ -943,37 +997,84 @@ module ClientSyncSpec
           rescue IO::Error
           end
 
-          # Stream a small append so acks start flowing and the ack loop
-          # enters its (slowed) sync.
-          filename = "ack_file"
+          filename = "fsync_file"
           payload = "data"
-          lz4_writer.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          lz4_writer.write filename.to_slice
-          lz4_writer.write_bytes -payload.bytesize.to_i64, IO::ByteFormat::LittleEndian
-          lz4_writer.write payload.to_slice
-          lz4_writer.flush
-          wait_for { client.syncs_started > 0 }
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size(filename, payload.bytesize) + record_size("$#{filename}", 0))
 
-          # Keep acks arriving while close runs, so a sync is in flight or
-          # pending throughout the shutdown.
-          spawn(name: "ack feeder") do
-            20.times do
-              client.@acks.send(1i64)
-              sleep 10.milliseconds
-            end
-          rescue Channel::ClosedError
-            # close drained and closed the channel
+          client.fsync_requests.should eq [filename]
+          client.parent_dirs_fsynced.should eq [data_dir]
+          directory = client.@directories[data_dir]
+          directory_fd = directory.@file.fd
+          File.read(File.join(data_dir, filename)).should eq payload
+
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("$#{filename}", 0))
+          client.parent_dirs_fsynced.should eq [data_dir]
+
+          # A different segment in the same queue reuses the open directory.
+          write_record(lz4_writer, "second_file", -1i64, "x".to_slice)
+          write_record(lz4_writer, "$second_file", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("second_file", 1) + record_size("$second_file", 0))
+          client.@directories[data_dir].should be(directory)
+          directory.@file.fd.should eq(directory_fd)
+
+          client_socket.close
+          close_client(client)
+          directory.@file.closed?.should be_true
+        end
+      end
+
+      # A file can be deleted between the leader dispatching the fsync request
+      # and us receiving it; the request must not resurrect it as empty, but
+      # still has to be acked or the leader's confirm would stall.
+      it "acks a request for a missing file without creating it" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
           end
 
-          # follow() was never called in this harness, so satisfy close's
-          # follower-done handshake ourselves.
-          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
-          client.close
+          write_record(lz4_writer, "$missing_file", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("$missing_file", 0))
 
-          sleep 200.milliseconds # let any straggler sync run after close returned
-          client.synced_on_closed_fd?.should be_false
+          File.exists?(File.join(data_dir, "missing_file")).should be_false
+
           client_socket.close
-          leader_io.close
+          close_client(client)
+        end
+      end
+
+      it "acks fsync requests without syncing when sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          filename = "no_sync_file"
+          payload = "data"
+          write_record(lz4_writer, filename, -payload.bytesize.to_i64, payload.to_slice)
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size(filename, payload.bytesize) + record_size("$#{filename}", 0))
+
+          File.read(File.join(data_dir, filename)).should eq payload
+
+          client_socket.close
+          close_client(client)
         end
       end
     end

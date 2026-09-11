@@ -3,6 +3,7 @@ require "../config"
 require "../rate_limiter"
 require "socket"
 require "wait_group"
+require "sync/exclusive"
 
 module LavinMQ
   module Clustering
@@ -41,6 +42,10 @@ module LavinMQ
       @write_lock = Mutex.new(:unchecked)
       @running = WaitGroup.new
       @state = State::Syncing
+      # Fsync requests queued by request_fsync, written to the stream by
+      # flush_loop (the socket must only be written from the default
+      # execution context).
+      @pending_fsyncs = Array(String).new # guarded by @write_lock
       # Per-file byte offset that this follower already received via full_sync
       # when it was marked synced. Incremental appends below this offset are
       # already in the snapshot and must be skipped to avoid duplicating them.
@@ -155,8 +160,45 @@ module LavinMQ
       # another context raises instead of waiting.
       private def flush_loop
         while @flush_requested.receive?
+          send_pending_fsyncs
           flush
         end
+      end
+
+      # Write the `$`-prefixed zero-length records enqueued by request_fsync.
+      # Write errors are swallowed like in #flush; the lag counted up front by
+      # request_fsync makes ack_loop's deadline evict the follower if the
+      # records never reach it.
+      private def send_pending_fsyncs : Nil
+        @write_lock.synchronize { write_pending_fsyncs }
+      rescue IO::Error | Socket::Error
+      end
+
+      # Called under @write_lock, before any later record is counted or written.
+      # The reserved byte count must have the same order as records on the wire.
+      private def write_pending_fsyncs : Nil
+        @pending_fsyncs.each do |path|
+          @lz4.write_bytes (1 + path.bytesize).to_i32, IO::ByteFormat::LittleEndian
+          @lz4.write_byte '$'.ord.to_u8
+          @lz4.write path.to_slice
+          @lz4.write_bytes 0i64 # fsync request marker (endian-agnostic)
+        end
+        @pending_fsyncs.clear
+      end
+
+      # Ask the follower to fsync `paths` (data-dir-relative); it acks the
+      # records only once the fsyncs completed. The records are written by
+      # flush_loop — never here — so any execution context may call this (the
+      # publish confirm loop runs on an isolated thread). The lag is counted
+      # immediately so a wait_for_confirm issued right after this covers the
+      # records even before they hit the stream.
+      def request_fsync(paths : Array(String)) : Nil
+        lag_size = paths.sum(0i64) { |p| (sizeof(Int32) + 1 + p.bytesize + sizeof(Int64)).to_i64 }
+        @write_lock.synchronize do
+          @sent_bytes.add(lag_size)
+          @pending_fsyncs.concat(paths)
+        end
+        request_flush
       end
 
       # Ask flush_loop to push buffered bytes to the follower. Never blocks
@@ -285,6 +327,7 @@ module LavinMQ
 
       def replace(path) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           File.open(File.join(@data_dir, path)) do |file|
             file_size = file.size
             lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + file_size).to_i64
@@ -304,6 +347,7 @@ module LavinMQ
       # (an emptied file carries no data to restore anyway).
       def replace(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -315,6 +359,7 @@ module LavinMQ
 
       def append(path : String, bytes : Bytes) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + bytes.bytesize).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -326,6 +371,7 @@ module LavinMQ
 
       def append(path : String, value : UInt32 | Int32) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64) + 4).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)
@@ -337,6 +383,7 @@ module LavinMQ
 
       def delete(path) : Int64
         @write_lock.synchronize do
+          write_pending_fsyncs
           lag_size = (sizeof(Int32) + path.bytesize + sizeof(Int64)).to_i64
           @sent_bytes.add(lag_size)
           send_filename(path)

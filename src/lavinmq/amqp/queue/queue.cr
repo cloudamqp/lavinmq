@@ -7,6 +7,7 @@ require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
+require "../../filesystem"
 require "./state"
 require "./event"
 require "../../message_store"
@@ -247,7 +248,7 @@ module LavinMQ::AMQP
         !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused
@@ -313,7 +314,7 @@ module LavinMQ::AMQP
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      MessageStore.new(data_dir, replicator, durable?, @vhost.persister, metadata: @metadata)
     end
 
     private def make_data_dir : String
@@ -622,11 +623,11 @@ module LavinMQ::AMQP
 
     class Closed < Exception; end
 
-    def publish(msg : Message) : PublishResult
-      publish_internal(msg)
+    def publish(msg : Message, needs_sync = false) : PublishResult
+      publish_internal(msg, needs_sync)
     end
 
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
+    protected def publish_internal(msg : Message, needs_sync = false, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @closed
       if d = @deduper
         if d.duplicate?(msg)
@@ -640,9 +641,9 @@ module LavinMQ::AMQP
       pushed = false
       @msg_store_lock.synchronize do
         was_empty = @msg_store.empty?
-        @msg_store.push(msg)
+        @msg_store.push(msg, needs_sync)
         pushed = true
-        drop_overflow(dlx_tasks)
+        drop_overflow(dlx_tasks, needs_sync)
       end
       @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty
@@ -691,7 +692,7 @@ module LavinMQ::AMQP
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil) : Nil
+    private def drop_overflow(dlx_tasks : Argument::DeadLettering::Tasks? = nil, needs_sync = false) : Nil
       return unless (ml = @max_length) || (mlb = @max_length_bytes)
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
@@ -703,7 +704,7 @@ module LavinMQ::AMQP
           while @msg_store.size > ml
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen, dlx_tasks)
+            expire_msg(env, :maxlen, dlx_tasks, needs_sync)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -718,7 +719,7 @@ module LavinMQ::AMQP
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes, dlx_tasks)
+            expire_msg(env, :maxlenbytes, dlx_tasks, needs_sync)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -805,11 +806,11 @@ module LavinMQ::AMQP
       @log.info { "Expired #{i} messages" } if i > 0
     end
 
-    private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
-      expire_msg(env.segment_position, reason, dlx_tasks)
+    private def expire_msg(env : Envelope, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil, needs_sync = false)
+      expire_msg(env.segment_position, reason, dlx_tasks, needs_sync)
     end
 
-    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil)
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_tasks : Argument::DeadLettering::Tasks? = nil, needs_sync = false)
       if sp.has_dlx? || @dead_letter.dlx
         @log.debug { "Expiring #{sp} now due to #{reason}" }
         # Dead-lettering escapes @msg_store_lock — the message is published
@@ -824,11 +825,11 @@ module LavinMQ::AMQP
           # delete removed the message, so there is nothing left to route.
           return
         end
-        @dead_letter.route(msg, reason, dlx_tasks) do
-          delete_message sp
+        @dead_letter.route(msg, reason, dlx_tasks, needs_sync) do
+          delete_message(sp, needs_sync)
         end
       else
-        delete_message sp
+        delete_message(sp, needs_sync)
       end
     end
 
@@ -932,16 +933,16 @@ module LavinMQ::AMQP
       env
     end
 
-    def ack(sp : SegmentPosition) : Nil
+    def ack(sp : SegmentPosition, needs_sync = false) : Nil
       return if @closed
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
+      delete_message(sp, needs_sync)
     end
 
-    protected def delete_message(sp : SegmentPosition) : Nil
+    protected def delete_message(sp : SegmentPosition, needs_sync = false) : Nil
       # Close tears down @msg_store under @msg_store_lock; a dead-letter routed
       # callback (or any other in-flight delete) racing with close would hit
       # MessageStore::ClosedError on @msg_store.delete. The store is gone
@@ -952,11 +953,11 @@ module LavinMQ::AMQP
       {% end %}
       @deliveries.delete(sp) if @delivery_limit
       @msg_store_lock.synchronize do
-        @msg_store.delete(sp)
+        @msg_store.delete(sp, needs_sync)
       end
     end
 
-    def reject(sp : SegmentPosition, requeue : Bool)
+    def reject(sp : SegmentPosition, requeue : Bool, needs_sync = false)
       return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
@@ -966,12 +967,12 @@ module LavinMQ::AMQP
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
           env = Envelope.new(sp, msg, false)
-          expire_msg(env, :expired)
+          expire_msg(env, :expired, needs_sync: needs_sync)
         else
           if delivery_limit = @delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
               env = Envelope.new(sp, msg, false)
-              return expire_msg(env, :delivery_limit)
+              return expire_msg(env, :delivery_limit, needs_sync: needs_sync)
             end
           end
           was_empty = false
@@ -984,7 +985,7 @@ module LavinMQ::AMQP
           ensure_expire_fiber
         end
       else
-        expire_msg(sp, :rejected)
+        expire_msg(sp, :rejected, needs_sync: needs_sync)
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
