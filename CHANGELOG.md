@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
-- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it does not survive a broker restart
+- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it survives neither a broker restart nor a failover; persisting it is planned as follow-up work
 
 ### Changed
 
