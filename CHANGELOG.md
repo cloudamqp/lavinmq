@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
 - Dockerfile for building statically linked binaries in `packaging/static-build/` [#2256](https://github.com/cloudamqp/lavinmq/pull/2256)
+- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it does not survive a broker restart
 
 ### Changed
 
@@ -30,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Internal queues (e.g. delayed exchange queues) are protected from AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED`, and they are no longer included in definitions exports. They remain visible and manageable through the HTTP API [#2252](https://github.com/cloudamqp/lavinmq/pull/2252)
 - Heartbeats, deduplication TTLs and other timers using `RoughTime.utc` or `RoughTime.instant` read the clock directly instead of a cache refreshed every 100 ms, improving clock resolution to typically 1–4 ms on Linux and removing the background clock thread. Resolution depends on the platform; message timestamps and message TTL checks still use a clock rounded to 100 ms [#2289](https://github.com/cloudamqp/lavinmq/pull/2289)
 - TLS handshake failures and invalid TLS configuration are logged with an error message instead of a stack trace. A failed TLS configuration reload logs the error and keeps the previous configuration [#1762](https://github.com/cloudamqp/lavinmq/pull/1762)
+- An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, instead of always the subscription's. A QoS 0 publish to a QoS 1 or QoS 2 subscriber is no longer acknowledged and is no longer stored while that session is offline
+- `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP
+- MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1
 
 ### Fixed
 
@@ -48,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sorting boolean columns through the HTTP API returned an error, including sorting the connections list by TLS in the management UI [#2248](https://github.com/cloudamqp/lavinmq/pull/2248)
 - Management UI tooltips were clipped or misplaced near viewport edges and inside scrollable containers [#2235](https://github.com/cloudamqp/lavinmq/pull/2235)
 - Alpine Docker builds failed because the build image lacked `curl` and `openssl` [#2255](https://github.com/cloudamqp/lavinmq/pull/2255)
+- An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will
 
 ## [2.10.0] - 2026-09-25
 
