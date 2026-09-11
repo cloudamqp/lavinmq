@@ -271,6 +271,51 @@ module MqttSpecs
     ensure
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
+
+    it "encodes PUBCOMP with the reserved flags at 0 [MQTT-3.7.1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
+          pubrel(io, 7u16)
+
+          # Read the PUBCOMP as bytes rather than a packet: only PUBREL,
+          # SUBSCRIBE and UNSUBSCRIBE carry 0b0010 in the low nibble, and a
+          # client seeing reserved bits set must drop the connection
+          # [MQTT-2.2.2-2].
+          io.read_byte.should eq 0x70u8
+          io.read_byte.should eq 2u8
+          io.read_int.should eq 7u16
+
+          disconnect(io)
+        end
+      end
+    end
+
+    it "accepts a conformant PUBCOMP" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          pub = deliver_qos2(server, io)
+          id = pub.packet_id.not_nil!
+
+          pubrec(io, id)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+
+          # Hand-built rather than via `pubcomp`, so this asserts on the bytes a
+          # real client sends rather than on whatever the shard happens to
+          # encode. A broker that rejects 0x70 answers a protocol error here,
+          # which publishes the will and closes the socket.
+          io.write_bytes_raw(Bytes[0x70u8, 0x02u8, (id >> 8).to_u8, (id & 0xff).to_u8])
+          io.should be_drained
+
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          wait_for { session.@unacked.empty? }
+
+          disconnect(io)
+        end
+      end
+    end
   end
 
   describe "qos2 across a reconnect" do
