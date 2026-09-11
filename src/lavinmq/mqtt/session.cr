@@ -337,7 +337,12 @@ module LavinMQ
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
-        qos = 1u8 if qos > 1
+        # Not dead code now that `MQTT.qos` clamps to 2: `delivery_mode` is read
+        # off disk with nothing validating it, and `Publish.new` raises above
+        # QoS 2. That raise happens inside `get_packet`, which requeues and
+        # force-closes the client, so one bad byte would be a poison message the
+        # session retries on every reconnect.
+        qos = 2u8 if qos > 2
         dup = qos.zero? ? false : env.redelivered
         Protocol::Publish.new(
           packet_id: packet_id,

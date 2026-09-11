@@ -164,7 +164,8 @@ module LavinMQ
         end
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+          # `Subscribe.from_io` has already rejected anything above 2.
+          qos = tf.qos
           session.subscribe(tf.topic, qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|

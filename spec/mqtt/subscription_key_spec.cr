@@ -12,9 +12,9 @@ describe LavinMQ::MQTT::SubscriptionKey do
         .should be(LavinMQ::MQTT::QOS1_ARGUMENTS)
     end
 
-    it "returns the QoS 1 constant for QoS 2" do
+    it "returns the QoS 2 constant for QoS 2" do
       LavinMQ::MQTT::SubscriptionKey.new("a/b", 2u8).arguments
-        .should be(LavinMQ::MQTT::QOS1_ARGUMENTS)
+        .should be(LavinMQ::MQTT::QOS2_ARGUMENTS)
     end
   end
 

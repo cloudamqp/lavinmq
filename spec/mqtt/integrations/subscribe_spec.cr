@@ -132,35 +132,45 @@ module MqttSpecs
       end
     end
 
-    it "grants qos1 for a qos2 subscription [LavinMQ non-normative]" do
+    it "grants qos2 for a qos2 subscription [MQTT-3.9.3-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
 
-          # LavinMQ doesn't support qos2, so a qos2 subscription is downgraded to
-          # qos1. The SubAck return code must show the granted maximum qos, not the
-          # requested one [MQTT-3.9.3-1].
+          # The SubAck return code must show the granted maximum qos.
           topic_filters = mk_topic_filters({"a/b", 2})
           suback = subscribe(io, topic_filters: topic_filters)
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
-          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS2])
 
-          # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-          # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
-          # ... and verify it be qos1, i.e. the downgrade is real and not just
-          # reported in the SubAck
-          packet.qos.should eq(1u8)
-          packet.packet_id.should_not be_nil
+          # Published at qos 2 from a second connection, so that the grant is
+          # what decides the delivery qos rather than the publish capping it
+          # [MQTT-3.3.5-1], and so the publisher's PUBREC does not interleave
+          # with the delivery on this socket.
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16)
+            pubrel(pub_io, 1u16)
+            read_packet(pub_io).should be_a(MQTT::Protocol::PubComp)
+            disconnect(pub_io)
+          end
+
+          # The grant is real and not just reported in the SubAck.
+          packet = read_publish(io)
+          packet.qos.should eq(2u8)
+          id = packet.packet_id.not_nil!
+
+          pubrec(io, id)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          pubcomp(io, id)
 
           io.should be_drained
         end
       end
     end
 
-    it "binds a qos2 subscription as qos1" do
+    it "binds a qos2 subscription as qos2" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
         with_client_io(server) do |io|
@@ -168,12 +178,12 @@ module MqttSpecs
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
 
           binding = exchange.bindings_details.first
-          binding.binding_key.qos.should eq 1u8
-          binding.arguments.should eq LavinMQ::MQTT::QOS1_ARGUMENTS
+          binding.binding_key.qos.should eq 2u8
+          binding.arguments.should eq LavinMQ::MQTT::QOS2_ARGUMENTS
 
           # A follow up subscribe with the qos we granted is the same
           # subscription, so it must not add a second binding
-          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
           exchange.bindings_details.size.should eq 1
           exchange.binding_count.should eq 1
 
