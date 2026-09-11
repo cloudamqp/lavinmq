@@ -30,32 +30,22 @@ module LavinMQ
         @exchange = @vhost.mqtt_exchange
       end
 
-      # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released
-      # by a PUBREL, per client_id. Holding the id is the whole of the
-      # exactly-once guarantee on this side: a re-sent PUBLISH carrying one is
-      # answered with another PUBREC and not delivered onward a second time
+      # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released,
+      # per client_id. Holding the id is the whole of the guarantee: a re-sent
+      # PUBLISH carrying one is answered again and not routed twice
       # [MQTT-4.3.3-1].
       #
-      # Here rather than on `Session`, because a publish-only client never gets
-      # one - `Sessions#declare` is only reached from `#subscribe`. And not on
-      # `Client`, because a reconnect would forget it, which is the exact
-      # duplicate QoS 2 exists to prevent. In memory only, like the outbound
-      # packet ids in `SessionMessageStore`.
+      # Not on `Session`, which a publish-only client never gets, and not on
+      # `Client`, which would forget it on the reconnect it exists to survive.
       @qos2_received = Hash(String, Set(UInt16)).new
 
-      # Records `packet_id` as an incomplete QoS 2 delivery. False if it was
-      # already recorded, i.e. this PUBLISH is a re-send of one already
-      # delivered onward.
+      # Records `packet_id`, returning false if it was already held, i.e. this
+      # PUBLISH is a re-send of one already routed.
+      #
+      # Uncapped on purpose: ids are `UInt16` so one client holds at most 65535,
+      # and rejecting past a cap would have to raise, which publishes the will.
       def qos2_publish_received?(client_id : String, packet_id : UInt16) : Bool
         ids = @qos2_received[client_id] ||= Set(UInt16).new
-        # A conformant client cannot hold more unreleased ids than its own
-        # in-flight window, so past the server's window this is a client
-        # holding ids open to make us allocate. PacketDecode lands in
-        # `read_loop`'s decode-error arm and closes the connection.
-        if ids.size >= Config.instance.max_inflight_messages && !ids.includes?(packet_id)
-          Log.warn { "client_id=#{client_id} holds #{ids.size} unreleased QoS 2 packet ids" }
-          raise Protocol::Error::PacketDecode.new("too many unreleased QoS 2 packet ids")
-        end
         ids.add?(packet_id)
       end
 
@@ -103,8 +93,7 @@ module LavinMQ
           packet.will)
         if client.clean_session?
           sessions[client.client_id]?.try &.delete
-          # A clean session starts with no state of any kind [MQTT-3.1.2-6],
-          # including the ids of QoS 2 publishes its predecessor never released.
+          # A clean session starts with no state at all [MQTT-3.1.2-6].
           forget_qos2(client.client_id)
         else
           # If an existing session exists, reuse it. If no session exists
@@ -137,15 +126,14 @@ module LavinMQ
             end
           end
         else
-          # No session to resume into, so there is nothing for the dedupe to
-          # protect: the next CONNECT for this client_id is answered
-          # session_present=false, which entitles the client to reset its own
-          # half. This is also what bounds the map - without it, a client can
-          # connect non-clean, publish one QoS 2 message, vanish, and repeat
-          # with a fresh client_id forever. Live entries are now bounded by
-          # connected clients plus persistent sessions, and those are bounded
-          # by max-queues.
-          forget_qos2(client_id)
+          # Nothing to resume into, and the next CONNECT is answered
+          # session_present=false. A client with a session keeps its ids
+          # instead, because they have to outlive the connection to dedupe a
+          # re-send; those entries are bounded by the session count, and
+          # `qos2_release` drops the set as soon as it empties. Guarded like
+          # the line below: a displaced connection's ensure runs after its
+          # replacement is installed.
+          forget_qos2(client_id) if @clients[client_id]? == client
         end
         @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)

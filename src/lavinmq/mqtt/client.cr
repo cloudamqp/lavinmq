@@ -112,6 +112,12 @@ module LavinMQ
             break
           end
         end
+      rescue ex : Session::ProtocolViolation
+        # The Will publishes from here as it does on every other close without a
+        # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
+        # error as one of those situations.
+        @log.warn { "Protocol violation: #{ex.message}" }
+        publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
@@ -177,7 +183,6 @@ module LavinMQ
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
         when Protocol::PubAck, Protocol::PubRec
-          # One confirm per inbound publish, whichever acknowledgement it takes.
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
@@ -194,17 +199,20 @@ module LavinMQ
         end
         packet_id = packet.packet_id
         if packet.qos == 2 && packet_id
-          # Figure 4.3: the receiver stores the packet id and initiates onward
-          # delivery before answering PUBREC. Dedupe is by packet id alone -
-          # `dup` is never consulted, since a first send may carry dup=1 after
-          # the client's own reconnect and a re-send may carry dup=0
-          # [MQTT-3.3.1-3].
+          # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by
+          # id alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
           if @broker.qos2_publish_received?(@client_id, packet_id)
-            @broker.publish(packet)
+            begin
+              @broker.publish(packet)
+            rescue ex
+              # An id left behind by a routing failure would dedupe away the
+              # client's re-send, turning a duplicate into silent loss.
+              @broker.qos2_release(@client_id, packet_id)
+              raise ex
+            end
             vhost.event_tick(EventType::ClientPublish)
           end
-          # Answered on both paths: a re-sent PUBLISH means our first PUBREC was
-          # lost, and re-answering is the only way the client can move on.
+          # Answered on both paths: a re-send means our first PUBREC was lost.
           send(Protocol::PubRec.new(packet_id))
           return
         end
@@ -216,11 +224,9 @@ module LavinMQ
         end
       end
 
-      # PUBREC and PUBCOMP acknowledge something we sent, so without a session
-      # there is nothing they can refer to. Logged and dropped rather than
-      # closed: `recieve_puback`'s `close_socket` below also publishes the will,
-      # because the read loop's next read then raises into the IO::Error arm.
-      # The asymmetry is deliberate - see `Session#pubrec`.
+      # Without a session there is nothing these can refer to. Dropped rather
+      # than closed, unlike `recieve_puback` below, whose `close_socket` also
+      # publishes the will - see `Session#pubrec`.
       def recieve_pubrec(packet : Protocol::PubRec)
         unless session = @broker.sessions[@client_id]?
           @log.warn { "Received PubRec from client without a session" }
@@ -240,13 +246,9 @@ module LavinMQ
       def recieve_pubrel(packet : Protocol::PubRel)
         id = packet.packet_id
         unless @broker.qos2_release(@client_id, id)
-          # MQTT 3.1.1 leaves the answer to an unknown id implementation
-          # defined, and PUBCOMP is the only one that lets the client release
-          # the id at all. An unknown id here is ordinary rather than
-          # exceptional: `@qos2_received` does not survive a broker restart, so
-          # every resuming QoS 2 publisher arrives with one. Raising would take
-          # that through `read_loop`'s rescue and publish the will of every such
-          # publisher in the vhost.
+          # PUBCOMP is the only answer that lets the client release the id, and
+          # an unknown id is ordinary: the held ids do not survive a restart, so
+          # raising would publish the will of every resuming QoS 2 publisher.
           @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
         end
         send(Protocol::PubComp.new(id))

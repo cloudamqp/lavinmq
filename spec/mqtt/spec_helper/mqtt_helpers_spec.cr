@@ -181,6 +181,8 @@ module MqttHelpers
     pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
     if pub.qos.positive?
       pub.packet_id.should_not be_nil
+      # [MQTT-2.3.1-1]. Free teeth for every delivery spec in the suite.
+      pub.packet_id.should_not eq 0u16
     else
       pub.packet_id.should be_nil
     end

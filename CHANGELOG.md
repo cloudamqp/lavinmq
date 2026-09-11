@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher
 - The vhost `max-connections` limit is now enforced for MQTT connections [#2222](https://github.com/cloudamqp/lavinmq/pull/2222)
 - Be able to close a specific channel [#2144](https://github.com/cloudamqp/lavinmq/issues/2144)
-- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it does not survive a broker restart
+- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it survives neither a broker restart nor a failover; persisting it is planned as follow-up work
 
 ### Changed
 

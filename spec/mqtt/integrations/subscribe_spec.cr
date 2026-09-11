@@ -170,6 +170,31 @@ module MqttSpecs
       end
     end
 
+    it "rebinds when a resubscribe changes the granted qos" do
+      with_server do |server|
+        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          exchange.bindings_details.first.binding_key.qos.should eq 1u8
+
+          # The unbind-and-rebind path. Unreachable for 1 -> 2 until QoS 2
+          # stopped collapsing onto QOS1_ARGUMENTS, which made the arguments
+          # compare equal and take the early return instead.
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
+          exchange.bindings_details.size.should eq 1
+          exchange.bindings_details.first.binding_key.qos.should eq 2u8
+
+          # And back down again.
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}))
+          exchange.bindings_details.size.should eq 1
+          exchange.bindings_details.first.binding_key.qos.should eq 1u8
+
+          disconnect(io)
+        end
+      end
+    end
+
     it "binds a qos2 subscription as qos2" do
       with_server do |server|
         exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)

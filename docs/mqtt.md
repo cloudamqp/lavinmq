@@ -30,7 +30,13 @@ When a client publishes at QoS 2, LavinMQ records the packet ID, routes the mess
 
 When LavinMQ delivers at QoS 2, the packet ID stays outstanding across both round trips. The message itself is released at PUBREC, since the subscriber owns it from that point and it must never be sent again; the ID alone is held until PUBCOMP. `max_inflight_messages` therefore bounds outstanding *packet IDs* rather than outstanding messages, and a QoS 2 subscriber reaches that bound at a lower message rate than a QoS 1 one.
 
-The QoS 2 state on both sides is held in memory and does not survive a broker restart. See [Limitations](#limitations).
+The QoS 2 state on both sides is held in memory. It is not persisted and not replicated, so it survives neither a broker restart nor a failover to another node. Persisting it is planned; see [Limitations](#limitations) for what the gap costs today.
+
+### Acknowledging with the wrong packet type
+
+A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
+
+A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated differently: it is logged and ignored. Neither the outbound in-flight window nor the set of unreleased inbound IDs survives a broker restart, and [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
 
 ## Sessions
 
@@ -146,8 +152,8 @@ Note that connecting with a client_id already in use takes over that session, so
 ## Limitations
 
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
-- QoS 2 state is held in memory and is lost on a broker restart, in both directions. A client that re-sends a QoS 2 PUBLISH afterwards has it routed a second time, so that message degrades to at-least-once; a client that re-sends a PUBREL is answered with PUBCOMP and completes normally.
-- A subscriber that answers PUBREC but never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
+- QoS 2 state is held in memory, and is neither written to disk nor replicated to followers, so it is lost on a broker restart and on a failover. Persisting it is planned as follow-up work. Outbound state, a delivery awaiting PUBREC or PUBCOMP, survives a reconnect but not a broker restart; a delivery already past PUBREC is gone with it, and since MQTT 3.1.1 §4.4 has a client re-send only PUBLISH and PUBREL, never PUBREC, that subscriber's packet ID stays outstanding for the life of the session. Inbound state, the packet IDs of QoS 2 publishes awaiting PUBREL, survives a reconnect only for a client that has a session, which means one that has subscribed at least once; for a publish-only client it is discarded on every disconnect. Whenever that state is gone, a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
+- A subscriber that answers PUBREC and never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
 - Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full handshake when replayed to a QoS 2 subscriber.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
