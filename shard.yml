@@ -35,6 +35,9 @@ dependencies:
     github: 84codes/lz4.cr
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
+    # Pinned to the PUBCOMP reserved-flag fix on fix/pubcomp-reserved-flags.
+    # Replace with a version constraint once that is released.
+    commit: 935a1bcb341a4794c5f25c3507a3329350e0dc4a
 
 development_dependencies:
   ameba:
