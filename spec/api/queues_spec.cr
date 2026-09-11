@@ -53,6 +53,21 @@ describe LavinMQ::HTTP::QueuesController do
         response.status_code.should eq 400
       end
     end
+
+    it "should keep total_count unfiltered when filtering on state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?page=1&state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["total_count"].should eq 2
+        body["filtered_count"].should eq 1
+        body["items"].as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
   end
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
@@ -65,7 +80,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should only return queues in the given state" do
+    it "should only return queues in the given state for a vhost" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("q_running", false, false)

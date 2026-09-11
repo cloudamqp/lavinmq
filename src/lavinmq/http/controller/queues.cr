@@ -31,15 +31,13 @@ module LavinMQ
         get "/api/queues" do |context, _|
           vhosts = vhosts(user(context))
           itr = vhosts.flat_map(&.queues) + vhosts.flat_map(&.sessions)
-          itr = filter_by_state(context, itr)
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            queues = filter_by_state(context, vhost.queues + vhost.sessions)
-            page(context, queues)
+            page(context, vhost.queues + vhost.sessions)
           end
         end
 
@@ -287,14 +285,6 @@ module LavinMQ
             bad_request(context, e.message)
           end
         end
-      end
-
-      private def filter_by_state(context, queues)
-        return queues unless param = context.request.query_params["state"]?
-        states = param.split(',').map do |s|
-          QueueState.parse?(s) || bad_request(context, "Invalid queue state '#{s}'")
-        end
-        queues.select { |q| states.includes?(q.state) }
       end
 
       private def encode_body(message, truncate, encoding, io) : String
