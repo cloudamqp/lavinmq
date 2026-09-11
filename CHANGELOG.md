@@ -23,7 +23,7 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391), [#2417](https://github.com/cloudamqp/lavinmq/pull/2417)
 - Statically linked Linux binaries (amd64, arm64) attached to each GitHub release [#2478](https://github.com/cloudamqp/lavinmq/pull/2478)
 - A refresh control in the management UI header. It pauses and resumes auto-refresh, including the live log, sets the refresh rate to 5, 10, 30 or 60 seconds, and shows when the UI cannot reach the server, with the time of the last update and the last error in its tooltip. A ring around the pause button fills up until the next refresh [#2389](https://github.com/cloudamqp/lavinmq/pull/2389), [#2390](https://github.com/cloudamqp/lavinmq/pull/2390), [#2391](https://github.com/cloudamqp/lavinmq/pull/2391)
-- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it does not survive a broker restart
+- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it survives neither a broker restart nor a failover; persisting it is planned as follow-up work
 
 ### Changed
 
@@ -85,6 +85,8 @@ This release adds the `x-mqtt-topic` exchange type, automatic retries with backo
 - Built with Crystal 1.22.0, LavinMQ could crash with a segfault in clustering, when the etcd lease keepalive waited for a reply [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, the HTTP API answered `400 Request body required` to a POST or PUT without a body, e.g. `PUT /api/queues/vhost/name` [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
 - Built with Crystal 1.22.0, LavinMQ enabled kTLS on every TLS connection, also when `tls_ktls` was off [#2440](https://github.com/cloudamqp/lavinmq/pull/2440)
+- An MQTT session no longer sends packet ID 0, which MQTT 3.1.1 forbids, once it has handed out 65535 packet IDs [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
+- When an MQTT delivery fails after the client has reconnected, the connection the delivery was written to is closed rather than the new one [#2236](https://github.com/cloudamqp/lavinmq/pull/2236)
 - An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will
 
 ## [2.10.2] - 2026-10-07
