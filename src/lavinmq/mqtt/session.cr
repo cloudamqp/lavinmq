@@ -365,6 +365,10 @@ module LavinMQ
         closed? ? QueueState::Closed : QueueState::Running
       end
 
+      def state_match?(states : Array(QueueState)) : Bool
+        states.includes?(state)
+      end
+
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
         @log.info { "Purged #{count} messages" }
