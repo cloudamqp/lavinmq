@@ -16,6 +16,11 @@ module LavinMQ
     class Session
       class ClosedError < MQTT::Error; end
 
+      # A known packet id acknowledged with the wrong packet type. The client
+      # must be disconnected [MQTT-4.8.0-1]; an unknown id is not this, because
+      # the window does not survive a restart.
+      class ProtocolViolation < MQTT::Error; end
+
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
@@ -23,6 +28,17 @@ module LavinMQ
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
       EFFECTIVE_ARGS = {"x-queue-type"}
+
+      # A packet id handed to the client and not yet settled. `sp` is nil only
+      # for a QoS 2 id past PUBREC, where the message is gone and the id is held
+      # for the PUBREL/PUBCOMP exchange alone.
+      struct Inflight
+        getter qos : UInt8
+        getter sp : SegmentPosition?
+
+        def initialize(@qos : UInt8, @sp : SegmentPosition?)
+        end
+      end
 
       getter name : String
       getter vhost : VHost
@@ -44,7 +60,7 @@ module LavinMQ
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
-        @unacked = Hash(UInt16, SegmentPosition).new
+        @unacked = Hash(UInt16, Inflight).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
         data_dir = File.join(
@@ -108,8 +124,10 @@ module LavinMQ
         delivered_bytes = 0_i32
         loop do
           break if closed?
-          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          # Above every `next`: `loop` is inlined, so a raise from a guard below
+          # would leave the rescue holding the previous iteration's connection.
           client = @client
+          next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @has_client.when_true.receive? if client.nil?
           next @has_capacity.when_true.receive? unless @has_capacity.value
           get_packet do |pub_packet, bytesize|
@@ -122,8 +140,11 @@ module LavinMQ
           end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @client.try &.close("Server force closed client")
-          self.client = nil
+          # Sending yields, so a write can fail after the session was
+          # reattached. Close the connection it was written to, not whichever
+          # happens to be current.
+          client.try &.close("Server force closed client")
+          self.client = nil if @client == client
         end
       end
 
@@ -148,22 +169,38 @@ module LavinMQ
         @has_capacity.swap(@unacked.size < Config.instance.max_inflight_messages)
       end
 
+      # Whether `id` still names this exact delivery. Sending yields, so
+      # `client=`, `ack` or `pubrec` can have moved it in the meantime.
+      private def booked?(id : UInt16, sp : SegmentPosition) : Bool
+        @unacked[id]?.try(&.sp) == sp
+      end
+
       def client : MQTT::Client?
         @client
       end
 
+      # `Client#close` usually joins the read fiber before `Broker#add_client`
+      # reaches this, so an `ack`/`pubrec` is rarely in flight while `@unacked`
+      # is walked - but a second `close` returns without waiting, so it can be.
       def client=(client : MQTT::Client?)
         return if closed?
         @last_get_time = RoughTime.instant
+
+        # Ids past PUBREC, which owe a PUBREL rather than a message.
+        pubcomp_pending = Array(UInt16).new
 
         # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
         # persistent one requeues what it owes and remembers the packet ids, to
         # resend under the ids the client already knows [MQTT-4.4.0-1].
         unless clean_session?
           @msg_store_lock.synchronize do
-            @unacked.each do |packet_id, sp|
-              @msg_store.remember_packet_id(sp, packet_id)
-              @msg_store.requeue(sp)
+            @unacked.each do |packet_id, inflight|
+              if sp = inflight.sp
+                @msg_store.remember_packet_id(sp, packet_id)
+                @msg_store.requeue(sp)
+              else
+                pubcomp_pending << packet_id
+              end
             end
           end
         end
@@ -171,9 +208,21 @@ module LavinMQ
         @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
+
+        # Re-booked even when detaching: doing it only for an attached client
+        # would drop the obligation on the disconnect it exists to survive.
+        pubcomp_pending.each { |id| @unacked[id] = Inflight.new(2u8, nil) }
         refresh_capacity
 
+        # Assigned before the writes below, which yield: `Session#publish`
+        # drops a QoS 0 message while it is nil.
         @client = client
+        if client
+          @log.info { "resending #{pubcomp_pending.size} PUBREL" } unless pubcomp_pending.empty?
+          # Before `@has_client` opens the gate, so these tend to precede the
+          # replayed PUBLISHes. [MQTT-4.4.0-1] does not order the two kinds.
+          pubcomp_pending.each { |id| send_pubrel(id, client) }
+        end
         @has_client.set(!client.nil?)
 
         @log.debug { "client set to '#{client.try &.name}'" }
@@ -226,53 +275,14 @@ module LavinMQ
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
-          no_ack = env.message.properties.delivery_mode == 0
-          if no_ack
-            begin
-              packet = build_packet(env, nil)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              raise ex
-            end
-            delete_message(sp)
+          # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
+          # id would leak the slot. Nothing produces a nil today.
+          delivery_mode = env.message.properties.delivery_mode
+          if delivery_mode.nil? || delivery_mode.zero?
+            deliver_no_ack(env, sp) { |packet, bytesize| yield packet, bytesize }
           else
-            begin
-              id = delivery_id(sp)
-              unless id
-                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                # Without this the deliver_loop spins: the store is non-empty and
-                # capacity still reads true. Recomputed rather than closed
-                # outright, since an ack can free a slot while the requeue above
-                # waits on a contended @msg_store_lock.
-                refresh_capacity
-                return false
-              end
-              packet = build_packet(env, id)
-              @unacked_count.add(1, :relaxed)
-              @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
-              @unacked[id] = sp
-              @msg_store.forget_packet_id(sp)
-              refresh_capacity
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
-              raise ex
-            end
+            delivered = deliver_acked(env, sp) { |packet, bytesize| yield packet, bytesize }
+            return false unless delivered
           end
           return true
         end
@@ -283,11 +293,84 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
+      private def deliver_no_ack(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Nil
+        begin
+          yield build_packet(env, nil), sp.bytesize
+          if env.redelivered
+            @redeliver_count.add(1, :relaxed)
+          else
+            @deliver_no_ack_count.add(1, :relaxed)
+            @deliver_get_count.add(1, :relaxed)
+          end
+        rescue ex # requeue failed delivery
+          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          raise ex
+        end
+        delete_message(sp)
+      end
+
+      # False when no packet id was available, which leaves the message
+      # requeued for the next attempt.
+      private def deliver_acked(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Bool
+        id = delivery_id(sp)
+        unless id
+          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          # Without this the deliver_loop spins: the store is non-empty and
+          # capacity still reads true. Recomputed rather than closed
+          # outright, since an ack can free a slot while the requeue above
+          # waits on a contended @msg_store_lock.
+          refresh_capacity
+          return false
+        end
+        # Raises before anything is booked, which the rescue below would not
+        # roll back. Unreachable today, but being wrong loses the message.
+        packet = begin
+          build_packet(env, id)
+        rescue ex
+          @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          raise ex
+        end
+        begin
+          # Booked before the send, which yields: the client can acknowledge
+          # before we return, and an acknowledgement finding no entry is either
+          # fatal (`ack`) or silently dropped (`pubrec`).
+          @unacked[id] = Inflight.new(packet.qos, sp)
+          @unacked_count.add(1, :relaxed)
+          @unacked_bytesize.add(sp.bytesize, :relaxed)
+          yield packet, sp.bytesize
+          if env.redelivered
+            @redeliver_count.add(1, :relaxed)
+          else
+            @deliver_count.add(1, :relaxed)
+            @deliver_get_count.add(1, :relaxed)
+          end
+          # `client=` may have requeued `sp` and remembered `id` during the
+          # send; forgetting then costs the redelivery its id [MQTT-4.4.0-1].
+          @msg_store.forget_packet_id(sp) if booked?(id, sp)
+          refresh_capacity
+        rescue ex # requeue failed delivery
+          # Roll back only what is still ours: requeueing an entry `client=`
+          # already requeued hands the message out twice.
+          if booked?(id, sp)
+            @unacked.delete(id)
+            # Before the lock, which can park: `client=` zeroes both counters,
+            # and a `sub` after that wraps an unsigned atomic.
+            @unacked_count.sub(1, :relaxed)
+            @unacked_bytesize.sub(sp.bytesize, :relaxed)
+            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+          end
+          raise ex
+        end
+        true
+      end
+
       def build_packet(env, packet_id) : Protocol::Publish
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
-        qos = 1u8 if qos > 1
+        # `delivery_mode` is read off disk unvalidated and `Publish.new` raises
+        # above QoS 2, which would make one bad byte a poison message.
+        qos = 2u8 if qos > 2
         dup = qos.zero? ? false : env.redelivered
         Protocol::Publish.new(
           packet_id: packet_id,
@@ -322,26 +405,100 @@ module LavinMQ
 
       def ack(packet : Protocol::PubAck) : Nil
         id = packet.packet_id
-        if sp = @unacked.delete(id)
-          begin
-            @ack_count.add(1, :relaxed)
-            @unacked_count.sub(1, :relaxed)
-            @unacked_bytesize.sub(sp.bytesize, :relaxed)
-            delete_message(sp)
-          rescue ex
-            raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
-          ensure
-            refresh_capacity
-          end
-        else
-          raise ::IO::Error.new("No message inflight for id '#{id}'")
+        inflight = @unacked[id]?
+        raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
+        sp = inflight.sp
+        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2], so a PUBACK for
+        # one is a protocol violation. Checked before the delete, so it cannot
+        # drop an obligation the session still owes.
+        if sp.nil? || inflight.qos != 1u8
+          raise ProtocolViolation.new("PUBACK for packet id '#{id}', which is awaiting a QoS 2 acknowledgement")
+        end
+        @unacked.delete(id)
+        begin
+          @ack_count.add(1, :relaxed)
+          @unacked_count.sub(1, :relaxed)
+          @unacked_bytesize.sub(sp.bytesize, :relaxed)
+          delete_message(sp)
+        rescue ex
+          raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
+        ensure
+          refresh_capacity
         end
       end
 
+      # The receiver owns the message from PUBREC on [MQTT-4.3.3-1], so it is
+      # deleted here, not at PUBCOMP; the id stays booked until then.
+      #
+      # Returns rather than raises for an unknown id: nothing in the window
+      # survives a restart, so a client resuming across one always brings ids we
+      # have never seen, and raising would publish its will.
+      def pubrec(packet : Protocol::PubRec) : Bool
+        id = packet.packet_id
+        unless inflight = @unacked[id]?
+          @log.warn { "PUBREC for unknown packet id '#{id}'" }
+          return false
+        end
+        unless sp = inflight.sp
+          # A repeat of a PUBREC we already answered, so our PUBREL was lost.
+          # Answering again is the only way the client can release the id.
+          send_pubrel(id)
+          return false
+        end
+        unless inflight.qos == 2u8
+          raise ProtocolViolation.new("PUBREC for QoS #{inflight.qos} packet id '#{id}'")
+        end
+        # Before the send: a failed write still leaves the correct state, and
+        # `client=` re-sends the PUBREL.
+        @unacked[id] = Inflight.new(2u8, nil)
+        @ack_count.add(1, :relaxed)
+        @unacked_count.sub(1, :relaxed)
+        @unacked_bytesize.sub(sp.bytesize, :relaxed)
+        delete_message(sp)
+        send_pubrel(id)
+        # No `refresh_capacity`: the id is still booked, so the window is
+        # unchanged.
+        true
+      end
+
+      def pubcomp(packet : Protocol::PubComp) : Bool
+        id = packet.packet_id
+        unless inflight = @unacked[id]?
+          @log.warn { "PUBCOMP for unknown packet id '#{id}'" }
+          return false
+        end
+        unless inflight.sp.nil?
+          raise ProtocolViolation.new("PUBCOMP for packet id '#{id}' that has not been PUBRECed")
+        end
+        @unacked.delete(id)
+        # Load-bearing: for a window full of ids awaiting PUBCOMP, this is the
+        # only event that can reopen the capacity gate.
+        refresh_capacity
+        true
+      end
+
+      # Errors are swallowed: the id stays booked either way, so the next
+      # attach re-sends it [MQTT-4.4.0-1].
+      private def send_pubrel(id : UInt16, client : MQTT::Client? = nil) : Bool
+        client ||= @client
+        return false if client.nil?
+        client.send(Protocol::PubRel.new(id))
+        true
+      rescue ex
+        @log.debug { "Failed to send PUBREL for id '#{id}': #{ex.message}" }
+        false
+      end
+
       private def next_id : UInt16?
-        return if @unacked.size == Config.instance.max_inflight_messages
+        # `>=` not `==`: the limit is mutable at runtime, so the window can
+        # already be over it.
+        return if @unacked.size >= Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
+        # `@count` at 65535 wraps this to 0, which the loop below never
+        # corrects because 0 is never booked. Packet id 0 is illegal
+        # [MQTT-2.3.1-1].
+        next_id = 1u16 if next_id == 0
         while @unacked.has_key?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0

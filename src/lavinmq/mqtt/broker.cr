@@ -30,6 +30,37 @@ module LavinMQ
         @exchange = @vhost.mqtt_exchange
       end
 
+      # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released,
+      # per client_id. Holding the id is the whole of the guarantee: a re-sent
+      # PUBLISH carrying one is answered again and not routed twice
+      # [MQTT-4.3.3-1].
+      #
+      # Not on `Session`, which a publish-only client never gets, and not on
+      # `Client`, which would forget it on the reconnect it exists to survive.
+      @qos2_received = Hash(String, Set(UInt16)).new
+
+      # Records `packet_id`, returning false if it was already held, i.e. this
+      # PUBLISH is a re-send of one already routed.
+      #
+      # Uncapped on purpose: ids are `UInt16` so one client holds at most 65535,
+      # and rejecting past a cap would have to raise, which publishes the will.
+      def qos2_publish_received?(client_id : String, packet_id : UInt16) : Bool
+        ids = @qos2_received[client_id] ||= Set(UInt16).new
+        ids.add?(packet_id)
+      end
+
+      # Releases `packet_id` on PUBREL. False if we were not holding it.
+      def qos2_release(client_id : String, packet_id : UInt16) : Bool
+        ids = @qos2_received[client_id]? || return false
+        released = ids.delete(packet_id)
+        @qos2_received.delete(client_id) if ids.empty?
+        released
+      end
+
+      private def forget_qos2(client_id : String) : Nil
+        @qos2_received.delete(client_id)
+      end
+
       def session_present?(client_id : String, clean_session) : Bool
         return false if clean_session
         session = sessions[client_id]? || return false
@@ -62,6 +93,8 @@ module LavinMQ
           packet.will)
         if client.clean_session?
           sessions[client.client_id]?.try &.delete
+          # A clean session starts with no state at all [MQTT-3.1.2-6].
+          forget_qos2(client.client_id)
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
@@ -87,8 +120,20 @@ module LavinMQ
         if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
-            session.delete if session.clean_session?
+            if session.clean_session?
+              session.delete
+              forget_qos2(client_id)
+            end
           end
+        else
+          # Nothing to resume into, and the next CONNECT is answered
+          # session_present=false. A client with a session keeps its ids
+          # instead, because they have to outlive the connection to dedupe a
+          # re-send; those entries are bounded by the session count, and
+          # `qos2_release` drops the set as soon as it empties. Guarded like
+          # the line below: a displaced connection's ensure runs after its
+          # replacement is installed.
+          forget_qos2(client_id) if @clients[client_id]? == client
         end
         @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)
@@ -107,7 +152,8 @@ module LavinMQ
         end
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          qos = tf.qos.zero? ? 0u8 : 1u8 # downgrade to 1 if > 1
+          # `Subscribe.from_io` has already rejected anything above 2.
+          qos = tf.qos
           session.subscribe(tf.topic, qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|

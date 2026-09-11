@@ -112,6 +112,12 @@ module LavinMQ
             break
           end
         end
+      rescue ex : Session::ProtocolViolation
+        # The Will publishes from here as it does on every other close without a
+        # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
+        # error as one of those situations.
+        @log.warn { "Protocol violation: #{ex.message}" }
+        publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
@@ -149,6 +155,9 @@ module LavinMQ
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::PubRec      then recieve_pubrec(packet)
+        when Protocol::PubRel      then recieve_pubrel(packet)
+        when Protocol::PubComp     then recieve_pubcomp(packet)
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
@@ -173,7 +182,7 @@ module LavinMQ
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when Protocol::PubAck
+        when Protocol::PubAck, Protocol::PubRec
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
@@ -188,12 +197,61 @@ module LavinMQ
           close_socket
           return
         end
+        packet_id = packet.packet_id
+        if packet.qos == 2 && packet_id
+          # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by
+          # id alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
+          if @broker.qos2_publish_received?(@client_id, packet_id)
+            begin
+              @broker.publish(packet)
+            rescue ex
+              # An id left behind by a routing failure would dedupe away the
+              # client's re-send, turning a duplicate into silent loss.
+              @broker.qos2_release(@client_id, packet_id)
+              raise ex
+            end
+            vhost.event_tick(EventType::ClientPublish)
+          end
+          # Answered on both paths: a re-send means our first PUBREC was lost.
+          send(Protocol::PubRec.new(packet_id))
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
-        if packet.qos > 0 && (packet_id = packet.packet_id)
+        if packet.qos > 0 && packet_id
           send(Protocol::PubAck.new(packet_id))
         end
+      end
+
+      # Without a session there is nothing these can refer to. Dropped rather
+      # than closed, unlike `recieve_puback` below, whose `close_socket` also
+      # publishes the will - see `Session#pubrec`.
+      def recieve_pubrec(packet : Protocol::PubRec)
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubRec from client without a session" }
+          return
+        end
+        vhost.event_tick(EventType::ClientAck) if session.pubrec(packet)
+      end
+
+      def recieve_pubcomp(packet : Protocol::PubComp)
+        unless session = @broker.sessions[@client_id]?
+          @log.warn { "Received PubComp from client without a session" }
+          return
+        end
+        session.pubcomp(packet)
+      end
+
+      def recieve_pubrel(packet : Protocol::PubRel)
+        id = packet.packet_id
+        unless @broker.qos2_release(@client_id, id)
+          # PUBCOMP is the only answer that lets the client release the id, and
+          # an unknown id is ordinary: the held ids do not survive a restart, so
+          # raising would publish the will of every resuming QoS 2 publisher.
+          @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
+        end
+        send(Protocol::PubComp.new(id))
       end
 
       def recieve_puback(packet : Protocol::PubAck)

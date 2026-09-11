@@ -31,7 +31,8 @@ module LavinMQ
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos, _filter|
-          msg.properties.delivery_mode = qos
+          # The lower of the publish and the subscription QoS [MQTT-3.3.5-1].
+          msg.properties.delivery_mode = Math.min(packet.qos, qos)
           if queue.publish(msg)
             count += 1
             msg.body_io.rewind
