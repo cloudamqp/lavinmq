@@ -22,7 +22,7 @@ module MqttSpecs
       end
     end
 
-    it "grants a QoS 2 subscription bound from outside the MQTT protocol as QoS 1" do
+    it "grants a QoS 2 subscription bound from outside the MQTT protocol as QoS 2" do
       with_server do |server|
         vhost = server.vhosts["/"]
         exchange = vhost.mqtt_exchange
@@ -35,8 +35,8 @@ module MqttSpecs
           LavinMQ::AMQP::Table.new({LavinMQ::MQTT::QOS_HEADER => 2}))
 
         binding = exchange.bindings_details.first
-        binding.binding_key.qos.should eq 1u8
-        binding.arguments.should eq LavinMQ::MQTT::QOS1_ARGUMENTS
+        binding.binding_key.qos.should eq 2u8
+        binding.arguments.should eq LavinMQ::MQTT::QOS2_ARGUMENTS
 
         # bind and unbind must read the QoS the same way, or the unbind wouldn't
         # match the binding it's meant to remove
