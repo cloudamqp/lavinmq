@@ -4,12 +4,9 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  # Subscribes `io` at QoS 2, has a throwaway connection publish one message
-  # through the full receiver-side handshake, and returns the PUBLISH `io` was
-  # delivered - not yet acknowledged, so the session still owes it.
-  #
-  # Module level rather than beside a `describe`: a `def self.` inside a
-  # `describe` block raises "can't declare def dynamically".
+  # Returns the PUBLISH `io` was delivered, unacknowledged, so the session still
+  # owes it. Module level because a `def self.` inside a `describe` raises
+  # "can't declare def dynamically".
   def self.deliver_qos2(server, io, payload = "1", topic = "a/b")
     subscribe(io, topic_filters: mk_topic_filters({topic, 2u8}))
     with_client_io(server) do |pub_io|
@@ -70,8 +67,7 @@ module MqttSpecs
 
           with_client_io(server) do |io|
             connect(io, client_id: "publisher")
-            # The same packet id twice, never released by a PUBREL. Both are
-            # answered with PUBREC, only the first is delivered onward.
+            # Same id twice, never released: both get a PUBREC, one is routed.
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, dup: true)
             disconnect(io)
@@ -124,14 +120,44 @@ module MqttSpecs
       end
     end
 
+    it "lets a publisher pipeline more QoS 2 publishes than the outbound window" do
+      # `max_inflight_messages` is the server's outbound window and says nothing
+      # about how many ids a publisher may hold.
+      LavinMQ::Config.instance.max_inflight_messages = 1u16
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "subscriber")
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "publisher")
+            # Three unreleased ids at once, three times the window.
+            3.times do |i|
+              publish(io, topic: "a/b", payload: i.to_s.to_slice, qos: 2u8,
+                packet_id: (i + 1).to_u16, expect_response: false)
+            end
+            3.times { read_packet(io).should be_a(MQTT::Protocol::PubRec) }
+            3.times { |i| pubrel(io, (i + 1).to_u16) }
+            3.times { read_packet(io).should be_a(MQTT::Protocol::PubComp) }
+            disconnect(io)
+          end
+
+          3.times { |i| String.new(read_publish(sub_io).payload).should eq i.to_s }
+
+          disconnect(sub_io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
+
     it "keeps inbound QoS 2 state across a persistent reconnect [MQTT-4.4.0-1]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
           subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
 
-          # A persistent session that subscribes, so it survives the disconnect
-          # below and can still be resumed.
+          # Subscribes, so the session survives the disconnect below.
           with_client_io(server) do |io|
             connect(io, client_id: "publisher", clean_session: false)
             subscribe(io, topic_filters: mk_topic_filters({"unused", 0u8}))
@@ -167,8 +193,8 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
           end
 
-          # A clean CONNECT discards the held id, so the re-send is a new message
-          # and is delivered a second time. The mirror of the spec above.
+          # A clean CONNECT discards the held id, so the re-send is routed
+          # again. The mirror of the spec above.
           with_client_io(server) do |io|
             connect(io, client_id: "publisher", clean_session: true)
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, dup: true)
@@ -279,10 +305,9 @@ module MqttSpecs
           publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
           pubrel(io, 7u16)
 
-          # Read the PUBCOMP as bytes rather than a packet: only PUBREL,
-          # SUBSCRIBE and UNSUBSCRIBE carry 0b0010 in the low nibble, and a
-          # client seeing reserved bits set must drop the connection
-          # [MQTT-2.2.2-2].
+          # Read as bytes, not as a packet: only PUBREL, SUBSCRIBE and
+          # UNSUBSCRIBE carry 0b0010. [MQTT-2.2.2-2] requires a receiver to
+          # close on bad reserved bits, though mosquitto does not enforce it.
           io.read_byte.should eq 0x70u8
           io.read_byte.should eq 2u8
           io.read_int.should eq 7u16
@@ -302,15 +327,102 @@ module MqttSpecs
           pubrec(io, id)
           read_packet(io).should be_a(MQTT::Protocol::PubRel)
 
-          # Hand-built rather than via `pubcomp`, so this asserts on the bytes a
-          # real client sends rather than on whatever the shard happens to
-          # encode. A broker that rejects 0x70 answers a protocol error here,
-          # which publishes the will and closes the socket.
+          # Hand-built, not via `pubcomp`: this must assert on the bytes a real
+          # client sends, not on whatever the shard encodes.
           io.write_bytes_raw(Bytes[0x70u8, 0x02u8, (id >> 8).to_u8, (id & 0xff).to_u8])
           io.should be_drained
 
           session = server.vhosts["/"].session("mqtt.subscriber")
           wait_for { session.@unacked.empty? }
+
+          disconnect(io)
+        end
+      end
+    end
+
+    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK [MQTT-4.8.0-1]" do
+      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2], so a PUBACK for one
+      # is a protocol violation, and a violation must close the connection.
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          pub = deliver_qos2(server, io)
+
+          puback(io, pub.packet_id.not_nil!)
+          io.should be_closed
+        end
+      end
+    end
+
+    it "publishes the will when it closes on a mismatched acknowledgement [MQTT-3.1.2-8]" do
+      # 3.1.2.5 lists "the Server closes the Network Connection because of a
+      # protocol error" among the situations in which the Will is published, so
+      # closing here is not a reason to withhold it.
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "will-watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"w/t", 0u8}))
+
+          with_client_io(server) do |io|
+            will = MQTT::Protocol::Will.new(
+              topic: "w/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+            connect(io, client_id: "subscriber", will: will)
+            pub = deliver_qos2(server, io)
+            puback(io, pub.packet_id.not_nil!)
+            io.should be_closed
+          end
+
+          read_publish(watcher).payload.should eq "dead".to_slice
+
+          disconnect(watcher)
+        end
+      end
+    end
+
+    it "closes a subscriber that answers a QoS 1 delivery with PUBREC [MQTT-4.8.0-1]" do
+      # The mirror of the PUBACK case: a QoS 1 delivery is settled by PUBACK.
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 1u16)
+            disconnect(pub_io)
+          end
+
+          pubrec(io, read_publish(io).packet_id.not_nil!)
+          io.should be_closed
+        end
+      end
+    end
+
+    it "closes a subscriber that sends PUBCOMP before PUBREC [MQTT-4.8.0-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          pub = deliver_qos2(server, io)
+
+          # The id is booked, but still owes a PUBREC first.
+          pubcomp(io, pub.packet_id.not_nil!)
+          io.should be_closed
+        end
+      end
+    end
+
+    it "does not close on an acknowledgement for an id it never issued" do
+      # The window does not survive a broker restart, so a resuming client
+      # legitimately arrives with ids we have never seen. Unlike the wrong-type
+      # case above, that is our limitation rather than the client's error.
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+
+          pubrec(io, 4242u16)
+          pubcomp(io, 4243u16)
+          io.should be_drained
 
           disconnect(io)
         end
