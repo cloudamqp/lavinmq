@@ -248,6 +248,57 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  describe "deliver loop scheduling" do
+    it "yields to other fibers after yield_each_delivered_bytes during a replay" do
+      config = LavinMQ::Config.instance
+      original = config.yield_each_delivered_bytes
+      config.yield_each_delivered_bytes = 4096
+      msg_count = 150
+      body = Bytes.new(512)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("stream-yield-bytes", args: stream_queue_args)
+          msg_count.times { q.publish_confirm body }
+          stream = s.vhosts["/"].queue("stream-yield-bytes").as(LavinMQ::AMQP::Stream)
+
+          # Sample the consumer's offset every time this fiber gets scheduled.
+          # It can only observe an offset in the middle of the replay if the
+          # deliver loop yields before it has pushed every message.
+          observed = Array(Int64).new
+          done = false
+          spawn(name: "offset sampler") do
+            until done
+              if consumer = stream.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer)
+                observed << consumer.offset
+              end
+              Fiber.yield
+            end
+          end
+
+          ch.prefetch 1000
+          all_received = Channel(Nil).new
+          first_offset = 0_i64
+          last_offset = 0_i64
+          received = 0
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            offset = StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+            first_offset = offset if received.zero?
+            last_offset = offset
+            msg.ack
+            received += 1
+            all_received.send(nil) if received == msg_count
+          end
+          all_received.receive
+          done = true
+
+          observed.any? { |o| first_offset < o < last_offset }.should be_true
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!
+    end
+  end
+
   describe "x-stream-offset negative integer" do
     it "delivers the last N messages" do
       with_amqp_server do |s|
