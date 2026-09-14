@@ -79,7 +79,7 @@ The switch itself happens on the next delivery, not inside the outcome that aske
 
 ## Source Acknowledgments
 
-Source messages are acked in batches for throughput: the shovel sends one cumulative ack (`multiple: true`) once half the prefetch window has been settled, or after a timeout of 3 seconds, whichever comes first. A cumulative ack only ever covers tags whose delivery has actually been settled (confirmed, or rejected). If a destination confirms out of order — RabbitMQ may confirm message 3 before message 2 — the ack stops at the lowest unconfirmed tag and the higher ones wait until the gap closes. Rejects (requeue or dead-letter) are sent individually and at once.
+Source messages are acked in batches for throughput: the shovel sends one cumulative ack (`multiple: true`) once half the prefetch window has been settled, or after a timeout of 3 seconds, whichever comes first. A cumulative ack only ever covers tags whose delivery has actually been settled (confirmed, or rejected), and it names the highest *confirmed* tag in that range, never a rejected one: a reject has already settled its tag at the broker, and a cumulative ack for a tag the broker no longer holds is a channel error. If a destination confirms out of order — RabbitMQ may confirm message 3 before message 2 — the ack stops at the lowest unconfirmed tag and the higher ones wait until the gap closes. Rejects (requeue or dead-letter) are sent individually and at once.
 
 Pause, terminate and abort flush the pending batch before closing the source connection. A message in flight at that moment is not acked; it stays on the source and is redelivered on the next run, so the shovel is at-least-once.
 

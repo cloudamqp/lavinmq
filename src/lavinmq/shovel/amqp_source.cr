@@ -16,9 +16,18 @@ module LavinMQ
       # (cumulatively). A tag settled out of order — a destination that confirms
       # 3 before 2 — waits in @settled_above until the gap below it closes; a
       # cumulative ack must never cover a tag whose delivery is still pending.
+      #
+      # A reject settles its tag at the broker by itself, so the cumulative ack
+      # names @ack_frontier, the highest *acked* tag at or below @frontier,
+      # never a rejected one: the broker only accepts a cumulative ack for a tag
+      # it still holds, and answers 406 "unknown delivery tag" — closing the
+      # channel — for one it has already settled. Acks settled out of order
+      # wait in @acked_above until the frontier reaches them.
       @frontier = 0_u64
+      @ack_frontier = 0_u64
       @flushed = 0_u64
       @settled_above = Set(UInt64).new
+      @acked_above = Set(UInt64).new
       # Messages handed to the Runner and not yet settled either way, and the
       # total handed over, for the drain check in queue-length mode.
       @in_flight = 0_u32
@@ -84,9 +93,9 @@ module LavinMQ
         @ch = nil
       end
 
-      # The highest settled tag not yet acked to the broker, if any.
+      # The highest acked tag not yet acked to the broker, if any.
       def pending_ack : UInt64?
-        @frontier if @frontier > @flushed
+        @ack_frontier if @ack_frontier > @flushed
       end
 
       # Records one message settled for good. Returns true when it was the last
@@ -119,7 +128,7 @@ module LavinMQ
         ch = @ch
         return unless ch
         return if ch.closed?
-        settle_tag(delivery_tag)
+        settle_tag(delivery_tag, acked: true)
         final = settle_one
         # We batch ack for faster shovel
         if !batch || @frontier - @flushed >= ack_batch_size || final
@@ -128,27 +137,30 @@ module LavinMQ
         end
       end
 
-      # Marks `delivery_tag` settled at the broker (acked or rejected) and moves
-      # the frontier over it, and over any tags settled earlier that were
-      # waiting for it.
-      private def settle_tag(delivery_tag)
+      # Marks `delivery_tag` settled (acked or rejected) and moves the frontier
+      # over it, and over any tags settled earlier that were waiting for it.
+      # The ack frontier follows, stopping at the highest acked tag.
+      private def settle_tag(delivery_tag, acked = false)
         @in_flight -= 1 unless @in_flight.zero?
         if delivery_tag == @frontier + 1
           @frontier = delivery_tag
+          @ack_frontier = delivery_tag if acked
           while @settled_above.delete(@frontier + 1)
             @frontier += 1
+            @ack_frontier = @frontier if @acked_above.delete(@frontier)
           end
         elsif delivery_tag > @frontier
           @settled_above << delivery_tag
+          @acked_above << delivery_tag if acked
         end
       end
 
-      # Ack everything settled so far in one cumulative ack. A flush, not a
+      # Ack everything acked so far in one cumulative ack. A flush, not a
       # settlement: each tag was counted when its ack or reject came in.
       private def flush_ack(ch)
-        return if @frontier <= @flushed
-        ch.basic_ack(@frontier, multiple: true)
-        @flushed = @frontier
+        tag = pending_ack || return
+        ch.basic_ack(tag, multiple: true)
+        @flushed = tag
       end
 
       # Return a single message to the source. A reject settles its tag at the
@@ -218,8 +230,9 @@ module LavinMQ
         # run counts against the snapshot just taken, not the previous one's.
         @settle.synchronize do
           @q = q
-          @frontier = @flushed = 0_u64
+          @frontier = @ack_frontier = @flushed = 0_u64
           @settled_above.clear
+          @acked_above.clear
           @in_flight = 0_u32
           @settled = 0_u32
         end

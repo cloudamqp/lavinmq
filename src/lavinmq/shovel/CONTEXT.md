@@ -17,7 +17,9 @@ AMQP queues (an exchange source is consumed through a temporary queue). The
 Source owns consume and settlement; it never decides *whether* a message
 succeeded. Acks are cumulative and batched behind a **settlement frontier**:
 the highest delivery tag below which everything is settled. Out-of-order
-confirms wait above it; a cumulative ack never covers an unsettled tag.
+confirms wait above it; a cumulative ack never covers an unsettled tag, and
+names the highest *acked* tag below the frontier, never a rejected one (the
+broker has already settled a rejected tag and refuses an ack for it).
 _Avoid_: origin, input, upstream.
 
 **Queue-length run**:
