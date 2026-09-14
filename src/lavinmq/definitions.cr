@@ -156,26 +156,25 @@ module LavinMQ
         # Validate every group before applying any: an invalid group later in
         # the file must not leave earlier groups live in memory while disk
         # stays on the old state.
-        parsed = Array({VHost, MQTT::PermissionGroup}).new
+        parsed = Hash(VHost, Array(MQTT::PermissionGroup)).new do |hash, vhost|
+          hash[vhost] = Array(MQTT::PermissionGroup).new
+        end
+        persisted = Hash(VHost, Bool).new
         groups.as_a.each do |g|
           next unless v = fetch_vhost?(g)
           service = v.mqtt_permission_service
+          has_permissions = persisted.fetch(v) do
+            persisted[v] = File.exists?(File.join(v.data_dir, "mqtt_permissions.json"))
+          end
           name = g["name"].as_s
-          next if skip_existing && !service.untouched? && service[name]?
+          next if skip_existing && has_permissions && service[name]?
           members = (m = g["members"]?) ? Array(String).from_json(m.to_json) : Array(String).new
           rules = (r = g["rules"]?) ? Array(MQTT::PermissionGroup::Rule).from_json(r.to_json) : Array(MQTT::PermissionGroup::Rule).new
-          parsed << {v, MQTT::PermissionGroup.new(name, v.name, members, rules).validate!}
+          parsed[v] << MQTT::PermissionGroup.new(name, v.name, members, rules).validate!
         end
-        touched = Set(VHost).new
-        parsed.each do |v, group|
-          service = v.mqtt_permission_service
-          # The definitions JSON decides the groups of a vhost nobody has configured
-          # yet, so the automatic allow-all default group must not stay next to them.
-          service.delete(MQTT::PermissionService::DEFAULT_GROUP, save: false) if service.untouched?
-          service.put(group, save: false)
-          touched << v
+        parsed.each do |v, imported|
+          v.mqtt_permission_service.import(imported, skip_existing)
         end
-        touched.each(&.mqtt_permission_service.save!)
       end
     end
 

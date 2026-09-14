@@ -56,20 +56,24 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  it "is untouched until the first change, and never after a load from disk" do
+  it "persists the groups on the first change" do
     with_data_dir do |data_dir|
       service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
-      service.untouched?.should be_true
+      path = File.join(data_dir, "mqtt_permissions.json")
+      File.exists?(path).should be_false
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      service.untouched?.should be_false
-      LavinMQ::MQTT::PermissionService.new("/", data_dir, nil).untouched?.should be_false
+      File.exists?(path).should be_true
+      reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      reloaded["g"]?.should_not be_nil
+      reloaded[LavinMQ::MQTT::PermissionService::DEFAULT_GROUP]?.should_not be_nil
     end
     with_data_dir do |data_dir|
       service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      path = File.join(data_dir, "mqtt_permissions.json")
       service.delete("nonexistent")
-      service.untouched?.should be_true
+      File.exists?(path).should be_false
       service.delete(LavinMQ::MQTT::PermissionService::DEFAULT_GROUP)
-      service.untouched?.should be_false
+      JSON.parse(File.read(path)).as_a.should be_empty
     end
   end
 
@@ -80,13 +84,64 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
+  it "does not activate a new grant when saving fails" do
+    with_data_dir do |data_dir|
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
+      path = File.join(data_dir, "mqtt_permissions.json")
+      original = File.read(path)
+      Dir.mkdir("#{path}.tmp")
+      expect_raises(LavinMQ::MQTT::PermissionService::SaveError) do
+        service.put(group("g", ["c1"], [rule("a/#", read: true, write: true)]))
+      end
+      service["g"]?.should be_nil
+      service.can_read?(ctx("c1"), "a/b").should be_false
+      service.can_write?(ctx("c1"), "a/b").should be_false
+      File.read(path).should eq original
+    end
+  end
+
+  it "keeps a deleted group's grants when saving the deletion fails" do
+    with_data_dir do |data_dir|
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
+      service.put(group("g", ["c1"], [rule("a/#", read: true, write: true)]))
+      path = File.join(data_dir, "mqtt_permissions.json")
+      original = File.read(path)
+      Dir.mkdir("#{path}.tmp")
+      expect_raises(LavinMQ::MQTT::PermissionService::SaveError) { service.delete("g") }
+      service["g"]?.should_not be_nil
+      service.can_read?(ctx("c1"), "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_true
+      File.read(path).should eq original
+    end
+  end
+
+  it "keeps concurrent group additions in memory and on disk" do
+    with_data_dir do |data_dir|
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
+      done = Channel(Exception?).new(10)
+      10.times do |i|
+        spawn do
+          service.put(group("g#{i}", ["c1"], [rule("a#{i}/#", read: true)]))
+          done.send(nil)
+        rescue ex
+          done.send(ex)
+        end
+      end
+      10.times { done.receive.should be_nil }
+      reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      [service, reloaded].each do |permissions|
+        permissions.size.should eq 10
+        10.times { |i| permissions.can_read?(ctx("c1"), "a#{i}/b").should be_true }
+      end
+    end
+  end
+
   it "keeps the automatic default group in memory only" do
     with_data_dir do |data_dir|
       LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
       File.exists?(File.join(data_dir, "mqtt_permissions.json")).should be_false
       # The next start creates it again, so an unchanged vhost stays open.
       again = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
-      again.untouched?.should be_true
       again.can_write?(ctx("c1"), "a/b").should be_true
     end
   end

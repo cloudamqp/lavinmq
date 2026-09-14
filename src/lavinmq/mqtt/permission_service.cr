@@ -15,6 +15,11 @@ module LavinMQ
 
       DEFAULT_GROUP = PermissionGroup::DEFAULT_NAME
 
+      # Keep disk failures distinct from client IO errors, which the HTTP
+      # handler treats as disconnected clients instead of failed requests.
+      class SaveError < Exception
+      end
+
       record CompiledRule,
         chain : TopicRuleSegment,
         read : Bool,
@@ -33,10 +38,6 @@ module LavinMQ
 
       @save_lock = Mutex.new
       @compiled : Compiled
-      # True while the only group is the default group this service created
-      # itself. A definitions import may then replace it, because nobody has
-      # made a change that the import must not undo.
-      getter? untouched = false
 
       def initialize(@vhost : String, @data_dir : String, @replicator : Clustering::Replicator?)
         @groups = Hash(String, PermissionGroup).new
@@ -60,21 +61,41 @@ module LavinMQ
         @groups.each_value { |group| yield group }
       end
 
-      def put(group : PermissionGroup, save = true) : PermissionGroup
+      def put(group : PermissionGroup) : PermissionGroup
         group.validate!
-        @untouched = false
-        @groups[group.name] = group
-        rebuild
-        save! if save
+        @save_lock.synchronize do
+          groups = @groups.dup
+          groups[group.name] = group
+          commit(groups)
+        end
         group
       end
 
-      def delete(name : String, save = true) : PermissionGroup?
-        if group = @groups.delete(name)
-          @untouched = false
-          rebuild
-          save! if save
-          group
+      def delete(name : String) : PermissionGroup?
+        @save_lock.synchronize do
+          if group = @groups[name]?
+            groups = @groups.dup
+            groups.delete(name)
+            commit(groups)
+            group
+          end
+        end
+      end
+
+      # Commit all imported groups together, including replacing the automatic
+      # default. Check disk and existing names under the same lock as API edits.
+      def import(imported : Array(PermissionGroup), skip_existing = false) : Nil
+        return if imported.empty?
+        imported.each(&.validate!)
+        @save_lock.synchronize do
+          persisted = File.exists?(File.join(@data_dir, "mqtt_permissions.json"))
+          groups = @groups.dup
+          groups.delete(DEFAULT_GROUP) unless persisted
+          imported.each do |group|
+            next if skip_existing && persisted && @groups[group.name]?
+            groups[group.name] = group
+          end
+          commit(groups) unless groups == @groups
         end
       end
 
@@ -163,21 +184,30 @@ module LavinMQ
       # on the groups on disk decide. A deleted default group stays deleted
       # across restarts, because the delete leaves an empty list on disk.
       private def create_default_group
-        put(PermissionGroup.default(@vhost), save: false)
-        @untouched = true
+        @groups[DEFAULT_GROUP] = PermissionGroup.default(@vhost)
+        rebuild
       end
 
-      def save!
+      # Called with @save_lock held. Build and save a separate collection so
+      # permission checks keep using the old state until the rename succeeds.
+      private def commit(groups : Hash(String, PermissionGroup)) : Nil
+        path = save!(groups)
+        @groups = groups
+        rebuild
+        @replicator.try &.replace_file path
+      end
+
+      private def save!(groups : Hash(String, PermissionGroup)) : String
         path = File.join(@data_dir, "mqtt_permissions.json")
         tmpfile = "#{path}.tmp"
-        @save_lock.synchronize do
-          File.open(tmpfile, "w") do |f|
-            to_pretty_json(f)
-            f.fsync
-          end
-          File.rename tmpfile, path
+        File.open(tmpfile, "w") do |f|
+          groups.values.to_pretty_json(f)
+          f.fsync
         end
-        @replicator.try &.replace_file path
+        File.rename tmpfile, path
+        path
+      rescue ex : IO::Error
+        raise SaveError.new("Failed to save MQTT permission groups for vhost #{@vhost.inspect}", cause: ex)
       end
     end
   end
