@@ -87,6 +87,9 @@ module LavinMQ
 
       private def deliver_loop
         delivered_bytes = 0_i32
+        iterations = 0
+        yield_each_delivered_bytes = Config.instance.yield_each_delivered_bytes
+
         loop do
           wait_for_capacity
           loop do
@@ -103,8 +106,10 @@ module LavinMQ
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.segment_position.bytesize
           end
-          if delivered_bytes > Config.instance.yield_each_delivered_bytes
+          iterations &+= 1
+          if delivered_bytes >= yield_each_delivered_bytes || iterations >= 32_768
             delivered_bytes = 0
+            iterations = 0
             Fiber.yield
           end
         end
