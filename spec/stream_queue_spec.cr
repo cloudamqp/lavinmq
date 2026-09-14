@@ -297,6 +297,48 @@ describe LavinMQ::AMQP::Stream do
     ensure
       LavinMQ::Config.instance.yield_each_delivered_bytes = original.not_nil!
     end
+
+    it "yields to other fibers while scanning past filtered-out messages" do
+      # The deliver loop yields every 32_768 iterations, so scan far enough
+      # for it to yield more than once regardless of scheduling order.
+      skipped = 70_000
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("stream-yield-filtered", args: stream_queue_args)
+          skipped.times { q.publish "skip" }
+          headers = AMQP::Client::Arguments.new({"x-stream-filter-value": "wanted"})
+          q.publish_confirm "deliver", props: AMQP::Client::Properties.new(headers: headers)
+          stream = s.vhosts["/"].queue("stream-yield-filtered").as(LavinMQ::AMQP::Stream)
+
+          # Nothing is delivered while the deliver loop scans past the
+          # filtered-out messages, so only a voluntary yield lets this fiber
+          # observe an offset in the middle of the scan.
+          observed = Array(Int64).new
+          done = false
+          spawn(name: "offset sampler") do
+            until done
+              if consumer = stream.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer)
+                observed << consumer.offset
+              end
+              Fiber.yield
+            end
+          end
+
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          args = AMQP::Client::Arguments.new({"x-stream-offset": "first", "x-stream-filter": "wanted"})
+          q.subscribe(no_ack: false, args: args) do |msg|
+            msgs.send msg
+            msg.ack
+          end
+          msg = msgs.receive
+          done = true
+
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq skipped + 1
+          observed.any? { |o| 1 < o <= skipped }.should be_true
+        end
+      end
+    end
   end
 
   describe "x-stream-offset negative integer" do
