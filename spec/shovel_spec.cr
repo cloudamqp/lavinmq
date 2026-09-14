@@ -282,6 +282,95 @@ describe LavinMQ::Shovel do
           source.stop
         end
       end
+
+      it "does not flush a cumulative ack when only rejects moved the frontier" do
+        with_amqp_server do |s|
+          source = LavinMQ::Shovel::AMQPSource.new(
+            "spec",
+            [URI.parse(s.amqp_server.url)],
+            "rf_source",
+            prefetch: 10,
+            direct_user: s.users.direct_user,
+            batch_ack_timeout: 10.milliseconds
+          )
+          source.start
+          q = s.vhosts["/"].queue("rf_source")
+          2.times { q.publish(LavinMQ::Message.new("", "", "")) }
+
+          delivered = Channel(UInt64).new(4)
+          spawn { source.each { |m| delivered.send m.delivery_tag } }
+          tag1 = delivered.receive
+          tag2 = delivered.receive
+
+          # tag 1 is acked and flushed by the timeout; tag 2 is requeued and comes
+          # back as tag 3. Between the flush and the requeue the frontier moves
+          # over a tag that the broker already settled, and a cumulative ack
+          # for it alone would find nothing outstanding: the broker would close
+          # the channel with 406 "unknown delivery tag".
+          source.ack(tag1)
+          should_eventually(eq 1) { q.unacked_count }
+          source.reject(tag2, requeue: true)
+
+          tag3 = nil
+          select
+          when tag = delivered.receive
+            tag3 = tag
+          when timeout(2.seconds)
+          end
+          tag3.should_not be_nil
+          sleep 50.milliseconds # a few ack timeouts on the same channel
+          q.consumer_count.should eq 1
+
+          source.ack(tag3.not_nil!, batch: false)
+          should_eventually(eq 0) { q.unacked_count }
+          q.message_count.should eq 0
+          source.stop
+        end
+      end
+
+      it "acks cumulatively up to the highest acked tag, never a rejected one (#1357)" do
+        with_amqp_server do |s|
+          source = LavinMQ::Shovel::AMQPSource.new(
+            "spec",
+            [URI.parse(s.amqp_server.url)],
+            "ra_source",
+            prefetch: 4, # batch size 2: the ack below flushes at once
+            direct_user: s.users.direct_user,
+            batch_ack_timeout: 1.hour
+          )
+          source.start
+          q = s.vhosts["/"].queue("ra_source")
+          3.times { q.publish(LavinMQ::Message.new("", "", "")) }
+
+          delivered = Channel(UInt64).new(8)
+          spawn { source.each { |m| delivered.send m.delivery_tag } }
+          tags = Array.new(3) { delivered.receive }
+
+          # A full reject-publish destination nacks at once while its acks are
+          # batched, so the rejects of 2 and 3 land before the ack of 1. That ack
+          # moves the frontier over the rejected tags to 3 and flushes: the
+          # cumulative ack must name tag 1, the highest tag actually acked. Tag 3
+          # is already settled at the broker; acking it is a 406 that closes the
+          # channel.
+          source.reject(tags[1], requeue: true)
+          source.reject(tags[2], requeue: true)
+          source.ack(tags[0])
+
+          # Tags 2 and 3 come straight back on the same channel.
+          2.times do
+            select
+            when tag = delivered.receive
+              source.ack(tag, batch: false)
+            when timeout(2.seconds)
+              fail "the requeued messages were not redelivered: the source channel was closed"
+            end
+          end
+          should_eventually(eq 0) { q.unacked_count }
+          q.message_count.should eq 0
+          q.consumer_count.should eq 1
+          source.stop
+        end
+      end
     end
 
     it "will wait to ack all msgs before deleting itself" do
