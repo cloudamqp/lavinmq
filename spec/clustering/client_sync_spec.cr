@@ -951,6 +951,36 @@ module ClientSyncSpec
     end
 
     describe "fsync requests" do
+      it "holds an acknowledgment-file fence ack until the file is synced" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          started = Channel(Nil).new
+          resume = Channel(Nil).new
+          client.file_sync_started = started
+          client.resume_file_sync = resume
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          filename = "acks.0000000001"
+          File.write(File.join(data_dir, filename), "ack")
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          started.receive
+          leader_io.read_timeout = 20.milliseconds
+          expect_raises(IO::TimeoutError) { leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian) }
+          resume.send(nil)
+          leader_io.read_timeout = 2.seconds
+          read_acks(leader_io, record_size("$#{filename}", 0))
+          client.fsync_requests.should eq([filename])
+          client_socket.close
+          close_client(client)
+        end
+      end
+
       # A `$`-prefixed zero-length record asks us to make that file durable;
       # the leader holds publish confirms until the record is acked, so the
       # ack may only be sent after the fsync.
