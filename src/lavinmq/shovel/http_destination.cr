@@ -43,7 +43,7 @@ module LavinMQ
         !@client.nil?
       end
 
-      def push(msg)
+      def push(msg) : Nil
         c = @client || raise "Not started"
         headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
         headers["X-Shovel"] = @name

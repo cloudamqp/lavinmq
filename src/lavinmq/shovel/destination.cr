@@ -14,7 +14,7 @@ module LavinMQ
 
       abstract def stop
 
-      abstract def push(msg)
+      abstract def push(msg) : Nil
 
       abstract def started? : Bool
     end
