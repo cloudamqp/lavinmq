@@ -103,7 +103,8 @@ module LavinMQ
         # the confirms the destination's close voids arrive here as Retry with
         # nothing left to settle: the source's own close already requeued them.
         # They are not a verdict on the destination, so neither counted nor
-        # backed off. On a failover the source is still open and they count.
+        # backed off. When the destination connection drops on its own the
+        # source is still open and they count.
         return unless @source.started?
         case outcome
         in Outcome::Confirmed
@@ -242,7 +243,7 @@ module LavinMQ
           message_count:        @message_count,
           confirmed:            @confirmed_total.get,
           retried:              @retried_total.get,
-          rejected:        @rejected_total.get,
+          rejected:             @rejected_total.get,
           aborted:              @aborted_total.get,
           consecutive_failures: @delivery_failures.get,
           consecutive_aborts:   @delivery_aborts.get,

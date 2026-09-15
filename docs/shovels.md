@@ -69,13 +69,9 @@ An in-flight request cannot be cancelled. On pause, the current request drains u
 
 ## Multi-Destination
 
-A shovel can have multiple destinations configured. They form an **ordered failover list**, not a load-balanced or round-robin pool: one destination is active at a time, starting with the first one that can be reached. All consumed messages go to the active destination.
+A shovel can have multiple destinations configured. Each time the shovel starts it picks **one of them at random** and delivers every consumed message to it for the whole run. The list is neither an ordered preference nor a load-balanced pool: there is no failover between destinations.
 
-When the active destination is classified as unusable (an `Abort` [outcome](#delivery-outcomes)) or fails to start, the shovel advances to the next destination in the list and retries the message there. A destination that keeps failing transiently (three consecutive `Retry` outcomes, e.g. connection refused on a host that is down) is skipped in favour of the next one as well. A successful — or otherwise non-abort — delivery resets the failover cycle.
-
-A shovel with a single destination never fails over: an `Abort` there counts straight towards the shovel's abort threshold, on the same connection, since reconnecting does not fix an unusable endpoint.
-
-The switch itself happens on the next delivery, not inside the outcome that asked for it: the message is requeued on the source, and when it is redelivered the shovel stops the old destination and activates the next one before publishing. Stopping the old destination requeues every message that was still in flight on it (see [publisher-confirm classification](#amqp-publisher-confirm-classification)), so nothing published to a destination that never confirmed is lost. Only once *every* destination has aborted in a row, with no successful delivery in between, do the aborts count towards the shovel's abort threshold; even then each redelivery still goes to the next destination rather than hammering one. Every (re)start of the shovel begins again with the first destination in the list, and if no destination at all can be started the shovel reconnects with backoff exactly as it would for a single unreachable destination.
+The chosen destination is treated exactly like a single one. Its [delivery outcomes](#delivery-outcomes) count towards the shovel's backoff and abort threshold, and if it cannot be reached the shovel reconnects with backoff. Every start draws again, so a reconnect, or a pause followed by a resume, may land on a different destination.
 
 ## Source Acknowledgments
 
@@ -133,7 +129,7 @@ There is no in-place retry of a failed request; a `Retry` goes straight back to 
 | Publisher-confirm **ack** | `Confirmed` |
 | Publisher-confirm **nack** (e.g. `x-overflow: reject-publish` on a full destination queue) | `Retry` |
 | Connection or channel error mid-publish | Not an outcome. The error goes through the [reconnect](#reconnection) loop; a `404` channel-close ("queue deleted") stops the shovel. |
-| Pending confirms voided by the destination connection closing | `Retry`. On a [failover](#multi-destination) the source is still open, so every message in flight on the old destination is requeued there. When the whole shovel is stopping (pause, terminate, abort) the source has already been closed, which requeued them, and the shovel ignores the reports: they count neither as retries nor towards the backoff. |
+| Pending confirms voided by the destination connection closing | `Retry`. When the destination connection drops on its own the source is still open, so every message in flight on it is requeued there. When the whole shovel is stopping (pause, terminate, abort) the source has already been closed, which requeued them, and the shovel ignores the reports: they count neither as retries nor towards the backoff. |
 
 ## Shovel States
 

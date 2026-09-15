@@ -109,8 +109,7 @@ module ShovelSpecHelpers
     end
   end
 
-  # A destination that starts cleanly and reports nothing on its own, so a test
-  # can drive MultiDestinationHandler#report directly.
+  # A destination that starts cleanly and reports nothing on its own.
   class StubDestination < LavinMQ::Shovel::Destination
     def start
     end
@@ -126,8 +125,8 @@ module ShovelSpecHelpers
     end
   end
 
-  # A destination whose start can be made to fail, recording start/stop calls,
-  # so MultiDestinationHandler's failover order can be asserted.
+  # A destination whose start can be made to fail, recording start/stop/push
+  # calls, so MultiDestination's choice of destination can be asserted.
   class FlakyStartDestination < LavinMQ::Shovel::Destination
     property start_error : Exception?
     getter starts = 0
@@ -157,19 +156,6 @@ module ShovelSpecHelpers
 
     def started? : Bool
       @started
-    end
-  end
-
-  # Like FlakyStartDestination, but stopping it voids its in-flight confirms
-  # the way amqp-client does on a connection close: each pending tag is
-  # reported as Retry from within stop.
-  class VoidingDestination < FlakyStartDestination
-    property pending = [] of UInt64
-
-    def stop
-      super
-      pending, @pending = @pending, [] of UInt64
-      pending.each { |tag| @listener.report(tag, LavinMQ::Shovel::Outcome::Retry) }
     end
   end
 
@@ -533,8 +519,8 @@ describe LavinMQ::Shovel do
             dest.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1, "m#{i}"))
           end
           # amqp-client voids every pending confirm with `false` when the
-          # connection goes. On a failover the source stays open, so every
-          # in-flight message must be requeued there — otherwise a later
+          # connection goes. When it drops on its own the source stays open, so
+          # every in-flight message must be requeued there — otherwise a later
           # cumulative ack sweeps it away undelivered. When the whole shovel is
           # stopping the source is already closed and the Runner ignores it.
           dest.@ch.not_nil!.cleanup
@@ -542,39 +528,6 @@ describe LavinMQ::Shovel do
           voided.size.should eq(50 - listener.outcomes.count { |(_, outcome)| outcome.confirmed? })
         end
         dest.stop
-      end
-    end
-
-    it "requeues in-flight messages on the source when failing over between AMQP destinations" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "fa_q1", direct_user: s.users.direct_user)
-        dest_a = LavinMQ::Shovel::AMQPDestination.new(
-          "spec", URI.parse(s.amqp_server.url), "fa_qa", direct_user: s.users.direct_user)
-        dest_b = LavinMQ::Shovel::AMQPDestination.new(
-          "spec", URI.parse(s.amqp_server.url), "fa_qb", direct_user: s.users.direct_user)
-        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest_a, dest_b] of LavinMQ::Shovel::Destination)
-        shovel = LavinMQ::Shovel::Runner.new(source, multi, "fa_shovel", vhost)
-        with_channel(s) do |ch|
-          x = ch.exchange("", "direct", passive: true)
-          q1 = ch.queue("fa_q1")
-          args = AMQP::Client::Arguments.new
-          args["x-max-length"] = 1_i64
-          args["x-overflow"] = "reject-publish"
-          qa = ch.queue("fa_qa", args: args)
-          qb = ch.queue("fa_qb")
-          6.times { |i| x.publish_confirm "shovel me #{i}", "fa_q1" }
-          spawn shovel.run
-          # A takes one message and nacks the rest (reject-publish overflow).
-          # Three nacks in a row fail the shovel over to B; the failover happens
-          # on the Runner fiber, not inside the publisher-confirm callback where
-          # closing A's connection would wait on the very fiber running it.
-          should_eventually(eq(5), 5.seconds) { qb.message_count }
-          qa.message_count.should eq 1
-          should_eventually(eq 0) { q1.message_count }
-          shovel.terminate
-        end
       end
     end
 
@@ -1917,47 +1870,6 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "fails over to the next destination when the active one is unusable (#4)" do
-      with_amqp_server do |s|
-        bad_received = Atomic(Int32).new(0)
-        bad = HTTP::Server.new do |context|
-          bad_received.add(1)
-          context.response.status_code = 404
-          context.response.print "no route"
-          context
-        end
-        bad_addr = bad.bind_unused_port
-        spawn bad.listen
-
-        good_received = Atomic(Int32).new(0)
-        good = HTTP::Server.new do |context|
-          good_received.add(1)
-          context.response.print "ok"
-          context
-        end
-        good_addr = good.bind_unused_port
-        spawn good.listen
-
-        vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "fo_q1", direct_user: s.users.direct_user)
-        dest_a = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{bad_addr}/"))
-        dest_b = LavinMQ::Shovel::HTTPDestination.new("spec", URI.parse("http://#{good_addr}/"))
-        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest_a, dest_b] of LavinMQ::Shovel::Destination)
-        shovel = LavinMQ::Shovel::Runner.new(source, multi, "fo_shovel", vhost)
-        with_channel(s) do |ch|
-          x = ch.exchange("", "direct", passive: true)
-          ch.queue("fo_q1")
-          x.publish_confirm "deliver me", "fo_q1"
-          spawn shovel.run
-          # A (404) is tried first and is unusable, so the shovel fails over to B
-          should_eventually(eq 1) { good_received.get }
-          bad_received.get.should be >= 1
-          shovel.terminate
-        end
-      end
-    end
-
     it "does not error-out when aborts are interleaved with other outcomes (#review)" do
       with_amqp_server do |s|
         received = Atomic(Int32).new(0)
@@ -2040,8 +1952,8 @@ describe LavinMQ::Shovel do
       dest.start
       dest.started?.should be_true
       dest.stop
-      # A failover handler decides whether to (re)start a destination from
-      # started?; a stopped one that still claims to be started is skipped.
+      # MultiDestination and the Runner decide whether to (re)start a
+      # destination from started?; a stopped one must not claim to be started.
       dest.started?.should be_false
     end
   end
@@ -2162,7 +2074,7 @@ describe LavinMQ::Shovel do
           shovel.run
           d = shovel.details_tuple
           d[:confirmed].should eq 3
-          d[:dead_lettered].should eq 0
+          d[:rejected].should eq 0
           d[:aborted].should eq 0
           d[:consecutive_failures].should eq 0
           d[:consecutive_aborts].should eq 0
@@ -2194,7 +2106,7 @@ describe LavinMQ::Shovel do
           3.times { |i| x.publish_confirm "m#{i}", "rc_rej_q1" }
           shovel.run
           d = shovel.details_tuple
-          d[:dead_lettered].should eq 3
+          d[:rejected].should eq 3
           d[:confirmed].should eq 0
         end
       end
@@ -2420,293 +2332,80 @@ describe LavinMQ::Shovel do
     end
   end
 
-  describe "MultiDestinationHandler" do
-    it "fails over to the next destination and retries on a single Abort" do
-      a = ShovelSpecHelpers::StubDestination.new
-      b = ShovelSpecHelpers::StubDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
-        [a, b] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
-      parent.outcomes.should eq [{7_u64, LavinMQ::Shovel::Outcome::Retry}]
-    end
-
-    it "propagates Abort once every destination has aborted in a row" do
-      a = ShovelSpecHelpers::StubDestination.new
-      b = ShovelSpecHelpers::StubDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
-        [a, b] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
-      multi.report(7_u64, LavinMQ::Shovel::Outcome::Abort)
-      parent.outcomes.should eq [
-        {7_u64, LavinMQ::Shovel::Outcome::Retry},
-        {7_u64, LavinMQ::Shovel::Outcome::Abort},
-      ]
-    end
-
-    it "forwards a non-Abort outcome and resets the abort streak" do
-      a = ShovelSpecHelpers::StubDestination.new
-      b = ShovelSpecHelpers::StubDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new(
-        [a, b] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)     # streak 1, fail over to b
-      multi.report(2_u64, LavinMQ::Shovel::Outcome::Confirmed) # forwarded, streak reset
-      multi.report(3_u64, LavinMQ::Shovel::Outcome::Abort)     # streak 1 again, not >= size
-      parent.outcomes.should eq [
-        {1_u64, LavinMQ::Shovel::Outcome::Retry},
-        {2_u64, LavinMQ::Shovel::Outcome::Confirmed},
-        {3_u64, LavinMQ::Shovel::Outcome::Retry},
-      ]
-    end
-
-    it "keeps rotating destinations while Aborts continue past a full cycle" do
+  describe "MultiDestination" do
+    it "starts one destination and pushes to it" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          a = ShovelSpecHelpers::FlakyStartDestination.new
-          b = ShovelSpecHelpers::FlakyStartDestination.new
-          parent = ShovelSpecHelpers::RecordingListener.new
-          multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-          multi.listener = parent
+          dests = Array.new(3) { ShovelSpecHelpers::FlakyStartDestination.new }
+          multi = LavinMQ::Shovel::MultiDestination.new(dests.map(&.as(LavinMQ::Shovel::Destination)))
           multi.start
-          4.times do |i|
-            multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Abort)
-            multi.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1)) # the redelivery
-          end
-          # Once every destination has aborted in a row the Abort propagates (so the
-          # Runner's threshold applies), but each redelivery still goes to the next
-          # destination rather than hammering the one that just aborted.
-          parent.outcomes.map(&.last).should eq [
-            LavinMQ::Shovel::Outcome::Retry,
-            LavinMQ::Shovel::Outcome::Abort,
-            LavinMQ::Shovel::Outcome::Abort,
-            LavinMQ::Shovel::Outcome::Abort,
-          ]
-          {a.starts, b.starts}.should eq({3, 2})
-        end
-      end
-    end
-
-    it "carries out a failover on the next push, never inside the outcome callback" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          a = ShovelSpecHelpers::FlakyStartDestination.new
-          b = ShovelSpecHelpers::FlakyStartDestination.new
-          multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-          multi.listener = ShovelSpecHelpers::RecordingListener.new
-          multi.start
-          multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)
-          # report runs on the destination's confirm fiber for AMQP; stopping the
-          # destination there deadlocks on its own connection close. The switch
-          # waits for the Runner fiber, which is the one calling push.
-          {a.stops, b.starts}.should eq({0, 0})
+          multi.started?.should be_true
+          dests.count(&.started?).should eq 1
+          dests.sum(&.starts).should eq 1
           multi.push(ShovelSpecHelpers.message(ch, 1_u64))
-          {a.stops, b.starts, b.pushes}.should eq({1, 1, 1})
+          dests.sum(&.pushes).should eq 1
+          dests.find!(&.started?).pushes.should eq 1
+          multi.stop
+          multi.started?.should be_false
+          dests.count(&.started?).should eq 0
         end
       end
     end
 
-    it "forwards outcomes voided by the failover itself without counting them" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          a = ShovelSpecHelpers::VoidingDestination.new
-          b = ShovelSpecHelpers::FlakyStartDestination.new
-          parent = ShovelSpecHelpers::RecordingListener.new
-          multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-          multi.listener = parent
+    it "picks a destination at random on every start" do
+      dests = Array.new(2) { ShovelSpecHelpers::FlakyStartDestination.new }
+      multi = LavinMQ::Shovel::MultiDestination.new(dests.map(&.as(LavinMQ::Shovel::Destination)))
+      # Over 40 draws from two destinations, one of them never being picked
+      # happens once in 2**39 runs.
+      40.times do
+        multi.start
+        multi.stop
+      end
+      dests.map(&.starts).should_not contain 0
+    end
+
+    it "does not fail over when the chosen destination cannot start" do
+      bad = ShovelSpecHelpers::FlakyStartDestination.new(IO::Error.new("down"))
+      good = ShovelSpecHelpers::FlakyStartDestination.new
+      multi = LavinMQ::Shovel::MultiDestination.new([bad, good] of LavinMQ::Shovel::Destination)
+      # Start until the bad destination is drawn (once in 2**20 runs it never
+      # is): that start raises, and the good one is not tried in its place.
+      raised = false
+      20.times do
+        good_starts = good.starts
+        begin
           multi.start
-          a.pending = [2_u64, 3_u64] # in flight on a when it aborts
-          multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)
-          multi.push(ShovelSpecHelpers.message(ch, 1_u64))
-          # Stopping a voids its pending confirms, which come back as Retry: they
-          # are forwarded so the source requeues them, but they are not a verdict
-          # on b and must neither reset the abort streak nor request another
-          # failover.
-          parent.outcomes.should eq [
-            {1_u64, LavinMQ::Shovel::Outcome::Retry},
-            {2_u64, LavinMQ::Shovel::Outcome::Retry},
-            {3_u64, LavinMQ::Shovel::Outcome::Retry},
-          ]
-          multi.report(4_u64, LavinMQ::Shovel::Outcome::Abort) # b aborts too: full cycle
-          parent.outcomes.last.should eq({4_u64, LavinMQ::Shovel::Outcome::Abort})
-          multi.push(ShovelSpecHelpers.message(ch, 4_u64))
-          {a.starts, b.starts}.should eq({2, 1})
+        rescue IO::Error
+          raised = true
+          good.starts.should eq good_starts
+          multi.started?.should be_false
+          break
         end
+        multi.stop
       end
+      raised.should be_true
     end
 
-    it "resets the abort streak when stopped and started again" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      b = ShovelSpecHelpers::FlakyStartDestination.new
+    it "reports outcomes to the runner unchanged and keeps the destination on Abort" do
+      dests = Array.new(2) { ShovelSpecHelpers::FlakyStartDestination.new }
+      multi = LavinMQ::Shovel::MultiDestination.new(dests.map(&.as(LavinMQ::Shovel::Destination)))
       parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
       multi.listener = parent
       multi.start
-      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort)
-      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # full cycle: propagated
-      multi.stop
-      multi.start
-      # A fresh run (pause/resume, reconnect) starts with a clean streak: the
-      # first Abort fails over instead of propagating straight away.
-      multi.report(2_u64, LavinMQ::Shovel::Outcome::Abort)
-      parent.outcomes.last.should eq({2_u64, LavinMQ::Shovel::Outcome::Retry})
+      active = dests.find!(&.started?)
+      active.listener.report(1_u64, LavinMQ::Shovel::Outcome::Abort)
+      active.listener.report(2_u64, LavinMQ::Shovel::Outcome::Retry)
+      parent.outcomes.should eq [{1_u64, LavinMQ::Shovel::Outcome::Abort}, {2_u64, LavinMQ::Shovel::Outcome::Retry}]
+      # An Abort is the Runner's to count towards its threshold, not a reason
+      # to switch destination.
+      active.started?.should be_true
+      dests.sum(&.starts).should eq 1
     end
 
-    it "fails over after repeated Retry outcomes when more than one destination is configured" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      b = ShovelSpecHelpers::FlakyStartDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      # HTTP start never contacts the endpoint, so a dead host only ever shows
-      # up as connection-refused Retries. A destination that keeps failing
-      # transiently must not hold the shovel forever while a healthy one waits.
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          2.times do |i|
-            multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Retry)
-            multi.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1))
-          end
-          b.starts.should eq 0
-          multi.report(3_u64, LavinMQ::Shovel::Outcome::Retry)
-          multi.push(ShovelSpecHelpers.message(ch, 3_u64))
-          {a.stops, b.starts}.should eq({1, 1})
-          parent.outcomes.map(&.last).uniq!.should eq [LavinMQ::Shovel::Outcome::Retry]
-        end
+    it "rejects an empty destination list" do
+      expect_raises(ArgumentError) do
+        LavinMQ::Shovel::MultiDestination.new([] of LavinMQ::Shovel::Destination)
       end
-    end
-
-    it "does not restart a single destination on Abort" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          2.times do |i|
-            multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Abort)
-            multi.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1))
-          end
-        end
-      end
-      # There is nothing to fail over to, and a 404 is not fixed by reconnecting:
-      # the Abort propagates so the Runner's threshold applies, on the same
-      # connection.
-      parent.outcomes.map(&.last).uniq!.should eq [LavinMQ::Shovel::Outcome::Abort]
-      {a.starts, a.stops}.should eq({1, 0})
-    end
-
-    it "does not fail over on Retry with a single destination" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a] of LavinMQ::Shovel::Destination)
-      multi.listener = ShovelSpecHelpers::RecordingListener.new
-      multi.start
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          5.times do |i|
-            multi.report(i.to_u64 + 1, LavinMQ::Shovel::Outcome::Retry)
-            multi.push(ShovelSpecHelpers.message(ch, i.to_u64 + 1))
-          end
-        end
-      end
-      # Nothing to fail over to: restarting the same destination would only
-      # churn its connection while the Runner backs off anyway.
-      {a.starts, a.stops}.should eq({1, 0})
-    end
-
-    it "starts from the first destination again after a stop" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      b = ShovelSpecHelpers::FlakyStartDestination.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-      multi.listener = ShovelSpecHelpers::RecordingListener.new
-      multi.start
-      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # fail over to b
-      with_amqp_server do |s|
-        with_channel(s) { |ch| multi.push(ShovelSpecHelpers.message(ch, 1_u64)) }
-      end
-      multi.stop
-      multi.start
-      # The list is an ordered preference: a restart (pause/resume, reconnect)
-      # goes back to the primary rather than staying on whatever was active.
-      {a.starts, b.starts}.should eq({2, 1})
-    end
-
-    it "starts from the first destination again after the runner reconnects" do
-      with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "spec", [URI.parse(s.amqp_server.url)], "rc_q1", direct_user: s.users.direct_user)
-        a = ShovelSpecHelpers::FlakyStartDestination.new
-        b = ShovelSpecHelpers::FlakyStartDestination.new
-        multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-        shovel = LavinMQ::Shovel::Runner.new(source, multi, "rc_shovel", vhost, reconnect_delay: 50.milliseconds)
-        with_channel(s) do |ch|
-          x = ch.exchange("", "direct", passive: true)
-          ch.queue("rc_q1")
-          x.publish_confirm "one", "rc_q1"
-          spawn shovel.run
-          should_eventually(eq 1) { a.pushes }
-          multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # a is unusable
-          x.publish_confirm "two", "rc_q1"                     # the next push fails over to b
-          should_eventually(eq 1) { b.starts }
-          # The source connection drops. A reconnect is a fresh start: the
-          # destination is stopped and the ordered preference applies again, so
-          # the primary gets another chance rather than staying failed over.
-          vhost.connections.each { |c| c.close("spec") if c.client_name.includes?("source") }
-          should_eventually(eq 2) { a.starts }
-          b.stops.should eq 1
-          shovel.terminate
-        end
-      end
-    end
-
-    it "raises from start when no destination can be activated" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
-      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b] of LavinMQ::Shovel::Destination)
-      # An unreachable destination is a connection error for the Runner's
-      # reconnect loop, not a silent "started" that turns every push into an
-      # Abort and errors the shovel out within milliseconds.
-      expect_raises(Socket::ConnectError, "refused b") { multi.start }
-      multi.started?.should be_false
-    end
-
-    it "tries every destination once at start when the first ones are down" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused a"))
-      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
-      c = ShovelSpecHelpers::FlakyStartDestination.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b, c] of LavinMQ::Shovel::Destination)
-      multi.start
-      # The walk must not revisit a slot it already tried (and so skip c).
-      {a.starts, b.starts, c.starts}.should eq({1, 1, 1})
-      c.started?.should be_true
-    end
-
-    it "fails over past a destination that cannot start to the next one" do
-      a = ShovelSpecHelpers::FlakyStartDestination.new
-      b = ShovelSpecHelpers::FlakyStartDestination.new(Socket::ConnectError.new("refused b"))
-      c = ShovelSpecHelpers::FlakyStartDestination.new
-      parent = ShovelSpecHelpers::RecordingListener.new
-      multi = LavinMQ::Shovel::MultiDestinationHandler.new([a, b, c] of LavinMQ::Shovel::Destination)
-      multi.listener = parent
-      multi.start
-      multi.report(1_u64, LavinMQ::Shovel::Outcome::Abort) # a is unusable: fail over
-      with_amqp_server do |s|
-        with_channel(s) { |ch| multi.push(ShovelSpecHelpers.message(ch, 1_u64)) }
-      end
-      # b is down, so c must become active — not a restarted a.
-      {a.starts, b.starts, c.starts}.should eq({1, 1, 1})
-      c.started?.should be_true
-      parent.outcomes.should eq [{1_u64, LavinMQ::Shovel::Outcome::Retry}]
     end
 
     it "makes the runner reconnect with backoff while the destination is unreachable" do
@@ -2727,7 +2426,7 @@ describe LavinMQ::Shovel do
           "spec", [URI.parse(s.amqp_server.url)], "nd_q1", direct_user: s.users.direct_user)
         dest = LavinMQ::Shovel::AMQPDestination.new(
           "spec", URI.parse("amqp://127.0.0.1:#{dead.local_address.port}/"), "nd_q2", direct_user: s.users.direct_user)
-        multi = LavinMQ::Shovel::MultiDestinationHandler.new([dest] of LavinMQ::Shovel::Destination)
+        multi = LavinMQ::Shovel::MultiDestination.new([dest] of LavinMQ::Shovel::Destination)
         shovel = LavinMQ::Shovel::Runner.new(source, multi, "nd_shovel", vhost, reconnect_delay: 100.milliseconds)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)

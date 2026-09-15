@@ -67,7 +67,8 @@ module LavinMQ
           # reject-publish overflow) is transient — the queue may drain — so it
           # becomes Retry, never a silent ack. When the connection goes away
           # amqp-client voids every pending confirm with `false` as well. That
-          # is reported as Retry too: on a failover the source is still open and
+          # is reported as Retry too: when the connection drops on its own the
+          # source is still open and
           # every in-flight message has to go back to it, or a later cumulative
           # ack would settle it undelivered. When the whole shovel is stopping
           # the source is already closed and the Runner ignores the report.
