@@ -391,6 +391,29 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "#purge_all" do
+    it "acks requeued messages on disk so they don't come back after restart" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        3.times { |i| store.push LavinMQ::Message.new("ex", "rk", "body#{i}") }
+        env = store.shift?.should_not be_nil
+        store.requeue env.segment_position
+        store.size.should eq 3
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.shift?.should be_nil
+        ensure
+          store.close
+        end
+      end
+    end
+  end
+
   it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|

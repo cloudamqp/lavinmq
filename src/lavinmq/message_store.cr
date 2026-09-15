@@ -230,10 +230,11 @@ module LavinMQ
     end
 
     def purge_all
-      # Drain @requeued and decrement @size/@bytesize for each entry
+      # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
+        delete(sp)
       end
 
       # Delete all segments except the current rfile and wfile
