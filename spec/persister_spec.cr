@@ -1,5 +1,27 @@
 require "./spec_helper"
 
+private class ShortTimeoutPersister < LavinMQ::Persister
+  getter sync_started = Channel(Nil).new
+  getter resume_sync = Channel(Nil).new
+
+  def wait_for_sync_public : Nil
+    wait_for_sync
+  end
+
+  def sync_files_public(files : Array(MFile)) : Nil
+    sync_files(files)
+  end
+
+  protected def sync_timeout : Time::Span
+    1.millisecond
+  end
+
+  protected def sync_files(dirty : Array(MFile)) : Nil
+    @sync_started.send nil
+    @resume_sync.receive
+  end
+end
+
 private class RecordingPersister < LavinMQ::Persister
   getter msynced = Array(MFile).new
   getter syncfs_count = 0
@@ -111,6 +133,56 @@ describe LavinMQ::Persister do
       LavinMQ::Config.instance.syncfs_threshold = 10
     end
   {% end %}
+
+  describe "sync watchdog" do
+    it "exits when a sync outlives the timeout while clustered" do
+      with_datadir do |data_dir|
+        persister = ShortTimeoutPersister.new(SpyReplicator.new, data_dir: data_dir)
+        ex = expect_raises(SpecExit) { persister.wait_for_sync_public }
+        ex.code.should eq 1
+      ensure
+        persister.try &.close
+      end
+    end
+
+    it "only logs and completes the sync when standalone" do
+      with_datadir do |data_dir|
+        persister = ShortTimeoutPersister.new(data_dir: data_dir)
+        file = MFile.new(File.join(data_dir, "segment"), 4096)
+        done = Channel(Nil).new(1)
+        persister.mark_dirty(file)
+        spawn { persister.sync; done.send nil }
+        persister.sync_started.receive
+        sleep 10.milliseconds # let the watchdog time out
+        persister.resume_sync.send nil
+        done.receive
+        # The completion signal was consumed, so the next sync isn't mistaken
+        # for a still-blocked one.
+        persister.mark_dirty(file)
+        spawn { persister.sync; done.send nil }
+        persister.sync_started.receive
+        persister.resume_sync.send nil
+        done.receive
+      ensure
+        persister.try &.close
+        file.try &.close
+      end
+    end
+
+    it "syncs inline after close without the watchdog" do
+      with_datadir do |data_dir|
+        persister = RecordingPersister.new(data_dir: data_dir)
+        file = MFile.new(File.join(data_dir, "segment"), 4096)
+        persister.close
+        sleep 10.milliseconds # let the loops exit
+        persister.mark_dirty(file)
+        persister.sync
+        persister.msynced.should eq [file]
+      ensure
+        file.try &.close
+      end
+    end
+  end
 
   it "msyncs batches below the syncfs threshold" do
     LavinMQ::Config.instance.syncfs_threshold = 3

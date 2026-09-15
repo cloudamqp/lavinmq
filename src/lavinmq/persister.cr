@@ -35,6 +35,10 @@ module LavinMQ
     # made its writes durable. Later requests belong to a separate batch.
     @sync_waiters : Sync::Exclusive(Array(WaitGroup)) = Sync::Exclusive.new(Array(WaitGroup).new, :unchecked)
 
+    # One signal when a batch sync starts and one when it ends; capacity two
+    # so the syncing thread never blocks on the watchdog itself.
+    @sync_signals = ::Channel(Nil).new(2)
+
     def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir)
       {% if flag?(:linux) %}
         @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -43,6 +47,9 @@ module LavinMQ
       # Run on a dedicated thread so the blocking msync(2) syscalls only stall
       # this thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
+      # A sync blocked on a failing device would otherwise stall confirms
+      # forever without anything noticing; exit instead so a standby can take over.
+      Fiber::ExecutionContext::Isolated.new("Sync watchdog") { sync_watchdog_loop }
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
@@ -106,6 +113,55 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
+      @sync_signals.close
+    end
+
+    private def sync_watchdog_loop
+      loop do
+        @sync_signals.receive # a batch sync is about to run
+        wait_for_sync
+      end
+    rescue ::Channel::ClosedError
+    end
+
+    # Exit on a blocked sync only when clustered: standalone there is no
+    # follower to take over, and dying would turn a slow disk into an outage.
+    protected def wait_for_sync : Nil
+      select
+      when @sync_signals.receive
+      when timeout sync_timeout
+        if @replicator
+          Log.fatal { "Disk sync blocked for more than #{sync_timeout}, exiting so a follower can take over" }
+          exit 1
+        end
+        Log.error { "Disk sync blocked for more than #{sync_timeout}" }
+        # Consume the real completion so it isn't mistaken for the next start.
+        @sync_signals.receive
+      end
+    end
+
+    protected def sync_timeout : Time::Span
+      Config.instance.clustering_sync_timeout
+    end
+
+    # Runs the batch sync under the watchdog. After close (a tx.commit racing
+    # shutdown syncs inline, see #sync) it still runs, only unguarded.
+    private def sync_files_with_watchdog(dirty : Array(MFile)) : Nil
+      begin
+        @sync_signals.send nil
+      rescue ::Channel::ClosedError
+        return sync_files(dirty)
+      end
+      begin
+        sync_files(dirty)
+      ensure
+        signal_sync_done
+      end
+    end
+
+    private def signal_sync_done : Nil
+      @sync_signals.send nil
+    rescue ::Channel::ClosedError
     end
 
     # The descriptor outlives #close: a tx.commit racing shutdown syncs
@@ -152,7 +208,7 @@ module LavinMQ
         replicator.fsync_files(paths) unless paths.empty?
       end
       return unless Config.instance.sync?
-      sync_files(dirty)
+      sync_files_with_watchdog(dirty)
     rescue ex
       Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
       exit 1
