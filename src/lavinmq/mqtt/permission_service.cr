@@ -32,9 +32,15 @@ module LavinMQ
         username : String?,
         client_id : String
 
-      record Compiled,
-        by_member : Hash(String, Array(CompiledRule)),
-        global_rules : Array(CompiledRule)
+      # Keep both indexes behind one reference for concurrent readers.
+      class Compiled
+        getter by_member : Hash(String, Array(CompiledRule))
+        getter global_rules : Array(CompiledRule)
+
+        def initialize(@by_member : Hash(String, Array(CompiledRule)),
+                       @global_rules : Array(CompiledRule))
+        end
+      end
 
       @save_lock = Mutex.new
       @compiled : Compiled
