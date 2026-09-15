@@ -1,6 +1,7 @@
 require "json"
 require "./parameter"
 require "./logger"
+require "./filesystem"
 
 module LavinMQ
   class ParameterStore(T)
@@ -94,7 +95,7 @@ module LavinMQ
       # file and fail the rename.
       @save_lock.synchronize do
         File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename tmpfile, path
+        FileSystem.durable_rename(tmpfile, path)
       end
       @replicator.try &.replace_file path
     end
