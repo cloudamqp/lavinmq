@@ -133,19 +133,21 @@ module LavinMQ
         permissions.as_a.each do |p|
           vhost = p["vhost"].as_s
           user = p["user"].as_s
-          next if skip_existing && @amqp_server.users[user]?.try(&.permissions[vhost]?)
+          # Permissions for vhost scoped users are marked with "vhost_scoped"
+          user_vhost = p["vhost_scoped"]?.try(&.as_bool?) ? vhost : nil
+          next if skip_existing && @amqp_server.users[user, user_vhost]?.try(&.permissions[vhost]?)
           configure = p["configure"].as_s
           read = p["read"].as_s
           write = p["write"].as_s
-          unless u = @amqp_server.users[user]?
+          unless u = @amqp_server.users[user, user_vhost]?
             Log.warn { "No user named #{user}, can't import permissions" }
             next
           end
-          u.permissions[vhost] = {
-            config: parse_regex(configure, "configure", user, vhost),
-            read:   parse_regex(read, "read", user, vhost),
-            write:  parse_regex(write, "write", user, vhost),
-          }
+          @amqp_server.users.add_permission(u, vhost,
+            parse_regex(configure, "configure", user, vhost),
+            parse_regex(read, "read", user, vhost),
+            parse_regex(write, "write", user, vhost),
+            save: false)
         end
         @amqp_server.users.save!
       end
@@ -164,11 +166,12 @@ module LavinMQ
       if users = body["users"]?
         users.as_a.each do |u|
           name = u["name"].as_s
-          next if skip_existing && @amqp_server.users[name]?
+          vhost = u["vhost"]?.try &.as_s?
+          next if skip_existing && @amqp_server.users[name, vhost]?
           pass_hash = parse_user_password_hash(u)
           hash_algo = parse_user_hash_algo(u)
           parsed_tags = parse_user_tags(u)
-          @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false)
+          @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false, vhost: vhost)
         end
         @amqp_server.users.save!
       end
@@ -386,6 +389,7 @@ module LavinMQ
             "name":              u.name,
             "password_hash":     u.user_details["password_hash"],
             "tags":              u.tags,
+            "vhost":             u.vhost,
           }.to_json(json)
         end
       end

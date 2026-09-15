@@ -39,6 +39,10 @@ user:
       name:
         type: string
         description:  Name of the user.
+      vhost:
+        type: string
+        nullable: true
+        description: The vhost the user is scoped to, or null for global users.
 BulkDeleteUsersRequestBody:
   type: object
   properties:
@@ -57,3 +61,17 @@ PutUserRequestBody:
       password:
         type: string
         description: The password. Either this field or `password_hash` is required.
+PutVhostUserRequestBody:
+  allOf:
+  - "$ref": "#/PutUserRequestBody"
+  - type: object
+    properties:
+      configure:
+        type: string
+        description: Configure permissions on the vhost (regular expression), only used on creation. Defaults to `.*`.
+      read:
+        type: string
+        description: Read permissions on the vhost (regular expression), only used on creation. Defaults to `.*`.
+      write:
+        type: string
+        description: Write permissions on the vhost (regular expression), only used on creation. Defaults to `.*`.

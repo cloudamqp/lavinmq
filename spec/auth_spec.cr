@@ -406,3 +406,60 @@ describe LavinMQ::Auth::Chain do
     end
   end
 end
+
+describe "vhost scoped users" do
+  it "authenticates a vhost scoped user with the vhost:name username" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      s.users.create("alice", "secret", vhost: "tenant")
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      user = chain.authenticate(LavinMQ::Auth::Context.new("tenant:alice", "secret".to_slice, loopback: true))
+      user.should_not be_nil
+      user.not_nil!.name.should eq "alice"
+      user.not_nil!.as(LavinMQ::Auth::User).vhost.should eq "tenant"
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "secret".to_slice, loopback: true)).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("other:alice", "secret".to_slice, loopback: true)).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("tenant:alice", "wrong".to_slice, loopback: true)).should be_nil
+    end
+  end
+
+  it "prefers a global user whose name contains a colon" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      global = s.users.create("tenant:alice", "global")
+      s.users.create("alice", "scoped", vhost: "tenant")
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      chain.authenticate(LavinMQ::Auth::Context.new("tenant:alice", "global".to_slice, loopback: true)).should be global
+      # the scoped user is only reached if the global user's password doesn't match
+      chain.authenticate(LavinMQ::Auth::Context.new("tenant:alice", "scoped".to_slice, loopback: true)).should be_nil
+    end
+  end
+
+  it "uses the vhost scoped user when the vhost is known at authentication" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      global = s.users.create("alice", "global")
+      scoped = s.users.create("alice", "scoped", vhost: "tenant")
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "scoped".to_slice, loopback: true, vhost: "tenant")).should be scoped
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "global".to_slice, loopback: true, vhost: "tenant")).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "global".to_slice, loopback: true, vhost: "/")).should be global
+    end
+  end
+
+  it "lets a vhost scoped user open an AMQP connection to its vhost only" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      u = s.users.create("alice", "secret", vhost: "tenant")
+      s.users.add_permission(u, "tenant", /.*/, /.*/, /.*/)
+      with_channel(s, user: "tenant:alice", password: "secret", vhost: "tenant") do |ch|
+        q = ch.queue("scoped-q")
+        q.publish_confirm "hi"
+        q.get.not_nil!.body_io.to_s.should eq "hi"
+      end
+      expect_raises(AMQP::Client::Connection::ClosedException) do
+        with_channel(s, user: "tenant:alice", password: "secret", vhost: "/") { }
+      end
+    end
+  end
+end

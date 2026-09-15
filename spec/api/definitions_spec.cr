@@ -1187,3 +1187,48 @@ describe LavinMQ::HTTP::Server do
     end
   end
 end
+
+describe "vhost scoped users in definitions" do
+  it "round-trips vhost scoped users and their permissions" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      s.users.create("alice", "pw", [LavinMQ::Tag::Management])
+      s.users.add_permission("alice", "tenant", /^g/, /^g/, /^g/)
+      u = s.users.create("alice", "pw", [LavinMQ::Tag::Monitoring], vhost: "tenant")
+      s.users.add_permission(u, "tenant", /^s/, /^s/, /^s/)
+
+      response = http.get("/api/definitions")
+      response.status_code.should eq 200
+      defs = JSON.parse(response.body)
+      users = defs["users"].as_a.select { |x| x["name"] == "alice" }
+      users.map(&.["vhost"].raw).sort_by!(&.to_s).should eq [nil, "tenant"]
+      perms = defs["permissions"].as_a.select { |p| p["user"] == "alice" }
+      perms.size.should eq 2
+      perms.count { |p| p["vhost_scoped"]?.try(&.as_bool?) }.should eq 1
+
+      s.users.delete("alice")
+      s.users.delete("alice", vhost: "tenant")
+      response = http.post("/api/definitions", body: response.body)
+      response.status_code.should eq 200
+
+      global = s.users["alice"]
+      global.tags.should eq [LavinMQ::Tag::Management]
+      global.permissions["tenant"].should eq({config: /^g/, read: /^g/, write: /^g/})
+      scoped = s.users["alice", "tenant"]
+      scoped.tags.should eq [LavinMQ::Tag::Monitoring]
+      scoped.permissions["tenant"].should eq({config: /^s/, read: /^s/, write: /^s/})
+    end
+  end
+
+  it "does not overwrite existing vhost scoped users on boot import" do
+    with_http_server do |_, s|
+      s.vhosts.create("tenant")
+      s.users.create("alice", "original", vhost: "tenant")
+      body = {
+        users: [{name: "alice", vhost: "tenant", password_hash: "", tags: ""}],
+      }.to_json
+      LavinMQ::GlobalDefinitions.new(s).import(JSON.parse(body), skip_existing: true)
+      s.users["alice", "tenant"].password.not_nil!.verify("original").should be_true
+    end
+  end
+end

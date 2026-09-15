@@ -15,6 +15,10 @@
         <h3>Details</h3>
         <table class="details-table">
           <tr>
+            <th>Scope</th>
+            <td id="scope"></td>
+          </tr>
+          <tr>
             <th>Tags</th>
             <td id="tags"></td>
           </tr>

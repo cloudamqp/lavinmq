@@ -67,3 +67,36 @@ module MqttSpecs
     end
   end
 end
+
+module MqttSpecs
+  extend MqttHelpers
+  describe LavinMQ::MQTT do
+    describe "vhost scoped users" do
+      it "authenticates a vhost scoped user with the vhost:name username" do
+        with_server do |server|
+          server.vhosts.create("tenant")
+          u = server.users.create("foo", "bar", vhost: "tenant")
+          server.users.add_permission u, "tenant", /.*/, /.*/, /.*/
+          with_client_io(server) do |io|
+            resp = connect io, username: "tenant:foo", password: "bar".to_slice
+            resp = resp.should be_a(MQTT::Protocol::Connack)
+            resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          end
+        end
+      end
+
+      it "denies a vhost scoped user access to other vhosts" do
+        with_server do |server|
+          server.vhosts.create("tenant")
+          u = server.users.create("foo", "bar", vhost: "tenant")
+          server.users.add_permission u, "tenant", /.*/, /.*/, /.*/
+          with_client_io(server) do |io|
+            resp = connect io, username: "foo", password: "bar".to_slice
+            resp = resp.should be_a(MQTT::Protocol::Connack)
+            resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
+          end
+        end
+      end
+    end
+  end
+end

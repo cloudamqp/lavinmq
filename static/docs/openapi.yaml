@@ -139,6 +139,8 @@ components:
       "$ref": "./schemas/users.yaml#/BulkDeleteUsersRequestBody"
     users-PutUserRequestBody:
       "$ref": "./schemas/users.yaml#/PutUserRequestBody"
+    users-PutVhostUserRequestBody:
+      "$ref": "./schemas/users.yaml#/PutVhostUserRequestBody"
     vhost:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
@@ -304,6 +306,12 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
   "/vhosts/{name}/permissions":
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
+  "/vhosts/{vhost}/users":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users"
+  "/vhosts/{vhost}/users/{name}":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users~1{name}"
+  "/vhosts/{vhost}/users/{name}/permissions":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users~1{name}~1permissions"
   "/auth/hash_password":
     "$ref": "./paths/auth.yaml#/~1auth~1hash_password"
   "/vhost-limits":

@@ -24,6 +24,7 @@
             <thead>
               <tr>
                 <th data-sort-key="name" class="left">Name<span></span></th>
+                <th data-sort-key="vhost" class="left">Scope<span></span></th>
                 <th data-sort-key="tags" class="left">Tags<span></span></th>
                 <th class="left">Can access virtual hosts</th>
                 <th>Has password</th>
@@ -38,6 +39,10 @@
         <label>
           <span>Username</span>
           <input type="text" name="username" required>
+        </label>
+        <label>
+          <span>Scope</span>
+          <select class="dropdown" name="vhost"></select>
         </label>
         <label class="has-btn">
           <span>Password</span>

@@ -35,15 +35,17 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const btn = DOM.button.delete({
       text: 'Clear',
       click: function () {
-        const url = HTTP.url`api/permissions/${vhost}/${item.user}`
+        const url = item.vhost_scoped
+          ? HTTP.url`api/vhosts/${vhost}/users/${item.user}/permissions`
+          : HTTP.url`api/permissions/${vhost}/${item.user}`
         HTTP.request('DELETE', url)
           .then(() => tr.parentNode.removeChild(tr))
           .catch(() => {})
       }
     })
     const userLink = document.createElement('a')
-    userLink.href = HTTP.url`user#name=${item.user}`
-    userLink.textContent = item.user
+    userLink.href = item.vhost_scoped ? HTTP.url`user#name=${item.user}&vhost=${vhost}` : HTTP.url`user#name=${item.user}`
+    userLink.textContent = item.vhost_scoped ? `${vhost}:${item.user}` : item.user
     Table.renderCell(tr, 0, userLink)
     Table.renderCell(tr, 4, btn, 'right')
   }

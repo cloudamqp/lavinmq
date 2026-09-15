@@ -4,15 +4,24 @@ import * as Table from './table.js'
 import * as DOM from './dom.js'
 import * as Form from './form.js'
 
-const user = new URLSearchParams(window.location.hash.substring(1)).get('name')
+const urlParams = new URLSearchParams(window.location.hash.substring(1))
+const user = urlParams.get('name')
+// Set for users scoped to a single vhost
+const userVhost = urlParams.get('vhost')
+const userUrl = userVhost ? HTTP.url`api/vhosts/${userVhost}/users/${user}` : HTTP.url`api/users/${user}`
+const permissionsUrl = userVhost ? HTTP.url`api/vhosts/${userVhost}/users/${user}/permissions` : HTTP.url`api/users/${user}/permissions`
+
+function permissionUrl (vhost) {
+  return userVhost ? permissionsUrl : HTTP.url`api/permissions/${vhost}/${user}`
+}
 
 function updateUser () {
-  const userUrl = HTTP.url`api/users/${user}`
   HTTP.request('GET', userUrl)
     .then(item => {
       const hasPassword = item.password_hash ? '●' : '○'
       document.getElementById('tags').textContent = item.tags
       document.getElementById('hasPassword').textContent = hasPassword
+      document.getElementById('scope').textContent = item.vhost ? item.vhost : '(global)'
       tagHelper(item.tags)
     })
     .catch(() => {})
@@ -26,7 +35,6 @@ function tagHelper (tags) {
   })
 }
 
-const permissionsUrl = HTTP.url`api/users/${user}/permissions`
 const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], autoReloadTimeout: 0, countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
@@ -38,8 +46,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const deleteBtn = DOM.button.delete({
       text: 'Clear',
       click: function () {
-        const url = HTTP.url`api/permissions/${item.vhost}/${item.user}`
-        HTTP.request('DELETE', url)
+        HTTP.request('DELETE', permissionUrl(item.vhost))
           .then(() => {
             tr.parentNode.removeChild(tr)
           })
@@ -57,13 +64,23 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   }
 })
 
-Helpers.addVhostOptions('setPermission')
+if (userVhost) {
+  // A vhost scoped user can only have permissions on its own vhost
+  const select = document.querySelector('#setPermission select[name="vhost"]')
+  const opt = document.createElement('option')
+  opt.value = userVhost
+  opt.textContent = userVhost
+  select.appendChild(opt)
+  select.value = userVhost
+} else {
+  Helpers.addVhostOptions('setPermission')
+}
 
 document.querySelector('#setPermission').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
   const vhost = data.get('vhost')
-  const url = HTTP.url`api/permissions/${vhost}/${user}`
+  const url = permissionUrl(vhost)
   const body = {
     configure: data.get('configure'),
     write: data.get('write'),
@@ -91,7 +108,7 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
   evt.preventDefault()
   const pwd = document.querySelector('[name=password]')
   const data = new window.FormData(this)
-  const url = HTTP.url`api/users/${user}`
+  const url = userUrl
   const body = {
     tags: data.get('tags')
   }
@@ -117,16 +134,16 @@ document.querySelector('#dataTags').addEventListener('click', e => {
 
 document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = HTTP.url`api/users/${user}`
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
-    HTTP.request('DELETE', url)
+    HTTP.request('DELETE', userUrl)
       .then(() => { window.location = 'users' })
       .catch(() => {})
   }
 })
 
 document.addEventListener('DOMContentLoaded', _ => {
-  document.title = user + ' | LavinMQ'
-  document.querySelector('#pagename-label').textContent = user
+  const title = userVhost ? `${userVhost}:${user}` : user
+  document.title = title + ' | LavinMQ'
+  document.querySelector('#pagename-label').textContent = title
   updateUser()
 })
