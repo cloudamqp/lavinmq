@@ -94,7 +94,7 @@ tls_ciphers = ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
 tls_ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
 ```
 
-Both settings are optional. When a key is omitted, or given with no value (`tls_ciphersuites =`), the TLS library default applies. Note that OpenSSL's default TLS 1.2 cipher list is broad, so restrict `tls_ciphers` too when hardening. An unknown cipher or ciphersuite name makes LavinMQ fail on startup. Both settings can also be given per SNI host and per protocol, like the other TLS settings.
+Both settings are optional. When a key is omitted, or given with no value (`tls_ciphersuites =`), the TLS library default applies. Note that OpenSSL's default TLS 1.2 cipher list is broad, so restrict `tls_ciphers` too when hardening. OpenSSL rejects a list only when it recognises none of the names. For `[main]` that fails startup; for an SNI host the context is created on the first connection to that hostname, so the failure shows up as a rejected handshake for that host instead. Both settings can also be given per SNI host and per protocol, like the other TLS settings.
 
 ## Cipher order
 
