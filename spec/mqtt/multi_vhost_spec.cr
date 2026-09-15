@@ -72,7 +72,7 @@ module MqttSpecs
   extend MqttHelpers
   describe LavinMQ::MQTT do
     describe "vhost scoped users" do
-      it "authenticates a vhost scoped user with the vhost:name username" do
+      it "authenticates a vhost scoped user once the vhost prefix selects its vhost" do
         with_server do |server|
           server.vhosts.create("tenant")
           u = server.users.create("foo", "bar", vhost: "tenant")

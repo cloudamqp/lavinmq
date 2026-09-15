@@ -16,7 +16,7 @@ module LavinMQ
       end
 
       # `vhost` is the vhost the client is connecting to, if known at
-      # authentication time (MQTT). Used to look up vhost scoped users.
+      # authentication time (AMQP and MQTT). Used to look up vhost scoped users.
       def initialize(
         @username : String,
         @password : Bytes,

@@ -142,7 +142,7 @@ document.querySelector('#deleteUser').addEventListener('submit', function (evt) 
 })
 
 document.addEventListener('DOMContentLoaded', _ => {
-  const title = userVhost ? `${userVhost}:${user}` : user
+  const title = userVhost ? `${user} (${userVhost})` : user
   document.title = title + ' | LavinMQ'
   document.querySelector('#pagename-label').textContent = title
   updateUser()

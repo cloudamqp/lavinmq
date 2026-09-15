@@ -299,6 +299,11 @@ describe "vhost scoped users API" do
         u.tags.should eq [LavinMQ::Tag::Management]
         u.permissions["tenant"].should eq({config: /.*/, read: /.*/, write: /.*/})
         s.users["alice"]?.should be_nil
+        # persisted in the vhost's own directory, not in the global users.json
+        vhost_file = File.join(s.vhosts["tenant"].data_dir, "users.json")
+        JSON.parse(File.read(vhost_file)).as_a.map(&.["name"].as_s).should eq ["alice"]
+        JSON.parse(File.read(File.join(LavinMQ::Config.instance.data_dir, "users.json"))).as_a
+          .any? { |x| x["name"] == "alice" }.should be_false
       end
     end
 
@@ -456,7 +461,7 @@ describe "vhost scoped users API" do
         s.users.create("alice", "pw", vhost: "tenant")
         http.delete("/api/vhosts/tenant").status_code.should eq 204
         s.users["alice", "tenant"]?.should be_nil
-        s.users.vhost_users("tenant").should be_empty
+        s.users.scoped_users("tenant").should be_empty
       end
     end
   end

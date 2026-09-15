@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Users scoped to a single vhost. They are managed via `/api/vhosts/{vhost}/users`, can only have permissions on their own vhost and log in with the username `vhost:name`. `lavinmqctl add_user`, `delete_user`, `set_user_tags` and `change_password` target vhost scoped users when given `-p vhost`
+- Users scoped to a single vhost, stored in `users.json` in the vhost's directory. They are managed via `/api/vhosts/{vhost}/users`, can only have permissions on their own vhost and are exported/imported nested under their vhost in definitions. `lavinmqctl add_user`, `delete_user`, `set_user_tags` and `change_password` target vhost scoped users when given `-p vhost`
+
+### Changed
+
+- AMQP credentials are verified at `Connection.Open`, when the vhost is known, instead of at `Connection.StartOk`. Failed logins are now refused with `ACCESS_REFUSED` in reply to `Connection.Open`
 - Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)

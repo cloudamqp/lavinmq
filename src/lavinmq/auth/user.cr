@@ -113,7 +113,7 @@ module LavinMQ
         !@vhost.nil?
       end
 
-      # Login name used by clients: `vhost:name` for vhost scoped users, otherwise `name`
+      # Name qualified with the vhost for scoped users (used in logs)
       def login_name : String
         if vhost = @vhost
           "#{vhost}:#{@name}"

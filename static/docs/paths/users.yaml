@@ -209,8 +209,9 @@
     description: |
       List the users scoped to a vhost. A vhost scoped user can only have permissions on,
       and connect to, its own vhost. Its name only has to be unique within the vhost, so it
-      may coexist with a global user of the same name. Clients log in with the username
-      `vhost:name`.
+      may coexist with a global user of the same name; when both exist the scoped user is
+      used for connections to that vhost. Clients log in with the plain username, the
+      credentials are verified once the vhost is known.
     summary: List vhost scoped users
     operationId: GetVhostUsers
     responses:
@@ -245,7 +246,7 @@
     required: true
     schema:
       type: string
-      description: Name of the user (without the vhost prefix).
+      description: Name of the user.
   get:
     tags:
     - users
@@ -337,7 +338,7 @@
     required: true
     schema:
       type: string
-      description: Name of the user (without the vhost prefix).
+      description: Name of the user.
   get:
     tags:
     - users

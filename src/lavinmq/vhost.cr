@@ -218,6 +218,7 @@ module LavinMQ
       Dir.mkdir_p File.join(@data_dir)
       FileUtils.rm_rf File.join(@data_dir, "transient")
       File.write(File.join(@data_dir, ".vhost"), @name)
+      @users.load_vhost(@name, @data_dir)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)

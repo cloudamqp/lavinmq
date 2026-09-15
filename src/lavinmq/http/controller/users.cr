@@ -108,7 +108,7 @@ module LavinMQ
         get "/api/vhosts/:vhost/users" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            page(context, @server.users.vhost_users(vhost.name).map { |u| UserView.new(u) })
+            page(context, @server.users.scoped_users(vhost.name).map { |u| UserView.new(u) })
           end
         end
 
@@ -203,7 +203,7 @@ module LavinMQ
             u.update_password(password)
           end
           u.tags = tags if body["tags"]?
-          @server.users.save!
+          @server.users.save!(vhost_name)
           context.response.status_code = 204
         else
           u = if password_hash

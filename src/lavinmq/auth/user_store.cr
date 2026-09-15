@@ -15,12 +15,19 @@ module LavinMQ
       @save_lock = Mutex.new
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
-        # Global users, keyed by name
+        # Global users, keyed by name, stored in <data_dir>/users.json
         @users = Hash(String, User).new
-        # Vhost scoped users, keyed by vhost and then name. A scoped user's name
-        # only has to be unique within its vhost.
-        @vhost_users = Hash(String, Hash(String, User)).new
+        # Vhost scoped users, keyed by vhost name. Each vhost stores its users
+        # in its own directory, and a scoped user's name only has to be
+        # unique within its vhost.
+        @vhost_users = Hash(String, VHostUsers).new
         load!
+      end
+
+      # Loads the users scoped to `vhost` from `<vhost_dir>/users.json`.
+      # Called when a vhost is created or loaded.
+      def load_vhost(vhost : String, vhost_dir : String) : Nil
+        @vhost_users[vhost] = VHostUsers.new(vhost, vhost_dir, @replicator)
       end
 
       # Look up a user. Without `vhost` only global users are considered,
@@ -44,7 +51,7 @@ module LavinMQ
       end
 
       # Users scoped to `vhost`
-      def vhost_users(vhost : String) : Array(User)
+      def scoped_users(vhost : String) : Array(User)
         @vhost_users[vhost]?.try(&.values) || Array(User).new(0)
       end
 
@@ -54,7 +61,7 @@ module LavinMQ
       end
 
       def size : Int32
-        @users.size + @vhost_users.sum(0) { |_, users| users.size }
+        @users.size + @vhost_users.sum(0, &.[1].size)
       end
 
       def values : Array(User)
@@ -80,23 +87,27 @@ module LavinMQ
         user = User.create(name, password, "SHA256", tags, vhost)
         store(user)
         Log.info { "Created user=#{user.login_name}" }
-        save! if save
+        save!(vhost) if save
         user
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true, vhost : String? = nil)
         user = User.new(name, password_hash, password_algorithm, tags, vhost)
         store(user)
-        save! if save
+        save!(vhost) if save
         user
       end
 
       private def store(user : User)
         if vhost = user.vhost
-          (@vhost_users[vhost] ||= Hash(String, User).new)[user.name] = user
+          vhost_users(vhost)[user.name] = user
         else
           @users[user.name] = user
         end
+      end
+
+      private def vhost_users(vhost : String) : VHostUsers
+        @vhost_users[vhost]? || raise KeyError.new("VHost '#{vhost}' not loaded, can't have users scoped to it")
       end
 
       def add_permission(user : User, vhost, config, read, write, save = true)
@@ -109,7 +120,7 @@ module LavinMQ
         end
         user.permissions[vhost] = perm
         user.clear_permissions_cache
-        save! if save
+        save!(user.vhost) if save
         perm
       end
 
@@ -122,7 +133,7 @@ module LavinMQ
         if perm = user.permissions.delete vhost
           user.clear_permissions_cache
           Log.info { "Removed permissions for user=#{user.login_name} on vhost=#{vhost}" }
-          save!
+          save!(user.vhost)
           perm
         end
       end
@@ -132,7 +143,7 @@ module LavinMQ
       end
 
       # Called when a vhost is deleted: removes all permissions on the vhost
-      # and all users scoped to it
+      # and forgets the users scoped to it (their file goes with the vhost dir)
       def rm_vhost_permissions_for_all(vhost)
         @users.each_value do |user|
           user.permissions.delete(vhost)
@@ -151,11 +162,7 @@ module LavinMQ
       def delete(name, save = true, vhost : String? = nil) : User?
         return if name == DIRECT_USER
         user = if vhost
-                 if scoped = @vhost_users[vhost]?
-                   u = scoped.delete name
-                   @vhost_users.delete(vhost) if scoped.empty?
-                   u
-                 end
+                 @vhost_users[vhost]?.try &.delete(name)
                else
                  @users.delete name
                end
@@ -163,7 +170,7 @@ module LavinMQ
           user.permissions.clear
           user.clear_permissions_cache
           Log.info { "Deleted user=#{user.login_name}" }
-          save! if save
+          save!(vhost) if save
           user
         end
       end
@@ -182,9 +189,10 @@ module LavinMQ
         raise "No user with administrator privileges found"
       end
 
+      # Serializes the global users only; scoped users live in their vhost's file
       def to_json(json : JSON::Builder)
         json.array do
-          each_value do |user|
+          @users.each_value do |user|
             next if user.hidden?
             user.to_json(json)
           end
@@ -228,7 +236,12 @@ module LavinMQ
         @users[DIRECT_USER].permissions["/"] = perm
       end
 
-      def save!
+      # Saves the global users, or the users scoped to `vhost` if given
+      def save!(vhost : String? = nil)
+        if vhost
+          vhost_users(vhost).save!
+          return
+        end
         Log.debug { "Saving users to file" }
         path = File.join(@data_dir, "users.json")
         tmpfile = "#{path}.tmp"
@@ -241,7 +254,68 @@ module LavinMQ
         @replicator.try &.replace_file path
       end
 
+      # Saves the global users and the scoped users of every vhost
+      def save_all!
+        save!
+        @vhost_users.each_value &.save!
+      end
+
       class VHostScopeError < ArgumentError; end
+
+      # The users scoped to one vhost, persisted in `users.json` in the
+      # vhost's directory
+      class VHostUsers
+        include Enumerable({String, User})
+        FILE_NAME = "users.json"
+
+        def initialize(@vhost : String, @dir : String, @replicator : Clustering::Replicator?)
+          @users = Hash(String, User).new
+          @save_lock = Mutex.new
+          load!
+        end
+
+        forward_missing_to @users
+
+        def each(&)
+          @users.each { |kv| yield kv }
+        end
+
+        def to_json(json : JSON::Builder)
+          json.array do
+            @users.each_value &.to_json(json)
+          end
+        end
+
+        private def load!
+          path = File.join(@dir, FILE_NAME)
+          return unless File.exists? path
+          Log.debug { "Loading users for vhost=#{@vhost} from file" }
+          File.open(path) do |f|
+            Array(User).from_json(f) do |user|
+              unless user.vhost == @vhost
+                Log.warn { "Skipping user=#{user.name} in #{path}: scoped to vhost=#{user.vhost.inspect}, expected #{@vhost.inspect}" }
+                next
+              end
+              @users[user.name] = user
+            end
+            @replicator.try &.register_file f
+          end
+        rescue ex
+          Log.error(exception: ex) { "Failed to load users for vhost=#{@vhost}" }
+          raise ex
+        end
+
+        def save!
+          Log.debug { "Saving users for vhost=#{@vhost} to file" }
+          path = File.join(@dir, FILE_NAME)
+          tmpfile = "#{path}.tmp"
+          @save_lock.synchronize do
+            File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
+            File.rename tmpfile, path
+          end
+          @replicator.try &.replace_file path
+        end
+      end
     end
   end
 end

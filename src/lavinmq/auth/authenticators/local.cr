@@ -20,20 +20,13 @@ module LavinMQ
       def cleanup
       end
 
-      # Resolves the user for the login. If the vhost is known (MQTT) a user
-      # scoped to that vhost takes precedence over a global user. Otherwise
-      # (AMQP, where the vhost isn't known until Connection.Open) a global
-      # user is looked up first, then the username is interpreted as
-      # `vhost:name` to find a vhost scoped user.
+      # Resolves the user for the login. If the vhost is known, a user scoped
+      # to that vhost takes precedence over a global user with the same name.
       private def find_user(context) : User?
         if vhost = context.vhost
-          return @users.find(context.username, vhost)
-        end
-        if user = @users[context.username]?
-          return user
-        end
-        if idx = context.username.index(':')
-          @users[context.username[idx + 1..], context.username[0, idx]]?
+          @users.find(context.username, vhost)
+        else
+          @users[context.username]?
         end
       end
 

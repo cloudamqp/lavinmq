@@ -65,16 +65,30 @@ module LavinMQ
       end
     end
 
-    private def import_vhosts(body)
+    private def import_vhosts(body, skip_existing = false)
       if vhosts = body["vhosts"]?
         # Create with save: false so each vhost doesn't rewrite+fsync vhosts.json
         # (and users.json, via the permissions create adds); save both once at the end.
         vhosts.as_a.each do |v|
           name = v["name"].as_s
-          @amqp_server.vhosts.create name, save: false
+          vhost = @amqp_server.vhosts.create name, save: false
+          # Users scoped to the vhost, and their permissions, are nested under it
+          import_vhost_users(v, vhost, skip_existing)
         end
         @amqp_server.vhosts.save!
         @amqp_server.users.save!
+      end
+    end
+
+    # Imports the "users" and "permissions" of `json` as users scoped to `vhost`
+    private def import_vhost_users(json, vhost : VHost, skip_existing = false)
+      if users = json["users"]?
+        import_user_list(users.as_a, vhost.name, skip_existing)
+        @amqp_server.users.save!(vhost.name)
+      end
+      if permissions = json["permissions"]?
+        import_permission_list(permissions.as_a, vhost.name, skip_existing)
+        @amqp_server.users.save!(vhost.name)
       end
     end
 
@@ -128,28 +142,34 @@ module LavinMQ
       end
     end
 
+    # Imports permissions of global users
     private def import_permissions(body, skip_existing = false)
       if permissions = body["permissions"]?
-        permissions.as_a.each do |p|
-          vhost = p["vhost"].as_s
-          user = p["user"].as_s
-          # Permissions for vhost scoped users are marked with "vhost_scoped"
-          user_vhost = p["vhost_scoped"]?.try(&.as_bool?) ? vhost : nil
-          next if skip_existing && @amqp_server.users[user, user_vhost]?.try(&.permissions[vhost]?)
-          configure = p["configure"].as_s
-          read = p["read"].as_s
-          write = p["write"].as_s
-          unless u = @amqp_server.users[user, user_vhost]?
-            Log.warn { "No user named #{user}, can't import permissions" }
-            next
-          end
-          @amqp_server.users.add_permission(u, vhost,
-            parse_regex(configure, "configure", user, vhost),
-            parse_regex(read, "read", user, vhost),
-            parse_regex(write, "write", user, vhost),
-            save: false)
-        end
+        import_permission_list(permissions.as_a, nil, skip_existing)
         @amqp_server.users.save!
+      end
+    end
+
+    # Imports a list of permissions. With `user_vhost` the users are the ones
+    # scoped to that vhost and the permissions always apply to it, otherwise
+    # the users are global and each entry names its vhost.
+    private def import_permission_list(permissions : Array(JSON::Any), user_vhost : String?, skip_existing)
+      permissions.each do |p|
+        vhost = user_vhost || p["vhost"].as_s
+        user = p["user"].as_s
+        unless u = @amqp_server.users[user, user_vhost]?
+          Log.warn { "No user named #{user}#{" in vhost #{user_vhost}" if user_vhost}, can't import permissions" }
+          next
+        end
+        next if skip_existing && u.permissions[vhost]?
+        configure = p["configure"].as_s
+        read = p["read"].as_s
+        write = p["write"].as_s
+        @amqp_server.users.add_permission(u, vhost,
+          parse_regex(configure, "configure", user, vhost),
+          parse_regex(read, "read", user, vhost),
+          parse_regex(write, "write", user, vhost),
+          save: false)
       end
     end
 
@@ -162,18 +182,23 @@ module LavinMQ
       )
     end
 
+    # Imports global users
     private def import_users(body, skip_existing = false)
       if users = body["users"]?
-        users.as_a.each do |u|
-          name = u["name"].as_s
-          vhost = u["vhost"]?.try &.as_s?
-          next if skip_existing && @amqp_server.users[name, vhost]?
-          pass_hash = parse_user_password_hash(u)
-          hash_algo = parse_user_hash_algo(u)
-          parsed_tags = parse_user_tags(u)
-          @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false, vhost: vhost)
-        end
+        import_user_list(users.as_a, nil, skip_existing)
         @amqp_server.users.save!
+      end
+    end
+
+    # Imports a list of users, scoped to `vhost` if given
+    private def import_user_list(users : Array(JSON::Any), vhost : String?, skip_existing)
+      users.each do |u|
+        name = u["name"].as_s
+        next if skip_existing && @amqp_server.users[name, vhost]?
+        pass_hash = parse_user_password_hash(u)
+        hash_algo = parse_user_hash_algo(u)
+        parsed_tags = parse_user_tags(u)
+        @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false, vhost: vhost)
       end
     end
 
@@ -371,26 +396,62 @@ module LavinMQ
       end
     end
 
+    # Permissions of global users. Users scoped to a vhost are exported under
+    # their vhost, see `export_vhost_users`.
     private def export_permissions(json)
+      export_permission_list(json, @amqp_server.users.values.reject { |u| u.hidden? || u.vhost_scoped? })
+    end
+
+    private def export_permission_list(json, users : Array(Auth::User))
       json.array do
-        @amqp_server.users.values.reject(&.hidden?).each do |u|
-          u.permissions_details.each do |p|
-            p.to_json(json)
+        users.each do |u|
+          u.permissions.each do |vhost, p|
+            {
+              "user":      u.name,
+              "vhost":     vhost,
+              "configure": p[:config],
+              "read":      p[:read],
+              "write":     p[:write],
+            }.to_json(json)
           end
         end
       end
     end
 
+    # Global users. Users scoped to a vhost are exported under their vhost.
     private def export_users(json)
+      export_user_list(json, @amqp_server.users.values.reject { |u| u.hidden? || u.vhost_scoped? })
+    end
+
+    private def export_user_list(json, users : Array(Auth::User))
       json.array do
-        @amqp_server.users.values.reject(&.hidden?).each do |u|
+        users.each do |u|
           {
             "hashing_algorithm": u.user_details["hashing_algorithm"],
             "name":              u.name,
             "password_hash":     u.user_details["password_hash"],
             "tags":              u.tags,
-            "vhost":             u.vhost,
           }.to_json(json)
+        end
+      end
+    end
+
+    # The vhost's own users and their permissions
+    private def export_vhost_users(json, vhost : VHost)
+      users = @amqp_server.users.scoped_users(vhost.name)
+      json.field("users") { export_user_list(json, users) }
+      json.field("permissions") { export_permission_list(json, users) }
+    end
+
+    private def export_vhosts(json)
+      json.array do
+        vhosts.each_value do |vhost|
+          json.object do
+            vhost.details_tuple.each do |key, value|
+              json.field(key, value)
+            end
+            export_vhost_users(json, vhost)
+          end
         end
       end
     end
@@ -405,6 +466,7 @@ module LavinMQ
     getter vhosts : Hash(String, VHost)
 
     def import(body, skip_existing = false)
+      import_vhost_users(body, @vhost, skip_existing)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
@@ -417,6 +479,7 @@ module LavinMQ
       JSON.build(response) do |json|
         json.object do
           json.field("lavinmq_version", LavinMQ::VERSION)
+          export_vhost_users(json, @vhost)
           json.field("queues") { export_queues(json) }
           json.field("exchanges") { export_exchanges(json) }
           json.field("bindings") { export_bindings(json) }
@@ -442,7 +505,7 @@ module LavinMQ
     def import(body, skip_existing = false)
       import_users(body, skip_existing)
       import_permissions(body, skip_existing)
-      import_vhosts(body)
+      import_vhosts(body, skip_existing)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
@@ -457,7 +520,7 @@ module LavinMQ
         json.object do
           json.field("lavinmq_version", LavinMQ::VERSION)
           json.field("users") { export_users(json) }
-          json.field("vhosts", @amqp_server.vhosts)
+          json.field("vhosts") { export_vhosts(json) }
           json.field("permissions") { export_permissions(json) }
           json.field("queues") { export_queues(json) }
           json.field("exchanges") { export_exchanges(json) }

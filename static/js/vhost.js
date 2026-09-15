@@ -45,7 +45,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     })
     const userLink = document.createElement('a')
     userLink.href = item.vhost_scoped ? HTTP.url`user#name=${item.user}&vhost=${vhost}` : HTTP.url`user#name=${item.user}`
-    userLink.textContent = item.vhost_scoped ? `${vhost}:${item.user}` : item.user
+    userLink.textContent = item.vhost_scoped ? `${item.user} (vhost user)` : item.user
     Table.renderCell(tr, 0, userLink)
     Table.renderCell(tr, 4, btn, 'right')
   }
