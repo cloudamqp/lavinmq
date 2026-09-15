@@ -242,7 +242,7 @@ module LavinMQ
           message_count:        @message_count,
           confirmed:            @confirmed_total.get,
           retried:              @retried_total.get,
-          dead_lettered:        @rejected_total.get,
+          rejected:        @rejected_total.get,
           aborted:              @aborted_total.get,
           consecutive_failures: @delivery_failures.get,
           consecutive_aborts:   @delivery_aborts.get,
