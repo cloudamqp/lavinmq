@@ -40,13 +40,6 @@ module ClusteringSpecHelper
       sync_files(socket, lz4)
     end
 
-    # Instrumentation for the close/ack-loop fd race spec: slow each sync down
-    # and record whether one ever ran against a closed data dir fd — the real
-    # implementation would Log.fatal and exit 1 there.
-    property sync_delay : Time::Span = Time::Span.zero
-    getter syncs_started = 0
-    getter? synced_on_closed_fd = false
-
     # Instrumentation for the log-loop lifecycle spec: how many streamed-bytes
     # logging fibers are currently running.
     getter log_loops_running = 0
@@ -58,13 +51,12 @@ module ClusteringSpecHelper
       @log_loops_running -= 1
     end
 
-    private def sync_data_dir : Nil
-      @syncs_started += 1
-      sleep @sync_delay unless @sync_delay.zero?
-      if LibC.fcntl(@data_dir_fd, LibC::F_GETFD, 0) == -1
-        @synced_on_closed_fd = true
-        return
-      end
+    # Files the leader asked us to fsync via `$` records (recorded even when
+    # sync is disabled).
+    getter fsync_requests = Array(String).new
+
+    private def fsync_file(filename : String) : Nil
+      @fsync_requests << filename
       super
     end
   end

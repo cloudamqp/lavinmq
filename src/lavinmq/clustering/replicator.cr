@@ -16,6 +16,13 @@ module LavinMQ
       abstract def append_value(path : String, value : UInt32 | Int32, offset : Int64)
       abstract def append_bytes(path : String, bytes : Bytes, offset : Int64)
       abstract def delete_file(path : String)
+      # Ask every synced follower to fsync these files (dispatched as
+      # `$`-prefixed zero-length records on the replication stream). The
+      # follower acks each request only after the fsync completed, so a
+      # wait_for_followers issued after this returns means the files are
+      # durable on every in-sync follower. Never writes the follower sockets
+      # itself, so it's safe to call from any execution context.
+      abstract def fsync_files(paths : Array(String))
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       # ISR bookkeeping for the publish-confirm path: a confirm may only be

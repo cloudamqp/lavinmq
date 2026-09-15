@@ -2,10 +2,8 @@
 lib LibC
   {% if flag?(:linux) %}
     fun get_phys_pages : Int32
-    fun syncfs(fd : Int) : Int
   {% end %}
 
-  fun sync : Void
   fun getpagesize : Int32
 
   {% if flag?(:darwin) %}

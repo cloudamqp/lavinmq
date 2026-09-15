@@ -343,6 +343,40 @@ module FollowerSpec
   end
 
   describe "#wait_for_confirm" do
+    {% for operation in [:append_bytes, :append_value, :replace_bytes, :replace_file, :delete] %}
+      it "writes queued fsync fences before {{ operation.id }} records" do
+        with_datadir do |data_dir|
+          follower_socket, client_socket = FakeSocket.pair
+          follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+          File.write(File.join(data_dir, "later"), "payload")
+
+          # Keep the flush loop stopped so the later write races ahead of it.
+          follower.request_fsync(["first"])
+          {% if operation == :append_bytes %}
+            follower.append("later", "payload".to_slice)
+          {% elsif operation == :append_value %}
+            follower.append("later", 123u32)
+          {% elsif operation == :replace_bytes %}
+            follower.replace("later", "payload".to_slice)
+          {% elsif operation == :replace_file %}
+            follower.replace("later")
+          {% else %}
+            follower.delete("later")
+          {% end %}
+          spawn { follower.ack_loop }
+          follower.request_flush
+          client_socket.read_timeout = 2.seconds
+          lz4 = Compress::LZ4::Reader.new(client_socket)
+          read_filename(lz4).should eq("$first")
+          read_data_size(lz4).should eq(0)
+          read_filename(lz4).should eq("later")
+        ensure
+          follower.try &.close
+          client_socket.try &.close
+        end
+      end
+    {% end %}
+
     it "blocks until the follower has acked the bytes sent so far" do
       with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair

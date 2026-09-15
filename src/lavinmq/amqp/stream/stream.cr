@@ -136,22 +136,22 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.replicator
-      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
+      @msg_store = StreamMessageStore.new(data_dir, replicator, persister: @vhost.persister, metadata: @metadata)
     end
 
     def stream_msg_store : StreamMessageStore
       @msg_store.as(StreamMessageStore)
     end
 
-    def publish(msg : Message) : PublishResult
-      publish_internal(msg, nil)
+    def publish(msg : Message, needs_sync = false) : PublishResult
+      publish_internal(msg, needs_sync, nil)
     end
 
     # save message id / segment position
-    protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
+    protected def publish_internal(msg : Message, needs_sync = false, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Dropped if @state.closed?
       @msg_store_lock.synchronize do
-        @msg_store.push(msg)
+        @msg_store.push(msg, needs_sync)
         @publish_count.add(1, :relaxed)
       end
       # Notify all waiting stream consumers about new messages

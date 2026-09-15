@@ -22,7 +22,7 @@ Once `tx.select` succeeds, the channel switches into transaction mode. From that
 
 1. Pending acks/nacks/rejects are applied to their queues.
 2. Pending publishes are routed through their exchanges (mandatory and immediate flags are honored, including `basic.return` for unroutable mandatory messages).
-3. A filesystem sync (`syncfs` on Linux, `sync` elsewhere) is issued so the durable parts of the batch are committed to disk before the server replies with `tx.commit-ok`.
+3. Every segment file written since the last sync is flushed to disk (`msync`), and in clustered mode every in-sync follower must acknowledge (and fsync) the replicated batch, before the server replies with `tx.commit-ok`.
 
 `tx.rollback` simply clears both lists and rewinds the body temp file. Neither the publishes nor the acks ever take effect, and no consumer or exchange observes any of the rolled-back work.
 
