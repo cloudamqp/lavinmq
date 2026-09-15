@@ -1,5 +1,31 @@
 module LavinMQ
   module FileSystem
+    # Shared by the segments in a message store. The descriptor lives as long
+    # as the store; syncing entries never opens or walks ancestor directories.
+    class Directory
+      @lock = Mutex.new
+
+      def initialize(path : String)
+        @file = File.open(path)
+      end
+
+      def fsync : Nil
+        @lock.synchronize { @file.fsync }
+      end
+
+      def close : Nil
+        @lock.synchronize { @file.close }
+      end
+
+      # Queue deletion may follow close. Reopen once for that teardown, then
+      # reuse the descriptor for every removed segment before closing it again.
+      def reopen : Nil
+        @lock.synchronize do
+          @file = File.open(@file.path) if @file.closed?
+        end
+      end
+    end
+
     # Atomically install an already-synced file and make the changed directory
     # entry durable before returning. Most callers rename within one directory;
     # syncing both parents also makes cross-directory renames safe.

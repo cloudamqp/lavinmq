@@ -112,7 +112,12 @@ class MFile < IO
     addr
   end
 
-  def delete(*, raise_on_missing = true, durable = false) : Nil
+  def delete(*, raise_on_missing = true) : Nil
+    delete(raise_on_missing: raise_on_missing) { }
+  end
+
+  # Let the caller finish bookkeeping before the persister can skip this file.
+  def delete(*, raise_on_missing = true, & : ->) : Nil
     @mapping_lock.synchronize do
       return if deleted? # avoid double deletes
       if raise_on_missing
@@ -120,15 +125,9 @@ class MFile < IO
       else
         File.delete?(@path)
       end
-      # Publish deleted? only once the removal is durable: the persister may
-      # skip this file as soon as it observes that flag.
-      fsync_parent_dir if durable
+      yield
       @deleted.set(true, :release)
     end
-  end
-
-  private def fsync_parent_dir : Nil
-    File.open(File.dirname(@path), &.fsync)
   end
 
   # The file will be truncated to the current position unless readonly or deleted
@@ -227,9 +226,10 @@ class MFile < IO
       check_open
       # Read the range while locked: truncate may shrink it before we acquire
       # the lock, and neither truncate nor close may unmap it until we finish.
-      return if @size.zero?
-      code = LibC.msync(@buffer, @size, flag)
-      raise RuntimeError.from_errno("msync") if code < 0
+      unless @size.zero?
+        code = LibC.msync(@buffer, @size, flag)
+        raise RuntimeError.from_errno("msync") if code < 0
+      end
     end
   end
 
@@ -337,8 +337,10 @@ class MFile < IO
   end
 
   def rename(new_path : String) : Nil
-    File.rename @path, new_path
-    @path = new_path
+    @mapping_lock.synchronize do
+      File.rename(@path, new_path)
+      @path = new_path
+    end
   end
 
   private def check_open
