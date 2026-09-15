@@ -174,7 +174,7 @@ module LavinMQ
               direct_user: @vhost.users.direct_user)
           end
         end
-        Shovel::MultiDestinationHandler.new(destinations)
+        Shovel::MultiDestination.new(destinations)
       end
     end
   end
