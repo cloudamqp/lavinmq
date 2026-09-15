@@ -1,4 +1,5 @@
 require "../data_dir_lock"
+require "../sync_watchdog"
 require "../clustering"
 require "../rate_limiter"
 require "./checksums"
@@ -53,7 +54,11 @@ module LavinMQ
       # still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      # A follower only exists while clustering, so a blocked sync always
+      # exits: staying an unresponsive follower is strictly worse than letting
+      # the leader drop us from the in-sync set.
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true,
+                     @watchdog : SyncWatchdog = SyncWatchdog.new("follower", exit_on_timeout: true))
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -653,13 +658,15 @@ module LavinMQ
       # that would resurrect the deleted file as empty).
       private def fsync_file(filename : String) : Nil
         return unless @config.sync?
-        if f = @files[filename]?
-          f.fsync
-        else
-          File.open(File.join(@data_dir, filename), &.fsync)
-        end
-        if @unsynced_directory_files.delete(filename)
-          fsync_parent_dir(File.join(@data_dir, filename))
+        @watchdog.guard do
+          if f = @files[filename]?
+            f.fsync
+          else
+            File.open(File.join(@data_dir, filename), &.fsync)
+          end
+          if @unsynced_directory_files.delete(filename)
+            fsync_parent_dir(File.join(@data_dir, filename))
+          end
         end
       rescue File::NotFoundError
       rescue ex
@@ -728,6 +735,7 @@ module LavinMQ
         @checksums.store
         @directories.each_value &.close
         @directories.clear
+        @watchdog.close
         @data_dir_lock.release
         @metrics_server.try &.close
       end

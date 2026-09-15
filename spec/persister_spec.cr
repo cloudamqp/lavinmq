@@ -1,5 +1,14 @@
 require "./spec_helper"
 
+private class SpyWatchdog < LavinMQ::SyncWatchdog
+  getter guarded = 0
+
+  def guard(& : -> Nil) : Nil
+    @guarded += 1
+    super { yield }
+  end
+end
+
 private class RecordingPersister < LavinMQ::Persister
   getter msynced = Array(MFile).new
   getter syncfs_count = 0
@@ -110,6 +119,22 @@ describe LavinMQ::Persister do
       LavinMQ::Config.instance.syncfs_threshold = 10
     end
   {% end %}
+
+  it "guards each sync batch with the watchdog" do
+    with_datadir do |data_dir|
+      watchdog = SpyWatchdog.new("spec", exit_on_timeout: false)
+      persister = RecordingPersister.new(data_dir: data_dir, watchdog: watchdog)
+      file = MFile.new(File.join(data_dir, "segment"), 4096)
+      persister.mark_dirty(file)
+      persister.sync
+      watchdog.guarded.should eq 1
+      persister.sync
+      watchdog.guarded.should eq 1
+    ensure
+      persister.try &.close
+      file.try &.close
+    end
+  end
 
   it "msyncs batches below the syncfs threshold" do
     LavinMQ::Config.instance.syncfs_threshold = 3
