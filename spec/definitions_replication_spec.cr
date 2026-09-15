@@ -54,6 +54,9 @@ class DiskVisibilitySpyReplicator
   def delete_file(path : String)
   end
 
+  def fsync_files(paths : Array(String))
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
