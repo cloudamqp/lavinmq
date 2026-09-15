@@ -345,7 +345,7 @@
   get:
     tags:
     - users
-    description: Get the permissions of a vhost scoped user on its vhost.
+    description: List the permissions of a vhost scoped user (at most one entry, on its own vhost).
     summary: List permissions of vhost scoped user
     operationId: GetVhostUserPermissions
     responses:
@@ -354,7 +354,7 @@
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/permission"
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
       4XX:
         description: Client Error
         content:

@@ -48,9 +48,19 @@ BulkDeleteUsersRequestBody:
   properties:
     users:
       type: array
-      description: List of users to delete.
+      description: List of users to delete. Global users by name, vhost scoped users as objects with name and vhost.
       items:
-        type: string
+        oneOf:
+        - type: string
+        - type: object
+          properties:
+            name:
+              type: string
+            vhost:
+              type: string
+          required:
+          - name
+          - vhost
   required:
   -  users
 PutUserRequestBody:

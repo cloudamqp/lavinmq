@@ -421,7 +421,9 @@ describe "vhost scoped users API" do
       with_http_server do |http, s|
         s.vhosts.create("tenant")
         s.users.create("alice", "pw", vhost: "tenant")
-        http.get("/api/vhosts/tenant/users/alice/permissions").status_code.should eq 404
+        response = http.get("/api/vhosts/tenant/users/alice/permissions")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.should be_empty
 
         body = %({"configure":"^a","read":"^b","write":"^c"})
         http.put("/api/vhosts/tenant/users/alice/permissions", body: body).status_code.should eq 201
@@ -429,7 +431,9 @@ describe "vhost scoped users API" do
 
         response = http.get("/api/vhosts/tenant/users/alice/permissions")
         response.status_code.should eq 200
-        perm = JSON.parse(response.body)
+        perms = JSON.parse(response.body).as_a
+        perms.size.should eq 1
+        perm = perms.first
         perm["user"].as_s.should eq "alice"
         perm["vhost"].as_s.should eq "tenant"
         perm["configure"].as_s.should eq "^a"
@@ -450,6 +454,31 @@ describe "vhost scoped users API" do
         scoped = perms.find! { |p| p["user"] == "alice" }
         scoped["vhost_scoped"].as_bool.should be_true
         perms.find! { |p| p["user"] == "guest" }["vhost_scoped"]?.should be_nil
+      end
+    end
+  end
+
+  describe "POST /api/users/bulk-delete" do
+    it "deletes scoped users given as name and vhost objects" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw")
+        s.users.create("alice", "pw", vhost: "tenant")
+        body = %({"users": [{"name": "alice", "vhost": "tenant"}]})
+        http.post("/api/users/bulk-delete", body: body).status_code.should eq 204
+        s.users["alice", "tenant"]?.should be_nil
+        s.users["alice"]?.should_not be_nil
+      end
+    end
+
+    it "refuses a bare name that only matches a scoped user" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.post("/api/users/bulk-delete", body: %({"users": ["alice"]}))
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "scoped to a vhost"
+        s.users["alice", "tenant"]?.should_not be_nil
       end
     end
   end

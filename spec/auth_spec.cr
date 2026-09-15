@@ -427,6 +427,19 @@ describe "vhost scoped users" do
     end
   end
 
+  it "does not apply the default user loopback gate to a scoped user with the same name" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      scoped = s.users.create(LavinMQ::Config.instance.default_user, "secret", vhost: "tenant")
+      LavinMQ::Config.instance.default_user_only_loopback = true
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      ctx = LavinMQ::Auth::Context.new(LavinMQ::Config.instance.default_user, "secret".to_slice, loopback: false, vhost: "tenant")
+      chain.authenticate(ctx).should be scoped
+      ctx = LavinMQ::Auth::Context.new(LavinMQ::Config.instance.default_user, "guest".to_slice, loopback: false, vhost: "/")
+      chain.authenticate(ctx).should be_nil
+    end
+  end
+
   it "prefers the vhost scoped user over a global user with the same name" do
     with_amqp_server do |s|
       s.vhosts.create("tenant")

@@ -9,7 +9,7 @@ module LavinMQ
 
       def authenticate(context : Context) : User?
         return unless user = find_user(context)
-        return unless default_user_only_loopback?(context)
+        return unless default_user_only_loopback?(context, user)
         return unless passwd = user.password
         return unless passwd.verify(context.password)
         user
@@ -30,8 +30,11 @@ module LavinMQ
         end
       end
 
-      private def default_user_only_loopback?(context) : Bool
-        return true unless context.username == Config.instance.default_user
+      # Only the global default user is gated, a vhost scoped user that
+      # happens to share its name is not the default user
+      private def default_user_only_loopback?(context, user : User) : Bool
+        return true if user.vhost_scoped?
+        return true unless user.name == Config.instance.default_user
         return true unless Config.instance.default_user_only_loopback?
         context.loopback?
       end

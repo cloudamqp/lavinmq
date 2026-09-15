@@ -63,12 +63,8 @@ module LavinMQ
           unless users.try &.as_a?
             bad_request(context, "Field 'users' is required")
           end
-          users.try &.as_a.each do |u|
-            unless u.as_s?
-              bad_request(context, "Field 'users' must be array of user names")
-            end
-            @server.users.delete(u.as_s, false)
-          end
+          users.try &.as_a.each { |u| bulk_delete_user(context, u) }
+          @server.users.save_all!
           context.response.status_code = 204
           context
         end
@@ -142,13 +138,12 @@ module LavinMQ
           end
         end
 
+        # Returns a list, like the global endpoint, even though a scoped user
+        # can have at most one entry (on its own vhost)
         get "/api/vhosts/:vhost/users/:name/permissions" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            u = vhost_user(context, params, vhost)
-            perm = u.permissions[vhost.name]?
-            not_found(context) unless perm
-            u.permissions_details(vhost.name, perm).to_json(context.response)
+            vhost_user(context, params, vhost).permissions_details.to_json(context.response)
           end
         end
 
@@ -221,6 +216,20 @@ module LavinMQ
         bad_request(context, ex.message)
       rescue ex : Auth::InvalidPasswordHash | Auth::UserStore::VHostScopeError
         bad_request(context, ex.message)
+      end
+
+      # Global users are given by name, vhost scoped users as {"name": .., "vhost": ..}
+      private def bulk_delete_user(context, u : JSON::Any)
+        if name = u.as_s?
+          if @server.users[name]?.nil? && @server.users.values.any? { |x| x.name == name && x.vhost_scoped? }
+            bad_request(context, "User '#{name}' is scoped to a vhost, delete it as {\"name\": .., \"vhost\": ..}")
+          end
+          @server.users.delete(name, false)
+        elsif (h = u.as_h?) && (name = h["name"]?.try &.as_s?) && (vhost = h["vhost"]?.try &.as_s?)
+          @server.users.delete(name, false, vhost: vhost)
+        else
+          bad_request(context, "Field 'users' must be array of user names or {\"name\": .., \"vhost\": ..} objects")
+        end
       end
 
       # Users scoped to a vhost can't be given tags with access across vhosts
