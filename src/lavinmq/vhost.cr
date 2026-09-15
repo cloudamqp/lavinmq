@@ -521,6 +521,7 @@ module LavinMQ
       Fiber.yield
       definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
+      @mqtt_permission_service.save!
     end
 
     def delete

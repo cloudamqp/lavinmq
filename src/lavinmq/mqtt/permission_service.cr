@@ -67,6 +67,13 @@ module LavinMQ
         @groups.each_value { |group| yield group }
       end
 
+      def save! : Nil
+        @save_lock.synchronize do
+          path = save!(@groups)
+          @replicator.try &.replace_file path
+        end
+      end
+
       def put(group : PermissionGroup) : PermissionGroup
         group.validate!
         @save_lock.synchronize do
@@ -185,10 +192,9 @@ module LavinMQ
         raise ex
       end
 
-      # Created only when mqtt_permissions.json is missing, and kept in memory
-      # only: the first real change writes mqtt_permissions.json, and from then
-      # on the groups on disk decide. A deleted default group stays deleted
-      # across restarts, because the delete leaves an empty list on disk.
+      # Created only when mqtt_permissions.json is missing. The first change
+      # or vhost close saves the current groups. A deleted default group stays
+      # deleted across restarts, because the delete leaves an empty list on disk.
       private def create_default_group
         @groups[DEFAULT_GROUP] = PermissionGroup.default(@vhost)
         rebuild

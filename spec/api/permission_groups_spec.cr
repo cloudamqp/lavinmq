@@ -21,6 +21,8 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         service.can_read?(context, "anything").should be_true
         service.can_write?(context, "anything").should be_true
         File.exists?(path).should be_false
+      ensure
+        FileUtils.rm_rf("#{path}.tmp") if path
       end
     end
 

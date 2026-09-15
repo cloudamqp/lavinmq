@@ -190,7 +190,7 @@ curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/r
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
-Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. On a vhost where nobody has changed the groups yet, an import with groups for that vhost replaces the automatic `default` group, so an import of a locked-down export gives a locked-down vhost. On a vhost with changes, an import adds groups and replaces groups by name, and deletes none.
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present.
 
 Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
 
@@ -198,7 +198,7 @@ Permission changes are saved to disk before becoming active. If saving fails, th
 
 ### Upgrading
 
-- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import
+- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import, or when the vhost closes
 - The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
