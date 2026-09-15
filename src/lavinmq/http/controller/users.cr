@@ -190,12 +190,12 @@ module LavinMQ
         bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
         password_hash = parse_password_hash(context, body)
         password = body["password"]?.try &.as_s?
-        tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
+        vhost_name = vhost.try &.name
+        tags = parse_tags(body, vhost_name)
         hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
         unless @server.flow?
           precondition_failed(context, "Server low on disk space, can not create new user")
         end
-        vhost_name = vhost.try &.name
         if u = @server.users[name, vhost_name]?
           if password_hash
             u.update_password_hash(password_hash, hashing_algorithm)
@@ -219,8 +219,15 @@ module LavinMQ
         context
       rescue ex : Base64::Error
         bad_request(context, ex.message)
-      rescue ex : Auth::InvalidPasswordHash
+      rescue ex : Auth::InvalidPasswordHash | Auth::UserStore::VHostScopeError
         bad_request(context, ex.message)
+      end
+
+      # Users scoped to a vhost can't be given tags with access across vhosts
+      private def parse_tags(body : JSON::Any, vhost : String?) : Array(Tag)
+        tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
+        Auth::UserStore.validate_scoped_tags!(tags) if vhost && body["tags"]?
+        tags
       end
 
       private def parse_password_hash(context, body : JSON::Any) : String?

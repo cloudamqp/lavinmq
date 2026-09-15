@@ -34,9 +34,12 @@ function isOAuthSession () {
   return getCookie('m')?.startsWith(oauthAuthPrefix) || false
 }
 
-async function login (username, password) {
+// Users scoped to a vhost log in with their vhost, which is carried in the
+// cookie prefix as "|v:<encoded vhost>" (see AuthHandler)
+async function login (username, password, vhost) {
   const auth = window.btoa(`${username}:${password}`)
-  document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
+  const prefix = vhost ? `|v:${encodeURIComponent(vhost)}` : '|'
+  document.cookie = `m=${prefix}:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
   return whoAmI(true).catch(e => {
     document.cookie = 'm=; max-age=0'
     throw e

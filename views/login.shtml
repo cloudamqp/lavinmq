@@ -34,6 +34,10 @@
             <span class="field-label login-label">Password</span>
             <input class="login-input" type="password" id="password" placeholder="Password">
           </label>
+          <label>
+            <span class="field-label login-label">Virtual host <small>(only for users scoped to a vhost)</small></span>
+            <input class="login-input" type="text" id="vhost" placeholder="Leave empty for global users" autocomplete="off">
+          </label>
           <button type="submit" class="btn btn-green login-btn">Log in</button>
           <div id="sso-separator" class="login-divider hide">
             <span>or</span>

@@ -1194,7 +1194,7 @@ describe "vhost scoped users in definitions" do
       s.vhosts.create("tenant")
       s.users.create("alice", "pw", [LavinMQ::Tag::Management])
       s.users.add_permission("alice", "tenant", /^g/, /^g/, /^g/)
-      u = s.users.create("alice", "pw", [LavinMQ::Tag::Monitoring], vhost: "tenant")
+      u = s.users.create("alice", "pw", [LavinMQ::Tag::PolicyMaker], vhost: "tenant")
       s.users.add_permission(u, "tenant", /^s/, /^s/, /^s/)
 
       response = http.get("/api/definitions")
@@ -1206,7 +1206,7 @@ describe "vhost scoped users in definitions" do
       defs["permissions"].as_a.count { |p| p["user"] == "alice" }.should eq 1
       tenant = defs["vhosts"].as_a.find! { |v| v["name"] == "tenant" }
       tenant["users"].as_a.map(&.["name"].as_s).should eq ["alice"]
-      tenant["users"].as_a.first["tags"].as_a.map(&.as_s).should eq ["monitoring"]
+      tenant["users"].as_a.first["tags"].as_a.map(&.as_s).should eq ["policy_maker"]
       tenant["permissions"].as_a.size.should eq 1
       tenant["permissions"].as_a.first["configure"].as_s.should eq "^s"
       defs["vhosts"].as_a.find! { |v| v["name"] == "/" }["users"].as_a.should be_empty
@@ -1220,7 +1220,7 @@ describe "vhost scoped users in definitions" do
       global.tags.should eq [LavinMQ::Tag::Management]
       global.permissions["tenant"].should eq({config: /^g/, read: /^g/, write: /^g/})
       scoped = s.users["alice", "tenant"]
-      scoped.tags.should eq [LavinMQ::Tag::Monitoring]
+      scoped.tags.should eq [LavinMQ::Tag::PolicyMaker]
       scoped.permissions["tenant"].should eq({config: /^s/, read: /^s/, write: /^s/})
     end
   end

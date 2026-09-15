@@ -331,11 +331,11 @@ describe "vhost scoped users API" do
       with_http_server do |http, s|
         s.vhosts.create("tenant")
         s.users.create("alice", "pw", vhost: "tenant")
-        response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"new","tags":"monitoring"}))
+        response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"new","tags":"policymaker"}))
         response.status_code.should eq 204
         u = s.users["alice", "tenant"]
         u.password.not_nil!.verify("new").should be_true
-        u.tags.should eq [LavinMQ::Tag::Monitoring]
+        u.tags.should eq [LavinMQ::Tag::PolicyMaker]
       end
     end
 
@@ -390,12 +390,12 @@ describe "vhost scoped users API" do
       with_http_server do |http, s|
         s.vhosts.create("tenant")
         s.users.create("alice", "pw", [LavinMQ::Tag::Administrator])
-        s.users.create("alice", "pw", [LavinMQ::Tag::Monitoring], vhost: "tenant")
+        s.users.create("alice", "pw", [LavinMQ::Tag::PolicyMaker], vhost: "tenant")
         response = http.get("/api/vhosts/tenant/users/alice")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["vhost"].as_s.should eq "tenant"
-        body["tags"].as_s.should eq "monitoring"
+        body["tags"].as_s.should eq "policymaker"
         http.get("/api/vhosts/tenant/users/nobody").status_code.should eq 404
       end
     end
@@ -463,6 +463,52 @@ describe "vhost scoped users API" do
         s.users["alice", "tenant"]?.should be_nil
         s.users.scoped_users("tenant").should be_empty
       end
+    end
+  end
+end
+
+describe "vhost scoped users using the HTTP API" do
+  private_headers = ->(user : String, pw : String, vhost : String) do
+    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{user}:#{pw}")}", "X-Vhost" => vhost}
+  end
+
+  it "only sees its own vhost and is refused administrator endpoints" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      s.vhosts.create("other")
+      http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"management"})).status_code.should eq 201
+      hdrs = private_headers.call("alice", "pw", "tenant")
+
+      response = http.get("/api/whoami", headers: hdrs)
+      response.status_code.should eq 200
+      JSON.parse(response.body)["vhost"].as_s.should eq "tenant"
+
+      response = http.get("/api/vhosts", headers: hdrs)
+      response.status_code.should eq 200
+      JSON.parse(response.body).as_a.map(&.["name"].as_s).should eq ["tenant"]
+
+      http.get("/api/queues/tenant", headers: hdrs).status_code.should eq 200
+      http.get("/api/queues/other", headers: hdrs).status_code.should eq 403
+      http.get("/api/users", headers: hdrs).status_code.should eq 403
+      http.get("/api/vhosts/tenant/users", headers: hdrs).status_code.should eq 403
+
+      # without the header the name resolves to a (non existing) global user
+      no_vhost = ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("alice:pw")}"}
+      http.get("/api/whoami", headers: no_vhost).status_code.should eq 401
+    end
+  end
+
+  it "refuses administrator and monitoring tags on scoped users" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"administrator"}))
+      response.status_code.should eq 400
+      JSON.parse(response.body)["reason"].as_s.should contain "administrator"
+      s.users["alice", "tenant"]?.should be_nil
+
+      http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"management"})).status_code.should eq 201
+      http.put("/api/vhosts/tenant/users/alice", body: %({"tags":"monitoring"})).status_code.should eq 400
+      s.users["alice", "tenant"].tags.should eq [LavinMQ::Tag::Management]
     end
   end
 end

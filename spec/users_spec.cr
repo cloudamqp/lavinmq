@@ -738,10 +738,17 @@ describe "vhost scoped users" do
     end
   end
 
-  it "never picks a vhost scoped user as default user" do
+  it "refuses tags with access across vhosts on scoped users" do
     with_datadir do |data_dir|
       store = new_store(data_dir)
-      store.create("root", "pw", [LavinMQ::Tag::Administrator], vhost: "tenant")
+      expect_raises(LavinMQ::Auth::UserStore::VHostScopeError, /administrator/) do
+        store.create("root", "pw", [LavinMQ::Tag::Administrator], vhost: "tenant")
+      end
+      expect_raises(LavinMQ::Auth::UserStore::VHostScopeError, /monitoring/) do
+        store.add("mon", "", nil, [LavinMQ::Tag::Monitoring], vhost: "tenant")
+      end
+      store["root", "tenant"]?.should be_nil
+      store.create("root", "pw", [LavinMQ::Tag::Administrator]) # fine for global users
       store.default_user.vhost.should be_nil
     end
   end

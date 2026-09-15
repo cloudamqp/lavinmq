@@ -79,11 +79,23 @@ module LavinMQ
         end
       end
 
+      # Tags that give access across vhosts, and therefore can't be given to
+      # users scoped to a single vhost
+      GLOBAL_TAGS = {Tag::Administrator, Tag::Monitoring}
+
+      # Raises if `tags` can't be given to a user scoped to a vhost
+      def self.validate_scoped_tags!(tags : Array(Tag)) : Nil
+        if tag = tags.find { |t| GLOBAL_TAGS.includes?(t) }
+          raise VHostScopeError.new("Users scoped to a vhost can't have the #{tag.to_s.downcase} tag")
+        end
+      end
+
       # Adds a user to the use store
       def create(name, password, tags = Array(Tag).new, save = true, vhost : String? = nil)
         if user = self[name, vhost]?
           return user
         end
+        self.class.validate_scoped_tags!(tags) if vhost
         user = User.create(name, password, "SHA256", tags, vhost)
         store(user)
         Log.info { "Created user=#{user.login_name}" }
@@ -92,6 +104,7 @@ module LavinMQ
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true, vhost : String? = nil)
+        self.class.validate_scoped_tags!(tags) if vhost
         user = User.new(name, password_hash, password_algorithm, tags, vhost)
         store(user)
         save!(vhost) if save
