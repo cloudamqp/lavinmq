@@ -67,6 +67,7 @@ module LavinMQ
             next if should_stop_loop?(run_generation)
             next if abort_if_unusable
             backoff_if_failing
+            next if should_stop_loop?(run_generation)
             @destination.push(msg)
           end
           break if should_stop_loop?(run_generation) # Don't delete shovel if paused/terminated/aborted

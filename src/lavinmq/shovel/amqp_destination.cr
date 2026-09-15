@@ -56,7 +56,7 @@ module LavinMQ
         !@ch.nil? && !@conn.try &.closed?
       end
 
-      def push(msg)
+      def push(msg) : Nil
         ch = @ch || raise "Not started"
         ex = @exchange || msg.exchange
         rk = @exchange_key || msg.routing_key

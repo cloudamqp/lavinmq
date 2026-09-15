@@ -70,7 +70,7 @@ module LavinMQ
       # destination would deadlock (its connection close waits for a reply that
       # only the confirm fiber reads). So report only requests the failover and
       # the redelivery, which comes back through here, performs it.
-      def push(msg)
+      def push(msg) : Nil
         fail_over if @failover_pending
         dest = @current || raise "Not started"
         dest.push(msg)

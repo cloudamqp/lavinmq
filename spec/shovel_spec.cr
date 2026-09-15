@@ -51,6 +51,49 @@ module ShovelSpecHelpers
     end
   end
 
+  # A source whose first run hands the Runner a single message, on cue, and
+  # then blocks until stopped; later runs only block. Lets a test hold the run
+  # at a chosen point of the delivery block.
+  class SingleDeliverySource < LavinMQ::Shovel::Source
+    @runs = Atomic(UInt32).new(0_u32)
+    @stopped = Channel(Bool).new(1)
+
+    getter delete_after = LavinMQ::Shovel::DeleteAfter::Never
+    getter about_to_deliver = Channel(Bool).new(1)
+    getter release_delivery = Channel(Bool).new
+
+    def initialize(@msg : ::AMQP::Client::DeliverMessage)
+    end
+
+    def start
+      while @stopped.try_receive?
+      end
+    end
+
+    def stop
+      @stopped.try_send? true
+    end
+
+    def started? : Bool
+      true
+    end
+
+    def ack(delivery_tag, batch = true)
+    end
+
+    def reject(delivery_tag, requeue)
+    end
+
+    def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
+      if @runs.add(1_u32, :relaxed).zero?
+        @about_to_deliver.send true
+        @release_delivery.receive
+        blk.call(@msg)
+      end
+      @stopped.receive?
+    end
+  end
+
   class PauseRaceDestination < LavinMQ::Shovel::Destination
     def start
     end
@@ -58,7 +101,7 @@ module ShovelSpecHelpers
     def stop
     end
 
-    def push(msg)
+    def push(msg) : Nil
     end
 
     def started? : Bool
@@ -75,7 +118,7 @@ module ShovelSpecHelpers
     def stop
     end
 
-    def push(msg)
+    def push(msg) : Nil
     end
 
     def started? : Bool
@@ -108,7 +151,7 @@ module ShovelSpecHelpers
       @started = false
     end
 
-    def push(msg)
+    def push(msg) : Nil
       @pushes += 1
     end
 
@@ -2208,6 +2251,35 @@ describe LavinMQ::Shovel do
         runner.report(4_u64, LavinMQ::Shovel::Outcome::Confirmed)
         runner.details_tuple[:consecutive_failures].should eq 0
         runner.pending_backoff.should eq Time::Span.zero
+      end
+    end
+
+    it "does not push a message from a paused run once it wakes from a delivery backoff" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          source = ShovelSpecHelpers::SingleDeliverySource.new(ShovelSpecHelpers.message(ch, 1_u64))
+          dest = ShovelSpecHelpers::FlakyStartDestination.new
+          runner = LavinMQ::Shovel::Runner.new(source, dest, "backoff-race", s.vhosts["/"])
+          spawn runner.run
+          source.about_to_deliver.receive
+          # A failing round opens a backoff window, so the delivery block sleeps
+          # before pushing...
+          runner.report(1_u64, LavinMQ::Shovel::Outcome::Retry)
+          source.release_delivery.send true
+          sleep 0.1.seconds
+          # ...during which the shovel is paused and resumed. The resumed run
+          # owns a fresh source channel, on which delivery tag 1 may be a
+          # different message, so the sleeping run must not push its stale one:
+          # the confirm would ack tag 1 on the new channel.
+          runner.pause
+          runner.resume
+          wait_for { runner.running? }
+          sleep 0.6.seconds # the old run's backoff has ended by now
+          dest.pushes.should eq 0
+          runner.running?.should be_true
+        ensure
+          runner.try &.terminate
+        end
       end
     end
   end
