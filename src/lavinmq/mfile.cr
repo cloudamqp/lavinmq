@@ -112,7 +112,12 @@ class MFile < IO
     addr
   end
 
-  def delete(*, raise_on_missing = true, needs_sync = false) : Nil
+  def delete(*, raise_on_missing = true) : Nil
+    delete(raise_on_missing: raise_on_missing) { }
+  end
+
+  # Let the caller finish bookkeeping before the persister can skip this file.
+  def delete(*, raise_on_missing = true, & : ->) : Nil
     @mapping_lock.synchronize do
       return if deleted? # avoid double deletes
       if raise_on_missing
@@ -120,9 +125,7 @@ class MFile < IO
       else
         File.delete?(@path)
       end
-      # Publish deleted? only once the removal is durable: the persister may
-      # skip this file as soon as it observes that flag.
-      fsync_parent_dir if needs_sync
+      yield
       @deleted.set(true, :release)
     end
   end
@@ -132,13 +135,19 @@ class MFile < IO
   # In particular, deleted? must not let a concurrent persister skip a file
   # before its removal is durable. A stable lock order permits overlapping batches.
   def self.delete_all(files : Array(MFile), *, needs_sync = false) : Nil
-    files.uniq.each_slice(32).with_index do |batch, index|
-      Fiber.yield unless index.zero?
-      delete_batch(batch, needs_sync: needs_sync)
+    delete_all(files) do |directories|
+      directories.each { |dir| sync_deleted_directory(dir) } if needs_sync
     end
   end
 
-  private def self.delete_batch(files : Array(MFile), *, needs_sync : Bool) : Nil
+  def self.delete_all(files : Array(MFile), &block : Set(String) ->) : Nil
+    files.uniq.each_slice(32).with_index do |batch, index|
+      Fiber.yield unless index.zero?
+      delete_batch(batch, &block)
+    end
+  end
+
+  private def self.delete_batch(files : Array(MFile), & : Set(String) ->) : Nil
     lock_order = files.sort_by(&.object_id)
     locked = 0
     begin
@@ -150,9 +159,9 @@ class MFile < IO
       files.each do |file|
         next if file.deleted?
         File.delete?(file.path)
-        directories << File.dirname(file.path) if needs_sync
+        directories << File.dirname(file.path)
       end
-      directories.each { |dir| sync_deleted_directory(dir) }
+      yield directories unless directories.empty?
       files.each { |file| file.@deleted.set(true, :release) }
     ensure
       lock_order.first(locked).reverse_each { |file| file.@mapping_lock.unlock }
@@ -161,10 +170,6 @@ class MFile < IO
 
   private def self.sync_deleted_directory(path : String) : Nil
     File.open(path, &.fsync)
-  end
-
-  private def fsync_parent_dir : Nil
-    File.open(File.dirname(@path), &.fsync)
   end
 
   # The file will be truncated to the current position unless readonly or deleted
@@ -387,8 +392,10 @@ class MFile < IO
   end
 
   def rename(new_path : String) : Nil
-    File.rename @path, new_path
-    @path = new_path
+    @mapping_lock.synchronize do
+      File.rename(@path, new_path)
+      @path = new_path
+    end
   end
 
   private def check_open

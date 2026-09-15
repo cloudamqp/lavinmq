@@ -17,7 +17,8 @@ module LavinMQ::AMQP
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
-      @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      directory = @directory || raise "Message store directory is not initialized"
+      @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator, directory)
       drop_overflow
     end
 

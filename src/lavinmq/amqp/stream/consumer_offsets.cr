@@ -21,8 +21,9 @@ module LavinMQ::AMQP
     @mfile : MFile
     @positions = Hash(String, Int64).new # consumer_tag => file position of its offset
 
-    def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?)
+    def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?, @directory : FileSystem::Directory)
       @mfile = MFile.new(File.join(dir, "consumer_offsets"), capacity)
+      @directory.fsync
       @replicator.try &.register_file @mfile
       restore_positions
     end
