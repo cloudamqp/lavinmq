@@ -61,13 +61,17 @@ module ClusteringSpecHelper
     end
 
     getter fsync_requests = Array(String).new
+    getter parent_dirs_fsynced = Array(String).new
+    property file_sync_started : Channel(Nil)?
+    property resume_file_sync : Channel(Nil)?
 
     private def fsync_file(filename : String) : Nil
+      @file_sync_started.try &.send(nil)
+      @resume_file_sync.try &.receive
       @fsync_requests << filename
       super
     end
 
-    getter parent_dirs_fsynced = Array(String).new
 
     private def sync_parent_dir(path : String) : Nil
       @parent_dirs_fsynced << File.dirname(path)

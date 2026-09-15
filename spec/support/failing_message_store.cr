@@ -9,7 +9,7 @@ class LavinMQ::MessageStore
   property raise_on_delete_after : Int32? = nil
   @spec_delete_count = 0
 
-  def delete(sp) : Nil
+  def delete(sp, needs_sync = false) : Nil
     if after = @raise_on_delete_after
       raise IO::Error.new("spec: injected message store delete failure") if @spec_delete_count >= after
       @spec_delete_count += 1
