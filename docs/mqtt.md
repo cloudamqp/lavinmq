@@ -192,6 +192,8 @@ curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/r
 
 Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. On a vhost where nobody has changed the groups yet, an import with groups for that vhost replaces the automatic `default` group, so an import of a locked-down export gives a locked-down vhost. On a vhost with changes, an import adds groups and replaces groups by name, and deletes none.
 
+Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
+
 Permission changes are saved to disk before becoming active. If saving fails, the request fails and the previous permissions remain active, including when attempting to revoke access. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
 
 ### Upgrading
