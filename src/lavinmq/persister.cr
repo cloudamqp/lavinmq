@@ -4,6 +4,7 @@ require "./amqp/channel"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "./mfile"
+require "./sync_watchdog"
 require "sync/exclusive"
 require "wait_group"
 
@@ -35,7 +36,10 @@ module LavinMQ
     # made its writes durable. Later requests belong to a separate batch.
     @sync_waiters : Sync::Exclusive(Array(WaitGroup)) = Sync::Exclusive.new(Array(WaitGroup).new, :unchecked)
 
-    def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir)
+    # Exit on a blocked sync only when clustered: standalone there is no
+    # follower to take over, and dying would turn a slow disk into an outage.
+    def initialize(@replicator : Clustering::Replicator? = nil, *, data_dir : String = Config.instance.data_dir,
+                   @watchdog : SyncWatchdog = SyncWatchdog.new("persister", exit_on_timeout: !replicator.nil?))
       {% if flag?(:linux) %}
         @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
         raise IO::Error.from_errno("Failed to open #{data_dir}") if @data_dir_fd < 0
@@ -105,6 +109,7 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
+      @watchdog.close
     end
 
     # The descriptor outlives #close: a tx.commit racing shutdown syncs
@@ -145,7 +150,7 @@ module LavinMQ
         replicator.fsync_files(paths) unless paths.empty?
       end
       return unless Config.instance.sync?
-      sync_files(dirty)
+      @watchdog.guard { sync_files(dirty) }
     rescue ex
       Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
       exit 1

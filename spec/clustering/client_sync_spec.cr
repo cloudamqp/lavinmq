@@ -951,6 +951,28 @@ module ClientSyncSpec
     end
 
     describe "fsync requests" do
+      it "runs the requested fsync under the sync watchdog" do
+        with_datadir do |data_dir|
+          watchdog = ClusteringSpecHelper::SpyWatchdog.new("spec", exit_on_timeout: false)
+          client = make_client(data_dir, watchdog: watchdog)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+          filename = "msgs.0000000001"
+          File.write(File.join(data_dir, filename), "msg")
+          write_record(lz4_writer, "$#{filename}", 0i64, Bytes.empty)
+          read_acks(leader_io, record_size("$#{filename}", 0))
+          watchdog.guarded.should eq 1
+          client_socket.close
+          close_client(client)
+        end
+      end
+
       it "holds an acknowledgment-file fence ack until the file is synced" do
         with_datadir do |data_dir|
           client = make_client(data_dir)

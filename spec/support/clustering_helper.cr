@@ -71,12 +71,25 @@ module ClusteringSpecHelper
     end
   end
 
-  def make_client(data_dir : String, sync = true) : TestClient
+  def make_client(data_dir : String, sync = true, watchdog : LavinMQ::SyncWatchdog? = nil) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync
     config.metrics_http_port = -1
-    TestClient.new(config, 1, "password", proxy: false)
+    if watchdog
+      TestClient.new(config, 1, "password", proxy: false, watchdog: watchdog)
+    else
+      TestClient.new(config, 1, "password", proxy: false)
+    end
+  end
+
+  class SpyWatchdog < LavinMQ::SyncWatchdog
+    getter guarded = 0
+
+    def guard(& : -> Nil) : Nil
+      @guarded += 1
+      super { yield }
+    end
   end
 
   # Serve `rounds` passes of the file sync protocol (full_sync runs two).
