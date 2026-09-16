@@ -1085,6 +1085,26 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "skips rewriting the consumer offsets file when the retention floor is unchanged" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag-1", 1_i64)
+
+        msg_store.cleanup_consumer_offsets
+        mfile_before = msg_store.@consumer_offsets.@mfile
+
+        # Nothing dropped the stream's oldest segment in between, so the
+        # retention floor is the same and this call should be a no-op.
+        msg_store.cleanup_consumer_offsets
+        msg_store.@consumer_offsets.@mfile.should be mfile_before
+
+        msg_store.close
+      end
+    end
+
     it "ConsumerOffsets.trim_to_size drops the oldest offsets when over the cap" do
       # {consumer_tag, offset, file_position}; higher position == more recent.
       # Each entry is 6 + 1 + 8 = 15 bytes.
