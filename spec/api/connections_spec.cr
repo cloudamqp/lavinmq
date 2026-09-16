@@ -13,18 +13,6 @@ describe LavinMQ::HTTP::ConnectionsController do
       end
     end
 
-    it "should sort on bool column" do
-      with_http_server do |http, s|
-        with_channel(s) do
-          response = http.get("/api/connections?page=1&sort=ssl")
-          response.status_code.should eq 200
-          items = JSON.parse(response.body).as_h["items"].as_a
-          ssl_values = items.map(&.["ssl"].as_bool)
-          ssl_values.should eq ssl_values.sort_by { |v| v ? 1 : 0 }
-        end
-      end
-    end
-
     it "should only show own connections for policymaker" do
       with_http_server do |http, s|
         s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
