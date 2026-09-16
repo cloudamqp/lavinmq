@@ -19,6 +19,7 @@ module LavinMQ::AMQP
 
     @mfile : MFile
     @positions = Hash(String, Int64).new # consumer_tag => file position of its offset
+    @last_cleanup_lowest_offset : Int64? = nil
 
     def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?)
       @mfile = MFile.new(File.join(dir, "consumer_offsets"), capacity)
@@ -63,6 +64,11 @@ module LavinMQ::AMQP
       return if @mfile.size.zero?
 
       lowest_offset_in_stream = yield
+      # The retention floor only moves forward, so if it hasn't advanced since
+      # the last cleanup, nothing newly falls out of the stream and the file
+      # is already compact (size-triggered compaction is handled by `store`).
+      return if @last_cleanup_lowest_offset == lowest_offset_in_stream
+      @last_cleanup_lowest_offset = lowest_offset_in_stream
 
       # Offsets still within the stream (higher position == more recently committed).
       tracked_offsets = Array(Tuple(String, Int64, Int64)).new
