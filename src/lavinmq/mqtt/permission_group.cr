@@ -10,6 +10,7 @@ module LavinMQ
       IDENTIFIER_PATTERN = /\A[A-Za-z0-9-]+\z/
       # Group names travel in URL paths; the charset keeps them unambiguous there.
       NAME_PATTERN = /\A[A-Za-z0-9_-]{1,255}\z/
+      DEFAULT_NAME = "default"
 
       struct Rule
         include JSON::Serializable
@@ -31,6 +32,13 @@ module LavinMQ
                      @vhost : String,
                      @members = Array(String).new,
                      @rules = Array(Rule).new)
+      end
+
+      # The group every vhost gets until somebody configures it: every user may
+      # read and write every topic.
+      def self.default(vhost : String) : self
+        rule = Rule.new("allow-all", "#", read: true, write: true)
+        new(DEFAULT_NAME, vhost, ["*"], [rule])
       end
 
       def validate! : self

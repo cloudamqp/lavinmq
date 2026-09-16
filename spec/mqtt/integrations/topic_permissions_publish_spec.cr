@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "MQTT topic permissions: publish" do
-    it "does not restrict publish or subscribe when no permission groups exist" do
+    it "does not restrict publish or subscribe while the default group exists" do
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
@@ -43,6 +43,7 @@ module MqttSpecs
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false),
           ]
         )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(group)
 
         with_client_io(server) do |sub_io|
@@ -96,6 +97,7 @@ module MqttSpecs
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: false),
           ]
         )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(group)
 
         with_client_io(server) do |sub_io|

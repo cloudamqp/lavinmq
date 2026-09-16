@@ -10,6 +10,7 @@ module MqttSpecs
         server.users.create("bob", "bob")
         server.users.add_permission("bob", "/", /.*/, /.*/, /.*/)
         service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
         service.put(LavinMQ::MQTT::PermissionGroup.new("writer", "/", ["guest"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("all", "#", read: true, write: true)]))
         service.put(LavinMQ::MQTT::PermissionGroup.new("bob-read", "/", ["bob"],
@@ -46,6 +47,7 @@ module MqttSpecs
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false),
           ]
         )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(group)
 
         writer_group = LavinMQ::MQTT::PermissionGroup.new(
@@ -99,6 +101,7 @@ module MqttSpecs
             LavinMQ::MQTT::PermissionGroup::Rule.new("chat-alice--", "chat/alice/#", read: true, write: false),
           ]
         )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(group)
 
         # guest (the seeders) may write everything so they can seed retained messages

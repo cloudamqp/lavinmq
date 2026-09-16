@@ -9,6 +9,7 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "g", "/", ["*"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: true)]))
@@ -42,6 +43,7 @@ module MqttSpecs
       with_server do |server|
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        server.vhosts["/"].mqtt_permission_service.delete("default")
         server.vhosts["/"].mqtt_permission_service.put(LavinMQ::MQTT::PermissionGroup.new(
           "g", "/", ["*"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat--", "chat/#", read: true, write: true)]))

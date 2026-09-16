@@ -6,8 +6,19 @@ module LavinMQ
   module MQTT
     # Every change rebuilds the compiled state and publishes it with one
     # reference assignment, so readers never see stale or partial state.
+    #
+    # A topic is allowed only when a rule grants it. A vhost is still open by
+    # default: the DEFAULT_GROUP grants every user every topic, and the
+    # operator locks the vhost down by deleting or narrowing that group.
     class PermissionService
       Log = LavinMQ::Log.for "mqtt.permission_service"
+
+      DEFAULT_GROUP = PermissionGroup::DEFAULT_NAME
+
+      # Keep disk failures distinct from client IO errors, which the HTTP
+      # handler treats as disconnected clients instead of failed requests.
+      class SaveError < Exception
+      end
 
       record CompiledRule,
         chain : TopicRuleSegment,
@@ -21,21 +32,20 @@ module LavinMQ
         username : String?,
         client_id : String
 
+      # Keep both indexes behind one reference for concurrent readers.
       class Compiled
         getter by_member : Hash(String, Array(CompiledRule))
         getter global_rules : Array(CompiledRule)
-        getter? empty : Bool
 
         def initialize(@by_member : Hash(String, Array(CompiledRule)),
                        @global_rules : Array(CompiledRule))
-          @empty = @by_member.empty? && @global_rules.empty?
         end
       end
 
       @save_lock = Mutex.new
       @compiled : Compiled
 
-      def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(@vhost : String, @data_dir : String, @replicator : Clustering::Replicator?)
         @groups = Hash(String, PermissionGroup).new
         @compiled = Compiled.new(Hash(String, Array(CompiledRule)).new, Array(CompiledRule).new)
         load!
@@ -57,33 +67,56 @@ module LavinMQ
         @groups.each_value { |group| yield group }
       end
 
-      def in_use? : Bool
-        !@compiled.empty?
+      def save! : Nil
+        @save_lock.synchronize do
+          path = save!(@groups)
+          @replicator.try &.replace_file path
+        end
       end
 
-      def put(group : PermissionGroup, save = true) : PermissionGroup
+      def put(group : PermissionGroup) : PermissionGroup
         group.validate!
-        @groups[group.name] = group
-        rebuild
-        save! if save
+        @save_lock.synchronize do
+          groups = @groups.dup
+          groups[group.name] = group
+          commit(groups)
+        end
         group
       end
 
-      def delete(name : String, save = true) : PermissionGroup?
-        if group = @groups.delete(name)
-          rebuild
-          save! if save
-          group
+      def delete(name : String) : PermissionGroup?
+        @save_lock.synchronize do
+          if group = @groups[name]?
+            groups = @groups.dup
+            groups.delete(name)
+            commit(groups)
+            group
+          end
+        end
+      end
+
+      # Commit all imported groups together, including replacing the automatic
+      # default. Check disk and existing names under the same lock as API edits.
+      def import(imported : Array(PermissionGroup), skip_existing = false) : Nil
+        return if imported.empty?
+        imported.each(&.validate!)
+        @save_lock.synchronize do
+          persisted = File.exists?(File.join(@data_dir, "mqtt_permissions.json"))
+          groups = @groups.dup
+          groups.delete(DEFAULT_GROUP) unless persisted
+          imported.each do |group|
+            next if skip_existing && persisted && @groups[group.name]?
+            groups[group.name] = group
+          end
+          commit(groups) unless groups == @groups
         end
       end
 
       def can_write?(context : Context, topic : String) : Bool
-        return true unless in_use?
         matches?(context, topic, write: true)
       end
 
       def can_read?(context : Context, topic : String) : Bool
-        return true unless in_use?
         matches?(context, topic, write: false)
       end
 
@@ -124,8 +157,7 @@ module LavinMQ
             end
             compiled_rules << CompiledRule.new(chain, rule.read?, rule.write?)
           end
-          # A group with no valid rule grants nothing; skip it so its members
-          # don't get empty entries that would flip every client to default-deny.
+          # A group with no valid rule grants nothing, so its members need no entry.
           next if compiled_rules.empty?
           if group.members.includes?("*")
             global_rules.concat(compiled_rules)
@@ -147,7 +179,7 @@ module LavinMQ
       # can only fail on the change being made.
       private def load!
         path = File.join(@data_dir, "mqtt_permissions.json")
-        return unless File.exists? path
+        return create_default_group unless File.exists? path
         File.open(path) do |f|
           Array(PermissionGroup).from_json(f) do |group|
             @groups[group.name] = group.validate!
@@ -160,17 +192,34 @@ module LavinMQ
         raise ex
       end
 
-      def save!
+      # Created only when mqtt_permissions.json is missing. The first change
+      # or vhost close saves the current groups. A deleted default group stays
+      # deleted across restarts, because the delete leaves an empty list on disk.
+      private def create_default_group
+        @groups[DEFAULT_GROUP] = PermissionGroup.default(@vhost)
+        rebuild
+      end
+
+      # Called with @save_lock held. Build and save a separate collection so
+      # permission checks keep using the old state until the rename succeeds.
+      private def commit(groups : Hash(String, PermissionGroup)) : Nil
+        path = save!(groups)
+        @groups = groups
+        rebuild
+        @replicator.try &.replace_file path
+      end
+
+      private def save!(groups : Hash(String, PermissionGroup)) : String
         path = File.join(@data_dir, "mqtt_permissions.json")
         tmpfile = "#{path}.tmp"
-        @save_lock.synchronize do
-          File.open(tmpfile, "w") do |f|
-            to_pretty_json(f)
-            f.fsync
-          end
-          File.rename tmpfile, path
+        File.open(tmpfile, "w") do |f|
+          groups.values.to_pretty_json(f)
+          f.fsync
         end
-        @replicator.try &.replace_file path
+        File.rename tmpfile, path
+        path
+      rescue ex : IO::Error
+        raise SaveError.new("Failed to save MQTT permission groups for vhost #{@vhost.inspect}", cause: ex)
       end
     end
   end

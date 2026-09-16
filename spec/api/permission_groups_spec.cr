@@ -2,6 +2,30 @@ require "../spec_helper"
 
 describe LavinMQ::HTTP::PermissionGroupsController do
   describe "groups" do
+    it "reports failed saves without changing the active groups" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        service = vhost.mqtt_permission_service
+        original = service.to_json
+        path = File.join(vhost.data_dir, "mqtt_permissions.json")
+        Dir.mkdir("#{path}.tmp")
+
+        http.put("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 500
+        http.get("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 404
+        http.delete("/api/mqtt/permission-groups/%2f/default").status_code.should eq 500
+        http.get("/api/mqtt/permission-groups/%2f/default").status_code.should eq 200
+        rule = {pattern: "public/#", read: true, write: true}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/default/rules/allow-all", body: rule).status_code.should eq 500
+        service.to_json.should eq original
+        context = LavinMQ::MQTT::PermissionService::Context.new("guest", "dev")
+        service.can_read?(context, "anything").should be_true
+        service.can_write?(context, "anything").should be_true
+        File.exists?(path).should be_false
+      ensure
+        FileUtils.rm_rf("#{path}.tmp") if path
+      end
+    end
+
     it "creates, lists, gets and deletes a permission group" do
       with_http_server do |http, _|
         response = http.put("/api/mqtt/permission-groups/%2f/chat")
@@ -50,8 +74,8 @@ describe LavinMQ::HTTP::PermissionGroupsController do
 
         paged = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?page=1&page_size=1").body)
         paged["items"].as_a.size.should eq 1
-        paged["total_count"].as_i.should eq 2
-        paged["page_count"].as_i.should eq 2
+        paged["total_count"].as_i.should eq 3
+        paged["page_count"].as_i.should eq 3
 
         filtered = JSON.parse(http.get("/api/mqtt/permission-groups/%2f?name=chat").body).as_a
         filtered.size.should eq 1
@@ -71,7 +95,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         ].each do |name|
           http.put("/api/mqtt/permission-groups/%2f/#{name}").status_code.should eq 400
         end
-        JSON.parse(http.get("/api/mqtt/permission-groups/%2f").body).as_a.should be_empty
+        JSON.parse(http.get("/api/mqtt/permission-groups/%2f").body).as_a.map(&.["name"]).should eq ["default"]
       end
     end
 

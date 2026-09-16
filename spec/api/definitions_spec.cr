@@ -1,7 +1,84 @@
 require "../spec_helper"
 require "../../src/lavinmq/definitions"
 
+private def import_defs(s, defs)
+  tmpfile = File.tempname("lavinmq-defs", ".json")
+  File.write(tmpfile, defs.to_json)
+  LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+ensure
+  File.delete?(tmpfile) if tmpfile
+end
+
+private def ctx(username)
+  LavinMQ::MQTT::PermissionService::Context.new(username, "dev")
+end
+
 describe LavinMQ::GlobalDefinitions do
+  [false, true].each do |skip_existing|
+    it "keeps all active groups after a failed import save with skip_existing=#{skip_existing}" do
+      defs = {"mqtt_permissions" => [
+        {"name" => "default", "vhost" => "/", "members" => ["*"],
+         "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+      ]}
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        service = vhost.mqtt_permission_service
+        original = service.to_json
+        path = File.join(vhost.data_dir, "mqtt_permissions.json")
+        Dir.mkdir("#{path}.tmp")
+        if skip_existing
+          expect_raises(LavinMQ::MQTT::PermissionService::SaveError) { import_defs(s, defs) }
+        else
+          http.post("/api/definitions", body: defs.to_json).status_code.should eq 500
+        end
+        service.to_json.should eq original
+        service["sensors"]?.should be_nil
+        service.can_write?(ctx("guest"), "anything").should be_true
+        File.exists?(path).should be_false
+
+        Dir.delete("#{path}.tmp")
+        if skip_existing
+          import_defs(s, defs)
+        else
+          http.post("/api/definitions", body: defs.to_json).status_code.should eq 200
+        end
+        reloaded = LavinMQ::MQTT::PermissionService.new("/", vhost.data_dir, nil)
+        [service, reloaded].each do |permissions|
+          permissions.can_write?(ctx("guest"), "anything").should be_false
+          permissions.can_write?(ctx("guest"), "public/1").should be_true
+          permissions.can_write?(ctx("alice"), "sensors/1").should be_true
+        end
+      end
+    end
+
+    it "replaces automatic defaults once per vhost with skip_existing=#{skip_existing}" do
+      defs = {"mqtt_permissions" => [
+        {"name" => "default", "vhost" => "/", "members" => ["*"],
+         "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "iot", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+        {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+         "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+      ]}
+      with_amqp_server do |s|
+        s.vhosts.create("iot")
+        LavinMQ::GlobalDefinitions.new(s).import(JSON.parse(defs.to_json), skip_existing: skip_existing)
+
+        service = s.vhosts["/"].mqtt_permission_service
+        service.can_write?(ctx("guest"), "public/1").should be_true
+        service.can_write?(ctx("guest"), "private/1").should be_false
+        service.can_write?(ctx("alice"), "sensors/1").should be_true
+
+        other = s.vhosts["iot"].mqtt_permission_service
+        other["default"]?.should be_nil
+        other.can_write?(ctx("alice"), "sensors/1").should be_true
+        other.can_write?(ctx("guest"), "sensors/1").should be_false
+      end
+    end
+  end
+
   describe ".import_from_file" do
     it "does not overwrite existing users" do
       defs = {
@@ -390,7 +467,53 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         service = s.vhosts["iot"].mqtt_permission_service
         service["devices"]?.should_not be_nil
-        service.in_use?.should be_true
+      end
+    end
+
+    describe "mqtt_permissions on a vhost nobody has configured" do
+      it "applies a narrowed default group from the file over the automatic one" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "default", "vhost" => "/", "members" => ["*"],
+           "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
+        ]}
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          service = s.vhosts["/"].mqtt_permission_service
+          service.can_write?(ctx("guest"), "public/x").should be_true
+          service.can_write?(ctx("guest"), "private/x").should be_false
+        end
+      end
+
+      it "replaces the automatic default group with the groups from the file" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+           "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+        ]}
+        with_amqp_server do |s|
+          import_defs(s, defs)
+          service = s.vhosts["/"].mqtt_permission_service
+          service["default"]?.should be_nil
+          service.can_write?(ctx("alice"), "sensors/1").should be_true
+          service.can_write?(ctx("guest"), "sensors/1").should be_false
+        end
+      end
+
+      it "keeps the groups of a configured vhost and adds only new names" do
+        defs = {"mqtt_permissions" => [
+          {"name" => "sensors", "vhost" => "/", "members" => ["alice"],
+           "rules" => [{"identifier" => "s", "pattern" => "sensors/#", "read" => true, "write" => true}]},
+          {"name" => "default", "vhost" => "/", "members" => ["*"],
+           "rules" => [{"identifier" => "none", "pattern" => "nothing", "read" => false, "write" => false}]},
+        ]}
+        with_amqp_server do |s|
+          service = s.vhosts["/"].mqtt_permission_service
+          service.put(LavinMQ::MQTT::PermissionGroup.new("mine", "/", ["bob"],
+            [LavinMQ::MQTT::PermissionGroup::Rule.new("m", "mine/#", read: true, write: true)]))
+          import_defs(s, defs)
+          service["mine"]?.should_not be_nil
+          service["sensors"]?.should_not be_nil
+          service.can_write?(ctx("guest"), "anything").should be_true
+        end
       end
     end
 
@@ -625,8 +748,7 @@ describe LavinMQ::HTTP::Server do
         # A valid group followed by one with an invalid topic filter pattern.
         # Groups are parsed and validated up front, so a malformed later entry
         # makes the whole import a clean no-op: the earlier group is neither
-        # applied in memory (so in_use? does not flip and put every MQTT
-        # client into default-deny) nor written to disk.
+        # applied in memory nor written to disk.
         body = <<-JSON
           { "mqtt_permissions": [
             {
@@ -644,7 +766,6 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should_not eq 200
         s.vhosts["/"].mqtt_permission_service["regression_group_ok"]?.should be_nil
-        s.vhosts["/"].mqtt_permission_service.in_use?.should be_false
         groups_file = File.join(s.vhosts["/"].data_dir, "mqtt_permissions.json")
         File.read(groups_file).should_not contain("regression_group_ok") if File.exists?(groups_file)
       end
@@ -836,7 +957,7 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, s|
         rule = LavinMQ::MQTT::PermissionGroup::Rule.new("sensors", "sensors/#", read: true, write: false)
         group = LavinMQ::MQTT::PermissionGroup.new("testers", "/", ["alice"], [rule])
-        s.vhosts["/"].mqtt_permission_service.put(group, save: false)
+        s.vhosts["/"].mqtt_permission_service.put(group)
 
         response = http.get("/api/definitions")
         response.status_code.should eq 200
@@ -846,7 +967,7 @@ describe LavinMQ::HTTP::Server do
         exported.should_not be_nil
         exported.not_nil!["members"].as_a.map(&.as_s).should contain("alice")
 
-        s.vhosts["/"].mqtt_permission_service.delete("testers", save: false)
+        s.vhosts["/"].mqtt_permission_service.delete("testers")
         s.vhosts["/"].mqtt_permission_service["testers"]?.should be_nil
 
         response = http.post("/api/definitions", body: body.to_json)

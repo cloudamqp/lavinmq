@@ -12,6 +12,7 @@ module MqttSpecs
         server.users.create("bob", "bob")
         server.users.add_permission("bob", "/", /.*/, /.*/, /.*/)
         service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
         service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
         service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
@@ -52,6 +53,7 @@ module MqttSpecs
         server.users.create("alice", "alice")
         server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
         service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
         service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
           [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
         service.put(LavinMQ::MQTT::PermissionGroup.new("guest-write", "/", ["guest"],
@@ -93,6 +95,7 @@ module MqttSpecs
           server.users.create("alice", "alice")
           server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
           service = server.vhosts["/"].mqtt_permission_service
+          service.delete("default")
           service.put(LavinMQ::MQTT::PermissionGroup.new("alice-read", "/", ["alice"],
             [LavinMQ::MQTT::PermissionGroup::Rule.new("chat", "chat/#", read: true)]))
           service.put(LavinMQ::MQTT::PermissionGroup.new("public", "/", ["*"],
