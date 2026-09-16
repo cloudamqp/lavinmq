@@ -19,55 +19,40 @@ module LavinMQ
         # authenticated. The passwordless OAuth identity cookie does not
         # count as credentials.
         if auth = explicit_credentials(context)
-          username, password, vhost = auth
-          context.user = authenticate(username, password, context.request.remote_address, vhost)
+          username, password = auth
+          context.user = authenticate(username, password, context.request.remote_address)
         end
 
         call_next(context)
       end
 
-      # Header naming the vhost a user is scoped to, for clients using Basic auth
-      VHOST_HEADER = "X-Vhost"
-      # Prefix of the "m" cookie when the login is for a vhost scoped user:
-      # `|v:<url encoded vhost>:<base64 credentials>`
-      COOKIE_VHOST_PREFIX = "|v:"
+      # Users scoped to a vhost log in as `vhost/name`, see `authenticate`
+      VHOST_DELIMITER = '/'
 
-      # Returns username, password and, for vhost scoped users, the vhost
-      private def explicit_credentials(context) : Tuple(String, String, String?)?
+      private def explicit_credentials(context) : Tuple(String, String)?
         if auth = cookie_auth(context)
           return auth unless auth[1].empty?
         end
         basic_auth(context)
       end
 
-      private def basic_auth(context) : Tuple(String, String, String?)?
+      private def basic_auth(context)
         if auth = context.request.headers["Authorization"]?
           if auth.starts_with? "Basic "
             base64 = auth[6..]
-            if creds = decode(base64)
-              username, password = creds
-              vhost = context.request.headers[VHOST_HEADER]?.presence
-              {username, password, vhost}
-            end
+            decode(base64)
           end
         end
       end
 
-      private def cookie_auth(context) : Tuple(String, String, String?)?
+      private def cookie_auth(context)
         if m = context.request.cookies["m"]?
           # The "|oauth:" identity cookie set for SSO sessions (see
           # OAuthController) carries no password and is not credentials.
           return if m.value.starts_with?("|oauth:")
           if idx = m.value.rindex(':')
-            vhost = nil
-            if m.value.starts_with?(COOKIE_VHOST_PREFIX)
-              vhost = URI.decode(m.value[COOKIE_VHOST_PREFIX.size...idx]).presence
-            end
             auth = URI.decode(m.value[idx + 1..])
-            if creds = decode(auth)
-              username, password = creds
-              {username, password, vhost}
-            end
+            decode(auth)
           end
         end
       end
@@ -82,9 +67,23 @@ module LavinMQ
       rescue Base64::Error
       end
 
-      # With `vhost` a user scoped to that vhost is looked up first
-      private def authenticate(username, password, remote_address, vhost : String? = nil) : Auth::BaseUser?
+      # The username is first tried as a global user. If that fails and it
+      # contains a slash it is read as `vhost/name` (split at the last slash,
+      # so vhost names with slashes work: `//alice` is alice on vhost "/")
+      # and tried as a user scoped to that vhost.
+      private def authenticate(username, password, remote_address) : Auth::BaseUser?
         return if password.empty?
+        if user = authenticate(username, password, remote_address, nil)
+          return user
+        end
+        if idx = username.rindex(VHOST_DELIMITER)
+          vhost = username[0...idx]
+          name = username[idx + 1..]
+          authenticate(name, password, remote_address, vhost) unless name.empty?
+        end
+      end
+
+      private def authenticate(username, password, remote_address, vhost : String?) : Auth::BaseUser?
         auth_context = LavinMQ::Auth::Context.new(
           username, password.to_slice, remote_address, vhost)
         user = @authenticator.authenticate(auth_context)

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Users scoped to a single vhost, stored in `users.json` in the vhost's directory. They are managed via `/api/vhosts/{vhost}/users`, can only have permissions on their own vhost, can't have the `administrator` or `monitoring` tags, and are exported/imported nested under their vhost in definitions. They use the HTTP API with Basic auth plus an `X-Vhost` header, or the vhost field on the management UI login form. `lavinmqctl add_user`, `delete_user`, `set_user_tags` and `change_password` target vhost scoped users when given `-p vhost`
+- Users scoped to a single vhost, stored in `users.json` in the vhost's directory. They are managed via `/api/vhosts/{vhost}/users`, can only have permissions on their own vhost, can't have the `administrator` or `monitoring` tags, and are exported/imported nested under their vhost in definitions. They log in to the HTTP API and management UI as `vhost/username`. `lavinmqctl add_user`, `delete_user`, `set_user_tags` and `change_password` target vhost scoped users when given `-p vhost`
 
 ### Changed
 

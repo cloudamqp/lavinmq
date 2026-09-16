@@ -47,13 +47,12 @@ document.getElementById('login').addEventListener('submit', (e) => {
   e.preventDefault()
   const user = document.getElementById('username').value
   const pass = document.getElementById('password').value
-  const vhost = document.getElementById('vhost').value.trim()
-  tryLogin(user, pass, vhost)
+  tryLogin(user, pass)
 })
 
-// vhost is only given when logging in as a user scoped to a vhost
-function tryLogin (user, pass, vhost) {
-  Auth.login(user, pass, vhost)
+// Users scoped to a vhost log in as "vhost/username"
+function tryLogin (user, pass) {
+  Auth.login(user, pass)
     .then(() => window.location.assign('.'))
     .catch(() => showLoginError('Authentication failure'))
 }

@@ -93,17 +93,15 @@ private def with_scoped_user(& : LavinMQ::HTTP::AuthHandler, LavinMQ::Auth::User
 end
 
 describe "vhost scoped users over HTTP" do
-  it "authenticates a scoped user with Basic auth and the X-Vhost header" do
+  it "authenticates a scoped user as vhost/name with Basic auth" do
     with_scoped_user do |handler, users|
-      headers = basic_auth_headers("alice:scoped-pw")
-      headers["X-Vhost"] = "tenant"
-      context = request_context(headers)
+      context = request_context(basic_auth_headers("tenant/alice:scoped-pw"))
       handler.call(context)
       context.user.should eq users["alice", "tenant"]
     end
   end
 
-  it "authenticates the global user without the header" do
+  it "authenticates the global user by plain name" do
     with_scoped_user do |handler, users|
       context = request_context(basic_auth_headers("alice:global-pw"))
       handler.call(context)
@@ -111,32 +109,39 @@ describe "vhost scoped users over HTTP" do
       context = request_context(basic_auth_headers("alice:scoped-pw"))
       handler.call(context)
       context.user.should be_nil
-    end
-  end
-
-  it "authenticates a scoped user from the login cookie with a vhost prefix" do
-    with_scoped_user do |handler, users|
-      auth = URI.encode_www_form(Base64.strict_encode("alice:scoped-pw"))
-      headers = ::HTTP::Headers{"Cookie" => "m=|v:#{URI.encode_www_form("tenant")}:#{auth}"}
-      context = request_context(headers)
-      handler.call(context)
-      context.user.should eq users["alice", "tenant"]
-
-      headers = ::HTTP::Headers{"Cookie" => "m=|:#{auth}"}
-      context = request_context(headers)
+      context = request_context(basic_auth_headers("other/alice:scoped-pw"))
       handler.call(context)
       context.user.should be_nil
     end
   end
 
-  it "url decodes the vhost in the cookie prefix" do
+  it "authenticates a scoped user from the login cookie" do
+    with_scoped_user do |handler, users|
+      auth = URI.encode_www_form(Base64.strict_encode("tenant/alice:scoped-pw"))
+      context = request_context(::HTTP::Headers{"Cookie" => "m=|:#{auth}"})
+      handler.call(context)
+      context.user.should eq users["alice", "tenant"]
+    end
+  end
+
+  it "prefers a global user whose name contains a slash" do
+    with_scoped_user do |handler, users|
+      global = users.create("tenant/alice", "slash-pw", [LavinMQ::Tag::Management])
+      context = request_context(basic_auth_headers("tenant/alice:slash-pw"))
+      handler.call(context)
+      context.user.should eq global
+      context = request_context(basic_auth_headers("tenant/alice:scoped-pw"))
+      handler.call(context)
+      context.user.should eq users["alice", "tenant"]
+    end
+  end
+
+  it "splits at the last slash so users on the default vhost log in as //name" do
     with_auth_handler do |handler, users|
       Dir.mkdir_p File.join(LavinMQ::Config.instance.data_dir, "root-users")
       users.load_vhost("/", File.join(LavinMQ::Config.instance.data_dir, "root-users"))
       users.create("bob", "pw", [LavinMQ::Tag::Management], vhost: "/")
-      auth = URI.encode_www_form(Base64.strict_encode("bob:pw"))
-      headers = ::HTTP::Headers{"Cookie" => "m=|v:%2F:#{auth}"}
-      context = request_context(headers)
+      context = request_context(basic_auth_headers("//bob:pw"))
       handler.call(context)
       context.user.should eq users["bob", "/"]
     end

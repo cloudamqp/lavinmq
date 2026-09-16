@@ -18,8 +18,9 @@ components:
       type: http
       scheme: basic
       description: |
-        Username and password of a global user. A user scoped to a vhost adds the
-        `X-Vhost` header naming its vhost, as the username alone is only unique within it.
+        Username and password of a global user. A user scoped to a vhost uses `vhost/username`
+        as username (split at the last slash, so `//alice` is `alice` on the default vhost), as
+        its name alone is only unique within the vhost.
   schemas:
     ErrorResponse:
       type: object

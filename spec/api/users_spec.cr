@@ -498,7 +498,7 @@ end
 
 describe "vhost scoped users using the HTTP API" do
   private_headers = ->(user : String, pw : String, vhost : String) do
-    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{user}:#{pw}")}", "X-Vhost" => vhost}
+    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{vhost}/#{user}:#{pw}")}"}
   end
 
   it "only sees its own vhost and is refused administrator endpoints" do
@@ -521,7 +521,7 @@ describe "vhost scoped users using the HTTP API" do
       http.get("/api/users", headers: hdrs).status_code.should eq 403
       http.get("/api/vhosts/tenant/users", headers: hdrs).status_code.should eq 403
 
-      # without the header the name resolves to a (non existing) global user
+      # without the vhost prefix the name resolves to a (non existing) global user
       no_vhost = ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("alice:pw")}"}
       http.get("/api/whoami", headers: no_vhost).status_code.should eq 401
     end
