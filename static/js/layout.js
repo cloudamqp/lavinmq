@@ -1,7 +1,13 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
 
-Auth.whoAmI().catch(() => Auth.logout())
+Auth.whoAmI().then(user => {
+  // A user scoped to a vhost is locked to that vhost
+  if (user.vhost) {
+    window.sessionStorage.setItem('vhost', user.vhost)
+    Helpers.disableUserMenuVhost()
+  }
+}).catch(() => Auth.logout())
 
 document.getElementById('username').textContent = Auth.getUsername()
 

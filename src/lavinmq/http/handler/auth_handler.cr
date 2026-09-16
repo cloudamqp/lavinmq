@@ -26,6 +26,9 @@ module LavinMQ
         call_next(context)
       end
 
+      # Users scoped to a vhost log in as `name@vhost`, see `authenticate`
+      VHOST_DELIMITER = '@'
+
       private def explicit_credentials(context) : Tuple(String, String)?
         if auth = cookie_auth(context)
           return auth unless auth[1].empty?
@@ -64,10 +67,25 @@ module LavinMQ
       rescue Base64::Error
       end
 
+      # The username is first tried as a global user. If that fails and it
+      # contains an @ it is read as `name@vhost` (split at the last @, so
+      # email style user names work: `alice@example.com@tenant`) and tried
+      # as a user scoped to that vhost.
       private def authenticate(username, password, remote_address) : Auth::BaseUser?
         return if password.empty?
+        if user = authenticate(username, password, remote_address, nil)
+          return user
+        end
+        if idx = username.rindex(VHOST_DELIMITER)
+          name = username[0...idx]
+          vhost = username[idx + 1..]
+          authenticate(name, password, remote_address, vhost) unless name.empty? || vhost.empty?
+        end
+      end
+
+      private def authenticate(username, password, remote_address, vhost : String?) : Auth::BaseUser?
         auth_context = LavinMQ::Auth::Context.new(
-          username, password.to_slice, remote_address)
+          username, password.to_slice, remote_address, vhost)
         user = @authenticator.authenticate(auth_context)
         return if user.nil?
         return if user.tags.empty?

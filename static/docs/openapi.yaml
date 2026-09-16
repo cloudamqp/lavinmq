@@ -17,6 +17,10 @@ components:
     BasicAuth:
       type: http
       scheme: basic
+      description: |
+        Username and password of a global user. A user scoped to a vhost uses `username@vhost`
+        as username (split at the last `@`, so email style names work: `alice@example.com@tenant`),
+        as its name alone is only unique within the vhost.
   schemas:
     ErrorResponse:
       type: object
@@ -139,6 +143,8 @@ components:
       "$ref": "./schemas/users.yaml#/BulkDeleteUsersRequestBody"
     users-PutUserRequestBody:
       "$ref": "./schemas/users.yaml#/PutUserRequestBody"
+    users-PutVhostUserRequestBody:
+      "$ref": "./schemas/users.yaml#/PutVhostUserRequestBody"
     vhost:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
@@ -304,6 +310,12 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
   "/vhosts/{name}/permissions":
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
+  "/vhosts/{vhost}/users":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users"
+  "/vhosts/{vhost}/users/{name}":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users~1{name}"
+  "/vhosts/{vhost}/users/{name}/permissions":
+    "$ref": "./paths/users.yaml#/~1vhosts~1{vhost}~1users~1{name}~1permissions"
   "/auth/hash_password":
     "$ref": "./paths/auth.yaml#/~1auth~1hash_password"
   "/vhost-limits":

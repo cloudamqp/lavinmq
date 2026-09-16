@@ -636,3 +636,120 @@ describe LavinMQ::Tag do
                   LavinMQ::Tag::Management, LavinMQ::Tag::PolicyMaker]
   end
 end
+
+# Scoped users are stored in the vhost's own directory
+private def new_store(data_dir)
+  store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+  Dir.mkdir_p File.join(data_dir, "tenant")
+  store.load_vhost("tenant", File.join(data_dir, "tenant"))
+  store
+end
+
+describe "vhost scoped users" do
+  it "stores users scoped to a vhost separately from global users" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      global = store.create("alice", "pw1")
+      scoped = store.create("alice", "pw2", vhost: "tenant")
+      global.vhost_scoped?.should be_false
+      scoped.vhost_scoped?.should be_true
+      store["alice"].should be global
+      store["alice", "tenant"].should be scoped
+      store["alice", "other"]?.should be_nil
+      store.scoped_users("tenant").should eq [scoped]
+      store.values.should contain(scoped)
+    end
+  end
+
+  it "refuses to create users scoped to a vhost that isn't loaded" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      expect_raises(KeyError) { store.create("alice", "pw", vhost: "nope") }
+    end
+  end
+
+  it "prefers a vhost scoped user over a global user when finding for a vhost" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      global = store.create("alice", "pw1")
+      scoped = store.create("alice", "pw2", vhost: "tenant")
+      store.find("alice", "tenant").should be scoped
+      store.find("alice", "/").should be global
+      store.find("nobody", "tenant").should be_nil
+    end
+  end
+
+  it "only allows permissions on the user's own vhost" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      scoped = store.create("alice", "pw", vhost: "tenant")
+      store.add_permission(scoped, "tenant", /.*/, /.*/, /.*/)
+      scoped.can_write?("tenant", "q").should be_true
+      expect_raises(LavinMQ::Auth::UserStore::VHostScopeError) do
+        store.add_permission(scoped, "/", /.*/, /.*/, /.*/)
+      end
+      scoped.can_write?("/", "q").should be_false
+    end
+  end
+
+  it "persists scoped users in the vhost directory and reloads them" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      scoped = store.create("alice", "pw", vhost: "tenant")
+      store.add_permission(scoped, "tenant", /^a/, /^b/, /^c/)
+      store.create("alice", "pw")
+
+      vhost_file = JSON.parse(File.read(File.join(data_dir, "tenant", "users.json"))).as_a
+      vhost_file.map(&.["name"].as_s).should eq ["alice"]
+      vhost_file.first["vhost"].as_s.should eq "tenant"
+      global_file = JSON.parse(File.read(File.join(data_dir, "users.json"))).as_a
+      global_file.count { |u| u["name"] == "alice" }.should eq 1
+      global_file.first["vhost"]?.try(&.raw).should be_nil
+
+      reloaded = new_store(data_dir)
+      reloaded["alice"].vhost.should be_nil
+      u = reloaded["alice", "tenant"]
+      u.vhost.should eq "tenant"
+      u.password.not_nil!.verify("pw").should be_true
+      u.permissions["tenant"].should eq({config: /^a/, read: /^b/, write: /^c/})
+    end
+  end
+
+  it "deletes a vhost scoped user without touching the global user" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      store.create("alice", "pw1")
+      store.create("alice", "pw2", vhost: "tenant")
+      store.delete("alice", vhost: "tenant").should_not be_nil
+      store["alice", "tenant"]?.should be_nil
+      store["alice"]?.should_not be_nil
+      store.delete("alice", vhost: "tenant").should be_nil
+      JSON.parse(File.read(File.join(data_dir, "tenant", "users.json"))).as_a.should be_empty
+    end
+  end
+
+  it "forgets scoped users when their vhost's permissions are removed" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      store.create("alice", "pw", vhost: "tenant")
+      store.rm_vhost_permissions_for_all("tenant")
+      store["alice", "tenant"]?.should be_nil
+      store.scoped_users("tenant").should be_empty
+    end
+  end
+
+  it "refuses tags with access across vhosts on scoped users" do
+    with_datadir do |data_dir|
+      store = new_store(data_dir)
+      expect_raises(LavinMQ::Auth::UserStore::VHostScopeError, /administrator/) do
+        store.create("root", "pw", [LavinMQ::Tag::Administrator], vhost: "tenant")
+      end
+      expect_raises(LavinMQ::Auth::UserStore::VHostScopeError, /monitoring/) do
+        store.add("mon", "", nil, [LavinMQ::Tag::Monitoring], vhost: "tenant")
+      end
+      store["root", "tenant"]?.should be_nil
+      store.create("root", "pw", [LavinMQ::Tag::Administrator]) # fine for global users
+      store.default_user.vhost.should be_nil
+    end
+  end
+end

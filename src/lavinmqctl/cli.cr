@@ -331,30 +331,40 @@ class LavinMQCtl
     output resp.body
   end
 
-  @[Cmd("List user names and tags", "", section: "User Management")]
+  @[Cmd("List user names and tags (only users scoped to the vhost if -p is given)", "", section: "User Management")]
   private def list_users
     @io.puts "Listing users ..." unless quiet?
-    uu = get("/api/users").map do |u|
+    path = @options.has_key?("vhost") ? "/api/vhosts/#{url_encoded_vhost}/users" : "/api/users"
+    uu = get(path).map do |u|
       next unless user = u.as_h?
-      {name: user["name"].to_s, tags: user["tags"].to_s}
+      {name: user["name"].to_s, tags: user["tags"].to_s, vhost: user["vhost"]?.try(&.as_s?) || ""}
     end
     output uu
   end
 
-  @[Cmd("Creates a new user", "<username> <password>", section: "User Management")]
+  # Path to a global user, or a vhost scoped user if the -p/--vhost option is given
+  private def user_path(username : String) : String
+    if @options.has_key?("vhost")
+      "/api/vhosts/#{url_encoded_vhost}/users/#{URI.encode_www_form(username)}"
+    else
+      "/api/users/#{URI.encode_www_form(username)}"
+    end
+  end
+
+  @[Cmd("Creates a new user, scoped to a vhost if -p is given", "<username> <password>", section: "User Management")]
   private def add_user
     username = ARGV.shift?
     password = ARGV.shift?
     abort @banner unless username && password
-    resp = http.put "/api/users/#{username}", @headers, {password: password}.to_json
+    resp = http.put user_path(username), @headers, {password: password}.to_json
     handle_response(resp, 201, 204)
   end
 
-  @[Cmd("Delete a user", "<username>", section: "User Management")]
+  @[Cmd("Delete a user, scoped to a vhost if -p is given", "<username>", section: "User Management")]
   private def delete_user
     username = ARGV.shift?
     abort @banner unless username
-    resp = http.delete "/api/users/#{username}", @headers
+    resp = http.delete user_path(username), @headers
     handle_response(resp, 204)
   end
 
@@ -363,7 +373,7 @@ class LavinMQCtl
     username = ARGV.shift?
     tags = ARGV.join(",")
     abort @banner unless username && tags
-    resp = http.put "/api/users/#{username}", @headers, {tags: tags}.to_json
+    resp = http.put user_path(username), @headers, {tags: tags}.to_json
     handle_response(resp, 201, 204)
   end
 
@@ -372,7 +382,7 @@ class LavinMQCtl
     username = ARGV.shift?
     pwd = ARGV.shift?
     abort @banner unless username && pwd
-    resp = http.put "/api/users/#{username}", @headers, {password: pwd}.to_json
+    resp = http.put user_path(username), @headers, {password: pwd}.to_json
     handle_response(resp, 204)
   end
 

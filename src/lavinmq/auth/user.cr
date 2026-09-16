@@ -9,6 +9,9 @@ module LavinMQ
       include SortableJSON
       Log = LavinMQ::Log.for "user"
       getter name : String
+      # Virtual host this user is scoped to, nil for global users. A vhost
+      # scoped user can only have permissions on, and log in to, its vhost.
+      getter vhost : String?
       getter permissions : Hash(String, Permissions) = Hash(String, Permissions).new
       property tags : Array(Tag)
       getter password
@@ -34,6 +37,8 @@ module LavinMQ
             parse_permissions(pull)
           when "tags"
             @tags = Tag.parse_list(pull.read_string)
+          when "vhost"
+            @vhost = pull.read_string_or_null
           else
             pull.skip # unknown keys must still be consumed, or read_object fails
           end
@@ -48,9 +53,9 @@ module LavinMQ
         end
       end
 
-      def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
+      def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag), vhost : String? = nil)
         pwd = hash_password(password, hash_algorithm)
-        new(name, pwd, tags)
+        new(name, pwd, tags, vhost)
       end
 
       def self.hash_password(password, hash_algorithm)
@@ -96,11 +101,25 @@ module LavinMQ
         user
       end
 
-      def initialize(@name, password_hash, hash_algorithm, @tags)
+      def initialize(@name : String, password_hash : String, hash_algorithm : String?, @tags : Array(Tag), @vhost : String? = nil)
         update_password_hash(password_hash, hash_algorithm)
       end
 
-      def initialize(@name, @password, @tags)
+      def initialize(@name : String, @password : Password?, @tags : Array(Tag), @vhost : String? = nil)
+      end
+
+      # True if this user is scoped to a single vhost
+      def vhost_scoped? : Bool
+        !@vhost.nil?
+      end
+
+      # Name qualified with the vhost for scoped users (used in logs)
+      def login_name : String
+        if vhost = @vhost
+          "#{vhost}:#{@name}"
+        else
+          @name
+        end
       end
 
       def hidden? : Bool
@@ -126,11 +145,19 @@ module LavinMQ
           password_hash:     @password || "",
           hashing_algorithm: @password.try &.hash_algorithm,
           tags:              @tags.map(&.to_s.downcase).join(","),
+          vhost:             @vhost,
         }
       end
 
       def permissions_details
         @permissions.map { |k, p| permissions_details(k, p) }
+      end
+
+      # Permissions of vhost scoped users are flagged so that they can be told
+      # apart from a global user with the same name
+      def permissions_details(vhost, p)
+        details = super
+        vhost_scoped? ? details.merge(vhost_scoped: true) : details
       end
 
       private def parse_permissions(pull)

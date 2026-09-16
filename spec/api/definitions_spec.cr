@@ -1187,3 +1187,89 @@ describe LavinMQ::HTTP::Server do
     end
   end
 end
+
+describe "vhost scoped users in definitions" do
+  it "exports vhost scoped users and their permissions under their vhost and round-trips them" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      s.users.create("alice", "pw", [LavinMQ::Tag::Management])
+      s.users.add_permission("alice", "tenant", /^g/, /^g/, /^g/)
+      u = s.users.create("alice", "pw", [LavinMQ::Tag::PolicyMaker], vhost: "tenant")
+      s.users.add_permission(u, "tenant", /^s/, /^s/, /^s/)
+
+      response = http.get("/api/definitions")
+      response.status_code.should eq 200
+      defs = JSON.parse(response.body)
+      # top level users and permissions are only the global ones
+      defs["users"].as_a.count { |x| x["name"] == "alice" }.should eq 1
+      defs["users"].as_a.any?(&.as_h.has_key?("vhost")).should be_false
+      defs["permissions"].as_a.count { |p| p["user"] == "alice" }.should eq 1
+      tenant = defs["vhosts"].as_a.find! { |v| v["name"] == "tenant" }
+      tenant["users"].as_a.map(&.["name"].as_s).should eq ["alice"]
+      tenant["users"].as_a.first["tags"].as_a.map(&.as_s).should eq ["policy_maker"]
+      tenant["permissions"].as_a.size.should eq 1
+      tenant["permissions"].as_a.first["configure"].as_s.should eq "^s"
+      defs["vhosts"].as_a.find! { |v| v["name"] == "/" }["users"].as_a.should be_empty
+
+      s.users.delete("alice")
+      s.users.delete("alice", vhost: "tenant")
+      response = http.post("/api/definitions", body: response.body)
+      response.status_code.should eq 200
+
+      global = s.users["alice"]
+      global.tags.should eq [LavinMQ::Tag::Management]
+      global.permissions["tenant"].should eq({config: /^g/, read: /^g/, write: /^g/})
+      scoped = s.users["alice", "tenant"]
+      scoped.tags.should eq [LavinMQ::Tag::PolicyMaker]
+      scoped.permissions["tenant"].should eq({config: /^s/, read: /^s/, write: /^s/})
+    end
+  end
+
+  it "imports users nested under a new vhost" do
+    with_http_server do |http, s|
+      body = {
+        vhosts: [{
+          name:        "tenant",
+          users:       [{name: "bob", password_hash: "", tags: "management"}],
+          permissions: [{user: "bob", configure: "^b", read: "^b", write: "^b"}],
+        }],
+      }.to_json
+      http.post("/api/definitions", body: body).status_code.should eq 200
+      s.vhosts["tenant"]?.should_not be_nil
+      bob = s.users["bob", "tenant"]
+      bob.tags.should eq [LavinMQ::Tag::Management]
+      bob.permissions["tenant"].should eq({config: /^b/, read: /^b/, write: /^b/})
+      s.users["bob"]?.should be_nil
+    end
+  end
+
+  it "does not overwrite existing vhost scoped users on boot import" do
+    with_http_server do |_, s|
+      s.vhosts.create("tenant")
+      s.users.create("alice", "original", vhost: "tenant")
+      body = {
+        vhosts: [{name: "tenant", users: [{name: "alice", password_hash: "", tags: ""}]}],
+      }.to_json
+      LavinMQ::GlobalDefinitions.new(s).import(JSON.parse(body), skip_existing: true)
+      s.users["alice", "tenant"].password.not_nil!.verify("original").should be_true
+    end
+  end
+
+  it "includes the vhost's users in the per vhost definitions export and import" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      u = s.users.create("alice", "pw", vhost: "tenant")
+      s.users.add_permission(u, "tenant", /^s/, /^s/, /^s/)
+
+      response = http.get("/api/definitions/tenant")
+      response.status_code.should eq 200
+      defs = JSON.parse(response.body)
+      defs["users"].as_a.map(&.["name"].as_s).should eq ["alice"]
+      defs["permissions"].as_a.first["user"].as_s.should eq "alice"
+
+      s.users.delete("alice", vhost: "tenant")
+      http.post("/api/definitions/tenant", body: response.body).status_code.should eq 200
+      s.users["alice", "tenant"].permissions["tenant"].should eq({config: /^s/, read: /^s/, write: /^s/})
+    end
+  end
+end

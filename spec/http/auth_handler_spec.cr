@@ -81,3 +81,74 @@ describe LavinMQ::HTTP::AuthHandler do
     end
   end
 end
+
+private def with_scoped_user(& : LavinMQ::HTTP::AuthHandler, LavinMQ::Auth::UserStore ->)
+  with_auth_handler do |handler, users|
+    Dir.mkdir_p File.join(LavinMQ::Config.instance.data_dir, "tenant-users")
+    users.load_vhost("tenant", File.join(LavinMQ::Config.instance.data_dir, "tenant-users"))
+    users.create("alice", "global-pw", [LavinMQ::Tag::Management])
+    users.create("alice", "scoped-pw", [LavinMQ::Tag::Management], vhost: "tenant")
+    yield handler, users
+  end
+end
+
+describe "vhost scoped users over HTTP" do
+  it "authenticates a scoped user as name@vhost with Basic auth" do
+    with_scoped_user do |handler, users|
+      context = request_context(basic_auth_headers("alice@tenant:scoped-pw"))
+      handler.call(context)
+      context.user.should eq users["alice", "tenant"]
+    end
+  end
+
+  it "authenticates the global user by plain name" do
+    with_scoped_user do |handler, users|
+      context = request_context(basic_auth_headers("alice:global-pw"))
+      handler.call(context)
+      context.user.should eq users["alice"]
+      context = request_context(basic_auth_headers("alice:scoped-pw"))
+      handler.call(context)
+      context.user.should be_nil
+      context = request_context(basic_auth_headers("alice@other:scoped-pw"))
+      handler.call(context)
+      context.user.should be_nil
+    end
+  end
+
+  it "authenticates a scoped user from the login cookie" do
+    with_scoped_user do |handler, users|
+      auth = URI.encode_www_form(Base64.strict_encode("alice@tenant:scoped-pw"))
+      context = request_context(::HTTP::Headers{"Cookie" => "m=|:#{auth}"})
+      handler.call(context)
+      context.user.should eq users["alice", "tenant"]
+    end
+  end
+
+  it "prefers a global user whose name contains an @" do
+    with_scoped_user do |handler, users|
+      global = users.create("alice@tenant", "at-pw", [LavinMQ::Tag::Management])
+      context = request_context(basic_auth_headers("alice@tenant:at-pw"))
+      handler.call(context)
+      context.user.should eq global
+      context = request_context(basic_auth_headers("alice@tenant:scoped-pw"))
+      handler.call(context)
+      context.user.should eq users["alice", "tenant"]
+    end
+  end
+
+  it "splits at the last @ so email style names and the default vhost work" do
+    with_auth_handler do |handler, users|
+      Dir.mkdir_p File.join(LavinMQ::Config.instance.data_dir, "root-users")
+      users.load_vhost("/", File.join(LavinMQ::Config.instance.data_dir, "root-users"))
+      users.create("bob@example.com", "pw", [LavinMQ::Tag::Management], vhost: "/")
+      context = request_context(basic_auth_headers("bob@example.com@/:pw"))
+      handler.call(context)
+      context.user.should eq users["bob@example.com", "/"]
+      # a global email user is unaffected
+      global = users.create("bob@example.com", "global-pw", [LavinMQ::Tag::Management])
+      context = request_context(basic_auth_headers("bob@example.com:global-pw"))
+      handler.call(context)
+      context.user.should eq global
+    end
+  end
+end

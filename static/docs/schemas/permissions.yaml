@@ -21,6 +21,9 @@ permission:
     write:
       type: string
       description: Write permissions (regular expression).
+    vhost_scoped:
+      type: boolean
+      description: Only present, and true, when the user is scoped to the vhost rather than a global user.
 PutPermissionsRequestBody:
   type: object
   properties:

@@ -232,7 +232,10 @@ module LavinMQ
       end
 
       def vhosts(user : Auth::BaseUser) : Array(VHost)
+        # A user scoped to a vhost never sees other vhosts, whatever its tags
+        scope = user.as?(Auth::User).try &.vhost
         @server.vhosts.values.select do |v|
+          next false if scope && v.name != scope
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
           full_view_vhosts_access || (amqp_access && !user.tags.empty?)

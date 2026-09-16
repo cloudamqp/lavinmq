@@ -27,8 +27,10 @@ class SimpleMockVerifier < LavinMQ::Auth::JWT::TokenVerifier
   end
 end
 
-# Returns the frame the server answers Connection.StartOk with: Tune if accepted, Close if refused
-private def amqp_login(port : Int32, username : String, password : String, proxy_header : String? = nil)
+# Performs the connection handshake and returns the frame the server answers
+# Connection.Open with: OpenOk if the credentials are accepted, Close if refused.
+# Credentials are verified at Open, when the vhost is known.
+private def amqp_login(port : Int32, username : String, password : String, proxy_header : String? = nil, vhost = "/")
   socket = TCPSocket.new("localhost", port)
   socket.read_timeout = 5.seconds
   socket.write proxy_header.to_slice if proxy_header
@@ -39,6 +41,10 @@ private def amqp_login(port : Int32, username : String, password : String, proxy
   props = AMQ::Protocol::Table.new({capabilities: {authentication_failure_close: true}})
   start_ok = AMQ::Protocol::Frame::Connection::StartOk.new(props, "PLAIN", "\u0000#{username}\u0000#{password}", "en_US")
   socket.write_bytes start_ok, IO::ByteFormat::NetworkEndian
+  socket.flush
+  tune = stream.next_frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+  socket.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(tune.channel_max, tune.frame_max, tune.heartbeat), IO::ByteFormat::NetworkEndian
+  socket.write_bytes AMQ::Protocol::Frame::Connection::Open.new(vhost), IO::ByteFormat::NetworkEndian
   socket.flush
   stream.next_frame
 ensure
@@ -101,7 +107,7 @@ describe LavinMQ::Auth::Chain do
       with_amqp_server do |s|
         with_proxy_protocol do
           frame = amqp_login(amqp_port(s), "guest", "guest")
-          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+          frame.should be_a AMQ::Protocol::Frame::Connection::OpenOk
         end
       end
     end
@@ -134,10 +140,11 @@ describe LavinMQ::Auth::Chain do
       with_amqp_server do |s|
         with_proxy_protocol do
           s.@users.create("foo", "bar")
+          s.@users.add_permission("foo", "/", /.*/, /.*/, /.*/)
           port = amqp_port(s)
           header = "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{port}\r\n"
           frame = amqp_login(port, "foo", "bar", header)
-          frame.should be_a AMQ::Protocol::Frame::Connection::Tune
+          frame.should be_a AMQ::Protocol::Frame::Connection::OpenOk
         end
       end
     end
@@ -403,6 +410,90 @@ describe LavinMQ::Auth::Chain do
       details[:configure].should eq /^queue/
       details[:read].should eq /.*/
       details[:write].should eq /^exchange/
+    end
+  end
+end
+
+describe "vhost scoped users" do
+  it "authenticates a vhost scoped user only when the vhost is known" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      scoped = s.users.create("alice", "secret", vhost: "tenant")
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "secret".to_slice, loopback: true, vhost: "tenant")).should be scoped
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "secret".to_slice, loopback: true, vhost: "/")).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "secret".to_slice, loopback: true)).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "wrong".to_slice, loopback: true, vhost: "tenant")).should be_nil
+    end
+  end
+
+  it "does not apply the default user loopback gate to a scoped user with the same name" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      scoped = s.users.create(LavinMQ::Config.instance.default_user, "secret", vhost: "tenant")
+      LavinMQ::Config.instance.default_user_only_loopback = true
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      ctx = LavinMQ::Auth::Context.new(LavinMQ::Config.instance.default_user, "secret".to_slice, loopback: false, vhost: "tenant")
+      chain.authenticate(ctx).should be scoped
+      ctx = LavinMQ::Auth::Context.new(LavinMQ::Config.instance.default_user, "guest".to_slice, loopback: false, vhost: "/")
+      chain.authenticate(ctx).should be_nil
+    end
+  end
+
+  it "prefers the vhost scoped user over a global user with the same name" do
+    with_amqp_server do |s|
+      s.vhosts.create("tenant")
+      global = s.users.create("alice", "global")
+      scoped = s.users.create("alice", "scoped", vhost: "tenant")
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "scoped".to_slice, loopback: true, vhost: "tenant")).should be scoped
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "global".to_slice, loopback: true, vhost: "tenant")).should be_nil
+      chain.authenticate(LavinMQ::Auth::Context.new("alice", "global".to_slice, loopback: true, vhost: "/")).should be global
+    end
+  end
+
+  describe "AMQP" do
+    it "lets a vhost scoped user open a connection to its vhost with its plain username" do
+      with_amqp_server do |s|
+        s.vhosts.create("tenant")
+        u = s.users.create("alice", "secret", vhost: "tenant")
+        s.users.add_permission(u, "tenant", /.*/, /.*/, /.*/)
+        with_channel(s, user: "alice", password: "secret", vhost: "tenant") do |ch|
+          q = ch.queue("scoped-q")
+          q.publish_confirm "hi"
+          q.get.not_nil!.body_io.to_s.should eq "hi"
+        end
+      end
+    end
+
+    it "refuses a vhost scoped user on other vhosts at Connection.Open" do
+      with_amqp_server do |s|
+        s.vhosts.create("tenant")
+        u = s.users.create("alice", "secret", vhost: "tenant")
+        s.users.add_permission(u, "tenant", /.*/, /.*/, /.*/)
+        frame = amqp_login(amqp_port(s), "alice", "secret", vhost: "/")
+        frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+        frame.reply_code.should eq 403
+        frame.failing_class_id.should eq AMQ::Protocol::Frame::Connection::Open::CLASS_ID
+        frame.failing_method_id.should eq AMQ::Protocol::Frame::Connection::Open::METHOD_ID
+      end
+    end
+
+    it "refuses wrong global credentials at Connection.Open, not StartOk" do
+      with_amqp_server do |s|
+        frame = amqp_login(amqp_port(s), "guest", "wrong")
+        frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+        frame.reply_code.should eq 403
+        frame.failing_method_id.should eq AMQ::Protocol::Frame::Connection::Open::METHOD_ID
+      end
+    end
+
+    it "reports a missing vhost before checking credentials" do
+      with_amqp_server do |s|
+        frame = amqp_login(amqp_port(s), "guest", "wrong", vhost: "nope")
+        frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+        frame.reply_text.should contain "vhost not found"
+      end
     end
   end
 end

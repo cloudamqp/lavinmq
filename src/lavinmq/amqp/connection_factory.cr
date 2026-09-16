@@ -22,12 +22,13 @@ module LavinMQ
         if confirm_header(socket, logger)
           stream = AMQ::Protocol::Stream.new(socket)
           if start_ok = start(stream, logger)
-            if user = authenticate(stream, connection_info, start_ok, logger)
-              if tune_ok = tune(stream, logger)
-                if vhost = open(stream, user, logger)
-                  socket.read_timeout = heartbeat_timeout(tune_ok)
-                  LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
-                end
+            # The credentials in StartOk are only verified once the vhost is
+            # known from Open, as users can be scoped to a vhost
+            if tune_ok = tune(stream, logger)
+              if opened = open(stream, connection_info, start_ok, logger)
+                vhost, user = opened
+                socket.read_timeout = heartbeat_timeout(tune_ok)
+                LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
               end
             end
           end
@@ -109,24 +110,15 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, connection_info : ConnectionInfo, start_ok, log)
+      def authenticate(connection_info : ConnectionInfo, start_ok, vhost : String) : Auth::BaseUser?
         username, password = credentials(start_ok)
         context = Auth::Context.new(
           username,
           password.to_slice,
-          loopback: connection_info.loopback?
+          loopback: connection_info.loopback?,
+          vhost: vhost
         )
-        user = @authenticator.authenticate(context)
-        return user if user
-
-        log.info { "Authentication failure for user \"#{username}\"" }
-        props = start_ok.client_properties
-        if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
-          if capabilities["authentication_failure_close"]?.try &.as?(Bool)
-            close_connection(socket, ConnectionReplyCode::ACCESS_REFUSED, "", start_ok)
-          end
-        end
-        nil
+        @authenticator.authenticate(context)
       end
 
       MIN_FRAME_MAX       = 4096_u32
@@ -164,29 +156,30 @@ module LavinMQ
         end
       end
 
-      def open(socket, user, log)
+      def open(socket, connection_info, start_ok, log) : {VHost, Auth::BaseUser}?
         open = socket.next_frame.as(AMQP::Frame::Connection::Open)
         vhost_name = open.vhost.empty? ? "/" : open.vhost
-        if vhost = @vhosts[vhost_name]?
-          if user.find_permission(vhost_name)
-            if vhost.connection_limit_reached?
-              log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
-              reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
-              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
-            end
-            socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
-            socket.flush
-            return vhost
-          else
-            log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
-            reply_text = "'#{user.name}' doesn't have access to '#{vhost.name}'"
-            close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
-          end
-        else
+        unless vhost = @vhosts[vhost_name]?
           log.warn { "VHost \"#{vhost_name}\" not found" }
-          close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, "vhost not found", open)
+          return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, "vhost not found", open)
         end
-        nil
+        unless user = authenticate(connection_info, start_ok, vhost_name)
+          log.info { "Authentication failure for user \"#{credentials(start_ok)[0]}\" on vhost \"#{vhost_name}\"" }
+          return close_connection(socket, ConnectionReplyCode::ACCESS_REFUSED, "", open)
+        end
+        unless user.find_permission(vhost_name)
+          log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
+          reply_text = "'#{user.name}' doesn't have access to '#{vhost.name}'"
+          return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
+        end
+        if vhost.connection_limit_reached?
+          log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
+          reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
+          return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
+        end
+        socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
+        socket.flush
+        {vhost, user}
       end
 
       private def close_connection(socket, code : ConnectionReplyCode, text, frame)

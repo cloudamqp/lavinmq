@@ -64,7 +64,7 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
+        context = Auth::Context.new(username, password, loopback: connection_info.loopback?, vhost: vhost)
 
         user = @authenticator.authenticate(context)
         raise Protocol::Error::NotAuthorized.new("authentication failure for user \"#{username}\"") unless user

@@ -286,3 +286,258 @@ describe LavinMQ::HTTP::UsersController do
     end
   end
 end
+
+describe "vhost scoped users API" do
+  describe "PUT /api/vhosts/:vhost/users/:name" do
+    it "creates a user scoped to the vhost with full permissions by default" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"management"}))
+        response.status_code.should eq 201
+        u = s.users["alice", "tenant"]
+        u.vhost.should eq "tenant"
+        u.tags.should eq [LavinMQ::Tag::Management]
+        u.permissions["tenant"].should eq({config: /.*/, read: /.*/, write: /.*/})
+        s.users["alice"]?.should be_nil
+        # persisted in the vhost's own directory, not in the global users.json
+        vhost_file = File.join(s.vhosts["tenant"].data_dir, "users.json")
+        JSON.parse(File.read(vhost_file)).as_a.map(&.["name"].as_s).should eq ["alice"]
+        JSON.parse(File.read(File.join(LavinMQ::Config.instance.data_dir, "users.json"))).as_a
+          .any? { |x| x["name"] == "alice" }.should be_false
+      end
+    end
+
+    it "accepts permission fields on creation" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        body = %({"password":"pw","configure":"^a","read":"^b","write":"^c"})
+        response = http.put("/api/vhosts/tenant/users/alice", body: body)
+        response.status_code.should eq 201
+        s.users["alice", "tenant"].permissions["tenant"].should eq({config: /^a/, read: /^b/, write: /^c/})
+      end
+    end
+
+    it "rejects invalid permission regexes" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        body = {"password" => "pw", "configure" => "(", "read" => ".*", "write" => ".*"}.to_json
+        response = http.put("/api/vhosts/tenant/users/alice", body: body)
+        response.status_code.should eq 400
+        s.users["alice", "tenant"]?.should be_nil
+      end
+    end
+
+    it "updates an existing scoped user" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"new","tags":"policymaker"}))
+        response.status_code.should eq 204
+        u = s.users["alice", "tenant"]
+        u.password.not_nil!.verify("new").should be_true
+        u.tags.should eq [LavinMQ::Tag::PolicyMaker]
+      end
+    end
+
+    it "returns 404 for unknown vhosts" do
+      with_http_server do |http, _|
+        response = http.put("/api/vhosts/nope/users/alice", body: %({"password":"pw"}))
+        response.status_code.should eq 404
+      end
+    end
+
+    it "refuses non administrators" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/vhosts/tenant/users/alice", headers: hdrs, body: %({"password":"pw"}))
+        response.status_code.should eq 403
+      end
+    end
+  end
+
+  describe "GET /api/vhosts/:vhost/users" do
+    it "lists only users scoped to the vhost" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.vhosts.create("other")
+        s.users.create("alice", "pw", vhost: "tenant")
+        s.users.create("bob", "pw", vhost: "other")
+        response = http.get("/api/vhosts/tenant/users")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body).as_a
+        body.map(&.["name"].as_s).should eq ["alice"]
+        body.first["vhost"].as_s.should eq "tenant"
+      end
+    end
+
+    it "includes scoped users in the global user listing with their vhost" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.get("/api/users")
+        body = JSON.parse(response.body).as_a
+        scoped = body.find! { |u| u["name"] == "alice" }
+        scoped["vhost"].as_s.should eq "tenant"
+        body.find! { |u| u["name"] == "guest" }["vhost"].raw.should be_nil
+      end
+    end
+  end
+
+  describe "GET /api/vhosts/:vhost/users/:name" do
+    it "returns the scoped user and not a global user with the same name" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", [LavinMQ::Tag::Administrator])
+        s.users.create("alice", "pw", [LavinMQ::Tag::PolicyMaker], vhost: "tenant")
+        response = http.get("/api/vhosts/tenant/users/alice")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["vhost"].as_s.should eq "tenant"
+        body["tags"].as_s.should eq "policymaker"
+        http.get("/api/vhosts/tenant/users/nobody").status_code.should eq 404
+      end
+    end
+  end
+
+  describe "DELETE /api/vhosts/:vhost/users/:name" do
+    it "deletes the scoped user only" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.delete("/api/vhosts/tenant/users/alice")
+        response.status_code.should eq 204
+        s.users["alice", "tenant"]?.should be_nil
+        s.users["alice"]?.should_not be_nil
+        http.delete("/api/vhosts/tenant/users/alice").status_code.should eq 404
+      end
+    end
+  end
+
+  describe "/api/vhosts/:vhost/users/:name/permissions" do
+    it "sets, gets and clears permissions of a scoped user" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.get("/api/vhosts/tenant/users/alice/permissions")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.should be_empty
+
+        body = %({"configure":"^a","read":"^b","write":"^c"})
+        http.put("/api/vhosts/tenant/users/alice/permissions", body: body).status_code.should eq 201
+        http.put("/api/vhosts/tenant/users/alice/permissions", body: body).status_code.should eq 204
+
+        response = http.get("/api/vhosts/tenant/users/alice/permissions")
+        response.status_code.should eq 200
+        perms = JSON.parse(response.body).as_a
+        perms.size.should eq 1
+        perm = perms.first
+        perm["user"].as_s.should eq "alice"
+        perm["vhost"].as_s.should eq "tenant"
+        perm["configure"].as_s.should eq "^a"
+        perm["vhost_scoped"].as_bool.should be_true
+
+        http.delete("/api/vhosts/tenant/users/alice/permissions").status_code.should eq 204
+        s.users["alice", "tenant"].permissions.should be_empty
+      end
+    end
+
+    it "flags scoped permissions in the global permissions listing" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        u = s.users.create("alice", "pw", vhost: "tenant")
+        s.users.add_permission(u, "tenant", /.*/, /.*/, /.*/)
+        response = http.get("/api/permissions")
+        perms = JSON.parse(response.body).as_a
+        scoped = perms.find! { |p| p["user"] == "alice" }
+        scoped["vhost_scoped"].as_bool.should be_true
+        perms.find! { |p| p["user"] == "guest" }["vhost_scoped"]?.should be_nil
+      end
+    end
+  end
+
+  describe "POST /api/users/bulk-delete" do
+    it "deletes scoped users given as name and vhost objects" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw")
+        s.users.create("alice", "pw", vhost: "tenant")
+        body = %({"users": [{"name": "alice", "vhost": "tenant"}]})
+        http.post("/api/users/bulk-delete", body: body).status_code.should eq 204
+        s.users["alice", "tenant"]?.should be_nil
+        s.users["alice"]?.should_not be_nil
+      end
+    end
+
+    it "refuses a bare name that only matches a scoped user" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        response = http.post("/api/users/bulk-delete", body: %({"users": ["alice"]}))
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "scoped to a vhost"
+        s.users["alice", "tenant"]?.should_not be_nil
+      end
+    end
+  end
+
+  describe "DELETE /api/vhosts/:vhost" do
+    it "deletes the users scoped to the vhost" do
+      with_http_server do |http, s|
+        s.vhosts.create("tenant")
+        s.users.create("alice", "pw", vhost: "tenant")
+        http.delete("/api/vhosts/tenant").status_code.should eq 204
+        s.users["alice", "tenant"]?.should be_nil
+        s.users.scoped_users("tenant").should be_empty
+      end
+    end
+  end
+end
+
+describe "vhost scoped users using the HTTP API" do
+  private_headers = ->(user : String, pw : String, vhost : String) do
+    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{user}@#{vhost}:#{pw}")}"}
+  end
+
+  it "only sees its own vhost and is refused administrator endpoints" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      s.vhosts.create("other")
+      http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"management"})).status_code.should eq 201
+      hdrs = private_headers.call("alice", "pw", "tenant")
+
+      response = http.get("/api/whoami", headers: hdrs)
+      response.status_code.should eq 200
+      JSON.parse(response.body)["vhost"].as_s.should eq "tenant"
+
+      response = http.get("/api/vhosts", headers: hdrs)
+      response.status_code.should eq 200
+      JSON.parse(response.body).as_a.map(&.["name"].as_s).should eq ["tenant"]
+
+      http.get("/api/queues/tenant", headers: hdrs).status_code.should eq 200
+      http.get("/api/queues/other", headers: hdrs).status_code.should eq 403
+      http.get("/api/users", headers: hdrs).status_code.should eq 403
+      http.get("/api/vhosts/tenant/users", headers: hdrs).status_code.should eq 403
+
+      # without the vhost prefix the name resolves to a (non existing) global user
+      no_vhost = ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("alice:pw")}"}
+      http.get("/api/whoami", headers: no_vhost).status_code.should eq 401
+    end
+  end
+
+  it "refuses administrator and monitoring tags on scoped users" do
+    with_http_server do |http, s|
+      s.vhosts.create("tenant")
+      response = http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"administrator"}))
+      response.status_code.should eq 400
+      JSON.parse(response.body)["reason"].as_s.should contain "administrator"
+      s.users["alice", "tenant"]?.should be_nil
+
+      http.put("/api/vhosts/tenant/users/alice", body: %({"password":"pw","tags":"management"})).status_code.should eq 201
+      http.put("/api/vhosts/tenant/users/alice", body: %({"tags":"monitoring"})).status_code.should eq 400
+      s.users["alice", "tenant"].tags.should eq [LavinMQ::Tag::Management]
+    end
+  end
+end

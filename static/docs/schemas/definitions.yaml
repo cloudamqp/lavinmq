@@ -28,6 +28,12 @@ definitions-vhost:
   properties:
     lavinmq_version:
       "$ref": "#/lavinmq_version"
+    users:
+      description: The users scoped to this vhost.
+      "$ref": "../openapi.yaml#/components/schemas/users"
+    permissions:
+      description: The permissions of the users scoped to this vhost.
+      "$ref": "../openapi.yaml#/components/schemas/permissions"
     queues:
       "$ref": "#/queues"
     exchanges:
@@ -52,6 +58,12 @@ vhosts:
         type: boolean
       cluster_state:
         type: object
+      users:
+        description: The users scoped to this vhost.
+        "$ref": "../openapi.yaml#/components/schemas/users"
+      permissions:
+        description: The permissions of the users scoped to this vhost.
+        "$ref": "../openapi.yaml#/components/schemas/permissions"
 queues:
   type: array
   items:
@@ -119,6 +131,12 @@ PostDefinitionsRequestBody:
 PostDefinitionsVhostRequestBody:
   type: object
   properties:
+    users:
+      description: Users to create scoped to this vhost.
+      "$ref": "../openapi.yaml#/components/schemas/users"
+    permissions:
+      description: Permissions of the vhost scoped users.
+      "$ref": "../openapi.yaml#/components/schemas/permissions"
     queues:
       "$ref": "#/queues"
     exchanges:

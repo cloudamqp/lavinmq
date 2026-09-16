@@ -195,3 +195,224 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/vhosts/{vhost}/users":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  get:
+    tags:
+    - users
+    description: |
+      List the users scoped to a vhost. A vhost scoped user can only have permissions on,
+      and connect to, its own vhost. Its name only has to be unique within the vhost, so it
+      may coexist with a global user of the same name; when both exist the scoped user is
+      used for connections to that vhost. Clients log in with the plain username, the
+      credentials are verified once the vhost is known. Against the HTTP API and the
+      management UI login a scoped user authenticates as `username@vhost`. Scoped users can't have the
+      `administrator` or `monitoring` tags and only ever see their own vhost.
+    summary: List vhost scoped users
+    operationId: GetVhostUsers
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/users"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/vhosts/{vhost}/users/{name}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
+  get:
+    tags:
+    - users
+    description: Find a user scoped to the vhost.
+    summary: List vhost scoped user
+    operationId: GetVhostUser
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/user"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - users
+    description: |
+      Create a new user scoped to the vhost, or update an existing one. On creation the user
+      is given permissions on the vhost from the optional `configure`, `read` and `write`
+      fields, defaulting to full access.
+    summary: Create/update vhost scoped user
+    operationId: PutVhostUser
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/users-PutVhostUserRequestBody"
+    responses:
+      '201':
+        description: The user was created successfully.
+      '204':
+        description: The user was updated successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - users
+    description: Remove a user scoped to the vhost.
+    summary: Delete vhost scoped user
+    operationId: DeleteVhostUser
+    responses:
+      '204':
+        description: The user was deleted successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/vhosts/{vhost}/users/{name}/permissions":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of the vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of the user.
+  get:
+    tags:
+    - users
+    description: List the permissions of a vhost scoped user (at most one entry, on its own vhost).
+    summary: List permissions of vhost scoped user
+    operationId: GetVhostUserPermissions
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - users
+    description: Set the permissions of a vhost scoped user on its vhost.
+    summary: Set permissions of vhost scoped user
+    operationId: PutVhostUserPermissions
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/permissions-PutPermissionsRequestBody"
+    responses:
+      '201':
+        description: The permissions were created successfully.
+      '204':
+        description: The permissions were updated successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - users
+    description: Clear the permissions of a vhost scoped user.
+    summary: Clear permissions of vhost scoped user
+    operationId: DeleteVhostUserPermissions
+    responses:
+      '204':
+        description: The permissions were deleted successfully.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
