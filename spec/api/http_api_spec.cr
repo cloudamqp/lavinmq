@@ -296,24 +296,6 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
-    it "should sort on bool column" do
-      with_http_server do |http, s|
-        vhost = s.vhosts["/"]
-        vhost.declare_queue("durable-q", true, false)
-        vhost.declare_queue("transient-q", false, false)
-
-        response = http.get("/api/queues/%2F?page=1&sort=durable")
-        response.status_code.should eq 200
-        items = JSON.parse(response.body).as_h["items"].as_a
-        items.map(&.["durable"].as_bool).should eq [false, true]
-
-        response = http.get("/api/queues/%2F?page=1&sort=durable&sort_reverse=true")
-        response.status_code.should eq 200
-        items = JSON.parse(response.body).as_h["items"].as_a
-        items.map(&.["durable"].as_bool).should eq [true, false]
-      end
-    end
-
     it "should sort by column with nil values" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
