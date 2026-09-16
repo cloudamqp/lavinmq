@@ -318,6 +318,46 @@ module MqttSpecs
       ensure
         LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
       end
+
+      it "never exceeds a limit that was lowered while messages were in flight" do
+        LavinMQ::Config.instance.max_inflight_messages = 3u16
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, client_id: "subscriber")
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              5.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
+              disconnect(pub_io)
+            end
+
+            first = read_publish(io)
+            second = read_publish(io)
+            third = read_publish(io)
+            read_packet(io).should be_nil
+
+            LavinMQ::Config.instance.max_inflight_messages = 1u16
+
+            # Acking frees a slot, but two are still in flight against a limit of
+            # one, so nothing may be sent.
+            puback(io, first.packet_id)
+            read_packet(io).should be_nil
+
+            # Draining the rest brings the window back under the limit and
+            # resumes delivery; a gate left closed on a stale reading would stall
+            # here, with no ack left to re-open it.
+            puback(io, second.packet_id)
+            read_packet(io).should be_nil
+            puback(io, third.packet_id)
+            read_publish(io) # the fourth message, at last
+
+            disconnect(io)
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+      end
     end
 
     it "should not enqueue messages with QoS 0 if no client is connected to the session" do
