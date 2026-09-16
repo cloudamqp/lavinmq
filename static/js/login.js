@@ -50,7 +50,7 @@ document.getElementById('login').addEventListener('submit', (e) => {
   tryLogin(user, pass)
 })
 
-// Users scoped to a vhost log in as "vhost/username"
+// Users scoped to a vhost log in as "username@vhost"
 function tryLogin (user, pass) {
   Auth.login(user, pass)
     .then(() => window.location.assign('.'))

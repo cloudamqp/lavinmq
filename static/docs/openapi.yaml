@@ -18,9 +18,9 @@ components:
       type: http
       scheme: basic
       description: |
-        Username and password of a global user. A user scoped to a vhost uses `vhost/username`
-        as username (split at the last slash, so `//alice` is `alice` on the default vhost), as
-        its name alone is only unique within the vhost.
+        Username and password of a global user. A user scoped to a vhost uses `username@vhost`
+        as username (split at the last `@`, so email style names work: `alice@example.com@tenant`),
+        as its name alone is only unique within the vhost.
   schemas:
     ErrorResponse:
       type: object

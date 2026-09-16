@@ -212,7 +212,7 @@
       may coexist with a global user of the same name; when both exist the scoped user is
       used for connections to that vhost. Clients log in with the plain username, the
       credentials are verified once the vhost is known. Against the HTTP API and the
-      management UI login a scoped user authenticates as `vhost/username`. Scoped users can't have the
+      management UI login a scoped user authenticates as `username@vhost`. Scoped users can't have the
       `administrator` or `monitoring` tags and only ever see their own vhost.
     summary: List vhost scoped users
     operationId: GetVhostUsers

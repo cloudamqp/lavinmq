@@ -28,7 +28,7 @@
         <form id="login" class="form login-form">
           <label>
             <span class="field-label login-label">Username</span>
-            <input class="login-input" type="text" id="username" placeholder="Username, or vhost/username" title="Users scoped to a vhost log in as vhost/username">
+            <input class="login-input" type="text" id="username" placeholder="Username, or username@vhost" title="Users scoped to a vhost log in as username@vhost">
           </label>
           <label>
             <span class="field-label login-label">Password</span>

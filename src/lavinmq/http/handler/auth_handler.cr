@@ -26,8 +26,8 @@ module LavinMQ
         call_next(context)
       end
 
-      # Users scoped to a vhost log in as `vhost/name`, see `authenticate`
-      VHOST_DELIMITER = '/'
+      # Users scoped to a vhost log in as `name@vhost`, see `authenticate`
+      VHOST_DELIMITER = '@'
 
       private def explicit_credentials(context) : Tuple(String, String)?
         if auth = cookie_auth(context)
@@ -68,18 +68,18 @@ module LavinMQ
       end
 
       # The username is first tried as a global user. If that fails and it
-      # contains a slash it is read as `vhost/name` (split at the last slash,
-      # so vhost names with slashes work: `//alice` is alice on vhost "/")
-      # and tried as a user scoped to that vhost.
+      # contains an @ it is read as `name@vhost` (split at the last @, so
+      # email style user names work: `alice@example.com@tenant`) and tried
+      # as a user scoped to that vhost.
       private def authenticate(username, password, remote_address) : Auth::BaseUser?
         return if password.empty?
         if user = authenticate(username, password, remote_address, nil)
           return user
         end
         if idx = username.rindex(VHOST_DELIMITER)
-          vhost = username[0...idx]
-          name = username[idx + 1..]
-          authenticate(name, password, remote_address, vhost) unless name.empty?
+          name = username[0...idx]
+          vhost = username[idx + 1..]
+          authenticate(name, password, remote_address, vhost) unless name.empty? || vhost.empty?
         end
       end
 

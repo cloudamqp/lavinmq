@@ -498,7 +498,7 @@ end
 
 describe "vhost scoped users using the HTTP API" do
   private_headers = ->(user : String, pw : String, vhost : String) do
-    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{vhost}/#{user}:#{pw}")}"}
+    ::HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{user}@#{vhost}:#{pw}")}"}
   end
 
   it "only sees its own vhost and is refused administrator endpoints" do
