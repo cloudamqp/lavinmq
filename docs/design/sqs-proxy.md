@@ -466,3 +466,80 @@ only from phase 2).
 - SQS-managed server-side encryption attributes (`KmsMasterKeyId`) — accepted
   and ignored, since storage encryption is a LavinMQ deployment concern.
 - SQS Extended Client (S3 offload) — client-side library, needs S3.
+
+---
+
+## 10. Alternative: a separate proxy binary
+
+Instead of a module inside the `lavinmq` process, the proxy could be a
+standalone program (`lavinmq-sqs`, a fourth target in `shard.yml` next to
+`lavinmqctl` and `lavinmqperf`) that terminates SQS over HTTP and talks
+AMQP 0-9-1 to a broker with `amqp-client.cr`, plus the management HTTP API
+for what AMQP cannot express.
+
+### 10.1 What stays the same
+
+Roughly two thirds of the work is identical in both shapes and should be
+written backend-agnostic from day one: wire protocols (Query and JSON 1.0),
+error shapes, SigV4 and the access key store, checksums, queue URL rules,
+message attribute mapping, action validation, SDK integration tests. Only
+the `SQS::Broker` behind the actions differs. Structuring the code as
+`actions -> Broker interface -> {InProcessBackend, AmqpBackend}` keeps the
+door open to shipping both.
+
+### 10.2 Comparison
+
+| Concern | In-process module | Separate binary (AMQP client) |
+|---|---|---|
+| **Works with RabbitMQ** | No | Yes. Any AMQP 0-9-1 broker, so also every CloudAMQP RabbitMQ instance. This is the single biggest argument for the binary. |
+| **Blast radius** | A bug in the proxy is a bug in the broker process (GC pressure, a fiber deadlock, a crash). | Isolated process. Crash or leak only affects SQS clients. |
+| **Release cadence** | Tied to LavinMQ releases. | Independent versioning, hotfixes without a broker restart. |
+| **Receive path** | Direct `basic_get` on the queue object, no serialization, no round trip. | Every receive is an AMQP `basic.get` round trip, or a `basic.consume` with prefetch. Prefetched messages sit in the proxy, invisible to other consumers and counted as unacked on the broker. |
+| **Long polling** | `select` on the queue's `empty` channel, wakes exactly when a message arrives. | AMQP `basic.get` cannot wait. Options: poll `basic.get` on an interval (latency, load), or hold a consumer with `prefetch = MaxNumberOfMessages` per waiting request and cancel it afterwards (consumer churn, race between cancel and delivery, must nack what arrives after the deadline). |
+| **Send path** | `vhost.publish`, result is known synchronously. | Publish with confirms enabled and wait for the ack so `SendMessage` is truthful. One extra round trip per message or batch. |
+| **Visibility timeout state** | Lives next to the message store. A receipt handle is valid on the node that owns the queue, which is the node the SDK talks to. | Lives in the proxy, bound to an AMQP channel. A handle is only valid on the proxy instance that received the message. |
+| **Horizontal scaling** | Scales with the broker. Not independently scalable. | HTTP layer is scalable in principle, but receipt handles pin a message to one instance. Needs sticky routing on an opaque handle, or handle-aware forwarding between proxies, or a single instance. This is why ElasticMQ and similar are single-node. |
+| **Failover / restart** | Broker restart requeues unacked messages. In-flight table rebuilt empty. At-least-once. | Proxy restart drops the AMQP connection, broker requeues everything in flight. Same at-least-once outcome, but a proxy deploy makes every in-flight message visible again. |
+| **Permissions** | Must map SQS actions onto configure/write/read regexes in code. | Free: open the AMQP connection as the mapped user and the broker enforces its own permissions. Also works on RabbitMQ. |
+| **Credentials** | Access keys in the broker's data dir, replicated, managed by HTTP API, `lavinmqctl` and UI. | Access keys in the proxy's own config or file. Still plaintext (SigV4). With several instances the file has to be distributed. Mapping is `access key -> (AMQP user, password)`. |
+| **Queue attributes / tags** | Stored in vhost data dir via `Persister`, replicated. `SetQueueAttributes` applies a per-queue policy directly. | No natural home. Options: encode in queue arguments (immutable after declare), a local file or SQLite (not shared across instances), or the management API (second credential, LavinMQ- and RabbitMQ-specific shapes, policies need `policymaker`). |
+| **Approximate counts, delayed count, dead-letter sources** | Direct reads. | Management API calls or `queue.declare` passive for message count. Extra latency on `GetQueueAttributes`, and the delayed count requires inspecting the delayed exchange queue. |
+| **`DelaySeconds`** | Internal `x-delayed-message` exchange. | Same, declared by the proxy over AMQP. On RabbitMQ requires the delayed-message plugin. |
+| **Observability** | Connections, unacked, per-action metrics appear in the LavinMQ UI and `/metrics` naturally. | Shows up as ordinary AMQP connections and channels per access key, which is already a decent view. Proxy needs its own `/metrics`, logs, health check. |
+| **Operations** | One binary, one config, one TLS setup, one systemd unit. | Second service to deploy, monitor, certificate, upgrade and secure. Extra network hop to lock down. |
+| **Codebase impact** | Touches `config/options.cr`, `launcher.cr`, `http/controller`, UI, `lavinmqctl`. | Almost nothing in the broker changes. Lives in `src/lavinmq_sqs/` (or its own repo). |
+| **Testing** | `with_sqs_server` inside the existing spec harness, in-process, fast. | Needs a running broker in specs (the harness already provides one) and the AMQP round trips make specs slower. Can be tested against RabbitMQ in CI too. |
+| **Hot-path allocations** | Subject to the repo rule. Shares GC with publishers and consumers. | Own heap; allocation discipline matters less for the broker. |
+
+### 10.3 Assessment
+
+The separate binary wins on **reach** (RabbitMQ), **isolation** and
+**release independence**. The in-process module wins on **semantics**
+(long polling, visibility timeouts, attribute storage and counts all have a
+natural, single-node-correct home), **latency**, **operations** and
+**integration** with permissions, clustering, UI and metrics.
+
+The decisive technical point is receipt-handle affinity. SQS is designed as a
+stateless HTTP API, but an AMQP-backed proxy is stateful per instance, so the
+"scale the proxy out" benefit is mostly theoretical without sticky routing.
+The decisive business point is whether this feature is meant for LavinMQ
+users only or for the whole CloudAMQP fleet including RabbitMQ.
+
+### 10.4 Recommendation
+
+1. Build the protocol layer, auth, checksums and actions **backend-agnostic**
+   behind a small `SQS::Backend` interface (declare, delete, publish,
+   get, ack, requeue, counts, meta get/set, wait-for-message).
+2. Ship the **in-process backend first** (phases 1 and 2 above). It is the
+   shortest path to correct semantics and the best experience for LavinMQ
+   users, and it needs no second deployable.
+3. Add an **`AmqpBackend` and a `lavinmq-sqs` target** as a phase 4 if
+   RabbitMQ compatibility is wanted. Constraints to document for that mode:
+   single instance or sticky routing, attributes stored in a local file or
+   via the management API, long polling via short-lived consumers.
+
+If RabbitMQ reach is the primary goal from the start, invert steps 2 and 3:
+build the AMQP backend first and accept the single-instance constraint, then
+add the in-process backend for LavinMQ as an optimisation. The shared layer
+is the same either way, so the choice is about which backend lands first,
+not about rewriting.
