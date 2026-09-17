@@ -209,6 +209,18 @@ private class AMQP10SpecClient
     disposition.outcome.not_nil!
   end
 
+  # A single-frame transfer that omits the mandatory delivery-id.
+  def write_transfer_without_delivery_id(handle : UInt32, body : String) : Nil
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::TRANSFER, [
+      LavinMQ::AMQP10::Value.uint(handle),
+    ])
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, body.to_slice)
+    write_amqp_frame(payload.to_slice)
+  end
+
   def publish_oversized_fragment(handle : UInt32, delivery_id : UInt32, payload_size : Int32) : LavinMQ::AMQP10::Outcome
     payload = IO::Memory.new
     tag = delivery_id.to_s.to_slice
@@ -1209,6 +1221,23 @@ describe LavinMQ::AMQP10 do
         refill.delivery_count.should eq 5_u32 + used + 1
         refill.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
         should_eventually(eq used.to_i + 1) { s.vhosts["/"].queue(q.name).message_count }
+        client.close
+      end
+    end
+  end
+
+  it "closes the connection on a first transfer frame without delivery-id" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-no-delivery-id", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.write_transfer_without_delivery_id(0_u32, "no-id")
+
+        close = client.read_value
+        close.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::CLOSE
+        client.error_fields(close)[0].symbol?.should eq LavinMQ::AMQP10::ErrorCondition::DECODE_ERROR
+        q.get(no_ack: true).should be_nil
         client.close
       end
     end
