@@ -6,6 +6,8 @@ A connection is a TCP link between a client and LavinMQ. Both AMQP and MQTT clie
 
 AMQP connections follow the standard 0-9-1 lifecycle. See [AMQP](amqp.md) for protocol details.
 
+AMQP 1.0 clients connect to the same port; the protocol is detected from the protocol header. See [AMQP 1.0](amqp10.md) for the SASL handshake, addressing and the idle-timeout that replaces heartbeats.
+
 ## MQTT Connections
 
 MQTT connections follow the MQTT 3.1.x CONNECT/CONNACK handshake. See [MQTT](mqtt.md) for protocol details.
