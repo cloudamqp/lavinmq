@@ -53,7 +53,8 @@ module LavinMQ::AMQP10
     @partial_payload = IO::Memory.new
     @partial_delivery_id : UInt32?
     @partial_settled = false
-    @partial_active = false
+    # True while fragments of a multi-transfer delivery are being collected.
+    getter? partial_active = false
     @target : PublishAddress?
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
@@ -824,6 +825,11 @@ module LavinMQ::AMQP10
       advance_incoming_window
       link = @links[transfer.handle]? || raise ProtocolError.new("unknown link handle #{transfer.handle}")
       receiver = link.as?(ReceiverLink) || raise ProtocolError.new("transfer sent on non-receiver link")
+      # Only continuation frames may omit the delivery-id (2.7.5); without one
+      # on the first frame there is nothing a disposition could refer to.
+      if transfer.delivery_id.nil? && !receiver.partial_active?
+        raise ProtocolError.new("transfer on handle #{transfer.handle} is missing delivery-id")
+      end
       receiver.receive(transfer, payload)
     end
 
