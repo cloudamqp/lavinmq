@@ -440,9 +440,10 @@ module LavinMQ::AMQP10
     private def configure_idle_timeout : Nil
       socket = @socket
       return unless socket.responds_to?(:"read_timeout=")
-      if interval = idle_check_interval
-        socket.read_timeout = interval
-      end
+      # Replaces the short handshake timeout the connection factory set: either
+      # with the idle check interval, or with none when no idle-timeout was
+      # negotiated in either direction.
+      socket.read_timeout = idle_check_interval
     end
 
     # How often the read loop should wake to send a keepalive and/or check the
