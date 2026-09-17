@@ -16,7 +16,8 @@ tls_key = /etc/lavinmq/key.pem
 |-----------|---------|---------|-------------|
 | `tls_cert` | `[main]` | (empty) | Certificate file (including chain) |
 | `tls_key` | `[main]` | (empty) | Private key file. If empty, the cert file is expected to contain both. |
-| `tls_ciphers` | `[main]` | (empty) | Allowed cipher list, in OpenSSL cipher list format |
+| `tls_ciphers` | `[main]` | (empty) | Allowed cipher list for TLS 1.2 and below, in OpenSSL cipher list format |
+| `tls_ciphersuites` | `[main]` | (empty) | Allowed TLS 1.3 ciphersuites, colon separated |
 | `tls_prefer_server_ciphers` | `[main]` | `false` | Use the server's cipher order instead of the client's preference |
 | `tls_min_version` | `[main]` | (empty) | Minimum TLS version. Empty falls back to the TLS library default (1.2). |
 | `tls_ktls` | `[main]` | `false` | Enable kernel TLS offloading |
@@ -78,7 +79,22 @@ amqp_tls_ca_cert = /etc/lavinmq/clients-ca.pem
 mqtt_tls_keylog_file = /var/log/lavinmq/mqtt-keys.log
 ```
 
-The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `tls_ciphers`, `tls_prefer_server_ciphers`, `tls_verify_peer`, `tls_ca_cert`, `tls_keylog_file`.
+The following keys accept a prefix: `tls_cert`, `tls_key`, `tls_min_version`, `tls_ciphers`, `tls_ciphersuites`, `tls_prefer_server_ciphers`, `tls_verify_peer`, `tls_ca_cert`, `tls_keylog_file`.
+
+## Ciphers and ciphersuites
+
+TLS 1.3 negotiates from its own set of ciphersuites and ignores the cipher list entirely, so the two versions are configured separately:
+
+- `tls_ciphers` is an OpenSSL cipher list (`SSL_CTX_set_cipher_list`) and only applies to TLS 1.2 and below.
+- `tls_ciphersuites` is a colon separated list of TLS 1.3 ciphersuite names (`SSL_CTX_set_ciphersuites`) and only applies to TLS 1.3.
+
+```ini
+[main]
+tls_ciphers = ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+tls_ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+```
+
+Both settings are optional. When a key is omitted, or given with no value (`tls_ciphersuites =`), the TLS library default applies. Note that OpenSSL's default TLS 1.2 cipher list is broad, so restrict `tls_ciphers` too when hardening. OpenSSL rejects a list only when it recognises none of the names. For `[main]` that fails startup; for an SNI host the context is created on the first connection to that hostname, so the failure shows up as a rejected handshake for that host instead. Both settings can also be given per SNI host and per protocol, like the other TLS settings.
 
 ## Cipher order
 
@@ -105,7 +121,7 @@ The reload is atomic: if the new configuration file is missing, unreadable, or i
 A reload applies these TLS changes live:
 
 - Renewed certificates for `[main]` and for SNI hosts that were already configured at boot. New connections pick up the renewed certificates immediately; connections already established keep using the certificate that was active when they handshook. This is the supported path for certificate rotation in production.
-- Updated ciphers, minimum version, and mTLS settings on those existing contexts.
+- Updated ciphers, ciphersuites, minimum version, and mTLS settings on those existing contexts. Emptying `tls_ciphers` or `tls_ciphersuites` does not restore the library defaults on a running broker; that needs a restart.
 - Adding, changing, or removing SNI hosts, as long as at least one `[sni:...]` section existed at boot.
 
 The following changes cannot be applied to a running broker and require a full restart. A reload logs a warning and keeps the previous TLS setup in place:

@@ -127,6 +127,7 @@ describe LavinMQ::Config do
           data_dir_lock = false
           tls_cert = /etc/lavinmq/cert.pem
           tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
+          tls_ciphersuites = TLS_AES_128_GCM_SHA256
           tls_prefer_server_ciphers = true
           tls_key = /etc/lavinmq/key.pem
           tls_min_version = 1.3
@@ -213,6 +214,7 @@ describe LavinMQ::Config do
     config.data_dir_lock?.should be_false
     config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/lavinmq/key.pem"
     config.tls_min_version.should eq "1.3"
@@ -291,6 +293,7 @@ describe LavinMQ::Config do
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
       "--ciphers=ECDHE-RSA-AES256-GCM-SHA384",
+      "--ciphersuites=TLS_AES_128_GCM_SHA256",
       "--tls-prefer-server-ciphers=true",
       "--key=/etc/ssl/key.pem",
       "--tls-min-version=1.3",
@@ -332,6 +335,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/ssl/key.pem"
     config.tls_min_version.should eq "1.3"
@@ -374,6 +378,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_HTTPS_PORT"] = "15676"
     ENV["LAVINMQ_TLS_CERT_PATH"] = "/etc/certs/env-cert.pem"
     ENV["LAVINMQ_TLS_CIPHERS"] = "ENV-CIPHER-SUITE"
+    ENV["LAVINMQ_TLS_CIPHERSUITES"] = "TLS_AES_128_GCM_SHA256"
     ENV["LAVINMQ_TLS_PREFER_SERVER_CIPHERS"] = "true"
     ENV["LAVINMQ_TLS_KEY_PATH"] = "/etc/certs/env-key.pem"
     ENV["LAVINMQ_TLS_MIN_VERSION"] = "1.2"
@@ -400,6 +405,7 @@ describe LavinMQ::Config do
     config.https_port.should eq 15676
     config.tls_cert_path.should eq "/etc/certs/env-cert.pem"
     config.tls_ciphers.should eq "ENV-CIPHER-SUITE"
+    config.tls_ciphersuites.should eq "TLS_AES_128_GCM_SHA256"
     config.tls_prefer_server_ciphers?.should be_true
     config.tls_key_path.should eq "/etc/certs/env-key.pem"
     config.tls_min_version.should eq "1.2"
@@ -423,6 +429,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_HTTPS_PORT")
     ENV.delete("LAVINMQ_TLS_CERT_PATH")
     ENV.delete("LAVINMQ_TLS_CIPHERS")
+    ENV.delete("LAVINMQ_TLS_CIPHERSUITES")
     ENV.delete("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")
     ENV.delete("LAVINMQ_TLS_KEY_PATH")
     ENV.delete("LAVINMQ_TLS_MIN_VERSION")
@@ -808,6 +815,33 @@ ensure
   tcp_server.try &.close
 end
 
+private def negotiated_cipher(server_ctx : OpenSSL::SSL::Context::Server) : String?
+  tcp_server = TCPServer.new("127.0.0.1", 0)
+  port = tcp_server.local_address.port
+  spawn do
+    if client = tcp_server.accept?
+      begin
+        OpenSSL::SSL::Socket::Server.new(client, server_ctx, sync_close: true).close
+      rescue
+        # ignore handshake errors, the client assertion will surface them
+      ensure
+        client.close rescue nil
+      end
+    end
+  end
+  Fiber.yield
+  tcp_client = TCPSocket.new("127.0.0.1", port)
+  client_ctx = OpenSSL::SSL::Context::Client.new
+  client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+  ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "localhost")
+  cipher = ssl_client.cipher
+  ssl_client.close
+  tcp_client.close
+  cipher
+ensure
+  tcp_server.try &.close
+end
+
 private def with_launcher(ini : String, &)
   data_dir = File.tempname("lavinmq", "reload-spec")
   Dir.mkdir_p data_dir
@@ -900,6 +934,29 @@ describe LavinMQ::Launcher do
           INI
         launcher.reload!
         amqp_ctx.options.includes?(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE).should be_false
+      end
+    end
+
+    it "applies tls_ciphersuites, also after reload" do
+      with_launcher(<<-INI) do |launcher, _config, config_file|
+        [main]
+        tls_cert = spec/resources/server_certificate.pem
+        tls_key = spec/resources/server_key.pem
+        tls_min_version = 1.3
+        tls_ciphersuites = TLS_AES_128_GCM_SHA256
+        INI
+        amqp_ctx = launcher.@amqp_tls_context.not_nil!
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_128_GCM_SHA256"
+
+        File.write(config_file.path, <<-INI)
+          [main]
+          tls_cert = spec/resources/server_certificate.pem
+          tls_key = spec/resources/server_key.pem
+          tls_min_version = 1.3
+          tls_ciphersuites = TLS_AES_256_GCM_SHA384
+          INI
+        launcher.reload!
+        negotiated_cipher(amqp_ctx).should eq "TLS_AES_256_GCM_SHA384"
       end
     end
 
