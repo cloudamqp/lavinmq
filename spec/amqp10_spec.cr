@@ -5,13 +5,15 @@ private class AMQP10SpecClient
 
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
-                 idle_timeout : UInt32? = nil)
+                 idle_timeout : UInt32? = nil, expect_open = true)
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
     sasl_handshake(username, password)
     send_transport_header(split_transport_header)
     send_open(hostname, frame_max, idle_timeout)
+    # Callers that expect the server to refuse the connection read the reply themselves.
+    return unless expect_open
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
     send_begin
     begin_frame = LavinMQ::AMQP10::Begin.from_value(read_value)
@@ -359,12 +361,18 @@ private class AMQP10SpecClient
     @io.flush
   end
 
-  private def read_performative_code
+  def read_performative_code
     read_value.described?.not_nil!.descriptor_code?
   end
 
-  private def read_value
+  def read_value
     LavinMQ::AMQP10::Codec.decode(@reader.read.body_reader)
+  end
+
+  # The error list carried by a Close or Detach performative: [condition, description]
+  def error_fields(performative : LavinMQ::AMQP10::Value) : Array(LavinMQ::AMQP10::Value)
+    error = performative.described?.not_nil!.value.list?.not_nil!.last
+    error.described?.not_nil!.value.list?.not_nil!
   end
 end
 
@@ -1040,6 +1048,17 @@ describe LavinMQ::AMQP10 do
   it "fails bad SASL PLAIN authentication" do
     with_amqp_server do |s|
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong").should eq 1
+    end
+  end
+
+  it "sends open before close when refusing the vhost" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), hostname: "vhost:missing", expect_open: false)
+      client.read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
+      close = client.read_value
+      close.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::CLOSE
+      client.error_fields(close)[0].symbol?.should eq LavinMQ::AMQP10::ErrorCondition::NOT_FOUND
+      client.close
     end
   end
 
