@@ -18,7 +18,7 @@ private class AMQP10SpecClient
     # Callers that expect the server to refuse the connection read the reply themselves.
     return unless expect_open
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
-    send_begin(incoming_window)
+    begin_session(incoming_window)
     begin_frame = LavinMQ::AMQP10::Begin.from_value(read_value)
     begin_frame.remote_channel.should eq 0_u16
   end
@@ -337,14 +337,14 @@ private class AMQP10SpecClient
     send_performative(LavinMQ::AMQP10::Descriptor::OPEN, fields)
   end
 
-  private def send_begin(incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW)
+  def begin_session(incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, channel : UInt16 = 0_u16) : Nil
     fields = [
       LavinMQ::AMQP10::Value.null,
       LavinMQ::AMQP10::Value.uint(0_u32),
       LavinMQ::AMQP10::Value.uint(incoming_window),
       LavinMQ::AMQP10::Value.uint(LavinMQ::AMQP10::DEFAULT_WINDOW),
     ]
-    send_performative(LavinMQ::AMQP10::Descriptor::BEGIN, fields)
+    send_performative(LavinMQ::AMQP10::Descriptor::BEGIN, fields, channel)
   end
 
   private def attach_fields(name, handle, role_receiver, source, target,
@@ -366,8 +366,8 @@ private class AMQP10SpecClient
     fields
   end
 
-  private def send_performative(code, fields)
-    LavinMQ::AMQP10::FrameWriter.write_performative(@io, 0_u16,
+  private def send_performative(code, fields, channel : UInt16 = 0_u16)
+    LavinMQ::AMQP10::FrameWriter.write_performative(@io, channel,
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, code, fields)
   end
 
@@ -1164,6 +1164,23 @@ describe LavinMQ::AMQP10 do
     with_amqp_server do |s|
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "guest", authzid: "gäst\xff").should eq 0
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong", authzid: "gäst\xff").should eq 1
+    end
+  end
+
+  it "advertises channel-max and refuses sessions on channels above it" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), expect_open: false)
+      open = LavinMQ::AMQP10::Open.from_value(client.read_value)
+      channel_max = open.channel_max.not_nil!
+      channel_max.should eq LavinMQ::Config.instance.channel_max
+
+      client.begin_session(channel: channel_max)
+      client.read_performative_code.should eq LavinMQ::AMQP10::Descriptor::BEGIN
+
+      client.begin_session(channel: channel_max + 1)
+      close = client.read_value
+      close.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::CLOSE
+      client.close
     end
   end
 

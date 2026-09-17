@@ -56,7 +56,8 @@ module LavinMQ::AMQP10
                    @max_frame_size : UInt32,
                    @remote_idle_timeout : UInt32? = nil,
                    @local_idle_timeout : UInt32? = nil,
-                   @frame_reader : FrameReader? = nil)
+                   @frame_reader : FrameReader? = nil,
+                   @channel_max : UInt16 = UInt16::MAX)
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
@@ -106,7 +107,7 @@ module LavinMQ::AMQP10
         channels:          @sessions.size,
         connected_at:      @connected_at,
         type:              "network",
-        channel_max:       0,
+        channel_max:       @channel_max,
         frame_max:         @max_frame_size,
         timeout:           0,
         client_properties: @client_properties,
@@ -197,7 +198,7 @@ module LavinMQ::AMQP10
     end
 
     def send_open : Nil
-      open = Open.new(SERVER_CONTAINER_ID, nil, @max_frame_size, @local_idle_timeout)
+      open = Open.new(SERVER_CONTAINER_ID, nil, @max_frame_size, @channel_max, @local_idle_timeout)
       send_frame(open.frame_size, 0_u16) { |io| open.write_body(io) }
     end
 
@@ -539,6 +540,9 @@ module LavinMQ::AMQP10
     end
 
     private def open_session(channel : UInt16, begin_frame : Begin) : Nil
+      if channel > @channel_max
+        raise ProtocolError.new("channel #{channel} exceeds the advertised channel-max #{@channel_max}")
+      end
       if @sessions.has_key?(channel)
         raise ProtocolError.new("session already begun on channel #{channel}")
       end

@@ -29,14 +29,15 @@ module LavinMQ::AMQP10
       reader = FrameReader.new(socket, Config.instance.frame_max)
       open = read_open(reader, log) || return
       max_frame_size = negotiated_frame_max(open.max_frame_size)
+      channel_max = server_channel_max
       # Advertise our own idle-timeout so dead peers are reaped, and honor the
       # peer's so it does not drop us during idle periods.
       local_idle_timeout = server_idle_timeout
       remote_idle_timeout = open.idle_time_out
-      vhost = resolve_vhost(socket, open, user, max_frame_size, local_idle_timeout, log) || return
+      vhost = resolve_vhost(socket, open, user, max_frame_size, channel_max, local_idle_timeout, log) || return
 
       client = Client.new(socket, connection_info, vhost, user, "PLAIN", max_frame_size,
-        remote_idle_timeout, local_idle_timeout, frame_reader: reader)
+        remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max)
       client.send_open
       client
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
@@ -123,7 +124,8 @@ module LavinMQ::AMQP10
       open
     end
 
-    private def resolve_vhost(socket, open : Open, user, max_frame_size : UInt32, idle_timeout : UInt32?, log)
+    private def resolve_vhost(socket, open : Open, user, max_frame_size : UInt32, channel_max : UInt16,
+                              idle_timeout : UInt32?, log)
       vhost_name = if hostname = open.hostname
                      hostname.starts_with?("vhost:") ? hostname[6..] : "/"
                    else
@@ -133,20 +135,20 @@ module LavinMQ::AMQP10
         if user.find_permission(vhost_name)
           if vhost.max_connections.try { |max| vhost.connections_size >= max }
             log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
-            refuse(socket, max_frame_size, idle_timeout, ErrorCondition::NOT_ALLOWED,
+            refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_ALLOWED,
               "access to vhost '#{vhost_name}' refused: connection limit is reached")
             return
           end
           vhost
         else
           log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
-          refuse(socket, max_frame_size, idle_timeout, ErrorCondition::UNAUTHORIZED_ACCESS,
+          refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::UNAUTHORIZED_ACCESS,
             "'#{user.name}' does not have access to '#{vhost_name}'")
           nil
         end
       else
         log.warn { "VHost \"#{vhost_name}\" not found" }
-        refuse(socket, max_frame_size, idle_timeout, ErrorCondition::NOT_FOUND, "vhost not found")
+        refuse(socket, max_frame_size, channel_max, idle_timeout, ErrorCondition::NOT_FOUND, "vhost not found")
         nil
       end
     end
@@ -154,8 +156,9 @@ module LavinMQ::AMQP10
     # Open MUST be the first frame either peer sends (spec 2.4.1), so a refused
     # connection gets our Open followed by a Close carrying the error; clients
     # only surface the Close's error once they have seen the Open.
-    private def refuse(socket, max_frame_size : UInt32, idle_timeout : UInt32?, condition, description)
-      open = Open.new(Client::SERVER_CONTAINER_ID, nil, max_frame_size, idle_timeout)
+    private def refuse(socket, max_frame_size : UInt32, channel_max : UInt16, idle_timeout : UInt32?,
+                       condition, description)
+      open = Open.new(Client::SERVER_CONTAINER_ID, nil, max_frame_size, channel_max, idle_timeout)
       FrameWriter.write_frame_header(socket, open.frame_size, AMQP_FRAME_TYPE, 0_u16)
       open.write_body(socket)
       fields = Array(Value).new(1)
@@ -168,6 +171,13 @@ module LavinMQ::AMQP10
     private def server_idle_timeout : UInt32?
       heartbeat = Config.instance.heartbeat
       heartbeat.zero? ? nil : heartbeat.to_u32 * 1000
+    end
+
+    # The highest session channel number the peer may use; 0 in the config
+    # means unlimited, as for 0-9-1.
+    private def server_channel_max : UInt16
+      channel_max = Config.instance.channel_max
+      channel_max.zero? ? UInt16::MAX : channel_max
     end
 
     private def negotiated_frame_max(client_frame_max) : UInt32
