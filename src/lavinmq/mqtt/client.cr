@@ -69,6 +69,7 @@ module LavinMQ
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
         @protocol = protocol_version.name
+        @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -188,6 +189,14 @@ module LavinMQ
           close_socket
           return
         end
+        # A topic denial acks and drops, it never closes the connection.
+        unless @broker.permission_service.can_write?(@permission_context, packet.topic)
+          Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
+          if packet.qos > 0 && (packet_id = packet.packet_id)
+            send(Protocol::PubAck.new(packet_id))
+          end
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
@@ -215,6 +224,9 @@ module LavinMQ
             return
           end
         end
+        # Topic permissions are enforced at delivery, not at SUBSCRIBE, so a client
+        # may subscribe to a filter it cannot read. Mosquitto also filters at
+        # delivery, but it additionally refuses the filter in the SUBACK.
         qos = @broker.subscribe(self, packet.topic_filters)
         send(Protocol::SubAck.new(qos, packet.packet_id))
       end
@@ -263,6 +275,10 @@ module LavinMQ
         if will = @will
           if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            return
+          end
+          unless @broker.permission_service.can_write?(@permission_context, will.topic)
+            Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
           @broker.publish(Protocol::Publish.new(

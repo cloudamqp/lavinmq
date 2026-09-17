@@ -52,6 +52,15 @@ class LavinMQCtl
                 end
               end
             end
+            json.field("mqtt_permissions") do
+              json.array do
+                each_vhost do |vhost, vhost_dir|
+                  mqtt_permissions(vhost_dir).each do |g|
+                    g.as_h.merge!({"vhost" => JSON::Any.new(vhost)}).to_json(json)
+                  end
+                end
+              end
+            end
             json.field("exchanges") do
               json.array do
                 each_vhost do |vhost, vhost_dir|
@@ -169,6 +178,14 @@ class LavinMQCtl
 
     private def users
       File.open("users.json") { |f| JSON.parse f }.as_a
+    end
+
+    private def mqtt_permissions(vhost_dir)
+      File.open(File.join(vhost_dir, "mqtt_permissions.json")) do |f|
+        JSON.parse(f).as_a
+      end
+    rescue File::NotFoundError
+      Array(JSON::Any).new
     end
 
     private def vhosts

@@ -9,6 +9,7 @@ require "../policy"
 require "../queue_stats"
 require "../vhost"
 require "./consts"
+require "./permission_service"
 
 module LavinMQ
   module MQTT
@@ -35,6 +36,16 @@ module LavinMQ
       @closed = Atomic(Bool).new(false)
       @deleted = false
       @client : MQTT::Client? = nil
+      @permission_service : PermissionService
+      # Derived from the queue name, so a restored session with no client
+      # attached still knows its client id.
+      @client_id : String
+      # Carries the user of the last attached client. The username is kept in
+      # the .metadata file so a restored session keeps its member rules until a
+      # client reconnects.
+      @permission_context : PermissionService::Context
+      @metadata_file : String
+      @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
 
@@ -43,18 +54,29 @@ module LavinMQ
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
+        @client_id = @name.lchop(SESSION_PREFIX)
+        @permission_service = @vhost.mqtt_permission_service
         @unacked = Hash(UInt16, SegmentPosition).new
 
         @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
+        @log = Logger.new(Log, @metadata)
         data_dir = File.join(
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
-        replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+        @replicator = durable? ? @vhost.@replicator : nil
+        @msg_store = MessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
+        @metadata_file = File.join(data_dir, ".metadata")
+        username = nil
+        if File.exists?(@metadata_file)
+          @replicator.try &.register_file(@metadata_file)
+          username = read_metadata_file
+        else
+          write_metadata_file(nil)
+        end
+        @permission_context = PermissionService::Context.new(username, @client_id)
 
-        @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -95,6 +117,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.delete
         end
+        @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
       end
@@ -149,12 +172,39 @@ module LavinMQ
 
         @client = client
         @has_client.set(!client.nil?)
+        if client && (username = client.user.name) != @permission_context.username
+          @permission_context = PermissionService::Context.new(username, @client_id)
+          write_metadata_file(username)
+        end
 
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
       def durable?
         !clean_session?
+      end
+
+      # The .metadata file is to a session what .queue is to a queue: it names
+      # the owner of a data directory. It also holds the last attached username.
+      # Anything that is not a JSON object with a string username is treated
+      # as an unknown user; a bad file must never stop the session from loading.
+      private def read_metadata_file : String?
+        JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
+      rescue ex : JSON::ParseException | IO::Error
+        @log.warn(exception: ex) { "Could not read #{@metadata_file}, session user unknown until a client connects" }
+        nil
+      end
+
+      # Written to a temporary file and renamed into place, so a crash
+      # mid-write leaves the previous file rather than a truncated one.
+      private def write_metadata_file(username : String?) : Nil
+        tmpfile = "#{@metadata_file}.tmp"
+        File.open(tmpfile, "w") do |f|
+          {name: @name, client_id: @client_id, username: username}.to_json(f)
+          f.fsync
+        end
+        File.rename tmpfile, @metadata_file
+        @replicator.try &.replace_file(@metadata_file)
       end
 
       def subscribe(tf, qos)
@@ -172,7 +222,13 @@ module LavinMQ
         end
       end
 
+      # Returns whether the message was accepted, so the exchange only counts
+      # deliveries that happened.
       def publish(msg : Message) : Bool
+        unless @permission_service.can_read?(@permission_context, msg.routing_key)
+          @log.debug { "Message refused: no topic permission rule allows user '#{@permission_context.username}' to read topic '#{msg.routing_key}'" }
+          return false
+        end
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do

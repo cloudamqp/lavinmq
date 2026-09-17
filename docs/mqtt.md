@@ -100,17 +100,115 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
-| `permission_check_enabled` | `[mqtt]` | `false` | Enable ACL checks on MQTT publish/subscribe |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
 
-## Permissions
+## Topic Permissions
 
-By default, MQTT permission checks are disabled. When `permission_check_enabled` is set to `true`, LavinMQ enforces the standard AMQP ACL model on MQTT operations:
+Topic permissions restrict which topics a user's MQTT clients can publish to and receive from. They are defined as permission groups on a vhost.
 
-- **PUBLISH** requires write permission on the MQTT exchange
-- **SUBSCRIBE** requires read permission on the MQTT exchange and write permission on the session queue (`mqtt.<client_id>`)
+- A client can only publish to or receive on topics granted by a matching rule
+- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic
+- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything
+- A vhost with no groups denies every topic
+- There is no administrator bypass
+- A user still needs a permission entry on the vhost to connect
+- The `permission_check_enabled` option under `[mqtt]` adds the AMQP permission check in front of the topic check, see [Upgrading](#upgrading)
 
-When disabled, any authenticated MQTT client can publish and subscribe to any topic.
+### Groups
+
+A permission group has a name, a list of members and a list of rules.
+
+```json
+{
+  "name": "devices",
+  "vhost": "/",
+  "members": ["alice"],
+  "rules": [
+    { "identifier": "own-chat", "pattern": "chat/{client_id}/#", "read": true, "write": true }
+  ]
+}
+```
+
+- Group names consist of alphanumerics, hyphens and underscores, at most 255 characters
+- Members are usernames. Every connection that authenticates as a member gets the group's rules, so a user with many devices is one member
+- The member `"*"` applies the group to every authenticated user
+- A user in several groups gets the rules of all of them
+- A member name must match the user name as shown in the connections list. For OAuth users that is the claim selected by `preferred_username_claims`
+- Each rule has an identifier, a topic filter pattern and `read` and `write` flags
+- Rule identifiers consist of alphanumerics and hyphens and are unique within the group. The HTTP API addresses a rule by its identifier
+
+### Patterns
+
+Patterns are MQTT topic filters. They use the `+` and `#` wildcards with subscription semantics, so a rule for `a/#` also grants `a`.
+
+A pattern can contain `{client_id}` as a whole topic level. It is replaced with the client ID of the connection being checked, so one rule gives each of a user's devices its own subtree:
+
+- `chat/{client_id}/#` grants `chat/thermo-1/#` to a device connected as `thermo-1`
+- The same rule grants `chat/gate/#` to a device connected as `gate`
+- A client ID that contains `/`, `+` or `#` never matches a topic level, so rules with `{client_id}` never match for that connection
+
+The client ID has no other role. Membership is decided by the authenticated username, which the client cannot choose.
+
+### Enforcement
+
+- Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged, and the connection stays open
+- Subscribe: always accepted. Read is enforced when a message is accepted into the session, so a subscription to a filter the user cannot read receives no messages. This matches Mosquitto
+- Will: the connection needs a write rule for the will topic, otherwise the will is dropped
+- Denials are logged at debug level
+- Changes to groups take effect immediately, also for connected clients
+
+Read is checked once per message, when the message is accepted into the session, not when it is delivered to the client. A message accepted before read was revoked is still delivered after the revocation. Messages published after the revocation are not.
+
+### Sessions
+
+A session is checked with the username of the client that last attached to it. This also covers messages that arrive while the device is offline.
+
+- The session stores that username on disk, so a session restored after a restart keeps its member rules until the device reconnects
+- When another user takes over the session (see [Session Takeover](#session-takeover)), new messages are checked against the new user
+- Messages already queued under the previous user are still delivered
+
+### HTTP API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/mqtt/permission-groups` | List group summaries on all vhosts |
+| GET | `/api/mqtt/permission-groups/{vhost}` | List group summaries on a vhost |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}` | Get one group summary |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}` | Create an empty group (no request body) |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}` | Delete a group with all its members and rules |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}/members` | List the members of a group |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Add a member |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Remove a member |
+| GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules` | List the rules of a group |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
+| DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
+
+- All routes require the administrator tag
+- A group summary has `name`, `vhost`, `member_count` and `rule_count`
+- The members route returns one object per member: `{"username": "..."}`
+- The group list routes and the members route accept `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse` and `columns`, like the other list endpoints
+- The rules route returns the full rule list with `identifier`, `pattern`, `read` and `write` per rule
+
+Example: allow every user to use only its own device subtrees under `chat/`.
+
+```sh
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/members/%2A
+curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/rules/own-chat \
+  -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
+```
+
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present.
+
+Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
+
+Permission changes are saved to disk before becoming active. If saving fails, the request fails and the previous permissions remain active, including when attempting to revoke access. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
+
+### Upgrading
+
+- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import, or when the vhost closes
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
+- A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication
 

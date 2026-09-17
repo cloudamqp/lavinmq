@@ -24,6 +24,37 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "saves the unchanged MQTT default group on close" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test")
+      path = File.join(vhost.data_dir, "mqtt_permissions.json")
+      original = vhost.mqtt_permission_service.to_json
+      File.exists?(path).should be_false
+
+      restart_server(s)
+
+      JSON.parse(File.read(path)).should eq JSON.parse(original)
+      s.vhosts["test"].mqtt_permission_service.to_json.should eq original
+    end
+  end
+
+  it "keeps a deleted MQTT default group deleted after close and restart" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test")
+      path = File.join(vhost.data_dir, "mqtt_permissions.json")
+      vhost.mqtt_permission_service.delete("default")
+
+      restart_server(s)
+
+      JSON.parse(File.read(path)).as_a.should be_empty
+      service = s.vhosts["test"].mqtt_permission_service
+      service.size.should eq 0
+      context = LavinMQ::MQTT::PermissionService::Context.new("guest", "dev")
+      service.can_read?(context, "anything").should be_false
+      service.can_write?(context, "anything").should be_false
+    end
+  end
+
   it "should be able to persist durable exchanges" do
     with_amqp_server do |s|
       s.vhosts.create("test")
