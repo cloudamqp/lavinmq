@@ -23,7 +23,7 @@ private class AMQP10SpecClient
     begin_frame.remote_channel.should eq 0_u16
   end
 
-  def self.authenticate(port : Int32, username, password) : UInt8
+  def self.authenticate(port : Int32, username, password, authzid = "") : UInt8
     io = TCPSocket.new("localhost", port)
     io.read_timeout = 5.seconds
     reader = LavinMQ::AMQP10::FrameReader.new(io, LavinMQ::Config.instance.frame_max)
@@ -33,7 +33,7 @@ private class AMQP10SpecClient
     io.read_fully(header)
     header.should eq LavinMQ::AMQP10::SASL_HEADER
     reader.read
-    response = "\0#{username}\0#{password}"
+    response = "#{authzid}\0#{username}\0#{password}"
     fields = [LavinMQ::AMQP10::Value.symbol("PLAIN"), LavinMQ::AMQP10::Value.binary(response.to_slice)]
     LavinMQ::AMQP10::FrameWriter.write_performative(io, 0_u16, LavinMQ::AMQP10::SASL_FRAME_TYPE,
       LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
@@ -1112,6 +1112,13 @@ describe LavinMQ::AMQP10 do
   it "fails bad SASL PLAIN authentication" do
     with_amqp_server do |s|
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong").should eq 1
+    end
+  end
+
+  it "splits SASL PLAIN responses on bytes regardless of the authzid encoding" do
+    with_amqp_server do |s|
+      AMQP10SpecClient.authenticate(amqp_port(s), "guest", "guest", authzid: "gäst\xff").should eq 0
+      AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong", authzid: "gäst\xff").should eq 1
     end
   end
 

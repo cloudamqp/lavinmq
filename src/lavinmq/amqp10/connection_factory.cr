@@ -52,7 +52,7 @@ module LavinMQ::AMQP10
         return
       end
       username, password = plain_credentials(init[1])
-      context = Auth::Context.new(username, password.to_slice, loopback: connection_info.remote_address.loopback?)
+      context = Auth::Context.new(username, password, loopback: connection_info.remote_address.loopback?)
       if user = @authenticator.authenticate(context)
         send_sasl_outcome(socket, 0_u8)
         user
@@ -69,7 +69,7 @@ module LavinMQ::AMQP10
       FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_MECHANISMS, fields)
     end
 
-    private def read_sasl_init(socket) : Tuple(String, String)
+    private def read_sasl_init(socket) : Tuple(String, Bytes)
       frame = FrameReader.new(socket, MIN_MAX_FRAME_SIZE).read
       raise DecodeError.new("expected SASL frame") unless frame.type == SASL_FRAME_TYPE
       value = Codec.decode(frame.body_reader)
@@ -78,7 +78,7 @@ module LavinMQ::AMQP10
       fields = described.value.list? || raise DecodeError.new("sasl-init fields must be list")
       mechanism = fields[0]?.try(&.symbol?) || raise DecodeError.new("sasl-init missing mechanism")
       response = fields[1]?.try(&.binary?) || Bytes.empty
-      {mechanism, String.new(response)}
+      {mechanism, response}
     end
 
     private def send_sasl_outcome(socket, code : UInt8)
@@ -87,10 +87,14 @@ module LavinMQ::AMQP10
       FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_OUTCOME, fields)
     end
 
-    private def plain_credentials(response : String) : Tuple(String, String)
-      first = response.index('\0') || raise DecodeError.new("invalid SASL PLAIN response")
-      second = response.index('\0', first + 1) || raise DecodeError.new("invalid SASL PLAIN response")
-      {response[(first + 1)...second], response[(second + 1)..]}
+    # SASL PLAIN (RFC 4616): authzid NUL authcid NUL passwd. Split on the raw
+    # bytes; the response is opaque binary and need not be valid UTF-8.
+    private def plain_credentials(response : Bytes) : Tuple(String, Bytes)
+      first = response.index(0_u8) || raise DecodeError.new("invalid SASL PLAIN response")
+      second = response.index(0_u8, first + 1) || raise DecodeError.new("invalid SASL PLAIN response")
+      username = String.new(response[(first + 1)...second])
+      password = response[(second + 1)..].dup
+      {username, password}
     end
 
     private def confirm_transport_header(socket, log) : Bool
