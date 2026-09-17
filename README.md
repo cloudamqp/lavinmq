@@ -1,6 +1,6 @@
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
-LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0, 3.1.1 protocols.
+LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0, 3.1.1 protocols, and the Amazon SQS API.
 Built with [Crystal](https://crystal-lang.org/) for optimal efficiency.
 
 <img src="static/img/lavinmq-ui.png" alt="LavinMQ GUI" height="500">
@@ -172,6 +172,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 - [AMQPS TLS](docs/tls.md)
 - [AMQP over websockets](docs/websockets.md)
 - [MQTT over websockets](docs/websockets.md)
+- [Amazon SQS API support](docs/sqs.md)
 
 ### Messaging Capabilities
 

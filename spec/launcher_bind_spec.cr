@@ -22,6 +22,7 @@ describe LavinMQ::Launcher do
       config.https_port = -1
       config.mqtt_port = -1
       config.mqtts_port = -1
+      config.sqs_port = -1
       config.metrics_http_port = -1
       config.control_unix_path = File.join(data_dir, "control.sock")
       launcher = LavinMQ::Launcher.new(config)
