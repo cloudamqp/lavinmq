@@ -17,6 +17,48 @@ class MFile
 end
 
 describe MFile do
+  it "updates its path when renamed across directories" do
+    file = File.tempfile "mfile_spec"
+    dir = File.tempname("mfile_dir_spec")
+    Dir.mkdir(dir)
+    mfile = MFile.new(file.path, capacity: 4096)
+    mfile.rename(File.join(dir, "renamed"))
+    mfile.path.should eq(File.join(dir, "renamed"))
+    File.exists?(mfile.path).should be_true
+    mfile.delete
+  ensure
+    mfile.try &.close
+    File.delete?(file.path) if file
+    Dir.delete(dir) if dir
+  end
+
+  it "does not expose deletion until the caller's bookkeeping completes" do
+    file = File.tempfile "mfile_spec"
+    mfile = MFile.new(file.path, capacity: 4096)
+    started = Channel(Nil).new
+    resume = Channel(Nil).new
+    done = Channel(Nil).new
+    spawn do
+      mfile.delete do
+        started.send(nil)
+        resume.receive
+      end
+      done.send(nil)
+    end
+    started.receive
+    begin
+      File.exists?(file.path).should be_false
+      mfile.deleted?.should be_false
+    ensure
+      resume.send(nil)
+      done.receive
+    end
+    mfile.deleted?.should be_true
+  ensure
+    mfile.try &.close
+    File.delete?(file.path) if file
+  end
+
   {% for operation in [:close, :truncate] %}
     it "prevents {{ operation.id }} from unmapping during fsync" do
       file = File.tempfile "mfile_spec"
