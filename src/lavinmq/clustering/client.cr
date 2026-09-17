@@ -502,7 +502,12 @@ module LavinMQ
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
         @files.delete(filename).try &.close
-        File.delete? File.join(@data_dir, filename)
+        path = File.join(@data_dir, filename)
+        if File.delete?(path)
+          # The leader can reclaim a dirty acknowledgment file before sending
+          # its fsync request. Its delete record must itself be durable.
+          fsync_parent_dir(path)
+        end
         @checksums.delete(filename)
         @file_digests.delete(filename)
         delete_empty_dirs File.dirname(filename)
@@ -520,6 +525,7 @@ module LavinMQ
         while dir != "."
           path = File.join(@data_dir, dir)
           rmdir(path) || break
+          fsync_parent_dir(path)
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end

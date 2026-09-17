@@ -314,7 +314,7 @@ module LavinMQ::AMQP
       start_size - @size
     end
 
-    def delete(sp) : Nil
+    def delete(sp, needs_sync = false) : Nil
       raise "Only full segments should be deleted"
     end
 
