@@ -55,7 +55,8 @@ module LavinMQ::AMQP10
                    @auth_mechanism : String,
                    @max_frame_size : UInt32,
                    @remote_idle_timeout : UInt32? = nil,
-                   @local_idle_timeout : UInt32? = nil)
+                   @local_idle_timeout : UInt32? = nil,
+                   @frame_reader : FrameReader? = nil)
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
@@ -404,7 +405,8 @@ module LavinMQ::AMQP10
     end
 
     private def read_loop
-      reader = FrameReader.new(@socket, @max_frame_size)
+      reader = @frame_reader || FrameReader.new(@socket, @max_frame_size)
+      reader.max_frame_size = @max_frame_size
       configure_idle_timeout
       @last_recv = RoughTime.instant
       while @running
