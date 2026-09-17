@@ -956,6 +956,25 @@ describe LavinMQ::AMQP10::TransferCodec do
     incoming.properties.timestamp_raw.should eq timestamp
   end
 
+  it "clamps out-of-range 0-9-1 timestamps instead of overflowing" do
+    body = "body"
+    io = IO::Memory.new
+    {Int64::MAX, Int64::MIN}.each do |timestamp|
+      props = AMQ::Protocol::Properties.new(timestamp: timestamp)
+      msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
+      io.clear
+
+      LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+
+      bytes = io.to_slice
+      frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
+      reader = IO::Memory.new(bytes[8, frame_size.to_i - 8])
+      LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+      incoming = LavinMQ::AMQP10::MessageCodec.decode(reader)
+      String.new(incoming.body).should eq body
+    end
+  end
+
   it "writes a header section carrying durable, priority and ttl on delivery" do
     props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8, priority: 5_u8, expiration: "60000")
     body = "body"
