@@ -462,7 +462,9 @@ module LavinMQ::AMQP10
       @consumer.try &.has_capacity.swap(has_capacity)
     end
 
-    def settle(first : UInt32, last : UInt32, outcome : Outcome) : Nil
+    # Applies the outcome to the unacked deliveries in first..last; returns
+    # whether any of them belonged to this link.
+    def settle(first : UInt32, last : UInt32, outcome : Outcome) : Bool
       found = false
       @unack_lock.synchronize do
         # @unacked is sorted ascending by delivery-id, so skip links whose range
@@ -496,6 +498,7 @@ module LavinMQ::AMQP10
         @credit_available.swap(credit > 0)
         set_consumer_capacity(credit > 0)
       end
+      found
     end
 
     def close : Nil
@@ -806,7 +809,11 @@ module LavinMQ::AMQP10
         outcome = Outcome::Accepted
       end
       last = frame.last || frame.first
-      @sender_links.each(&.settle(frame.first, last, outcome))
+      found = false
+      @sender_links.each { |link| found = true if link.settle(frame.first, last, outcome) }
+      # A rcv-settle-mode second receiver keeps the delivery until we settle it,
+      # so an unsettled disposition is answered with our settled one.
+      @client.send_settlement(self, frame.first, frame.last, outcome) if found && !frame.settled
     end
 
     def detach(frame : Detach) : Nil

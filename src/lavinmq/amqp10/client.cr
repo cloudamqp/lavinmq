@@ -215,8 +215,15 @@ module LavinMQ::AMQP10
     end
 
     def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
-      snd_mode = remote_attach.try(&.snd_settle_mode) || 0_u8
-      rcv_mode = remote_attach.try(&.rcv_settle_mode) || 0_u8
+      # Each settle-mode field states the actual mode of the peer playing that
+      # role: ours for the role we play, echoed for the role the peer plays.
+      if link.role.receiver?
+        snd_mode = remote_attach.try(&.snd_settle_mode) || 0_u8
+        rcv_mode = 0_u8 # incoming transfers are always settled first
+      else
+        snd_mode = link.is_a?(SenderLink) && link.settled? ? 1_u8 : 0_u8
+        rcv_mode = remote_attach.try(&.rcv_settle_mode) || 0_u8
+      end
       fields_size = Codec.string_size(link.name) + Codec.uint_size(link.local_handle) + 1 + 2 + 2 +
                     (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
       fields_count = 7
@@ -336,6 +343,15 @@ module LavinMQ::AMQP10
     def send_disposition(session : Session, first : UInt32, outcome : Outcome) : Nil
       @write_lock.synchronize do
         TransferCodec.write_disposition(@socket, session.id, first, outcome)
+      end
+      add_send_bytes(32_u64)
+    end
+
+    # Sender-side settlement of deliveries a rcv-settle-mode second receiver
+    # has applied an outcome to but is still holding until we settle.
+    def send_settlement(session : Session, first : UInt32, last : UInt32?, outcome : Outcome) : Nil
+      @write_lock.synchronize do
+        TransferCodec.write_disposition(@socket, session.id, first, outcome, true, Role::Sender, last)
       end
       add_send_bytes(32_u64)
     end

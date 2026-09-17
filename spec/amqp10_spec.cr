@@ -55,10 +55,12 @@ private class AMQP10SpecClient
     @io.read_timeout = 5.seconds
   end
 
-  def attach_sender(address : String?, handle = 0_u32, name = "sender", dynamic = false) : LavinMQ::AMQP10::Attach
+  def attach_sender(address : String?, handle = 0_u32, name = "sender", dynamic = false,
+                    snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil) : LavinMQ::AMQP10::Attach
     target = LavinMQ::AMQP10::Target.new(address, dynamic: dynamic).to_value
     fields = attach_fields(name, handle, role_receiver: false,
-      source: LavinMQ::AMQP10::Value.null, target: target)
+      source: LavinMQ::AMQP10::Value.null, target: target,
+      snd_settle_mode: snd_settle_mode, rcv_settle_mode: rcv_settle_mode)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
     attach = LavinMQ::AMQP10::Attach.from_value(read_value)
     flow = LavinMQ::AMQP10::Flow.from_value(read_value)
@@ -88,10 +90,12 @@ private class AMQP10SpecClient
     detach
   end
 
-  def attach_receiver(address : String?, handle = 0_u32, name = "receiver", dynamic = false) : LavinMQ::AMQP10::Attach
+  def attach_receiver(address : String?, handle = 0_u32, name = "receiver", dynamic = false,
+                      snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil) : LavinMQ::AMQP10::Attach
     source = LavinMQ::AMQP10::Source.new(address, dynamic: dynamic).to_value
     fields = attach_fields(name, handle, role_receiver: true,
-      source: source, target: LavinMQ::AMQP10::Value.null)
+      source: source, target: LavinMQ::AMQP10::Value.null,
+      snd_settle_mode: snd_settle_mode, rcv_settle_mode: rcv_settle_mode)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
     frame = read_value
     LavinMQ::AMQP10::Attach.from_value(frame)
@@ -222,9 +226,13 @@ private class AMQP10SpecClient
     {transfer, incoming}
   end
 
-  def settle(delivery_id : UInt32, outcome = LavinMQ::AMQP10::Outcome::Accepted) : Nil
+  def settle(delivery_id : UInt32, outcome = LavinMQ::AMQP10::Outcome::Accepted, settled = true) : Nil
     LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
-      delivery_id, outcome)
+      delivery_id, outcome, settled)
+  end
+
+  def read_disposition : LavinMQ::AMQP10::TransferCodec::DispositionView
+    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader)
   end
 
   def read_detach : LavinMQ::AMQP10::Detach
@@ -309,13 +317,14 @@ private class AMQP10SpecClient
     send_performative(LavinMQ::AMQP10::Descriptor::BEGIN, fields)
   end
 
-  private def attach_fields(name, handle, role_receiver, source, target)
+  private def attach_fields(name, handle, role_receiver, source, target,
+                            snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil)
     fields = Array(LavinMQ::AMQP10::Value).new(7)
     fields << LavinMQ::AMQP10::Value.string(name)
     fields << LavinMQ::AMQP10::Value.uint(handle)
     fields << LavinMQ::AMQP10::Value.bool(role_receiver)
-    fields << LavinMQ::AMQP10::Value.null
-    fields << LavinMQ::AMQP10::Value.null
+    fields << (snd_settle_mode ? LavinMQ::AMQP10::Value.ubyte(snd_settle_mode) : LavinMQ::AMQP10::Value.null)
+    fields << (rcv_settle_mode ? LavinMQ::AMQP10::Value.ubyte(rcv_settle_mode) : LavinMQ::AMQP10::Value.null)
     fields << source
     fields << target
     fields
@@ -1539,6 +1548,51 @@ describe LavinMQ::AMQP10 do
         client.flow(delivery_count: 4_u32)
         client.consume_one.should eq "modify-me"
         should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
+        client.close
+      end
+    end
+  end
+
+  it "settles unsettled dispositions for rcv-settle-mode second receivers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-rcv-second", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("second")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        attach = client.attach_receiver("/queues/#{q.name}", rcv_settle_mode: 1_u8)
+        attach.rcv_settle_mode.should eq 1_u8
+        client.flow
+        transfer, incoming = client.read_delivery
+        String.new(incoming.body).should eq "second"
+        delivery_id = transfer.delivery_id.not_nil!
+        client.settle(delivery_id, LavinMQ::AMQP10::Outcome::Accepted, settled: false)
+
+        disposition = client.read_disposition
+        disposition.role.should eq LavinMQ::AMQP10::Role::Sender
+        disposition.first.should eq delivery_id
+        disposition.settled.should be_true
+        disposition.outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+        should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
+        client.close
+      end
+    end
+  end
+
+  it "advertises the settle modes actually in use on attach" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-settle-modes", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        # Incoming transfers are always settled first, whatever the sender asks for.
+        attach = client.attach_sender("/queues/#{q.name}", snd_settle_mode: 2_u8, rcv_settle_mode: 1_u8)
+        attach.snd_settle_mode.should eq 2_u8
+        attach.rcv_settle_mode.should eq 0_u8
+        # Mixed is not supported for deliveries: they are sent unsettled.
+        attach = client.attach_receiver("/queues/#{q.name}", handle: 1_u32, name: "mixed", snd_settle_mode: 2_u8)
+        attach.snd_settle_mode.should eq 0_u8
+        attach = client.attach_receiver("/queues/#{q.name}", handle: 2_u32, name: "settled", snd_settle_mode: 1_u8)
+        attach.snd_settle_mode.should eq 1_u8
         client.close
       end
     end

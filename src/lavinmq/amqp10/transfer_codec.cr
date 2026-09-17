@@ -160,16 +160,22 @@ module LavinMQ::AMQP10
       {true, outcome}
     end
 
-    def write_disposition(io : IO, channel : UInt16, first : UInt32, outcome : Outcome, settled = true) : Nil
+    def write_disposition(io : IO, channel : UInt16, first : UInt32, outcome : Outcome, settled = true,
+                          role : Role = Role::Receiver, last : UInt32? = nil) : Nil
       state_size = outcome_size(outcome)
-      fields_size = 1 + 1 + Codec.uint_size(first) + 1 + state_size
+      last_size = last ? Codec.uint_size(last) : 1
+      fields_size = 1 + Codec.uint_size(first) + last_size + 1 + state_size
       frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
       FrameWriter.write_frame_header(io, frame_size.to_u32, AMQP_FRAME_TYPE, channel)
       Codec.write_descriptor(io, Descriptor::DISPOSITION)
       Codec.write_list_header(io, fields_size, 5)
-      io.write_byte 0x41_u8 # role receiver=true
+      io.write_byte(role.receiver? ? 0x41_u8 : 0x42_u8)
       Codec.write_uint(io, first)
-      io.write_byte 0x40_u8 # last
+      if last
+        Codec.write_uint(io, last)
+      else
+        io.write_byte 0x40_u8
+      end
       io.write_byte(settled ? 0x41_u8 : 0x42_u8)
       write_outcome(io, outcome)
       io.flush
