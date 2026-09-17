@@ -52,8 +52,8 @@
         </label>
         <label>
           <span>
-            <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
+            <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-durable">Durable<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext" style="position-anchor: --tt-durable">"Durable" exchanges persist even when the server restarts,
                 ensuring their availability and preventing data loss.</span>
             </a>
           </span>
@@ -61,8 +61,8 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
-          <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
+          <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-auto-delete">Auto-delete<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext" style="position-anchor: --tt-auto-delete">"Auto-delete" exchanges are automatically removed when they
           are no longer in use, freeing up system resources.</span>
           </a>
           </span>
@@ -70,8 +70,8 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
-          <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
+          <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-internal">Internal<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext" style="position-anchor: --tt-internal"> "Internal" exchanges are specifically designed for internal
           use within the messaging system and are not intended for direct interaction with external components.</span>
           </a>
           </span>
@@ -79,8 +79,8 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
-          <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
+          <a class="prop-tooltip" data-tag="alternate-exchange" style="anchor-name: --tt-delayed">Delayed<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext" style="position-anchor: --tt-delayed">"Delayed" exchanges introduce a delay before delivering
           messages, allowing for delayed processing or scheduling of tasks.</span>
           </a>
           </span>
@@ -90,23 +90,23 @@
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
-              <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
+            <a class="arg-tooltip" data-tag="x-alternate-exchange" style="anchor-name: --tt-x-alternate-exchange">Alternate Exchange
+              <span class="tooltiptext" style="position-anchor: --tt-x-alternate-exchange">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
             </a>
-            <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
-              <span class="tooltiptext">Enable deduplication for this exchange</span>
+            <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true" style="anchor-name: --tt-x-message-deduplication">Message deduplication
+              <span class="tooltiptext" style="position-anchor: --tt-x-message-deduplication">Enable deduplication for this exchange</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100">Deduplication cache size
-              <span class="tooltiptext">Deduplication cache size, in number of entries</span>
+            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100" style="anchor-name: --tt-x-cache-size">Deduplication cache size
+              <span class="tooltiptext" style="position-anchor: --tt-x-cache-size">Deduplication cache size, in number of entries</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000">Deduplication cache ttl
-              <span class="tooltiptext">How long an entry lives in the deduplication cache, in milliseconds</span>
+            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000" style="anchor-name: --tt-x-cache-ttl">Deduplication cache ttl
+              <span class="tooltiptext" style="position-anchor: --tt-x-cache-ttl">How long an entry lives in the deduplication cache, in milliseconds</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-deduplication-header">Deduplication header
-              <span class="tooltiptext">Which header to check for deduplication, defaults to x-deduplication-header</span>
+            <a class="arg-tooltip" data-tag="x-deduplication-header" style="anchor-name: --tt-x-deduplication-header">Deduplication header
+              <span class="tooltiptext" style="position-anchor: --tt-x-deduplication-header">Which header to check for deduplication, defaults to x-deduplication-header</span>
             </a> |
-            <a class="arg-tooltip" data-tag="x-algorithm">Hash Algorithm
-              <span class="tooltiptext">Which algorithm to use for the Consistent Hash Exchange (ring or jump)</span>
+            <a class="arg-tooltip" data-tag="x-algorithm" style="anchor-name: --tt-x-algorithm">Hash Algorithm
+              <span class="tooltiptext" style="position-anchor: --tt-x-algorithm">Which algorithm to use for the Consistent Hash Exchange (ring or jump)</span>
             </a>
           </div>
         </label>

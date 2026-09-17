@@ -65,27 +65,27 @@
           <span>Definition</span>
           <textarea name="definition" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="max-length" data-value="0">Max length
-              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
+            <a class="arg-tooltip" data-tag="max-length" data-value="0" style="anchor-name: --tt-max-length">Max length
+              <span class="tooltiptext" style="position-anchor: --tt-max-length">How many (ready) messages a queue can contain before it starts dropping them.
                 Dropping strategy decided by overflow arg.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="max-length-bytes" data-value="0">Max length bytes
-              <span class="tooltiptext">The max length of a queue in bytes.</span>
+            <a class="arg-tooltip" data-tag="max-length-bytes" data-value="0" style="anchor-name: --tt-max-length-bytes">Max length bytes
+              <span class="tooltiptext" style="position-anchor: --tt-max-length-bytes">The max length of a queue in bytes.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="message-ttl" data-value="0">Message TTL
-              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+            <a class="arg-tooltip" data-tag="message-ttl" data-value="0" style="anchor-name: --tt-message-ttl">Message TTL
+              <span class="tooltiptext" style="position-anchor: --tt-message-ttl">How long a message published to a queue can live before it is discarded
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="expires" data-value="0">Auto expire
-              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+            <a class="arg-tooltip" data-tag="expires" data-value="0" style="anchor-name: --tt-expires">Auto expire
+              <span class="tooltiptext" style="position-anchor: --tt-expires">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="delivery-limit" data-value="0">Delivery limit
-              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+            <a class="arg-tooltip" data-tag="delivery-limit" data-value="0" style="anchor-name: --tt-delivery-limit">Delivery limit
+              <span class="tooltiptext" style="position-anchor: --tt-delivery-limit">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a> |
-            <a class="arg-tooltip" data-tag="max-age" data-value="1M">Max age
-              <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+            <a class="arg-tooltip" data-tag="max-age" data-value="1M" style="anchor-name: --tt-max-age">Max age
+              <span class="tooltiptext" style="position-anchor: --tt-max-age">Stream queue segments will be deleted when all messages in the segmented is older than this.
                 Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
                 Segments are only deleted when new messages are published to the stream queue.</span>
             </a>

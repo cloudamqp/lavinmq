@@ -2052,21 +2052,20 @@ fieldset.inline {
   visibility: hidden;
   background-color: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
-  padding: 10px 10px;
-  border-radius: 6px;
-  width: max-content;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
   max-width: 400px;
   min-width: 150px;
+  position: absolute;
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  position: absolute;
+  margin-bottom: 4px;
   z-index: 10000;
   white-space: normal;
-}
-
-.prop-tooltip .prop-tooltiptext {
-  margin-bottom: 5px;
 }
 
 .arg-tooltip:hover .tooltiptext,
@@ -2074,6 +2073,33 @@ fieldset.inline {
   transition-delay: 0.3s;
   visibility: visible;
   pointer-events: none;
+}
+
+/* CSS Anchor Positioning progressive enhancement (Baseline newly-available as of
+   Jan 2026 — Chrome 125+, Safari 26+, recent Firefox; older browsers still get the
+   plain bottom/left/transform fallback above). Gated behind @supports because an
+   anchor can't also be its positioned element's containing block, so on a
+   supporting browser we drop `position: relative` from the anchor and let the
+   tooltip's containing block bubble up to the nearest positioned ancestor (e.g. a
+   modal dialog) — that's what lets it escape overflow/scroll clipping and flip
+   above/below automatically. Every `.arg-tooltip`/`.prop-tooltip` instance also
+   needs its own unique `anchor-name` (and matching `position-anchor` on its nested
+   tooltip span), set inline per element. */
+@supports (anchor-name: --tooltip-anchor-support-check) {
+  .arg-tooltip,
+  .prop-tooltip {
+    position: static;
+  }
+
+  .arg-tooltip .tooltiptext,
+  .prop-tooltip .prop-tooltiptext {
+    position-area: top;
+    position-try-fallbacks: flip-block;
+    justify-self: anchor-center;
+    bottom: auto;
+    left: auto;
+    transform: none;
+  }
 }
 
 pre.arguments>div {
