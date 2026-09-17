@@ -39,6 +39,7 @@ module LavinMQ::AMQP10
     @descriptor_reader = IO::Memory.new(Bytes.empty)
     @acl_write_cache = Auth::PermissionCache.new
     @last_recv = RoughTime.instant
+    @last_sent = RoughTime.instant
     # idle-time-out negotiated with the peer (milliseconds):
     #   @remote_idle_timeout — the peer's; we must send a frame within it
     #   @local_idle_timeout  — ours; we may drop the peer if it goes silent
@@ -397,6 +398,7 @@ module LavinMQ::AMQP10
     end
 
     private def add_send_bytes(bytes : UInt64) : Nil
+      @last_sent = RoughTime.instant
       @send_oct_count.add(bytes, :relaxed)
       @vhost.add_send_bytes(bytes)
     end
@@ -417,6 +419,9 @@ module LavinMQ::AMQP10
         @recv_oct_count.add(recv_bytes, :relaxed)
         @vhost.add_recv_bytes(recv_bytes)
         process_frame(frame)
+        # A peer that keeps sending (e.g. pre-settled publishes) never lets the
+        # read time out, so the keepalive must also be checked here.
+        send_empty_frame if keepalive_due?
       end
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost AMQP 1.0 connection while reading: #{ex.inspect}" } unless closed?
@@ -463,8 +468,15 @@ module LavinMQ::AMQP10
           return false
         end
       end
-      send_empty_frame if (r = @remote_idle_timeout) && r > 0
+      send_empty_frame if keepalive_due?
       true
+    end
+
+    # The peer drops us if we stay silent for its idle-time-out, so a keepalive
+    # is due once half of it has passed since the last frame we sent.
+    private def keepalive_due? : Bool
+      return false unless (r = @remote_idle_timeout) && r > 0
+      RoughTime.instant - @last_sent >= (r // 2).milliseconds
     end
 
     private def send_empty_frame : Nil

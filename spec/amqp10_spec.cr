@@ -4,13 +4,14 @@ private class AMQP10SpecClient
   getter io, reader
 
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
-                 frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false)
+                 frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
+                 idle_timeout : UInt32? = nil)
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
     sasl_handshake(username, password)
     send_transport_header(split_transport_header)
-    send_open(hostname, frame_max)
+    send_open(hostname, frame_max, idle_timeout)
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
     send_begin
     begin_frame = LavinMQ::AMQP10::Begin.from_value(read_value)
@@ -285,10 +286,14 @@ private class AMQP10SpecClient
     header.should eq LavinMQ::AMQP10::PROTOCOL_HEADER
   end
 
-  private def send_open(hostname, frame_max)
+  private def send_open(hostname, frame_max, idle_timeout : UInt32? = nil)
     fields = [LavinMQ::AMQP10::Value.string("spec-client")]
     fields << (hostname ? LavinMQ::AMQP10::Value.string(hostname) : LavinMQ::AMQP10::Value.null)
     fields << LavinMQ::AMQP10::Value.uint(frame_max)
+    if idle_timeout
+      fields << LavinMQ::AMQP10::Value.null # channel-max
+      fields << LavinMQ::AMQP10::Value.uint(idle_timeout)
+    end
     send_performative(LavinMQ::AMQP10::Descriptor::OPEN, fields)
   end
 
@@ -319,10 +324,16 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, code, fields)
   end
 
-  private def write_publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil) : Nil
+  # Pre-settled transfer: the server publishes it without replying with a disposition.
+  def publish_settled(handle : UInt32, delivery_id : UInt32, body : String) : Nil
+    write_publish(handle, delivery_id, body, settled: true)
+  end
+
+  private def write_publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil,
+                            settled = false) : Nil
     payload = IO::Memory.new
     tag = delivery_id.to_s.to_slice
-    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, false, false)
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, false, settled)
     if to
       fields = [LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.string(to)]
       LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES, fields)
@@ -1079,6 +1090,32 @@ describe LavinMQ::AMQP10 do
         client.send_empty_frame
         client.publish(0_u32, 1_u32, "after-keepalive").should eq LavinMQ::AMQP10::Outcome::Accepted
         q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "after-keepalive"
+        client.close
+      end
+    end
+  end
+
+  it "sends keepalives while a peer keeps publishing pre-settled transfers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-keepalive-busy", auto_delete: true)
+        # The peer expects a frame from us at least every 200 ms; we should send
+        # one after 100 ms of silence even though its transfers keep arriving.
+        client = AMQP10SpecClient.new(amqp_port(s), idle_timeout: 200_u32)
+        client.attach_sender("/queues/#{q.name}")
+        done = Channel(Nil).new
+        spawn do
+          40.times do |i|
+            client.publish_settled(0_u32, i.to_u32, "busy")
+            sleep 20.milliseconds
+          end
+          done.send nil
+        end
+
+        frame = client.reader.read
+        frame.body.empty?.should be_true
+        done.receive
+        should_eventually(eq 40) { s.vhosts["/"].queue(q.name).message_count }
         client.close
       end
     end
