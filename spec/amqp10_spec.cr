@@ -1614,10 +1614,14 @@ describe LavinMQ::AMQP10 do
       with_channel(s) do |ch|
         q = ch.queue("amqp10-server-flow", auto_delete: true)
         internal_q = s.vhosts["/"].queue(q.name)
+        # The 0-9-1 publish is asynchronous: make sure the message is in the
+        # queue and the flow is stopped before the link exists, so the deliver
+        # loop cannot observe any other order of events.
         q.publish("flow")
+        should_eventually(eq 1) { internal_q.message_count }
+        s.flow(false)
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_receiver("/queues/#{q.name}")
-        s.flow(false)
         client.flow
 
         client.expect_no_frame
