@@ -45,6 +45,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
       .then(() => {
         DOM.toast('Consumer cancelled')
       })
+      .catch(() => {})
   })
 
   Table.renderCell(tr, 0, item.queue.vhost)

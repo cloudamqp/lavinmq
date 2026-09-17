@@ -117,7 +117,7 @@ function autoCompleteDatalist (datalistID, type, vhost) {
       option.value = val
       datalist.appendChild(option)
     })
-  })
+  }).catch(() => {})
 }
 
 let loadedVhosts

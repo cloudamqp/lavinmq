@@ -22,9 +22,11 @@ module LavinMQ
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
+        states = extract_state_filter(context)
         total_count = items.size
         all_items = items.compact_map do |i|
           next unless i.search_match?(search_term) if search_term
+          next unless i.state_match?(states) if states
           i.details_tuple
         rescue ex
           Log.warn(exception: ex) { "Could not list all items" }
@@ -140,6 +142,13 @@ module LavinMQ
           else
             term
           end
+        end
+      end
+
+      private def extract_state_filter(context) : Array(QueueState)?
+        return unless param = context.request.query_params["state"]?
+        param.split(',').map do |s|
+          QueueState.parse?(s) || bad_request(context, "Invalid queue state '#{s}'")
         end
       end
 

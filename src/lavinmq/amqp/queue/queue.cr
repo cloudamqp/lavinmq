@@ -508,6 +508,10 @@ module LavinMQ::AMQP
       consumers_size.to_u32
     end
 
+    def state_match?(states : Array(QueueState)) : Bool
+      states.includes?(@state)
+    end
+
     def pause!
       return unless @state.running?
       @state = QueueState::Paused

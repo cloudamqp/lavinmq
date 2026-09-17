@@ -31,6 +31,8 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 
 PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
 
+The address in a PROXY header is used for logging and for the connection listing. It never counts as loopback for the `default_user_only_loopback` check, not even from a listed source or a cluster follower. The address describes the client as seen by the proxy, not a connection on the broker host. A `PROXY UNKNOWN` header is rejected and the connection is closed, because the client address is not known. This also applies to an untrusted source, because the header is parsed before the source is checked.
+
 ## Low Disk Space
 
 When free disk space drops below `3 * segment_size` or below `free_disk_min`, `basic.publish` returns a `precondition_failed` channel error until resources recover.
@@ -43,11 +45,20 @@ When free disk space drops below `3 * segment_size` or below `free_disk_min`, `b
 
 ## Connection Limits
 
-Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. Once the cap is reached, new connections to that vhost are refused with `connection.close` carrying reply code 530 (`NOT_ALLOWED`); existing connections are unaffected.
+Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. The cap counts AMQP and MQTT connections together. Existing connections are unaffected once the cap is reached, or if the limit is later lowered below the current count.
 
 | Limit | Default | Description |
 |-------|---------|-------------|
 | `max-connections` | (none) | Maximum concurrent connections per vhost. A negative value removes the cap. |
+
+How a refused connection is reported depends on the protocol:
+
+| Protocol | Refusal |
+|----------|---------|
+| AMQP | `connection.close` with reply code 530 (`NOT_ALLOWED`) |
+| MQTT | `CONNACK` with return code 3 (server unavailable), then the socket is closed |
+
+An MQTT client reconnecting with a client ID that already has an active connection is not refused at the cap, because [session takeover](mqtt.md#session-takeover) closes the existing connection instead of adding one.
 
 Set via the management API (`PUT /api/vhost-limits/:vhost/max-connections`) or `lavinmqctl set_vhost_limits`. See [Vhosts](vhosts.md#vhost-limits).
 

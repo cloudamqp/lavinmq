@@ -154,6 +154,41 @@ def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
 
+def with_raw_amqp_connection(s, &)
+  io = TCPSocket.new("localhost", amqp_port(s))
+  io.read_timeout = 5.seconds
+
+  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+  io.flush
+  stream = AMQ::Protocol::Stream.new(io)
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+  response = "\u0000guest\u0000guest"
+  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+    AMQ::Protocol::Table.new, "PLAIN", response, ""),
+    IO::ByteFormat::NetworkEndian)
+  io.flush
+  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
+  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+    IO::ByteFormat::NetworkEndian
+  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+  io.flush
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
+
+  yield io, stream
+ensure
+  io.try &.close
+end
+
+# Enables the PROXY protocol with the default user limited to loopback. The config is reset after each example.
+def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
+  config = LavinMQ::Config.instance
+  config.default_user_only_loopback = true
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = trusted_sources
+  yield
+end
+
 # Poll interval for the wait_for/should_eventually loops below. We sleep
 # (rather than busy-spinning with Fiber.yield) so the polling fiber blocks on
 # an event-loop timer instead of re-enqueueing itself every round. A tight

@@ -50,6 +50,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
         DOM.toast('Consumer cancelled')
         updateQueue(false)
       })
+      .catch(() => {})
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -162,7 +163,7 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
-    })
+    }).catch(() => {})
 }
 updateQueue(true)
 setInterval(updateQueue, 5000)
@@ -187,7 +188,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       text: 'Unbind',
       click: function () {
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/q/${queue}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -214,8 +217,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(res => {
-      if (res && res.is_error) return
+    .then(() => {
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
@@ -249,6 +251,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
         DOM.toast.warn('Message not published')
       }
     })
+    .catch(() => {})
 })
 
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -289,6 +292,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         messagesContainer.appendChild(msgNode)
       }
     })
+    .catch(() => {})
 })
 
 const moveMessagesForm = document.querySelector('#moveMessages')
@@ -324,6 +328,7 @@ moveMessagesForm.addEventListener('submit', function (evt) {
       evt.target.reset()
       DOM.toast('Moving messages to ' + dest)
     })
+    .catch(() => {})
 })
 
 document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
@@ -337,6 +342,7 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
+      .catch(() => {})
   }
 })
 
@@ -346,6 +352,7 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
+      .catch(() => {})
   }
 })
 
@@ -358,6 +365,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue paused!')
         handleQueueState('paused')
       })
+      .catch(() => {})
   }
 })
 
@@ -370,6 +378,7 @@ resumeQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
       })
+      .catch(() => {})
   }
 })
 
@@ -378,11 +387,11 @@ restartQueueForm.addEventListener('submit', function (evt) {
   const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
   if (window.confirm('Are you sure? This will restart the queue.')) {
     HTTP.request('PUT', url)
-      .then((res) => {
-        if (res && res.is_error) return
+      .then(() => {
         DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
+      .catch(() => {})
   }
 })
 

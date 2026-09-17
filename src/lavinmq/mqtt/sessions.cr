@@ -15,8 +15,12 @@ module LavinMQ
         @vhost.session("#{SESSION_PREFIX}#{client_id}")
       end
 
-      def declare(client : Client)
+      # Returns nil if creating the session would exceed the vhost's max-queues
+      # limit. An existing session is always returned, reusing one consumes no
+      # new resource.
+      def declare(client : Client) : Session?
         self[client.client_id]? || begin
+          return if @vhost.queue_limit_reached?
           @vhost.declare_queue("#{SESSION_PREFIX}#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
           session = self[client.client_id]
           session.client = client

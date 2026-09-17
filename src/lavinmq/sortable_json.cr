@@ -17,5 +17,9 @@ module LavinMQ
     def search_match?(value : Regex)
       value === search_value
     end
+
+    def state_match?(_states : Array(QueueState)) : Bool
+      true
+    end
   end
 end

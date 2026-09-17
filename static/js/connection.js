@@ -13,6 +13,20 @@ const connection = new URLSearchParams(window.location.hash.substring(1)).get('n
 document.title = `Connection ${connection} | LavinMQ`
 document.querySelector('#pagename-label').textContent = connection
 
+// A one button form that closes the named channel, for use in a table cell
+function closeChannelForm (name) {
+  const form = document.createElement('form')
+  form.appendChild(DOM.button.delete({ text: 'Close', type: 'submit' }))
+  form.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    if (!window.confirm(`Are you sure you want to close channel ${name}?`)) return false
+    const headers = new window.Headers({ 'X-Reason': 'Closed via Web management' })
+    HTTP.request('DELETE', HTTP.url`api/channels/${name}`, { headers })
+      .then(() => { DOM.toast(`Channel ${name} closed`) })
+  })
+  return form
+}
+
 const connectionUrl = `api/connections/${connection}`
 function updateConnection (all) {
   HTTP.request('GET', connectionUrl).then(item => {
@@ -71,7 +85,7 @@ function updateConnection (all) {
         document.getElementById('channels-section').style.display = 'block'
       }
     }
-  })
+  }).catch(() => {})
 }
 updateConnection(true)
 setInterval(updateConnection, 5000)
@@ -89,6 +103,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)
+    Table.renderCell(tr, 7, closeChannelForm(item.name), 'right')
   }
   let mode = ''
   mode += item.confirm ? ' C' : ''
@@ -106,4 +121,5 @@ document.querySelector('#closeConnection').addEventListener('submit', function (
   })
   HTTP.request('DELETE', url, { headers })
     .then(() => { window.location = 'connections' })
+    .catch(() => {})
 })

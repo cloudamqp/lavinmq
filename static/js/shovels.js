@@ -113,6 +113,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
             tr.parentNode.removeChild(tr)
             DOM.toast(`Shovel ${item.name} deleted`)
           })
+          .catch(() => {})
       }
     }
   })
@@ -164,6 +165,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
     e.classList.toggle('hide', isHttp)
   })
+  document.querySelectorAll('.http-dest-field').forEach(e => {
+    e.classList.toggle('hide', !isHttp)
+  })
 })
 
 document.querySelector('#createShovel').addEventListener('submit', function (evt) {
@@ -205,7 +209,12 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-type') === 'queue') {
+  const httpDest = data.get('dest-uri').startsWith('http')
+  if (httpDest) {
+    // HTTP destinations POST to the URI, there's no queue/exchange
+    const timeout = data.get('dest-timeout')
+    if (timeout) body.value['dest-timeout'] = parseFloat(timeout)
+  } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
@@ -216,6 +225,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
     })
+    .catch(() => {})
 })
 
 // function updateAutocomplete (e, id) {

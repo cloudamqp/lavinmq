@@ -180,7 +180,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build lavinmq
-        run: make -j bin/lavinmq bin/lavinmqctl bin/stress DOCS= CRYSTAL_FLAGS="--release --error-on-warnings"
+        run: make -j bin/lavinmq bin/lavinmqctl bin/stress bin/shovel-test DOCS= CRYSTAL_FLAGS="--release --error-on-warnings"
 
       - name: Print build info
         run: bin/lavinmq --build-info
@@ -532,6 +532,59 @@ jobs:
         run: |
           chmod +x bin/stress
           bin/stress
+
+      - name: Shutdown LavinMQ
+        run: |
+          pid=$(cat /tmp/lavinmq.pid)
+          kill "$pid"
+          for _ in $(seq 1 10); do
+            kill -0 "$pid" 2>/dev/null || exit 0
+            sleep 1
+          done
+          echo "::warning::LavinMQ did not exit within 10s, sending SIGKILL"
+          kill -9 "$pid"
+          exit 1
+
+      - name: Print LavinMQ log
+        if: ${{ !cancelled() }}
+        run: cat lavinmq.log
+
+      - name: Check LavinMQ log for errors
+        if: ${{ !cancelled() }}
+        run: |
+          if grep -E '^[^ ]+ +(ERROR|FATAL) |^Unhandled exception' lavinmq.log; then
+            echo "::error::Found errors in LavinMQ log"
+            exit 1
+          fi
+
+  shovel-test:
+    name: Shovel test
+    runs-on: ubuntu-24.04
+    needs: compile
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp --pidfile /tmp/lavinmq.pid >lavinmq.log 2>&1 &
+
+      - name: Run shovel test
+        run: |
+          chmod +x bin/shovel-test
+          bin/shovel-test
 
       - name: Shutdown LavinMQ
         run: |

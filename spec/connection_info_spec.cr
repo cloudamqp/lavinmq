@@ -22,11 +22,32 @@ describe LavinMQ::ConnectionInfo::IPAddress do
       addr.address.should eq "::1"
     end
   end
+end
+
+describe LavinMQ::ConnectionInfo do
+  loopback = Socket::IPAddress.new("127.0.0.1", 5672)
+  remote = Socket::IPAddress.new("10.1.2.3", 5672)
 
   describe "#loopback?" do
+    it "is true when the peer is a loopback address" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback).loopback?.should be_true
+    end
+
+    it "is false when the peer is not a loopback address" do
+      LavinMQ::ConnectionInfo.new(remote, loopback).loopback?.should be_false
+    end
+
+    it "is false when a loopback address comes from a PROXY header" do
+      LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true).loopback?.should be_false
+    end
+
+    it "is true for the local placeholder" do
+      LavinMQ::ConnectionInfo.local.loopback?.should be_true
+    end
+
     it "recognizes IPv4-mapped IPv6 loopback as loopback" do
-      addr = LavinMQ::ConnectionInfo::IPAddress.new(Socket::IPAddress.new("::ffff:127.0.0.1", 0))
-      addr.loopback?.should be_true
+      mapped = Socket::IPAddress.new("::ffff:127.0.0.1", 0)
+      LavinMQ::ConnectionInfo.new(mapped, mapped).loopback?.should be_true
     end
   end
 end

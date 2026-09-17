@@ -437,8 +437,10 @@ module LavinMQ
         channel
       end
 
-      private def close_channel(channel : Client::Channel?) : Nil
-        if channel.try &.close
+      protected def close_channel(channel : Client::Channel?) : Nil
+        return unless channel
+        @channels.delete(channel.id)
+        if channel.close
           @vhost.event_tick(EventType::ChannelClosed)
         end
       end
@@ -452,10 +454,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          close_channel(@channels.delete(frame.channel))
+          close_channel(@channels[frame.channel]?)
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          close_channel(@channels.delete(frame.channel))
+          close_channel(@channels[frame.channel]?)
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -529,7 +531,7 @@ module LavinMQ
       private def cleanup
         @running = false
         i = 0u32
-        @channels.each_value do |ch|
+        @channels.values.each do |ch|
           close_channel(ch)
           Fiber.yield if (i &+= 1) % 512 == 0
         end
