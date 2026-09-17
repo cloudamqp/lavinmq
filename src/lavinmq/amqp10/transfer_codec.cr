@@ -522,7 +522,7 @@ module LavinMQ::AMQP10
         when 9
           if ts = props.timestamp_raw
             io.write_byte 0x83_u8
-            Codec.write_i64(io, ts * 1000_i64)
+            Codec.write_i64(io, timestamp_ms(ts))
           else
             io.write_byte 0x40_u8
           end
@@ -531,6 +531,15 @@ module LavinMQ::AMQP10
         end
         index += 1
       end
+    end
+
+    # 0-9-1 timestamps are seconds, AMQP 1.0 wants milliseconds. Clamp first so a
+    # bogus timestamp from a publisher cannot overflow on the delivery path.
+    MAX_TIMESTAMP_SECONDS = Int64::MAX.tdiv(1000)
+    MIN_TIMESTAMP_SECONDS = Int64::MIN.tdiv(1000)
+
+    private def timestamp_ms(seconds : Int64) : Int64
+      seconds.clamp(MIN_TIMESTAMP_SECONDS, MAX_TIMESTAMP_SECONDS) * 1000_i64
     end
 
     private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?, fields_size : Int32) : Nil

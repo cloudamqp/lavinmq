@@ -300,6 +300,12 @@ module LavinMQ::AMQP10
       @session.client.log.debug { "AMQP 1.0 sender link deliver loop idle, exiting" }
     rescue ex : ClosedError | LavinMQ::AMQP::Queue::ClosedError | IO::Error | ::Channel::ClosedError
       @session.client.log.debug { "AMQP 1.0 sender link deliver loop exited: #{ex.inspect}" }
+    rescue ex
+      # Anything else is a bug or a message we cannot encode; detach the link
+      # (requeuing its unacked deliveries) instead of letting the fiber die and
+      # be respawned onto the same message.
+      @session.client.log.error(exception: ex) { "AMQP 1.0 sender link deliver loop failed, detaching link" }
+      detach_from_server(ErrorInfo.new(ErrorCondition::INTERNAL_ERROR, ex.message))
     ensure
       @deliver_loop_running.set(false, :release)
       # Do not respawn when the connection is gone: a failed transfer closes the
