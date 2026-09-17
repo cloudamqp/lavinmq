@@ -237,6 +237,7 @@ module LavinMQ::AMQP10
     container_id : String,
     hostname : String?,
     max_frame_size : UInt32 = Config.instance.frame_max,
+    channel_max : UInt16? = nil,
     idle_time_out : UInt32? = nil do
     def self.from_value(value : Value) : Open
       described = value.described? || raise DecodeError.new("expected open")
@@ -245,9 +246,9 @@ module LavinMQ::AMQP10
       container_id = fields[0]?.try(&.string_like?) || ""
       hostname = fields[1]?.try &.string_like?
       max_frame_size = fields[2]?.try(&.uint?).try(&.to_u32) || Config.instance.frame_max
-      # field 3 is channel-max, field 4 is idle-time-out (milliseconds)
-      idle_time_out = fields[4]?.try(&.uint?).try(&.to_u32)
-      new(container_id, hostname, max_frame_size, idle_time_out)
+      channel_max = fields[3]?.try(&.uint?).try { |v| v > UInt16::MAX ? UInt16::MAX : v.to_u16 }
+      idle_time_out = fields[4]?.try(&.uint?).try(&.to_u32) # milliseconds
+      new(container_id, hostname, max_frame_size, channel_max, idle_time_out)
     end
 
     def frame_size : UInt32
@@ -256,21 +257,40 @@ module LavinMQ::AMQP10
 
     # Writes the performative (everything after the frame header).
     def write_body(io : IO) : Nil
+      count = field_count
       Codec.write_descriptor(io, Descriptor::OPEN)
-      Codec.write_list_header(io, fields_size, idle_time_out ? 5 : 3)
+      Codec.write_list_header(io, fields_size, count)
       Codec.write_string(io, container_id)
       Codec.write_nullable_string(io, hostname)
       Codec.write_uint(io, max_frame_size)
+      if count > 3
+        if cm = channel_max
+          io.write_byte 0x60_u8
+          Codec.write_u16(io, cm)
+        else
+          io.write_byte 0x40_u8
+        end
+      end
       if idle = idle_time_out
-        io.write_byte 0x40_u8 # channel-max: null
         Codec.write_uint(io, idle)
+      end
+    end
+
+    private def field_count : Int32
+      if idle_time_out
+        5
+      elsif channel_max
+        4
+      else
+        3
       end
     end
 
     private def fields_size : Int32
       size = Codec.string_size(container_id) + Codec.nullable_string_size(hostname) + Codec.uint_size(max_frame_size)
+      size += (channel_max ? 3 : 1) if field_count > 3
       if idle = idle_time_out
-        size += 1 + Codec.uint_size(idle)
+        size += Codec.uint_size(idle)
       end
       size
     end
