@@ -19,6 +19,7 @@ require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
 require "../src/lavinmq/amqp/server"
 require "../src/lavinmq/mqtt/server"
+require "../src/lavinmq/sqs/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
 require "http/client"
@@ -58,6 +59,7 @@ class LavinMQ::Server
   # are collected with the (fresh per-spec) server, so no cleanup is needed.
   getter(amqp_server : LavinMQ::AMQP::Server) { LavinMQ::AMQP::Server.new(self, @config) }
   getter(mqtt_server : LavinMQ::MQTT::Server) { LavinMQ::MQTT::Server.new(self, @config) }
+  getter(sqs_server : LavinMQ::SQS::Server) { LavinMQ::SQS::Server.new(self, @config) }
   getter(http_server : LavinMQ::HTTP::Server) { LavinMQ::HTTP::Server.new(self, amqp_server, mqtt_server) }
 
   # Close the spec-built servers (if any) before tearing down the stores, so
@@ -67,6 +69,7 @@ class LavinMQ::Server
     @http_server.try &.close
     @amqp_server.try &.close
     @mqtt_server.try &.close
+    @sqs_server.try &.close
     previous_def
   end
 

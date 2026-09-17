@@ -338,6 +338,7 @@ module LavinMQ
       @amqp_bind = value
       @http_bind = value
       @mqtt_bind = value
+      @sqs_bind = value
     end
 
     # Re-read the config file into a fresh copy and swap it in only if parsing

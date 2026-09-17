@@ -1,6 +1,7 @@
 # SQS proxy for LavinMQ — design and implementation plan
 
-Status: proposal
+Status: phase 1 implemented in-process (`src/lavinmq/sqs/`), see §11 for what landed
+and where it deviates from this plan.
 Scope: let applications use the **unmodified AWS SQS SDKs** (boto3, AWS SDK for
 Java v2, aws-sdk-js v3, Go v2, .NET, Ruby, PHP, the `aws` CLI) against LavinMQ
 by pointing them at a LavinMQ endpoint URL. No SDK patches, no client-side
@@ -543,3 +544,29 @@ build the AMQP backend first and accept the single-instance constraint, then
 add the in-process backend for LavinMQ as an optimisation. The shared layer
 is the same either way, so the choice is about which backend lands first,
 not about rewriting.
+
+---
+
+## 11. Implementation notes (phase 1)
+
+Decisions taken when phase 1 landed, where they differ from the plan above:
+
+- **Architecture**: in-process module, as recommended in §10.4. The action
+  layer talks to `SQS::Broker`, the only class that knows about AMQP queues,
+  so an AMQP-client backend for a standalone binary can still be added later.
+- **Authentication**: no access key objects and no SigV4 verification. The
+  access key id of the credential names the LavinMQ user; the secret and
+  signature are ignored (§4 described the alternative with stored plaintext
+  secrets). Existing per-vhost permission regexes authorize each action.
+- **Protocols**: JSON 1.0 only. Query protocol clients receive an
+  `InvalidAction` error in XML form.
+- **Default port**: enabled on 9324, bound to `127.0.0.1`. TLS port `-1`.
+- **Scope**: everything listed for phases 1 and 2 except `RedrivePolicy`
+  enforcement, mutable `MessageRetentionPeriod` (stored but only applied at
+  create time), `ApproximateNumberOfMessagesDelayed` (always `0`),
+  `ListDeadLetterSourceQueues`, connections/unacked listing in the UI and the
+  SDK integration CI job. FIFO deduplication landed early via the existing
+  deduplication cache; per-group in-flight blocking did not.
+- **Delay**: implemented with the `sqs.delayed` delayed-message exchange
+  bound lazily per queue, as planned.
+- **Metadata**: `sqs_queues.json` per vhost, replicated via `replace_file`.

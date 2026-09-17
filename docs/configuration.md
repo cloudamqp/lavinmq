@@ -96,6 +96,18 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `permission_check_enabled` | — | — | Bool | `false` | Apply the user's AMQP permissions to the MQTT exchange and session queue |
 | `client_id_validation` | — | — | String | `none` | Validate client_id against the username: `none` or `username` |
 
+## [sqs] Section
+
+| INI Key | CLI Flag | Env Var | Type | Default | Description |
+|---------|----------|---------|------|---------|-------------|
+| `bind` | `--sqs-bind` | — | String | `127.0.0.1` | SQS bind address |
+| `port` | `--sqs-port` | — | Int | `9324` | SQS port (`-1` disables) |
+| `tls_port` | `--sqss-port` | — | Int | `-1` | SQS over TLS port |
+| `unix_path` | `--sqs-unix-path` | — | String | (empty) | SQS Unix socket path |
+| `public_url` | — | — | String | (empty) | `scheme://host[:port]` used in queue URLs instead of the request `Host` header |
+
+See [SQS](sqs.md).
+
 ## [mgmt] Section
 
 | INI Key | CLI Flag | Env Var | Type | Default | Description |
@@ -215,6 +227,10 @@ tls_port = 5671
 bind = ::
 port = 1883
 tls_port = 8883
+
+[sqs]
+bind = ::
+port = 9324
 
 [mgmt]
 bind = ::
