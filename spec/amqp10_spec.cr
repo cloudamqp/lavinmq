@@ -2,6 +2,8 @@ require "./spec_helper"
 
 private class AMQP10SpecClient
   getter io, reader
+  # The Flow the server sent right after the last attach_sender.
+  getter attach_flow : LavinMQ::AMQP10::Flow?
 
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
@@ -56,11 +58,13 @@ private class AMQP10SpecClient
   end
 
   def attach_sender(address : String?, handle = 0_u32, name = "sender", dynamic = false,
-                    snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil) : LavinMQ::AMQP10::Attach
+                    snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil,
+                    initial_delivery_count : UInt32? = nil) : LavinMQ::AMQP10::Attach
     target = LavinMQ::AMQP10::Target.new(address, dynamic: dynamic).to_value
     fields = attach_fields(name, handle, role_receiver: false,
       source: LavinMQ::AMQP10::Value.null, target: target,
-      snd_settle_mode: snd_settle_mode, rcv_settle_mode: rcv_settle_mode)
+      snd_settle_mode: snd_settle_mode, rcv_settle_mode: rcv_settle_mode,
+      initial_delivery_count: initial_delivery_count)
     send_performative(LavinMQ::AMQP10::Descriptor::ATTACH, fields)
     attach = LavinMQ::AMQP10::Attach.from_value(read_value)
     flow = LavinMQ::AMQP10::Flow.from_value(read_value)
@@ -68,7 +72,8 @@ private class AMQP10SpecClient
     flow.incoming_window.should_not be_nil
     flow.next_outgoing_id.should_not be_nil
     flow.outgoing_window.should_not be_nil
-    flow.link_credit.should eq Int32::MAX.to_u32
+    flow.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
+    @attach_flow = flow
     attach
   end
 
@@ -318,8 +323,9 @@ private class AMQP10SpecClient
   end
 
   private def attach_fields(name, handle, role_receiver, source, target,
-                            snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil)
-    fields = Array(LavinMQ::AMQP10::Value).new(7)
+                            snd_settle_mode : UInt8? = nil, rcv_settle_mode : UInt8? = nil,
+                            initial_delivery_count : UInt32? = nil)
+    fields = Array(LavinMQ::AMQP10::Value).new(10)
     fields << LavinMQ::AMQP10::Value.string(name)
     fields << LavinMQ::AMQP10::Value.uint(handle)
     fields << LavinMQ::AMQP10::Value.bool(role_receiver)
@@ -327,6 +333,11 @@ private class AMQP10SpecClient
     fields << (rcv_settle_mode ? LavinMQ::AMQP10::Value.ubyte(rcv_settle_mode) : LavinMQ::AMQP10::Value.null)
     fields << source
     fields << target
+    if initial_delivery_count
+      fields << LavinMQ::AMQP10::Value.null # unsettled
+      fields << LavinMQ::AMQP10::Value.null # incomplete-unsettled
+      fields << LavinMQ::AMQP10::Value.uint(initial_delivery_count)
+    end
     fields
   end
 
@@ -1158,6 +1169,33 @@ describe LavinMQ::AMQP10 do
         client.attach_sender("/queues/#{q.name}")
         client.publish_oversized_fragment(0_u32, 1_u32, 17).should eq LavinMQ::AMQP10::Outcome::Rejected
         q.get(no_ack: true).should be_nil
+        client.close
+      end
+    end
+  end
+
+  it "reports the sender's delivery-count and replenishes link credit" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-credit-refill", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}", initial_delivery_count: 5_u32)
+        flow = client.attach_flow.not_nil!
+        flow.delivery_count.should eq 5_u32
+        flow.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
+
+        # Credit is topped up once half of it has been used: the last of these
+        # deliveries is the one that triggers it.
+        used = LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT // 2
+        used.times { |i| client.publish_settled(0_u32, i.to_u32, "credit") }
+        _flows, outcome = client.publish_reading_flows(0_u32, used, "credit")
+        outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+
+        refill = client.read_flow
+        refill.handle.should eq 0_u32
+        refill.delivery_count.should eq 5_u32 + used + 1
+        refill.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
+        should_eventually(eq used.to_i + 1) { s.vhosts["/"].queue(q.name).message_count }
         client.close
       end
     end

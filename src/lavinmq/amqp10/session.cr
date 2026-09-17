@@ -43,6 +43,11 @@ module LavinMQ::AMQP10
   end
 
   class ReceiverLink < Link
+    # Credit granted to the peer's sender at attach, topped up to the full
+    # amount again once half of it has been used so the link never runs dry.
+    LINK_CREDIT = DEFAULT_WINDOW
+
+    getter credit : UInt32 = LINK_CREDIT
     @body_io = IO::Memory.new(Bytes.empty)
     @message_reader = IO::Memory.new(Bytes.empty)
     @partial_payload = IO::Memory.new
@@ -52,8 +57,12 @@ module LavinMQ::AMQP10
     @target : PublishAddress?
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
-                   local_handle : UInt32, @target : PublishAddress?, dynamic_queue : LavinMQ::AMQP::Queue? = nil)
+                   local_handle : UInt32, @target : PublishAddress?, dynamic_queue : LavinMQ::AMQP::Queue? = nil,
+                   initial_delivery_count : UInt32 = 0_u32)
       super(session, name, remote_handle, local_handle, Role::Receiver, dynamic_queue)
+      # The sender computes its credit from the delivery-count we report, which
+      # must start where the sender's own count starts (attach 2.7.3).
+      @delivery_count.set(initial_delivery_count)
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -112,7 +121,22 @@ module LavinMQ::AMQP10
       settle(@partial_delivery_id || transfer.delivery_id, @partial_settled || transfer.settled, Outcome::Rejected)
       clear_partial
     ensure
-      clear_partial unless transfer.more
+      unless transfer.more
+        clear_partial
+        delivery_completed
+      end
+    end
+
+    # Each completed delivery (final or aborted transfer) consumes one credit;
+    # once half the grant is used up, re-grant the full amount.
+    private def delivery_completed : Nil
+      return if closed?
+      increment_delivery_count
+      @credit -= 1 if @credit > 0
+      if @credit <= LINK_CREDIT // 2
+        @credit = LINK_CREDIT
+        @session.client.send_flow(@session, self, @credit)
+      end
     end
 
     private def validate_user_id(user_id)
@@ -705,10 +729,11 @@ module LavinMQ::AMQP10
       case frame.role
       in .sender?
         target = attach_receiver(frame, local_handle)
-        link = ReceiverLink.new(self, frame.name, frame.handle, local_handle, target[0], target[1])
+        link = ReceiverLink.new(self, frame.name, frame.handle, local_handle, target[0], target[1],
+          frame.initial_delivery_count || 0_u32)
         @links[frame.handle] = link
         @client.send_attach(self, link, frame.source, target[2], frame)
-        @client.send_flow(self, link, Int32::MAX.to_u32)
+        @client.send_flow(self, link, link.credit)
       in .receiver?
         source = attach_sender(frame, local_handle)
         link = SenderLink.new(self, frame.name, frame.handle, local_handle, source[0], source[1], frame.snd_settle_mode)
@@ -775,9 +800,9 @@ module LavinMQ::AMQP10
         when SenderLink
           link.add_credit(frame.link_credit || 0_u32, frame.delivery_count, frame.drain, frame.echo)
         when ReceiverLink
-          # We grant the sender effectively unlimited credit at attach, so the
-          # client's credit accounting is irrelevant; only honour an echo request.
-          @client.send_flow(self, link, Int32::MAX.to_u32) if frame.echo
+          # Credit is granted by us and topped up as deliveries complete, so a
+          # flow from the sender only matters as an echo request.
+          @client.send_flow(self, link, link.credit) if frame.echo
         end
       elsif frame.echo
         # Session-level echo request: reply with the current session flow state.
