@@ -1097,6 +1097,32 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "clears the handshake read timeout when no idle-timeout is negotiated" do
+    heartbeat = LavinMQ::Config.instance.heartbeat
+    LavinMQ::Config.instance.heartbeat = 0_u16
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s))
+      conn = wait_for { s.connections.first?.as?(LavinMQ::AMQP10::Client) }
+      conn.@socket.as(TCPSocket).read_timeout.should be_nil
+      client.close
+    end
+  ensure
+    LavinMQ::Config.instance.heartbeat = heartbeat.not_nil!
+  end
+
+  it "keeps a read timeout for the idle check when the peer announces an idle-timeout" do
+    heartbeat = LavinMQ::Config.instance.heartbeat
+    LavinMQ::Config.instance.heartbeat = 0_u16
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), idle_timeout: 4000_u32)
+      conn = wait_for { s.connections.first?.as?(LavinMQ::AMQP10::Client) }
+      conn.@socket.as(TCPSocket).read_timeout.should eq 2.seconds
+      client.close
+    end
+  ensure
+    LavinMQ::Config.instance.heartbeat = heartbeat.not_nil!
+  end
+
   it "tears down idle connections after management close" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
