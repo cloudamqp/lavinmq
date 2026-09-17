@@ -234,7 +234,7 @@ module LavinMQ
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
-        delete(sp)
+        delete(sp) if @segments.has_key?(sp.segment)
       end
 
       # Delete all segments except the current rfile and wfile
