@@ -643,7 +643,11 @@ module LavinMQ::AMQP10
     @next_incoming_id : Atomic(UInt32)
     @incoming_window_remaining = Atomic(UInt32).new(DEFAULT_WINDOW)
     # How many transfers the peer's session incoming-window can still accept.
-    @remote_incoming_window : Atomic(UInt32)
+    # Updated from the read fiber (peer Flow) and the deliver fibers (sent
+    # transfers), so the count and the BoolChannel mirroring it change together
+    # under one lock.
+    @remote_incoming_window : UInt32
+    @remote_window_lock = Mutex.new(:checked)
     @visited = Set(Exchange).new
     @found_queues = Set(AMQP::Queue).new
 
@@ -654,7 +658,7 @@ module LavinMQ::AMQP10
       # Seed our incoming transfer-id from the peer's initial next-outgoing-id and
       # track the session window it advertised.
       @next_incoming_id = Atomic(UInt32).new(begin_frame.next_outgoing_id)
-      @remote_incoming_window = Atomic(UInt32).new(begin_frame.incoming_window)
+      @remote_incoming_window = begin_frame.incoming_window
       @remote_window = BoolChannel.new(begin_frame.incoming_window > 0)
     end
 
@@ -863,31 +867,29 @@ module LavinMQ::AMQP10
     # consume that many from the peer's session incoming-window. Called by the
     # client under the write lock, right after emitting a transfer.
     def advance_outgoing(frames : UInt32) : Nil
-      @next_outgoing_id.add(frames, :acquire_release)
-      loop do
-        current = @remote_incoming_window.get(:acquire)
-        remaining = current > frames ? current - frames : 0_u32
-        _, exchanged = @remote_incoming_window.compare_and_set(current, remaining)
-        if exchanged
-          @remote_window.swap(remaining > 0)
-          break
-        end
+      @remote_window_lock.synchronize do
+        @next_outgoing_id.add(frames, :acquire_release)
+        current = @remote_incoming_window
+        @remote_incoming_window = current > frames ? current - frames : 0_u32
+        @remote_window.swap(@remote_incoming_window > 0)
       end
     end
 
     def remote_window_open? : Bool
-      @remote_incoming_window.get(:acquire) > 0
+      @remote_window_lock.synchronize { @remote_incoming_window > 0 }
     end
 
     private def update_remote_window(frame : Flow) : Nil
       return unless niw = frame.incoming_window
-      nid = frame.next_incoming_id || @next_outgoing_id.get(:acquire)
-      # window = peer.next-incoming-id + peer.incoming-window - our next-outgoing-id
-      window = nid.to_i64 + niw.to_i64 - @next_outgoing_id.get(:acquire).to_i64
-      window = 0_i64 if window < 0
-      clamped = window > UInt32::MAX ? UInt32::MAX : window.to_u32
-      @remote_incoming_window.set(clamped, :release)
-      @remote_window.swap(clamped > 0)
+      @remote_window_lock.synchronize do
+        next_outgoing_id = @next_outgoing_id.get(:acquire)
+        nid = frame.next_incoming_id || next_outgoing_id
+        # window = peer.next-incoming-id + peer.incoming-window - our next-outgoing-id
+        window = nid.to_i64 + niw.to_i64 - next_outgoing_id.to_i64
+        window = 0_i64 if window < 0
+        @remote_incoming_window = window > UInt32::MAX ? UInt32::MAX : window.to_u32
+        @remote_window.swap(@remote_incoming_window > 0)
+      end
     end
 
     def next_incoming_id : UInt32
