@@ -35,6 +35,32 @@ describe LavinMQ::Config do
     LavinMQ::Config.new.control_unix_path.should eq "/tmp/lavinmqctl.sock"
   end
 
+  it "parses the [sqs] section and applies the shared bind flag to it" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [sqs]
+        port = 9000
+        tls_port = 9001
+        unix_path = /tmp/sqs.sock
+        public_url = https://sqs.example.com
+        CONFIG
+    end
+    config = LavinMQ::Config.new
+    config.parse(["-c", config_file.path, "--bind", "0.0.0.0"])
+    config.sqs_bind.should eq "0.0.0.0"
+    config.sqs_port.should eq 9000
+    config.sqss_port.should eq 9001
+    config.sqs_unix_path.should eq "/tmp/sqs.sock"
+    config.sqs_public_url.should eq "https://sqs.example.com"
+  end
+
+  it "has the SQS listener enabled on 9324 by default" do
+    config = LavinMQ::Config.new
+    config.sqs_port.should eq 9324
+    config.sqss_port.should eq -1
+    config.sqs_bind.should eq "127.0.0.1"
+  end
+
   it "should prioritize CLI arguments over other arguments" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG

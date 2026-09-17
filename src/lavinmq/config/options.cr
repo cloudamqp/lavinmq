@@ -107,7 +107,7 @@ module LavinMQ
     # property data_dir : String = "/var/lib/lavinmq"
     # ```
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "sqs", "mgmt", "experimental", "clustering", "oauth"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -129,7 +129,7 @@ module LavinMQ
       @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
       property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
 
-      @[CliOpt("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
+      @[CliOpt("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT, SQS and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
       property bind = "127.0.0.1"
 
       @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
@@ -173,6 +173,27 @@ module LavinMQ
       @[CliOpt("", "--mqtt-unix-path=PATH", "MQTT UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
+
+      @[CliOpt("", "--sqs-bind=BIND", "IP address that the SQS server will listen on (default: 127.0.0.1)", section: "bindings")]
+      @[IniOpt(ini_name: bind, section: "sqs")]
+      property sqs_bind = "127.0.0.1"
+
+      @[CliOpt("", "--sqs-port=PORT", "SQS port to listen on (default: 9324)", section: "bindings")]
+      @[IniOpt(ini_name: port, section: "sqs")]
+      property sqs_port = 9324
+
+      @[CliOpt("", "--sqss-port=PORT", "SQS over TLS port to listen on (default: -1)", section: "bindings")]
+      @[IniOpt(ini_name: tls_port, section: "sqs")]
+      property sqss_port = -1
+
+      @[CliOpt("", "--sqs-unix-path=PATH", "SQS UNIX path to listen to", section: "bindings")]
+      @[IniOpt(ini_name: unix_path, section: "sqs")]
+      property sqs_unix_path = ""
+
+      # Base URL (scheme://host[:port]) used when minting queue URLs. When empty
+      # the URL is derived from the Host header of the request.
+      @[IniOpt(ini_name: public_url, section: "sqs")]
+      property sqs_public_url = ""
 
       @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) || v.to_u8? == 2 })]
       property? tcp_proxy_protocol = false
