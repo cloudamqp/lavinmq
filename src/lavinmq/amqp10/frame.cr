@@ -17,11 +17,21 @@ module LavinMQ::AMQP10
     @header = Bytes.new(8)
     @buffer : Bytes
     @reader = IO::Memory.new(Bytes.empty)
+    # Largest frame accepted, header included; never more than the buffer holds.
+    getter max_frame_size : UInt32
 
     def initialize(@io : IO, max_frame_size : UInt32)
       size = max_frame_size.zero? ? Config.instance.frame_max : max_frame_size
+      @max_frame_size = Math.max(size, MIN_MAX_FRAME_SIZE)
+      @buffer = Bytes.new(@max_frame_size)
+    end
+
+    # Lowers the accepted frame size to the negotiated one without reallocating
+    # the buffer, so the reader used for the Open handshake can carry on serving
+    # the connection.
+    def max_frame_size=(size : UInt32) : Nil
       size = Math.max(size, MIN_MAX_FRAME_SIZE)
-      @buffer = Bytes.new(size)
+      @max_frame_size = Math.min(size, @buffer.bytesize.to_u32)
     end
 
     def read : Frame
@@ -32,8 +42,8 @@ module LavinMQ::AMQP10
       channel = IO::ByteFormat::NetworkEndian.decode(UInt16, @header[6, 2])
       raise DecodeError.new("invalid AMQP 1.0 frame data offset #{doff}") if doff < 2
       raise DecodeError.new("invalid AMQP 1.0 frame size #{size}") if size < doff.to_u32 * 4
+      raise DecodeError.new("AMQP 1.0 frame too large #{size}") if size > @max_frame_size
       remaining = size - 8
-      raise DecodeError.new("AMQP 1.0 frame too large #{size}") if remaining > @buffer.bytesize
       slice = @buffer[0, remaining]
       @io.read_fully(slice)
       ext_size = doff.to_i * 4 - 8

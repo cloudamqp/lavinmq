@@ -401,6 +401,11 @@ private class AMQP10SpecClient
     @io.flush
   end
 
+  # A frame of the given total size whose body is junk.
+  def send_junk_frame(size : Int32) : Nil
+    write_amqp_frame(Bytes.new(size - 8, 0x40_u8))
+  end
+
   def send_empty_frame : Nil
     LavinMQ::AMQP10::FrameWriter.write_frame_header(@io, 8_u32, LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
     @io.flush
@@ -1248,6 +1253,21 @@ describe LavinMQ::AMQP10 do
         should_eventually(eq 40) { s.vhosts["/"].queue(q.name).message_count }
         client.close
       end
+    end
+  end
+
+  it "closes the connection on frames larger than the negotiated max-frame-size" do
+    with_amqp_server do |s|
+      frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+      client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max)
+      # The limit counts the 8 byte frame header as well.
+      client.send_junk_frame(frame_max.to_i + 1)
+
+      close = client.read_value
+      close.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::CLOSE
+      client.error_fields(close)[0].symbol?.should eq LavinMQ::AMQP10::ErrorCondition::DECODE_ERROR
+      client.error_fields(close)[1].string?.should eq "AMQP 1.0 frame too large #{frame_max + 1}"
+      client.close
     end
   end
 

@@ -24,7 +24,10 @@ module LavinMQ::AMQP10
 
       user = authenticate(socket, connection_info, log) || return
       confirm_transport_header(socket, log) || return
-      open = read_open(socket, log) || return
+      # Sized for our frame_max; the client keeps using it once the negotiated
+      # (never larger) size is known, rather than allocating a second buffer.
+      reader = FrameReader.new(socket, Config.instance.frame_max)
+      open = read_open(reader, log) || return
       max_frame_size = negotiated_frame_max(open.max_frame_size)
       # Advertise our own idle-timeout so dead peers are reaped, and honor the
       # peer's so it does not drop us during idle periods.
@@ -33,7 +36,7 @@ module LavinMQ::AMQP10
       vhost = resolve_vhost(socket, open, user, max_frame_size, local_idle_timeout, log) || return
 
       client = Client.new(socket, connection_info, vhost, user, "PLAIN", max_frame_size,
-        remote_idle_timeout, local_idle_timeout)
+        remote_idle_timeout, local_idle_timeout, frame_reader: reader)
       client.send_open
       client
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
@@ -113,8 +116,8 @@ module LavinMQ::AMQP10
       false
     end
 
-    private def read_open(socket, log) : Open?
-      frame = FrameReader.new(socket, Config.instance.frame_max).read
+    private def read_open(reader : FrameReader, log) : Open?
+      frame = reader.read
       raise DecodeError.new("expected AMQP frame") unless frame.type == AMQP_FRAME_TYPE
       open = Open.from_value(Codec.decode(frame.body_reader))
       open
