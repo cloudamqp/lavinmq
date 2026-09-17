@@ -7,7 +7,8 @@ private class AMQP10SpecClient
 
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
-                 idle_timeout : UInt32? = nil, expect_open = true)
+                 idle_timeout : UInt32? = nil, expect_open = true,
+                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW)
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
@@ -17,7 +18,7 @@ private class AMQP10SpecClient
     # Callers that expect the server to refuse the connection read the reply themselves.
     return unless expect_open
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::OPEN
-    send_begin
+    send_begin(incoming_window)
     begin_frame = LavinMQ::AMQP10::Begin.from_value(read_value)
     begin_frame.remote_channel.should eq 0_u16
   end
@@ -136,6 +137,18 @@ private class AMQP10SpecClient
       fields << LavinMQ::AMQP10::Value.bool(drain)
       fields << LavinMQ::AMQP10::Value.bool(echo)
     end
+    send_performative(LavinMQ::AMQP10::Descriptor::FLOW, fields)
+  end
+
+  # Session-level flow (no handle): tells the server how many more transfers
+  # our incoming-window accepts, counted from next_incoming_id.
+  def session_flow(next_incoming_id : UInt32, incoming_window : UInt32) : Nil
+    fields = [
+      LavinMQ::AMQP10::Value.uint(next_incoming_id),
+      LavinMQ::AMQP10::Value.uint(incoming_window),
+      LavinMQ::AMQP10::Value.uint(0_u32), # next-outgoing-id
+      LavinMQ::AMQP10::Value.uint(LavinMQ::AMQP10::DEFAULT_WINDOW),
+    ]
     send_performative(LavinMQ::AMQP10::Descriptor::FLOW, fields)
   end
 
@@ -312,11 +325,11 @@ private class AMQP10SpecClient
     send_performative(LavinMQ::AMQP10::Descriptor::OPEN, fields)
   end
 
-  private def send_begin
+  private def send_begin(incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW)
     fields = [
       LavinMQ::AMQP10::Value.null,
       LavinMQ::AMQP10::Value.uint(0_u32),
-      LavinMQ::AMQP10::Value.uint(LavinMQ::AMQP10::DEFAULT_WINDOW),
+      LavinMQ::AMQP10::Value.uint(incoming_window),
       LavinMQ::AMQP10::Value.uint(LavinMQ::AMQP10::DEFAULT_WINDOW),
     ]
     send_performative(LavinMQ::AMQP10::Descriptor::BEGIN, fields)
@@ -1329,6 +1342,30 @@ describe LavinMQ::AMQP10 do
         second = client.consume_one_delivery[0].delivery_id.not_nil!
 
         [first, second].sort.should eq [0_u32, 1_u32]
+        client.close
+      end
+    end
+  end
+
+  it "stops delivering when the peer's session incoming-window is exhausted" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-remote-window", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("one")
+        q.publish("two")
+        should_eventually(eq 2) { internal_q.message_count }
+        client = AMQP10SpecClient.new(amqp_port(s), incoming_window: 1_u32)
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 2_u32)
+
+        client.consume_one.should eq "one"
+        client.expect_no_frame
+        internal_q.message_count.should eq 1
+
+        # We have received one transfer, so our next-incoming-id is 1; make room for one more.
+        client.session_flow(next_incoming_id: 1_u32, incoming_window: 1_u32)
+        client.consume_one.should eq "two"
         client.close
       end
     end
