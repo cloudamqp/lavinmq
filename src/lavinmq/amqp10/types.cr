@@ -249,6 +249,31 @@ module LavinMQ::AMQP10
       idle_time_out = fields[4]?.try(&.uint?).try(&.to_u32)
       new(container_id, hostname, max_frame_size, idle_time_out)
     end
+
+    def frame_size : UInt32
+      (8 + 3 + Codec.list_header_size(fields_size) + fields_size).to_u32
+    end
+
+    # Writes the performative (everything after the frame header).
+    def write_body(io : IO) : Nil
+      Codec.write_descriptor(io, Descriptor::OPEN)
+      Codec.write_list_header(io, fields_size, idle_time_out ? 5 : 3)
+      Codec.write_string(io, container_id)
+      Codec.write_nullable_string(io, hostname)
+      Codec.write_uint(io, max_frame_size)
+      if idle = idle_time_out
+        io.write_byte 0x40_u8 # channel-max: null
+        Codec.write_uint(io, idle)
+      end
+    end
+
+    private def fields_size : Int32
+      size = Codec.string_size(container_id) + Codec.nullable_string_size(hostname) + Codec.uint_size(max_frame_size)
+      if idle = idle_time_out
+        size += 1 + Codec.uint_size(idle)
+      end
+      size
+    end
   end
 
   record Begin,

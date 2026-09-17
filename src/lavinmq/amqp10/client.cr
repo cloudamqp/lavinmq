@@ -196,24 +196,8 @@ module LavinMQ::AMQP10
     end
 
     def send_open : Nil
-      fields_size = Codec.string_size(SERVER_CONTAINER_ID) + 1 + Codec.uint_size(@max_frame_size)
-      fields_count = 3
-      if idle = @local_idle_timeout
-        fields_size += 1 + Codec.uint_size(idle)
-        fields_count = 5
-      end
-      frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
-      send_frame(frame_size.to_u32, 0_u16) do |io|
-        Codec.write_descriptor(io, Descriptor::OPEN)
-        Codec.write_list_header(io, fields_size, fields_count)
-        Codec.write_string(io, SERVER_CONTAINER_ID)
-        io.write_byte 0x40_u8 # hostname: null
-        Codec.write_uint(io, @max_frame_size)
-        if idle = @local_idle_timeout
-          io.write_byte 0x40_u8 # channel-max: null
-          Codec.write_uint(io, idle)
-        end
-      end
+      open = Open.new(SERVER_CONTAINER_ID, nil, @max_frame_size, @local_idle_timeout)
+      send_frame(open.frame_size, 0_u16) { |io| open.write_body(io) }
     end
 
     def send_begin(channel : UInt16) : Nil
