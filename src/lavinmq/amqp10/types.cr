@@ -1,4 +1,5 @@
 require "./codec"
+require "../config"
 
 module LavinMQ::AMQP10
   module Descriptor
