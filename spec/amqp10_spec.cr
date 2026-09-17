@@ -1010,6 +1010,20 @@ describe LavinMQ::AMQP10::TransferCodec do
     transfer.settled.should be_true
   end
 
+  it "reports the bytes written for a disposition" do
+    io = IO::Memory.new
+    bytes = LavinMQ::AMQP10::TransferCodec.write_disposition(io, 0_u16, 300_u32,
+      LavinMQ::AMQP10::Outcome::Accepted, true, LavinMQ::AMQP10::Role::Sender, 305_u32)
+    bytes.should eq io.size
+    frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, io.to_slice[0, 4])
+    frame_size.should eq io.size
+    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(IO::Memory.new(io.to_slice[8, io.size - 8]))
+    disposition.role.should eq LavinMQ::AMQP10::Role::Sender
+    disposition.first.should eq 300_u32
+    disposition.last.should eq 305_u32
+    disposition.settled.should be_true
+  end
+
   it "reports a non-terminal delivery state without a terminal outcome" do
     received = LavinMQ::AMQP10::Value.described(
       LavinMQ::AMQP10::Value.ulong(0x23_u64), # amqp:received:list

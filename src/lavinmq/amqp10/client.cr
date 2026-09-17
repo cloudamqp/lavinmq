@@ -341,19 +341,19 @@ module LavinMQ::AMQP10
     end
 
     def send_disposition(session : Session, first : UInt32, outcome : Outcome) : Nil
-      @write_lock.synchronize do
+      bytes = @write_lock.synchronize do
         TransferCodec.write_disposition(@socket, session.id, first, outcome)
       end
-      add_send_bytes(32_u64)
+      add_send_bytes(bytes)
     end
 
     # Sender-side settlement of deliveries a rcv-settle-mode second receiver
     # has applied an outcome to but is still holding until we settle.
     def send_settlement(session : Session, first : UInt32, last : UInt32?, outcome : Outcome) : Nil
-      @write_lock.synchronize do
+      bytes = @write_lock.synchronize do
         TransferCodec.write_disposition(@socket, session.id, first, outcome, true, Role::Sender, last)
       end
-      add_send_bytes(32_u64)
+      add_send_bytes(bytes)
     end
 
     def send_transfer(session : Session, link : SenderLink, msg : BytesMessage,

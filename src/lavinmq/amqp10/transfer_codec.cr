@@ -160,8 +160,9 @@ module LavinMQ::AMQP10
       {true, outcome}
     end
 
+    # Returns the number of bytes written.
     def write_disposition(io : IO, channel : UInt16, first : UInt32, outcome : Outcome, settled = true,
-                          role : Role = Role::Receiver, last : UInt32? = nil) : Nil
+                          role : Role = Role::Receiver, last : UInt32? = nil) : UInt64
       state_size = outcome_size(outcome)
       last_size = last ? Codec.uint_size(last) : 1
       fields_size = 1 + Codec.uint_size(first) + last_size + 1 + state_size
@@ -179,6 +180,7 @@ module LavinMQ::AMQP10
       io.write_byte(settled ? 0x41_u8 : 0x42_u8)
       write_outcome(io, outcome)
       io.flush
+      frame_size.to_u64
     end
 
     def write_flow(io : IO, channel : UInt16, next_incoming_id : UInt32, incoming_window : UInt32,
