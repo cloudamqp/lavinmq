@@ -52,7 +52,7 @@ module LavinMQ
         )
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
         replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+        @msg_store = MessageStore.new(data_dir, replicator, durable?, @vhost.persister, metadata: @metadata)
 
         @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
