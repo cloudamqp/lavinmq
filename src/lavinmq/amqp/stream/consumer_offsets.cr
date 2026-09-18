@@ -19,6 +19,7 @@ module LavinMQ::AMQP
 
     @mfile : MFile
     @positions = Hash(String, Int64).new # consumer_tag => file position of its offset
+    @last_cleanup_lowest_offset : Int64? = nil
 
     def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?)
       @mfile = MFile.new(File.join(dir, "consumer_offsets"), capacity)
@@ -52,17 +53,27 @@ module LavinMQ::AMQP
     # append wouldn't fit; the block yields the lowest offset still in the
     # stream so stale offsets can be dropped during compaction.
     def store(consumer_tag : String, new_offset : Int64, & : -> Int64)
-      cleanup { yield } if full?(consumer_tag)
+      # `force`: the file is actually full and must be compacted/resized
+      # regardless of whether the retention floor moved, or `write` below
+      # raises IO::EOFError.
+      cleanup(force: true) { yield } if full?(consumer_tag)
       write(consumer_tag, new_offset)
     end
 
     # Compacts the file, dropping offsets that are no longer in the stream and
     # capping the file size. The block yields the lowest offset still in the
     # stream; it is only evaluated when there is something to compact.
-    def cleanup(& : -> Int64)
+    # `force` skips the unchanged-floor short-circuit, for callers (`store`)
+    # that need the file's capacity actually enforced, not just offsets
+    # dropped.
+    def cleanup(force = false, & : -> Int64)
       return if @mfile.size.zero?
 
       lowest_offset_in_stream = yield
+      # The retention floor only moves forward, so if it hasn't advanced since
+      # the last cleanup, no offset newly falls out of the stream.
+      return if !force && @last_cleanup_lowest_offset == lowest_offset_in_stream
+      @last_cleanup_lowest_offset = lowest_offset_in_stream
 
       # Offsets still within the stream (higher position == more recently committed).
       tracked_offsets = Array(Tuple(String, Int64, Int64)).new

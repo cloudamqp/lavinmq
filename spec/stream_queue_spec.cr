@@ -885,6 +885,35 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "compacts consumer tag file again when it fills a second time with an unchanged retention floor" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex(32)
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        bytesize = consumer_tag.bytesize + 1 + 8
+
+        first_fill = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
+        first_fill.times { |i| msg_store.store_consumer_offset(consumer_tag, i.to_i64) }
+        capacity_after_first_compaction = msg_store.@consumer_offsets.@mfile.capacity
+
+        # No retention policy is set, so the retention floor never advances.
+        # Filling the file a second time must still compact it - it must not
+        # short-circuit (as it would if `cleanup`'s unchanged-floor guard
+        # applied here) and raise IO::EOFError from the write that follows.
+        second_fill = (capacity_after_first_compaction / bytesize).to_i32 + 1
+        last_offset = first_fill.to_i64
+        second_fill.times do
+          msg_store.store_consumer_offset(consumer_tag, last_offset)
+          last_offset += 1
+        end
+
+        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq last_offset - 1
+        msg_store.close
+      end
+    end
+
     it "does not track offset if x-stream-offset is set" do
       queue_name = Random::Secure.hex
       consumer_tag = Random::Secure.hex
@@ -1081,6 +1110,26 @@ describe LavinMQ::AMQP::Stream do
         end
 
         msg_store.cleanup_consumer_offsets # raised OverflowError before the fix
+        msg_store.close
+      end
+    end
+
+    it "skips rewriting the consumer offsets file when the retention floor is unchanged" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag-1", 1_i64)
+
+        msg_store.cleanup_consumer_offsets
+        mfile_before = msg_store.@consumer_offsets.@mfile
+
+        # Nothing dropped the stream's oldest segment in between, so the
+        # retention floor is the same and this call should be a no-op.
+        msg_store.cleanup_consumer_offsets
+        msg_store.@consumer_offsets.@mfile.should be mfile_before
+
         msg_store.close
       end
     end
