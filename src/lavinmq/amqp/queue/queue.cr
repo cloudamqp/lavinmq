@@ -543,7 +543,7 @@ module LavinMQ::AMQP
       h = props.headers || AMQP::Table.new
       h["x-delay"] = delay_ms.to_u32
       h["x-delivery-count"] = delivery_count
-      h["x-original-timestamp"] = msg.timestamp unless h.has_key?("x-original-timestamp")
+      h["x-original-timestamp"] = msg.timestamp
       props.headers = h
       retry_msg = Message.new(RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
@@ -1014,12 +1014,20 @@ module LavinMQ::AMQP
       if @delivery_limit || @delayed_retry_min
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries[sp]? || headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 0
+        delivery_count = @deliveries[sp]? || delivery_count_from_header(headers) || 0
         headers["x-delivery-count"] = delivery_count if delivery_count > 0
         @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
+    end
+
+    # The count survives the retry queue round trip only via the header, so it
+    # is only trusted on retry-enabled queues (documented trade-off there);
+    # elsewhere a client-supplied x-delivery-count must not consume budget
+    private def delivery_count_from_header(headers) : Int32?
+      return unless @delayed_retry_min
+      headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
     end
 
     def ack(sp : SegmentPosition) : Nil
