@@ -99,3 +99,7 @@ The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept
 ## Reserved Queue Name Prefixes
 
 Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use. Client queue declarations using these prefixes will be rejected, except for `amq.direct.reply-to.*` queues used for direct reply-to consumers.
+
+## Internal Queues
+
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API for monitoring, and operators can manage them there.

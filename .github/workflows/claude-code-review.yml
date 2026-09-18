@@ -51,7 +51,7 @@ jobs:
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
             Review this PR and report ONLY problems that need fixing.
-            You have a maximum of 15 turns — finish well within that limit.
+            You have a maximum of 35 turns — finish well within that limit.
 
             Steps:
             1. Run `gh pr diff` to read the changes
@@ -62,5 +62,5 @@ jobs:
 
           claude_args: |
             --model ${{ steps.config.outputs.model }}
-            --max-turns 20
+            --max-turns 40
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"

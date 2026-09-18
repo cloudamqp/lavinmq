@@ -52,7 +52,7 @@ jobs:
             REPO: ${{ github.repository }}
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
-            Keep this check small and finish within the 15-turn budget:
+            Keep this check small and finish within the 30-turn budget:
             1. Inspect the PR diff with `gh pr diff`.
             2. Decide whether the changed user-facing behavior needs a docs update.
             3. Return only the JSON object matching the schema.
@@ -62,7 +62,7 @@ jobs:
             ${{ steps.config.outputs.criteria }}
           claude_args: |
             --model ${{ steps.config.outputs.model }}
-            --max-turns 15
+            --max-turns 30
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
       - name: Apply verdict
