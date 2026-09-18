@@ -62,7 +62,7 @@ describe LavinMQ::HTTP::BindingsController do
         s.vhosts["/"].queue?(internal_q).should_not be_nil
         body = %({ "routing_key": "#" })
         response = http.post("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}", body: body)
-        response.status_code.should eq 403
+        response.status_code.should eq 400
         bindings = http.get("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}")
         JSON.parse(bindings.body).as_a.should be_empty
       end
@@ -114,7 +114,7 @@ describe LavinMQ::HTTP::BindingsController do
           }
           JSON
         response = http.post("/api/bindings/%2f/e/amq.default/q/bindings_q2", body: body)
-        response.status_code.should eq 403
+        response.status_code.should eq 400
       end
     end
 
@@ -206,7 +206,7 @@ describe LavinMQ::HTTP::BindingsController do
           }
           JSON
         response = http.post("/api/bindings/%2f/e/amq.default/e/amq.direct", body: body)
-        response.status_code.should eq 403
+        response.status_code.should eq 400
       end
     end
   end
