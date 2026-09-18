@@ -1253,3 +1253,5 @@ module LavinMQ::AMQP
     class ClosedError < Error; end
   end
 end
+
+require "./retry_queue"
