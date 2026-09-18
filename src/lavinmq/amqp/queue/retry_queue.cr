@@ -121,6 +121,7 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
+      delay = sp.delay
       timestamp = msg.timestamp
       if headers = msg.properties.headers
         headers.delete("x-delay")
@@ -131,8 +132,28 @@ module LavinMQ::AMQP
       end
       result = @primary_queue.publish(Message.new(timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
+      return repark(env, timestamp, delay) if result.overflow?
       unless result.ok?
         @log.warn { "Dropping retried message #{sp}: primary queue #{@primary_queue.name} returned #{result}" }
+      end
+      delete_message sp
+    end
+
+    # The primary queue is full with overflow=reject-publish; park the message
+    # again with the same delay instead of losing it
+    private def repark(env : Envelope, original_timestamp : Int64, delay : UInt32) : Nil
+      sp = env.segment_position
+      msg = env.message
+      h = msg.properties.headers || AMQP::Table.new
+      h["x-delay"] = delay
+      h["x-original-timestamp"] = original_timestamp
+      msg.properties.headers = h
+      reparked = Message.new(RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      if delay(reparked)
+        @log.info { "Primary queue #{@primary_queue.name} full, re-parked message #{sp} for #{delay}ms" }
+      else
+        @log.warn { "Dropping retried message #{sp}: primary queue full and retry queue closed" }
       end
       delete_message sp
     end
