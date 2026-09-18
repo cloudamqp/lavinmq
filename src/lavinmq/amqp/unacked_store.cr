@@ -58,6 +58,11 @@ module LavinMQ
         end
       end
 
+      # Removes and yields all deliveries
+      def delete_all(& : Unack -> Nil) : Nil
+        delete_upto(0_u64) { |v| yield v }
+      end
+
       # Removes and yields every delivery up to and including tag, all of them if tag is zero
       def delete_upto(tag : UInt64, & : Unack -> Nil) : Nil
         update_capacity do

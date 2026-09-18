@@ -685,7 +685,7 @@ module LavinMQ
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumer_delete(drc)
         end
-        @unacked.delete_upto(0_u64) do |unack|
+        @unacked.delete_all do |unack|
           @log.debug { "Requeing unacked msg #{unack.sp}" }
           unack.queue.reject(unack.sp, true)
           unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
