@@ -67,6 +67,13 @@ module ClusteringSpecHelper
       end
       super
     end
+
+    getter parent_dirs_fsynced = Array(String).new
+
+    private def fsync_parent_dir(path : String) : Nil
+      @parent_dirs_fsynced << File.dirname(path) if @config.sync?
+      super
+    end
   end
 
   def make_client(data_dir : String, sync = true) : TestClient
