@@ -391,6 +391,58 @@ describe LavinMQ::MessageStore do
     end
   end
 
+  describe "#purge_all" do
+    it "acks requeued messages on disk so they don't come back after restart" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        3.times { |i| store.push LavinMQ::Message.new("ex", "rk", "body#{i}") }
+        env = store.shift?.should_not be_nil
+        store.requeue env.segment_position
+        store.size.should eq 3
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        begin
+          store.size.should eq 0
+          store.shift?.should be_nil
+        ensure
+          store.close
+        end
+      end
+    end
+
+    it "purges msgs in a segment that was acked out of order before a restart" do
+      mktmpdir do |dir|
+        third_seg = LavinMQ::Config.instance.segment_size.to_u64 // 3 + 1
+        big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, third_seg, IO::Memory.new("a" * third_seg))
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        6.times { store.push(big) } # seg 1 = [m1, m2], seg 2 = [m3, m4], seg 3 = [m5, m6]
+        envs = Array(LavinMQ::Envelope).new
+        4.times { envs << store.shift?.not_nil! }
+        store.delete(envs[2].segment_position) # ack m3 only, seg 2 is partially acked
+        store.close
+
+        # A reopen resets @rfile_id to the first segment, so seg 2 counts as
+        # unread, but @segment_msg_count still counts the acked m3 while @size
+        # doesn't. purge_all must not subtract that ack from @size, or its
+        # shift loop underflows and leaves the rest of the msgs on disk.
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 5
+        store.purge_all
+        store.size.should eq 0
+        store.close
+
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.size.should eq 0
+        store.close
+      end
+    end
+  end
+
   it "closes gracefully when segment has corrupt schema version with replicator", tags: "etcd" do
     with_etcd do
       mktmpdir do |dir|

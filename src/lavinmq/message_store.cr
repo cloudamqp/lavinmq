@@ -230,10 +230,11 @@ module LavinMQ
     end
 
     def purge_all
-      # Drain @requeued and decrement @size/@bytesize for each entry
+      # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
+        delete(sp) if @segments.has_key?(sp.segment)
       end
 
       # Delete all segments except the current rfile and wfile
@@ -244,8 +245,15 @@ module LavinMQ
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
-        if msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count if seg_id > @rfile_id
+        if (msg_count = @segment_msg_count.delete(seg_id)) && seg_id > @rfile_id
+          # msg_count is every msg ever written to the segment, acked ones
+          # included, while @size only counts the ready ones. Never take off
+          # more than @size holds: which msgs are ready is the subclass's to
+          # decide, and a purge must not underflow the counter here, outside
+          # the rescue below.
+          acked = @acks[seg_id]?.try { |f| (f.size // sizeof(UInt32)).to_u32 } || 0u32
+          ready = acked < msg_count ? msg_count - acked : 0u32
+          @size -= Math.min(ready, @size)
         end
         if afile = @acks.delete(seg_id)
           delete_file(afile)
