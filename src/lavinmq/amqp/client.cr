@@ -34,7 +34,7 @@ module LavinMQ
       getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
+      @channels = Hash(UInt16, AMQP::Channel).new
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
@@ -51,15 +51,15 @@ module LavinMQ
         @channels.size
       end
 
-      def each_channel(& : Client::Channel ->) : Nil
+      def each_channel(& : AMQP::Channel ->) : Nil
         @channels.each_value { |ch| yield ch }
       end
 
-      def channels : Array(Client::Channel)
+      def channels : Array(AMQP::Channel)
         @channels.values
       end
 
-      def channel?(id : UInt16) : Client::Channel?
+      def channel?(id : UInt16) : AMQP::Channel?
         @channels[id]?
       end
 
