@@ -505,7 +505,10 @@ module LavinMQ
             end
             return
           elsif @unacked.includes?(frame.delivery_tag)
-            check_double_ack!(frame.delivery_tag)
+            if double_ack?(frame.delivery_tag)
+              @client.send_precondition_failed(frame, "Delivery tag already acked")
+              return
+            end
             @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, false, false)
             return
           end
@@ -527,8 +530,6 @@ module LavinMQ
         unless found
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
       private def do_ack(unack)
@@ -544,7 +545,10 @@ module LavinMQ
       def basic_reject(frame)
         if @tx
           if @unacked.includes?(frame.delivery_tag)
-            check_double_ack!(frame.delivery_tag)
+            if double_ack?(frame.delivery_tag)
+              @client.send_precondition_failed(frame, "Delivery tag already acked")
+              return
+            end
             @tx_acks.push(TxAck.new frame.delivery_tag, false, true, frame.requeue)
             return
           end
@@ -558,8 +562,6 @@ module LavinMQ
         else
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
       def basic_nack(frame)
@@ -570,7 +572,10 @@ module LavinMQ
             end
             return
           elsif @unacked.includes?(frame.delivery_tag)
-            check_double_ack!(frame.delivery_tag)
+            if double_ack?(frame.delivery_tag)
+              @client.send_precondition_failed(frame, "Delivery tag already acked")
+              return
+            end
             @tx_acks.push(TxAck.new frame.delivery_tag, frame.multiple, true, frame.requeue)
             return
           end
@@ -591,16 +596,10 @@ module LavinMQ
         unless found
           @client.send_precondition_failed(frame, unknown_tag(frame.delivery_tag))
         end
-      rescue DoubleAck
-        @client.send_precondition_failed(frame, "Delivery tag already acked")
       end
 
-      private class DoubleAck < Error; end
-
-      private def check_double_ack!(delivery_tag)
-        if @tx_acks.any? { |tx_ack| tx_ack.delivery_tag == delivery_tag }
-          raise DoubleAck.new
-        end
+      private def double_ack?(delivery_tag) : Bool
+        @tx_acks.any? { |tx_ack| tx_ack.delivery_tag == delivery_tag }
       end
 
       private def unknown_tag(delivery_tag)
