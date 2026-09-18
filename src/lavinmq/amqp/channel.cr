@@ -690,7 +690,7 @@ module LavinMQ
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
-              unack.queue.reject(unack.sp, requeue: true)
+              unack.queue.requeue(unack.sp)
             end
             @unacked.clear
           else # redeliver to the original recipient
@@ -701,7 +701,7 @@ module LavinMQ
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
                 false
               else
-                unack.queue.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
                 true
               end
             end
@@ -736,7 +736,7 @@ module LavinMQ
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
-            unack.queue.reject(unack.sp, true)
+            unack.queue.requeue(unack.sp)
             unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear

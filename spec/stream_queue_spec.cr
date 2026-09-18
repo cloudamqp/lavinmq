@@ -36,6 +36,26 @@ end
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
+  describe "Requeue" do
+    it "should not requeue messages into the store on channel close" do
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, "stream-close-requeue", 2)
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream-close-requeue", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          q.subscribe(no_ack: false) do |msg|
+            msgs.send msg
+          end
+          msgs.receive
+        end
+        sleep 50.milliseconds
+        sq = s.vhosts["/"].queue("stream-close-requeue")
+        sq.message_count.should eq 2
+      end
+    end
+  end
+
   describe "Consume" do
     it "should get message with offset 2" do
       with_amqp_server do |s|
