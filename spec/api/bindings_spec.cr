@@ -54,6 +54,20 @@ describe LavinMQ::HTTP::BindingsController do
   end
 
   describe "POST /api/bindings/vhost/e/exchange/q/queue" do
+    it "should refuse binding a delayed exchange to its internal queue" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true})
+        s.vhosts["/"].declare_exchange("bindings_delayed", "topic", true, false, arguments: args)
+        internal_q = "amq.delayed-bindings_delayed"
+        s.vhosts["/"].queue?(internal_q).should_not be_nil
+        body = %({ "routing_key": "#" })
+        response = http.post("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}", body: body)
+        response.status_code.should eq 403
+        bindings = http.get("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}")
+        JSON.parse(bindings.body).as_a.should be_empty
+      end
+    end
+
     it "should create binding" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("be1", "topic", false, false)
