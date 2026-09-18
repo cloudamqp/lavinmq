@@ -66,14 +66,14 @@ module LavinMQ
       # Removes and yields every delivery up to and including tag, all of them if tag is zero
       def delete_upto(tag : UInt64, & : Unack -> Nil) : Nil
         update_capacity do
-          count = if tag.zero?
-                    @unacked.size
-                  elsif (idx = @unacked.bsearch_index { |unack, _| unack.tag >= tag }) && @unacked[idx].tag == tag
-                    idx + 1
-                  else
-                    0
-                  end
-          count.times { yield remove(@unacked.shift) }
+          if tag.zero?
+            @unacked.size.times { yield remove(@unacked.shift) }
+          else
+            idx = @unacked.bsearch_index { |unack, _| unack.tag >= tag }
+            if idx && @unacked[idx].tag == tag
+              (idx + 1).times { yield remove(@unacked.shift) }
+            end
+          end
         end
       end
 

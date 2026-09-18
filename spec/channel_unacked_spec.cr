@@ -32,6 +32,20 @@ describe "Channel unacked" do
     end
   end
 
+  # basic.nack sibling of Row 2, outside a transaction: the spec only requires
+  # a channel exception for a non-zero tag, tag 0 with multiple means "all
+  # outstanding", and nothing outstanding is an empty set.
+  it "treats nack-all with nothing outstanding as a no-op" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.basic_nack(0_u64, multiple: true, requeue: true)
+        q = ch.queue # the channel must still be usable
+        q.publish "m1"
+        q.get(no_ack: true).not_nil!.body_io.to_s.should eq "m1"
+      end
+    end
+  end
+
   # Row 3
   it "keeps a tx-pending delivery outstanding across basic.recover" do
     with_amqp_server do |s|
