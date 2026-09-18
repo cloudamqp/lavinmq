@@ -130,7 +130,7 @@ module LavinMQ::AMQP
         end
         msg.properties.headers = headers
       end
-      result = @primary_queue.publish(Message.new(timestamp, msg.exchange_name, msg.routing_key,
+      result = @primary_queue.publish_internal(Message.new(timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
       return repark(env, timestamp, delay) if result.overflow?
       unless result.ok?
