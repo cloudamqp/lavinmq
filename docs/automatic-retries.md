@@ -42,7 +42,7 @@ Retry delays are 500 ms, 1 s, 2 s, 4 s, 8 s. When the 6th delivery is also rejec
 | `basic.reject(requeue=false)` / `basic.nack(requeue=false)` | Straight to the dead letter exchange, or dropped. |
 | Channel/connection close, `basic.recover` | Instant requeue with no backoff, but the redelivery still counts towards `x-delivery-limit`. |
 
-The `x-delivery-count` header on a delivery tells the consumer how many deliveries preceded it; it is absent on the first delivery.
+The `x-delivery-count` header on a delivery tells the consumer how many deliveries preceded it; it is absent on the first delivery. Client-supplied `x-delivery-count` is stripped when publishing to a retry-enabled queue, so neither publishers nor an upstream queue's dead-lettering can consume or reset the retry budget: a retry-enabled dead letter queue always starts with a fresh budget.
 
 ## Retry Queue
 

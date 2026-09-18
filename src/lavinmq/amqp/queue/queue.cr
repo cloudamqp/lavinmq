@@ -713,7 +713,21 @@ module LavinMQ::AMQP
     class Closed < Exception; end
 
     def publish(msg : Message) : PublishResult
+      strip_delivery_count(msg)
       publish_internal(msg)
+    end
+
+    # On retry-enabled queues the x-delivery-count header carries the retry
+    # budget through the retry queue round trip, so it must not be settable
+    # from outside: not by publishers and not inherited from an upstream
+    # queue's dead-lettering. The retry queue itself bypasses this by
+    # republishing through #publish_internal.
+    protected def strip_delivery_count(msg : Message) : Nil
+      return unless @delayed_retry_min
+      if (headers = msg.properties.headers) && headers.has_key?("x-delivery-count")
+        headers.delete("x-delivery-count")
+        msg.properties.headers = headers
+      end
     end
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
@@ -1022,9 +1036,10 @@ module LavinMQ::AMQP
       env
     end
 
-    # The count survives the retry queue round trip only via the header, so it
-    # is only trusted on retry-enabled queues (documented trade-off there);
-    # elsewhere a client-supplied x-delivery-count must not consume budget
+    # The count survives the retry queue round trip only via the header. On
+    # retry-enabled queues the header is stripped from every publish except
+    # the retry queue's own republish, so it cannot be set from outside;
+    # on other queues it is ignored entirely
     private def delivery_count_from_header(headers) : Int32?
       return unless @delayed_retry_min
       headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)

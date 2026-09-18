@@ -180,19 +180,52 @@ describe "Retry Queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
-            "x-delivery-limit"           => 64,
-            "x-delayed-retry-min"        => 1000,
+            "x-delivery-limit"           => 100,
+            "x-delayed-retry-min"        => 1,
             "x-delayed-retry-multiplier" => 4,
+            "x-delayed-retry-max"        => 1,
           })
           q = ch.queue("retry-overflow", args: args)
-          headers = AMQP::Client::Arguments.new({"x-delivery-count" => 40})
-          q.publish_confirm "overflow test", props: AMQP::Client::Properties.new(headers: headers)
+          q.publish_confirm "overflow test"
 
-          msg = wait_for { q.get(no_ack: false) }
+          70.times do
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
+
+          ch.closed?.should be_false
+          wait_for(timeout: 5.seconds) { q.get(no_ack: false) }.should_not be_nil
+        end
+      end
+    end
+
+    it "should give a retry-enabled dead letter queue its own retry budget" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq_args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          dlq = ch.queue("retry-chain-dlq", args: dlq_args)
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"          => 1,
+            "x-delayed-retry-min"       => 1,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "retry-chain-dlq",
+          })
+          q = ch.queue("retry-chain", args: args)
+          q.publish_confirm "chain"
+
+          2.times do
+            msg = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+            msg.reject(requeue: true)
+          end
+
+          msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: false) }
+          msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
           msg.reject(requeue: true)
 
-          wait_for { s.vhosts["/"].queue("amq.retry-retry-overflow").message_count == 1 }
-          ch.closed?.should be_false
+          wait_for { s.vhosts["/"].queue("amq.retry-retry-chain-dlq").message_count == 1 }
         end
       end
     end
