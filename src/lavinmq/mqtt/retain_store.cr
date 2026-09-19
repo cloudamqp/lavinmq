@@ -84,15 +84,14 @@ module LavinMQ
             add_to_index(topic, msg_file_name)
           end
 
-          file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
-          file.sync = true
-          file.read_buffering = false
-          # sync = true, so this writes the payload straight to the fd, no
-          # intermediate buffer and no copy
-          file.write payload
           final_file_path = File.join(@dir, msg_file_name)
-          file.fsync
-          FileSystem.durable_rename(file, final_file_path)
+          file = FileSystem.replace_keep_open(final_file_path, "w+") do |f|
+            f.sync = true
+            f.read_buffering = false
+            # sync = true, so this writes the payload straight to the fd, no
+            # intermediate buffer and no copy
+            f.write payload
+          end
           @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
@@ -104,12 +103,11 @@ module LavinMQ
       # sets @index_file to the new compacted index file
       private def write_index
         @index_file.close
-        f = File.new("#{@index_file_name}.tmp", "w")
-        @index.each do |topic|
-          f.puts topic
+        f = FileSystem.replace_keep_open(@index_file_name) do |index_file|
+          @index.each do |topic|
+            index_file.puts topic
+          end
         end
-        f.fsync
-        FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end
@@ -119,7 +117,7 @@ module LavinMQ
         line = "#{topic}\n".to_slice
         offset = @index_file.size.to_i64
         @index_file.write line
-        @index_file.flush
+        @index_file.fsync
         @replicator.try &.append_bytes(@index_file_name, line, offset)
       end
 

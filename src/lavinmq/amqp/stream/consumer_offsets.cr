@@ -110,8 +110,8 @@ module LavinMQ::AMQP
         @positions[consumer_tag] = @mfile.size
         @mfile.write_bytes offset
       end
-      @mfile.rename(old_mfile.path)
-      File.open(File.dirname(@mfile.path), &.fsync)
+      @mfile.fsync
+      FileSystem.durable_rename(@mfile, old_mfile.path)
       @replicator.try &.replace_file(@mfile) # ship the compacted file whole; keeps the MFile registered
       old_mfile.close(truncate_to_size: false)
     end

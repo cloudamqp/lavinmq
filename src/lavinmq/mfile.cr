@@ -182,6 +182,11 @@ class MFile < IO
     msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
+  # Block until the written pages are on disk
+  def fsync
+    msync(@buffer, @size, LibC::MS_SYNC)
+  end
+
   private def msync(addr, len, flag) : Nil
     return if len.zero?
     check_open

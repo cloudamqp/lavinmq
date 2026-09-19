@@ -46,6 +46,58 @@ describe FilesystemInfo do
 end
 
 describe LavinMQ::FileSystem do
+  describe ".replace" do
+    it "installs the block's output over the existing file" do
+      with_datadir do |data_dir|
+        path = File.join(data_dir, "state.json")
+        File.write(path, "old state")
+
+        LavinMQ::FileSystem.replace(path, &.print("new state"))
+
+        File.read(path).should eq "new state"
+        File.exists?("#{path}.tmp").should be_false
+      end
+    end
+
+    it "leaves the existing file untouched and removes the temporary file when the block raises" do
+      with_datadir do |data_dir|
+        path = File.join(data_dir, "state.json")
+        File.write(path, "old state")
+
+        expect_raises(IO::Error, "boom") do
+          LavinMQ::FileSystem.replace(path) do |file|
+            file.print "half written"
+            raise IO::Error.new("boom")
+          end
+        end
+
+        File.read(path).should eq "old state"
+        File.exists?("#{path}.tmp").should be_false
+      end
+    end
+  end
+
+  describe ".replace_keep_open" do
+    it "returns the installed file open under its final path" do
+      with_datadir do |data_dir|
+        path = File.join(data_dir, "index")
+
+        file = LavinMQ::FileSystem.replace_keep_open(path, "a+", &.puts("first"))
+        begin
+          file.closed?.should be_false
+          file.path.should eq path
+          file.puts "second"
+          file.flush
+        ensure
+          file.close
+        end
+
+        File.read(path).should eq "first\nsecond\n"
+        File.exists?("#{path}.tmp").should be_false
+      end
+    end
+  end
+
   describe ".durable_rename" do
     it "atomically replaces a file in the same directory" do
       with_datadir do |data_dir|

@@ -352,54 +352,59 @@ module LavinMQ
         @log.info { "Compacting definitions" }
         # sync = true for the same reason as in #initialize: this file becomes
         # @definitions_file after the rename.
-        io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
-        SchemaVersion.prefix(io, :definition)
-        # Durable only, which is what keeps the MQTT exchange out: it's created
-        # with the store, and `make_exchange` can't build its type from a frame.
-        @exchanges.each_value.select(&.durable?).each do |e|
-          f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
-            false, e.durable?, e.auto_delete?, e.internal?,
-            false, e.arguments)
-          io.write_bytes f
+        io = FileSystem.replace_keep_open(@definitions_file_path, "a+") do |f|
+          f.sync = true
+          write_definitions(f)
         end
-        @queues.each_value.select(&.durable?).each do |q|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, q.arguments)
-          io.write_bytes f
-        end
-        @sessions.each_value.select(&.durable?).each do |s|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
-            s.auto_delete?, false, s.arguments)
-          io.write_bytes f
-        end
-        # Not filtered on the source being durable: the bindings written here
-        # are the ones the incremental path in `apply` would have stored, which
-        # includes bindings from durable sessions to the (non-durable) MQTT exchange.
-        @exchanges.each_value do |e|
-          e.bindings_details.each do |binding|
-            args = binding.arguments || AMQP::Table.new
-            frame = case d = binding.destination
-                    when Queue
-                      if persist_binding?(e, d)
-                        AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name,
-                          binding.routing_key, false, args)
-                      end
-                    when Exchange
-                      if e.durable? && d.durable?
-                        AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, d.name, e.name,
-                          binding.routing_key, false, args)
-                      end
-                    end
-            if f = frame
-              io.write_bytes f
-            end
-          end
-        end
-        io.fsync
-        FileSystem.durable_rename(io, @definitions_file_path)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
+      end
+    end
+
+    # The full set of durable definitions, in the order `apply` replays them.
+    private def write_definitions(io : IO) : Nil
+      SchemaVersion.prefix(io, :definition)
+      # Durable only, which is what keeps the MQTT exchange out: it's created
+      # with the store, and `make_exchange` can't build its type from a frame.
+      @exchanges.each_value.select(&.durable?).each do |e|
+        f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
+          false, e.durable?, e.auto_delete?, e.internal?,
+          false, e.arguments)
+        io.write_bytes f
+      end
+      @queues.each_value.select(&.durable?).each do |q|
+        f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
+          q.auto_delete?, false, q.arguments)
+        io.write_bytes f
+      end
+      @sessions.each_value.select(&.durable?).each do |s|
+        f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
+          s.auto_delete?, false, s.arguments)
+        io.write_bytes f
+      end
+      # Not filtered on the source being durable: the bindings written here
+      # are the ones the incremental path in `apply` would have stored, which
+      # includes bindings from durable sessions to the (non-durable) MQTT exchange.
+      @exchanges.each_value do |e|
+        e.bindings_details.each do |binding|
+          args = binding.arguments || AMQP::Table.new
+          frame = case d = binding.destination
+                  when Queue
+                    if persist_binding?(e, d)
+                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, d.name, e.name,
+                        binding.routing_key, false, args)
+                    end
+                  when Exchange
+                    if e.durable? && d.durable?
+                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, d.name, e.name,
+                        binding.routing_key, false, args)
+                    end
+                  end
+          if f = frame
+            io.write_bytes f
+          end
+        end
       end
     end
 

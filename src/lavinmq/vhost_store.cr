@@ -172,8 +172,7 @@ module LavinMQ
       # Serialize saves so concurrent create/delete don't race on the shared
       # `.tmp` file and fail the rename.
       @save_lock.synchronize do
-        File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-        FileSystem.durable_rename("#{path}.tmp", path)
+        FileSystem.replace(path) { |f| to_pretty_json(f) }
       end
       @replicator.try &.replace_file path
     end
