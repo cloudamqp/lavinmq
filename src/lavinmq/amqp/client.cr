@@ -993,12 +993,6 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        if q = @vhost.queue?(frame.queue)
-          if q.internal?
-            send_access_refused(frame, "Queue '#{frame.queue}' is an internal queue")
-            return
-          end
-        end
         unless @user.can_read?(@vhost.name, frame.queue)
           send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue}'")
           return
@@ -1013,12 +1007,6 @@ module LavinMQ
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
           return
-        end
-        if q = @vhost.queue?(frame.queue)
-          if q.internal?
-            send_access_refused(frame, "Queue '#{frame.queue}' is an internal queue")
-            return
-          end
         end
         unless @user.can_read?(@vhost.name, frame.queue)
           send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue}'")

@@ -438,6 +438,10 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
             return
           end
+          if q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' is an internal queue")
+            return
+          end
           if q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
@@ -462,6 +466,8 @@ module LavinMQ
         if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
+          elsif q.internal?
+            @client.send_access_refused(frame, "Queue '#{frame.queue}' is an internal queue")
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           elsif q.is_a? Stream
