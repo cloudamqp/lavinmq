@@ -437,12 +437,17 @@ module LavinMQ
         channel
       end
 
+      # Stays registered until Channel::CloseOk, so in-flight frames are discarded.
       protected def close_channel(channel : Client::Channel?) : Nil
         return unless channel
-        @channels.delete(channel.id)
         if channel.close
           @vhost.event_tick(EventType::ChannelClosed)
         end
+      end
+
+      # The Channel::Close handshake is over, so the client can reuse the id.
+      private def remove_channel(id : UInt16) : Nil
+        close_channel(@channels.delete(id))
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -454,10 +459,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          close_channel(@channels[frame.channel]?)
+          remove_channel(frame.channel)
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          close_channel(@channels[frame.channel]?)
+          remove_channel(frame.channel)
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
