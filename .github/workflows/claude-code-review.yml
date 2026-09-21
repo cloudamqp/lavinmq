@@ -55,7 +55,7 @@ jobs:
 
             Steps:
             1. Run `gh pr diff` to read the changes
-            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change.
+            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change, and read every file you need in as few batched tool calls as possible.
             3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
 
             ${{ steps.config.outputs.criteria }}

@@ -54,7 +54,7 @@ jobs:
 
             Keep this check small and finish within the 15-turn budget:
             1. Inspect the PR diff with `gh pr diff`.
-            2. Decide whether the changed user-facing behavior needs a docs update.
+            2. Decide whether the changed user-facing behavior needs a docs update, reading any files you need in as few batched tool calls as possible.
             3. Return only the JSON object matching the schema.
 
             Do not review unrelated code quality or run tests.
