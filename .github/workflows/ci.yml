@@ -73,10 +73,20 @@ jobs:
         run: make lint-openapi
 
   spec:
-    name: Spec
-    runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-24.04
+    name: Spec ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            container: 84codes/crystal:latest-ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+            container: 84codes/crystal:latest-ubuntu-26.04
     steps:
       - name: Print Crystal version
         run: crystal -v
