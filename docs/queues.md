@@ -102,4 +102,4 @@ Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use
 
 ## Internal Queues
 
-Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API for monitoring, and operators can manage them there.
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect, purge and delete them. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.
