@@ -118,28 +118,29 @@ module LavinMQ
         put "/api/mqtt/permission-groups/:vhost/:name/members/:username" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            service = vhost.mqtt_permission_service
-            group = service[params["name"]]?
-            not_found(context) unless group
             member = params["username"]
-            if group.members.includes?(member)
-              context.response.status = ::HTTP::Status::NO_CONTENT
-            else
-              service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members + [member], group.rules))
-              context.response.status = ::HTTP::Status::CREATED
+            added = false
+            found = vhost.mqtt_permission_service.update(params["name"]) do |group|
+              next if group.members.includes?(member)
+              added = true
+              MQTT::PermissionGroup.new(group.name, group.vhost, group.members + [member], group.rules)
             end
+            not_found(context) unless found
+            context.response.status = added ? ::HTTP::Status::CREATED : ::HTTP::Status::NO_CONTENT
           end
         end
 
         delete "/api/mqtt/permission-groups/:vhost/:name/members/:username" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            service = vhost.mqtt_permission_service
-            group = service[params["name"]]?
-            not_found(context) unless group
             member = params["username"]
-            not_found(context) unless group.members.includes?(member)
-            service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members - [member], group.rules))
+            removed = false
+            vhost.mqtt_permission_service.update(params["name"]) do |group|
+              next unless group.members.includes?(member)
+              removed = true
+              MQTT::PermissionGroup.new(group.name, group.vhost, group.members - [member], group.rules)
+            end
+            not_found(context) unless removed
             context.response.status = ::HTTP::Status::NO_CONTENT
           end
         end
@@ -182,13 +183,15 @@ module LavinMQ
         delete "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            service = vhost.mqtt_permission_service
-            group = service[params["name"]]?
-            not_found(context) unless group
             identifier = params["identifier"]
-            not_found(context) unless group.rules.any?(&.identifier.== identifier)
-            rules = group.rules.reject(&.identifier.== identifier)
-            service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules))
+            removed = false
+            vhost.mqtt_permission_service.update(params["name"]) do |group|
+              next unless group.rules.any?(&.identifier.== identifier)
+              removed = true
+              rules = group.rules.reject(&.identifier.== identifier)
+              MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules)
+            end
+            not_found(context) unless removed
             context.response.status = ::HTTP::Status::NO_CONTENT
           end
         end
