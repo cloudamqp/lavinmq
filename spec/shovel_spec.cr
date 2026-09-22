@@ -1829,6 +1829,10 @@ describe LavinMQ::Shovel do
           shovel.resume
           should_eventually(be_true) { shovel.details_tuple[:confirmed] == 1 }
           shovel.running?.should be_true
+          # A Running shovel must not still advertise the reason it aborted:
+          # the UI and the API show state and error side by side, so a stale
+          # error reads as a shovel that is failing right now.
+          shovel.details_tuple[:error].should be_nil
           shovel.terminate
         end
       end
