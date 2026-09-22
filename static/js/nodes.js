@@ -62,15 +62,12 @@ const renderGCStats = (gc) => {
     const th = document.createElement('th')
     const tooltip = document.createElement('a')
     tooltip.className = 'prop-tooltip'
-    const anchorName = '--tt-' + field.key
-    tooltip.style.setProperty('anchor-name', anchorName)
     tooltip.append(document.createTextNode(field.heading))
     const icon = document.createElement('span')
     icon.className = 'tooltip-icon'
     icon.textContent = '?'
     const text = document.createElement('span')
     text.className = 'prop-tooltiptext'
-    text.style.setProperty('position-anchor', anchorName)
     text.textContent = field.info
     tooltip.append(icon, text)
     th.append(tooltip)
@@ -79,6 +76,7 @@ const renderGCStats = (gc) => {
     row.append(th, td)
     table.append(row)
   }
+  DOM.wireTooltipAnchors(table)
 }
 
 const refreshGCStats = () => {

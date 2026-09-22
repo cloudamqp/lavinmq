@@ -2084,7 +2084,22 @@ fieldset.inline {
    modal dialog) — that's what lets it escape overflow/scroll clipping and flip
    above/below automatically. Every `.arg-tooltip`/`.prop-tooltip` instance also
    needs its own unique `anchor-name` (and matching `position-anchor` on its nested
-   tooltip span), set inline per element. */
+   tooltip span) — see `wireTooltipAnchors` in dom.js, which assigns these at
+   runtime so no markup or inline styles are needed.
+
+   Centering deliberately uses `justify-self: anchor-center`, NOT the lower-level
+   `left: anchor(center)` + `transform: translateX(-50%)` it might look like it
+   should be replaced with. That form gives perfect centering, but position-try-
+   fallbacks' overflow check runs on the pre-transform layout box, so it never
+   sees the translateX(-50%) shift and can't tell the tooltip has drifted off
+   the edge of the viewport — no fallback ever fires. `justify-self: anchor-
+   center` has its own "safe" clamping built in (no transform involved), so it
+   never renders off-screen; the trade-off is that for some elements (depends on
+   surrounding DOM structure — root cause not fully pinned down, reproducible
+   but narrow) that safe clamping fires as a false positive and the tooltip
+   ends up merely near its anchor rather than perfectly centered on it. That's
+   a cosmetic imperfection; going off-screen is a worse failure mode, so this
+   is the right side to err on. */
 @supports (anchor-name: --tooltip-anchor-support-check) {
   .arg-tooltip,
   .prop-tooltip {

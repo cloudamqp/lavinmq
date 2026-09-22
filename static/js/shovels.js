@@ -11,12 +11,9 @@ function renderState (item) {
   if (item.error) {
     const state = document.createElement('a')
     state.classList.add('arg-tooltip')
-    const anchorName = '--tt-' + `${item.vhost}-${item.name}`.replace(/[^a-zA-Z0-9_-]/g, '-')
-    state.style.setProperty('anchor-name', anchorName)
     state.appendChild(document.createTextNode(item.state))
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
-    tooltip.style.setProperty('position-anchor', anchorName)
     tooltip.textContent = item.error
     state.appendChild(tooltip)
     return state
@@ -105,6 +102,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
+  DOM.wireTooltipAnchors(tr)
   const btns = document.createElement('div')
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
