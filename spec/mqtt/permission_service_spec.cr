@@ -179,6 +179,15 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
+  it "creates a group only when the name is free" do
+    with_service do |service|
+      service.create(group("g", ["c1"], [rule("a/#", read: true)])).should be_true
+      service.create(group("g", ["c1"], [rule("b/#", read: true)])).should be_false
+      service.can_read?(ctx("c1"), "a/x").should be_true
+      service.can_read?(ctx("c1"), "b/x").should be_false
+    end
+  end
+
   it "reports a missing group on update" do
     with_service do |service|
       service.update("nope") { |current| current }.should be_false

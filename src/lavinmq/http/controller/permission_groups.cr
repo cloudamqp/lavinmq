@@ -82,17 +82,12 @@ module LavinMQ
             unless parse_body(context).as_h.empty?
               bad_request(context, "Group create takes no body, use the members and rules endpoints")
             end
-            service = vhost.mqtt_permission_service
-            if service[params["name"]]?
-              context.response.status = ::HTTP::Status::NO_CONTENT
-            else
-              begin
-                service.put(MQTT::PermissionGroup.new(params["name"], vhost.name))
-              rescue ex : ArgumentError
-                bad_request(context, ex.message)
-              end
-              context.response.status = ::HTTP::Status::CREATED
+            begin
+              created = vhost.mqtt_permission_service.create(MQTT::PermissionGroup.new(params["name"], vhost.name))
+            rescue ex : ArgumentError
+              bad_request(context, ex.message)
             end
+            context.response.status = created ? ::HTTP::Status::CREATED : ::HTTP::Status::NO_CONTENT
           end
         end
 
