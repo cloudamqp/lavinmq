@@ -85,6 +85,41 @@ describe LavinMQ::Server do
       end
     end
 
+    it "discards a method frame pipelined after a server-initiated channel close" do
+      with_amqp_server do |s|
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # A passive declare of a missing queue makes the server close the channel.
+          # The client cannot know that yet, so it pipelines another method frame on
+          # the same channel. The server must discard it and keep the connection.
+          io.write_bytes AMQ::Protocol::Frame::Queue::Declare.new(1_u16, 0_u16, "no-such-queue",
+            true, false, false, false, false, AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Basic::Qos.new(1_u16, 0_u32, 1_u16, false),
+            IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+
+          close = stream.next_frame.as(AMQ::Protocol::Frame::Channel::Close)
+          close.reply_code.should eq 404
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          # The id is free again once the client has replied CloseOk.
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "done", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+        end
+      end
+    end
+
     it "does not close the connection for a settlement frame on an already-closed channel" do
       with_amqp_server do |s|
         with_raw_amqp_connection(s) do |io, stream|

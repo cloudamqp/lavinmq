@@ -742,9 +742,9 @@ module LavinMQ
       end
 
       # Closes the channel from the server side, e.g. from the management API.
-      # The client is told why with a Channel::Close frame, but the channel is
-      # torn down right away so that a client that never replies with
-      # Channel::CloseOk can't keep it alive.
+      # The client is told why with a Channel::Close frame. Consumers, unacked
+      # messages and buffers are released right away, so a client that never
+      # replies with Channel::CloseOk can't keep any of them alive.
       def close(reason : String) : Nil
         code = ChannelReplyCode::PRECONDITION_FAILED
         send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{reason}", 0_u16, 0_u16)
