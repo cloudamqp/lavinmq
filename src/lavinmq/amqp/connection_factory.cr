@@ -1,6 +1,7 @@
 require "../version"
 require "../logger"
 require "./client"
+require "./reply_text"
 require "../auth/user_store"
 require "../vhost_store"
 require "../client/connection_factory"
@@ -190,7 +191,7 @@ module LavinMQ
       end
 
       private def close_connection(socket, code : ConnectionReplyCode, text, frame)
-        text = "#{code} - #{text}"
+        text = ReplyText.build(code, text)
         socket.write_bytes(
           AMQP::Frame::Connection::Close.new(
             code.value,
