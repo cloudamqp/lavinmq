@@ -204,7 +204,7 @@ describe LavinMQ::HTTP::ChannelsController do
       end
     end
 
-    it "should remove the channel without waiting for close-ok" do
+    it "should remove the channel when the client replies close-ok" do
       with_http_server do |http, s|
         with_raw_amqp_connection(s) do |io, stream|
           io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
@@ -216,10 +216,21 @@ describe LavinMQ::HTTP::ChannelsController do
           connection.channel_count.should eq 1
 
           http.delete("/api/channels/#{name}").status_code.should eq 204
-          connection.channel_count.should eq 0
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::Close)
+
+          # The client had a frame in flight on the channel. It must lose the
+          # channel, not the connection.
+          io.write_bytes AMQ::Protocol::Frame::Basic::Qos.new(1_u16, 0_u32, 1_u16, false),
+            IO::ByteFormat::NetworkEndian
+          io.write_bytes AMQ::Protocol::Frame::Channel::CloseOk.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+
+          wait_for { connection.channel_count.zero? }
           JSON.parse(http.get("/api/channels").body).as_a.empty?.should be_true
 
-          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::Close)
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(2_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.should be_a(AMQ::Protocol::Frame::Channel::OpenOk)
         end
       end
     end
