@@ -43,6 +43,22 @@ jobs:
             echo "$DELIM"
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
+      - name: Compute turn budget from diff size
+        id: budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+        run: |
+          lines=$(gh pr view "$PR" --repo "${{ github.repository }}" --json additions,deletions -q '.additions + .deletions')
+          if [ "$lines" -lt 300 ]; then
+            turns=15
+          elif [ "$lines" -lt 1000 ]; then
+            turns=25
+          else
+            turns=40
+          fi
+          echo "$lines changed lines, $turns turn budget"
+          echo "turns=$turns" >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -51,7 +67,7 @@ jobs:
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
             Review this PR and report ONLY problems that need fixing.
-            You have a maximum of 15 turns — finish well within that limit.
+            You have a maximum of ${{ steps.budget.outputs.turns }} turns — finish well within that limit.
 
             Steps:
             1. Run `gh pr diff` to read the changes
@@ -62,5 +78,5 @@ jobs:
 
           claude_args: |
             --model ${{ steps.config.outputs.model }}
-            --max-turns 20
+            --max-turns ${{ steps.budget.outputs.turns }}
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"

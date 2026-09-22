@@ -42,6 +42,22 @@ jobs:
             echo "$DELIM"
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
+      - name: Compute turn budget from diff size
+        id: budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+        run: |
+          lines=$(gh pr view "$PR" --repo "${{ github.repository }}" --json additions,deletions -q '.additions + .deletions')
+          if [ "$lines" -lt 300 ]; then
+            turns=15
+          elif [ "$lines" -lt 1000 ]; then
+            turns=20
+          else
+            turns=30
+          fi
+          echo "$lines changed lines, $turns turn budget"
+          echo "turns=$turns" >> "$GITHUB_OUTPUT"
       - name: Run docs check
         uses: anthropics/claude-code-action@v1
         id: claude
@@ -52,7 +68,7 @@ jobs:
             REPO: ${{ github.repository }}
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
-            Keep this check small and finish within the 15-turn budget:
+            Keep this check small and finish within the ${{ steps.budget.outputs.turns }}-turn budget:
             1. Inspect the PR diff with `gh pr diff`.
             2. Decide whether the changed user-facing behavior needs a docs update, reading any files you need in as few batched tool calls as possible.
             3. Return only the JSON object matching the schema.
@@ -62,7 +78,7 @@ jobs:
             ${{ steps.config.outputs.criteria }}
           claude_args: |
             --model ${{ steps.config.outputs.model }}
-            --max-turns 15
+            --max-turns ${{ steps.budget.outputs.turns }}
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
       - name: Apply verdict
