@@ -777,6 +777,64 @@ describe LavinMQ::Config do
       end
     {% end %}
   end
+
+  # [main] parses booleans through parse_value, which downcases first; the
+  # [sni:] branch calls true? on the raw value. Anything but all-lowercase is
+  # silently off under SNI while it is on in [main], so a host meant to pin the
+  # server's cipher order quietly negotiates the client's instead.
+  describe "tls_prefer_server_ciphers" do
+    {% for value in ["true", "TRUE", "True", "YES"] %}
+      it "is on in both [main] and [sni:] when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            tls_prefer_server_ciphers = {{ value.id }}
+
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_prefer_server_ciphers = {{ value.id }}
+            mqtt_tls_prefer_server_ciphers = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          config.tls_prefer_server_ciphers?.should be_true
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_prefer_server_ciphers?.should be_true
+          host.mqtt_tls_prefer_server_ciphers.should be_true
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+
+    {% for value in ["false", "FALSE"] %}
+      it "is off in both [main] and [sni:] when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [main]
+            tls_prefer_server_ciphers = {{ value.id }}
+
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_prefer_server_ciphers = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          config.tls_prefer_server_ciphers?.should be_false
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_prefer_server_ciphers?.should be_false
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+  end
 end
 
 # Connect a TLS client requesting *servername* to a one-shot server using
