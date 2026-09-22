@@ -154,6 +154,11 @@ def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
 
+def amqp_tls_port(s)
+  tls_listeners = s.amqp_server.@tls_contexts.keys.compact_map(&.as?(TCPServer))
+  tls_listeners.first.local_address.port
+end
+
 def with_raw_amqp_connection(s, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
@@ -236,6 +241,7 @@ end
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
@@ -249,6 +255,12 @@ def with_amqp_server(tls = false, replicator = nil,
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
+    end
+    if extra_tls_listener
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      amqp_server.bind_tls("localhost", 0, ctx)
     end
     spawn(name: "amqp listener") { amqp_server.listen }
     Fiber.yield
@@ -277,8 +289,10 @@ def with_amqp_server(tls = false, replicator = nil,
 end
 
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, &)
-  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
+  with_amqp_server(authenticator: authenticator, extra_tls_listener: extra_tls_listener,
+    file: file, line: line) do |s|
     h = s.http_server
     addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
     spawn(name: "http listen") { h.listen }
