@@ -446,7 +446,7 @@ module LavinMQ
       end
 
       # The Channel::Close handshake is over, so the client can reuse the id.
-      private def remove_channel(id : UInt16) : Nil
+      private def finish_channel_close(id : UInt16) : Nil
         close_channel(@channels.delete(id))
       end
 
@@ -459,10 +459,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          remove_channel(frame.channel)
+          finish_channel_close(frame.channel)
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          remove_channel(frame.channel)
+          finish_channel_close(frame.channel)
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
