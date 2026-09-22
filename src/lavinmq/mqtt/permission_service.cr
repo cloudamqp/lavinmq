@@ -84,6 +84,23 @@ module LavinMQ
         group
       end
 
+      # Read the group and commit the change under one lock, so an edit that
+      # commits while the caller prepares its own change is not overwritten.
+      # The block returns nil to leave the group as it is. Returns false when
+      # no group has that name. The block runs with the lock held, so it must
+      # not call back into the service and it must not wait on IO.
+      def update(name : String, & : PermissionGroup -> PermissionGroup?) : Bool
+        @save_lock.synchronize do
+          return false unless current = @groups[name]?
+          return true unless updated = yield current
+          updated.validate!
+          groups = @groups.dup
+          groups[name] = updated
+          commit(groups)
+          true
+        end
+      end
+
       def delete(name : String) : PermissionGroup?
         @save_lock.synchronize do
           if group = @groups[name]?

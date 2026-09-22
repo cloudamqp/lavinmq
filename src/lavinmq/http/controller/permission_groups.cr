@@ -156,9 +156,8 @@ module LavinMQ
         put "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            service = vhost.mqtt_permission_service
-            group = service[params["name"]]?
-            not_found(context) unless group
+            # Read the body before the group: parse_body waits on the socket,
+            # and a group read before that wait is stale by the time it is used.
             body = parse_body(context)
             begin
               pattern = body["pattern"]?.try(&.as_s?)
@@ -166,9 +165,13 @@ module LavinMQ
               rule = MQTT::PermissionGroup::Rule.new(params["identifier"], pattern,
                 read: rule_flag(context, body, "read"),
                 write: rule_flag(context, body, "write"))
-              existing = group.rules.any?(&.identifier.== rule.identifier)
-              rules = group.rules.reject(&.identifier.== rule.identifier) << rule
-              service.put(MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules))
+              existing = false
+              found = vhost.mqtt_permission_service.update(params["name"]) do |group|
+                existing = group.rules.any?(&.identifier.== rule.identifier)
+                rules = group.rules.reject(&.identifier.== rule.identifier) << rule
+                MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules)
+              end
+              not_found(context) unless found
               context.response.status = existing ? ::HTTP::Status::NO_CONTENT : ::HTTP::Status::CREATED
             rescue ex : ArgumentError
               bad_request(context, "Invalid rule: #{ex.message}")

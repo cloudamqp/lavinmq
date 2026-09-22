@@ -178,6 +178,39 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   end
 
   describe "rules" do
+    # The handler must read the whole request body before it reads the group.
+    # A body that arrives in parts gives a concurrent edit time to commit.
+    it "keeps a rule committed while the request body is in flight" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+
+        body = {pattern: "slow/#", read: true}.to_json
+        socket = TCPSocket.new(http.addr.address, http.addr.port)
+        begin
+          socket << "PUT /api/mqtt/permission-groups/%2f/grp/rules/slow HTTP/1.1\r\n"
+          socket << "Host: #{http.addr}\r\n"
+          socket << "Authorization: Basic Z3Vlc3Q6Z3Vlc3Q=\r\n"
+          socket << "Content-Type: application/json\r\n"
+          socket << "Content-Length: #{body.bytesize}\r\n\r\n"
+          socket << body[0, 5]
+          socket.flush
+          sleep 50.milliseconds # the handler now waits for the rest of the body
+
+          fast = {pattern: "fast/#", read: true}.to_json
+          http.put("/api/mqtt/permission-groups/%2f/grp/rules/fast", body: fast).status_code.should eq 201
+
+          socket << body[5..]
+          socket.flush
+          ::HTTP::Client::Response.from_io(socket).status_code.should eq 201
+        ensure
+          socket.close
+        end
+
+        rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
+        rules.map(&.["identifier"].as_s).sort!.should eq ["fast", "slow"]
+      end
+    end
+
     it "adds, lists, replaces and removes a rule by identifier" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
