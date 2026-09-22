@@ -610,6 +610,10 @@ module LavinMQ
         send_channel_close(frame, ChannelReplyCode::ACCESS_REFUSED, text)
       end
 
+      def send_internal_queue_refused(frame, name)
+        send_access_refused(frame, "Queue '#{name}' in vhost '#{@vhost.name}' is an internal queue")
+      end
+
       def send_not_found(frame, text = "")
         @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
         send_channel_close(frame, ChannelReplyCode::NOT_FOUND, text)
@@ -729,7 +733,7 @@ module LavinMQ
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
         elsif q.internal?
-          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif frame.if_unused && !q.consumer_count.zero?
@@ -779,7 +783,7 @@ module LavinMQ
 
       private def redeclare_queue(frame, q)
         if q.internal?
-          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
@@ -860,7 +864,7 @@ module LavinMQ
         if q.nil?
           send_not_found frame, "Queue '#{frame.queue_name}' not found"
         elsif q.internal?
-          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif !@vhost.exchange_exists?(frame.exchange_name)
           send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
         else
@@ -880,7 +884,7 @@ module LavinMQ
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         elsif q.internal?
-          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif !@vhost.exchange_exists?(frame.exchange_name)
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -963,7 +967,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
         elsif q = @vhost.queue?(frame.queue_name)
           if q.internal?
-            send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+            send_internal_queue_refused(frame, frame.queue_name)
           elsif queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else
