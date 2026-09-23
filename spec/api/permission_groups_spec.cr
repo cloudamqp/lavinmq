@@ -1,5 +1,87 @@
 require "../spec_helper"
 
+# Holds the first permission group commit inside replace_file, which is where a
+# real leader suspends while it writes to the follower sockets. Two later
+# writers then park in Mutex#lock at the same time, each holding a group it read
+# before it parked.
+class GatedPermissionReplicator
+  include LavinMQ::Clustering::Replicator
+
+  getter entered = Channel(Nil).new
+  getter release = Channel(Nil).new
+  @armed = false
+
+  def arm
+    @armed = true
+  end
+
+  def replace_file(path : String)
+    return unless @armed && path.ends_with?("mqtt_permissions.json")
+    @armed = false
+    @entered.send(nil)
+    @release.receive
+  end
+
+  def register_file(path : String)
+  end
+
+  def register_file(file : File)
+  end
+
+  def register_file(mfile : MFile)
+  end
+
+  def replace_file(mfile : MFile)
+  end
+
+  def append(path : String, pos : Int, length : Int)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+  end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
+  end
+
+  def delete_file(path : String)
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
+  end
+
+  def close
+  end
+
+  def listen(server : TCPServer)
+  end
+
+  def clear
+  end
+
+  def password : String
+    ""
+  end
+end
+
 describe LavinMQ::HTTP::PermissionGroupsController do
   describe "groups" do
     it "reports failed saves without changing the active groups" do
@@ -177,6 +259,42 @@ describe LavinMQ::HTTP::PermissionGroupsController do
     end
   end
 
+  # Regression: these routes read the group, then park in Mutex#lock behind a
+  # commit that suspends inside replace_file. The read is fresh, the snapshot
+  # goes stale while they wait, and the last writer overwrites the others.
+  it "keeps both edits when two requests wait for the save lock" do
+    replicator = GatedPermissionReplicator.new
+    with_http_server(replicator: replicator) do |http, _|
+      http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+      rule = {pattern: "block/#", read: true}.to_json
+      http.put("/api/mqtt/permission-groups/%2f/grp/rules/block", body: rule).status_code.should eq 201
+
+      replicator.arm
+      blocker = Channel(Int32).new
+      spawn do
+        other = {pattern: "other/#", read: true}.to_json
+        blocker.send http.put("/api/mqtt/permission-groups/%2f/grp/rules/other", body: other).status_code
+      end
+      replicator.entered.receive # the group is committed, the lock is still held
+
+      member = Channel(Int32).new
+      spawn { member.send http.put("/api/mqtt/permission-groups/%2f/grp/members/alice").status_code }
+      removal = Channel(Int32).new
+      spawn { removal.send http.delete("/api/mqtt/permission-groups/%2f/grp/rules/block").status_code }
+      sleep 200.milliseconds # both have read the committed group and parked on the lock
+
+      replicator.release.send(nil)
+      blocker.receive.should eq 201
+      member.receive.should eq 201
+      removal.receive.should eq 204
+
+      members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
+      members.map(&.["username"].as_s).should eq ["alice"]
+      rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
+      rules.map(&.["identifier"].as_s).should eq ["other"]
+    end
+  end
+
   describe "rules" do
     # The handler must read the whole request body before it reads the group.
     # A body that arrives in parts gives a concurrent edit time to commit.
@@ -186,6 +304,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
 
         body = {pattern: "slow/#", read: true}.to_json
         socket = TCPSocket.new(http.addr.address, http.addr.port)
+        socket.read_timeout = 5.seconds # a handler that keeps the lock must fail, not hang
         begin
           socket << "PUT /api/mqtt/permission-groups/%2f/grp/rules/slow HTTP/1.1\r\n"
           socket << "Host: #{http.addr}\r\n"
@@ -266,6 +385,9 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         http.get("/api/mqtt/permission-groups/%2f/nope/rules").status_code.should eq 404
         http.put("/api/mqtt/permission-groups/%2f/nope/rules/r1", body: body).status_code.should eq 404
         http.delete("/api/mqtt/permission-groups/%2f/nope/rules/r1").status_code.should eq 404
+        # A missing group answers 404 before the body is validated, so a client
+        # that creates the group on 404 and retries is not sent a 400 instead.
+        http.put("/api/mqtt/permission-groups/%2f/nope/rules/r1", body: "{}").status_code.should eq 404
       end
     end
   end

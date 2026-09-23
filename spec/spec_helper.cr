@@ -277,8 +277,9 @@ def with_amqp_server(tls = false, replicator = nil,
 end
 
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     replicator = nil,
                      file = __FILE__, line = __LINE__, &)
-  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
+  with_amqp_server(replicator: replicator, authenticator: authenticator, file: file, line: line) do |s|
     h = s.http_server
     addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
     spawn(name: "http listen") { h.listen }

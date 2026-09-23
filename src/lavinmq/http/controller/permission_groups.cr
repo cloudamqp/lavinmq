@@ -82,11 +82,12 @@ module LavinMQ
             unless parse_body(context).as_h.empty?
               bad_request(context, "Group create takes no body, use the members and rules endpoints")
             end
-            begin
-              created = vhost.mqtt_permission_service.create(MQTT::PermissionGroup.new(params["name"], vhost.name))
-            rescue ex : ArgumentError
-              bad_request(context, ex.message)
-            end
+            created =
+              begin
+                vhost.mqtt_permission_service.create(MQTT::PermissionGroup.new(params["name"], vhost.name))
+              rescue ex : ArgumentError
+                bad_request(context, ex.message)
+              end
             context.response.status = created ? ::HTTP::Status::CREATED : ::HTTP::Status::NO_CONTENT
           end
         end
@@ -152,6 +153,10 @@ module LavinMQ
         put "/api/mqtt/permission-groups/:vhost/:name/rules/:identifier" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
+            # Answer 404 before the body is read, so a client that creates the
+            # group on 404 and retries still gets it. The update below gives the
+            # authoritative 404, because this check is stale by then.
+            not_found(context) unless vhost.mqtt_permission_service[params["name"]]?
             # Read the body before the group: parse_body waits on the socket,
             # and a group read before that wait is stale by the time it is used.
             body = parse_body(context)
