@@ -242,6 +242,7 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
+      fresh = !File.exists?(dotqueue_file)
       File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
       if durable?
         @vhost.replicator.try &.replace_file(dotqueue_file)
@@ -249,7 +250,12 @@ module LavinMQ::AMQP
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
-      start
+      begin
+        start
+      rescue ex
+        fresh ? delete : close
+        raise ex
+      end
     end
 
     private def start : Bool

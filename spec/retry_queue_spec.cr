@@ -188,6 +188,19 @@ describe "Retry Queue" do
       end
     end
 
+    it "should reject a queue name that leaves no room for the retry queue prefix" do
+      with_amqp_server do |s|
+        name = "q" * 247
+        with_channel(s) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /too long/) do
+            ch.queue(name, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          end
+        end
+        s.vhosts["/"].queue?(name).should be_nil
+        Dir.exists?(File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(name))).should be_false
+      end
+    end
+
     it "should reject combining retry with message deduplication" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
