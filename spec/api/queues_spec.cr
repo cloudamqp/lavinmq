@@ -54,6 +54,35 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should apply the state filter on top of a name filter, not instead of it" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("orders_paused", false, false)
+        vhost.declare_queue("orders_running", false, false)
+        vhost.declare_queue("events_paused", false, false)
+        vhost.queue("orders_paused").pause!
+        vhost.queue("events_paused").pause!
+
+        response = http.get("/api/queues?state=paused&name=orders")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"]).should eq ["orders_paused"]
+      end
+    end
+
+    it "should apply the state filter on top of a regex name filter" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_paused_1", false, false)
+        vhost.declare_queue("q_paused_2", false, false)
+        vhost.declare_queue("other_paused", false, false)
+        ["q_paused_1", "q_paused_2", "other_paused"].each { |n| vhost.queue(n).pause! }
+
+        response = http.get("/api/queues?state=paused&name=^q_&use_regex=true")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"].as_s).sort!.should eq ["q_paused_1", "q_paused_2"]
+      end
+    end
+
     it "should keep total_count unfiltered when filtering on state" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
