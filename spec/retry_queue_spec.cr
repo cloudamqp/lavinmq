@@ -161,6 +161,33 @@ describe "Retry Queue" do
       end
     end
 
+    it "should requeue instantly if the retry queue store fails" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("retry-store-error", args: args)
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-store-error")
+          FileUtils.rm_rf(retry_q.@msg_store.@msg_dir)
+
+          body = "x" * (LavinMQ::Config.instance.segment_size + 1)
+          q.publish_confirm body
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+
+          msg2 = wait_for { q.get(no_ack: false) }
+          msg2.body_io.to_s.should eq body
+          retry_q.closed?.should be_true
+          s.vhosts["/"].queue("retry-store-error").closed?.should be_false
+
+          msg2.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue?("amq.retry-retry-store-error").try { |rq| !rq.closed? && rq.message_count == 1 } }
+        end
+      end
+    end
+
     it "should reject combining retry with message deduplication" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

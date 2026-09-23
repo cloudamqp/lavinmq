@@ -41,10 +41,12 @@ module LavinMQ::AMQP
       @message_ttl_change.try_send? nil
       ensure_expire_fiber # restart the expire fiber if it died on a transient store error
       true
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
+    rescue MessageStore::ClosedError
+      false
+    rescue ex : MessageStore::Error | IO::Error
+      @log.error(ex) { "Queue closed due to error, message requeued instantly" }
       close
-      raise ex
+      false
     end
 
     # Simplified expire loop: no consumers and no per-message TTL to consider,
