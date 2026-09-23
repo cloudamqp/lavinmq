@@ -37,6 +37,84 @@ private def with_service(&)
   end
 end
 
+# commit writes to the follower sockets while it still holds @save_lock, and
+# that write can suspend the fiber. Two writers then park in Mutex#lock at the
+# same time, each holding a group it read before it parked. This stub makes
+# that suspension deterministic.
+class ParkingReplicator
+  include LavinMQ::Clustering::Replicator
+
+  property? armed = false
+
+  def initialize(&@park : -> Nil)
+  end
+
+  def replace_file(path : String)
+    return unless @armed
+    @armed = false
+    @park.call
+  end
+
+  def register_file(path : String)
+  end
+
+  def register_file(file : File)
+  end
+
+  def register_file(mfile : MFile)
+  end
+
+  def replace_file(mfile : MFile)
+  end
+
+  def append(path : String, pos : Int, length : Int)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+  end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
+  end
+
+  def delete_file(path : String)
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
+  end
+
+  def close
+  end
+
+  def listen(server : TCPServer)
+  end
+
+  def clear
+  end
+
+  def password : String
+    ""
+  end
+end
+
 describe LavinMQ::MQTT::PermissionService do
   it "seeds a default group that allows every user every topic" do
     with_data_dir do |data_dir|
@@ -185,6 +263,59 @@ describe LavinMQ::MQTT::PermissionService do
       service.create(group("g", ["c1"], [rule("b/#", read: true)])).should be_false
       service.can_read?(ctx("c1"), "a/x").should be_true
       service.can_read?(ctx("c1"), "b/x").should be_false
+    end
+  end
+
+  # Regression: a read outside the lock goes stale while the fiber parks in
+  # Mutex#lock, even though the read itself was fresh.
+  it "does not lose a change made by another writer parked on the lock" do
+    with_data_dir do |data_dir|
+      release = Channel(Nil).new
+      replicator = ParkingReplicator.new { release.receive }
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, replicator))
+      service.put(group("g", ["c1"], [rule("keep/#", read: true)]))
+      replicator.armed = true # only the first writer parks inside commit
+
+      done = Channel(Exception?).new(3)
+      spawn(name: "holder") do
+        service.update("g") do |current|
+          LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
+            current.rules + [rule("first/#", read: true)])
+        end
+        done.send(nil)
+      rescue ex
+        done.send(ex)
+      end
+      Fiber.yield # the holder is now parked inside commit, holding @save_lock
+
+      spawn(name: "member") do
+        service.update("g") do |current|
+          LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members + ["c2"],
+            current.rules)
+        end
+        done.send(nil)
+      rescue ex
+        done.send(ex)
+      end
+      Fiber.yield # parked in Mutex#lock behind the holder
+
+      spawn(name: "rule") do
+        service.update("g") do |current|
+          LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
+            current.rules + [rule("second/#", read: true)])
+        end
+        done.send(nil)
+      rescue ex
+        done.send(ex)
+      end
+      Fiber.yield # also parked in Mutex#lock
+
+      release.send(nil)
+      3.times { done.receive.should be_nil }
+
+      service.can_read?(ctx("c2"), "keep/x").should be_true # the member survived
+      service.can_read?(ctx("c1"), "first/x").should be_true
+      service.can_read?(ctx("c1"), "second/x").should be_true
     end
   end
 
