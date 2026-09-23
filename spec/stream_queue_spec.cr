@@ -36,6 +36,21 @@ end
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
+  describe "Arguments" do
+    it "should refuse the retry arguments" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          expect_raises(AMQP::Client::Channel::ClosedException, /x-delayed-retry-min/) do
+            ch.queue("stream-retry-args", args: AMQP::Client::Arguments.new({
+              "x-queue-type"        => "stream",
+              "x-delayed-retry-min" => 1000,
+            }))
+          end
+        end
+      end
+    end
+  end
+
   describe "Requeue" do
     it "should not requeue messages into the store on channel close" do
       with_amqp_server do |s|
