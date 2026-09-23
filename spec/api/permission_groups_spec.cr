@@ -295,6 +295,46 @@ describe LavinMQ::HTTP::PermissionGroupsController do
     end
   end
 
+  # Regression: the group create route checked the name outside the lock and
+  # then wrote an empty group. An import that commits while it parks on the
+  # lock is overwritten, and the route still answers 201.
+  it "does not overwrite a group imported while the create waits for the save lock" do
+    replicator = GatedPermissionReplicator.new
+    with_http_server(replicator: replicator) do |http, s|
+      http.put("/api/mqtt/permission-groups/%2f/other").status_code.should eq 201
+      defs = {mqtt_permissions: [
+        {name: "grp", vhost: "/", members: ["alice"],
+         rules: [{identifier: "sensors", pattern: "sensors/#", read: true, write: false}]},
+      ]}.to_json
+
+      replicator.arm
+      blocker = Channel(Int32).new
+      spawn do
+        rule = {pattern: "block/#", read: true}.to_json
+        blocker.send http.put("/api/mqtt/permission-groups/%2f/other/rules/block", body: rule).status_code
+      end
+      replicator.entered.receive # the lock is held, everything below queues up
+
+      imported = Channel(Int32).new
+      spawn { imported.send http.post("/api/definitions", body: defs).status_code }
+      sleep 100.milliseconds # the import parks on the lock first, so it commits first
+      created = Channel(Int32).new
+      spawn { created.send http.put("/api/mqtt/permission-groups/%2f/grp").status_code }
+      sleep 100.milliseconds # the create read a missing group and parks behind the import
+
+      replicator.release.send(nil)
+      blocker.receive.should eq 201
+      import_status = imported.receive
+      create_status = created.receive
+
+      group = s.vhosts["/"].mqtt_permission_service["grp"]?.not_nil!
+      group.members.should eq ["alice"]
+      group.rules.map(&.identifier).should eq ["sensors"]
+      import_status.should eq 200
+      create_status.should eq 204 # the name was taken by the time the lock was free
+    end
+  end
+
   describe "rules" do
     # The handler must read the whole request body before it reads the group.
     # A body that arrives in parts gives a concurrent edit time to commit.
