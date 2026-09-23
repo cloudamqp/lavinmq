@@ -276,6 +276,74 @@ def with_amqp_server(tls = false, replicator = nil,
   end
 end
 
+# Every method a Clustering::Replicator must answer, doing nothing. Specs that
+# need one behaviour subclass this and override that single method.
+class NoOpReplicator
+  include LavinMQ::Clustering::Replicator
+
+  def register_file(path : String)
+  end
+
+  def register_file(file : File)
+  end
+
+  def register_file(mfile : MFile)
+  end
+
+  def replace_file(path : String)
+  end
+
+  def replace_file(mfile : MFile)
+  end
+
+  def append(path : String, pos : Int, length : Int)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+  end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
+  end
+
+  def delete_file(path : String)
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
+  end
+
+  def close
+  end
+
+  def listen(server : TCPServer)
+  end
+
+  def clear
+  end
+
+  def password : String
+    ""
+  end
+end
+
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
                      replicator = nil,
                      file = __FILE__, line = __LINE__, &)

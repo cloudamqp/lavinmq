@@ -1,12 +1,8 @@
 require "../spec_helper"
 
 # Holds the first permission group commit inside replace_file, which is where a
-# real leader suspends while it writes to the follower sockets. Two later
-# writers then park in Mutex#lock at the same time, each holding a group it read
-# before it parked.
-class GatedPermissionReplicator
-  include LavinMQ::Clustering::Replicator
-
+# real leader suspends while it writes to the follower sockets.
+class GatedPermissionReplicator < NoOpReplicator
   getter entered = Channel(Nil).new
   getter release = Channel(Nil).new
   @armed = false
@@ -21,65 +17,30 @@ class GatedPermissionReplicator
     @entered.send(nil)
     @release.receive
   end
+end
 
-  def register_file(path : String)
-  end
+# A request has no observable "parked on the mutex" state, so the specs below
+# wait instead. Too short a wait makes them pass without racing, never fail.
+PARK_DELAY = 200.milliseconds
 
-  def register_file(file : File)
-  end
+private def async(&block : -> Int32) : Channel(Int32)
+  channel = Channel(Int32).new
+  spawn { channel.send block.call }
+  channel
+end
 
-  def register_file(mfile : MFile)
-  end
-
-  def replace_file(mfile : MFile)
-  end
-
-  def append(path : String, pos : Int, length : Int)
-  end
-
-  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
-  end
-
-  def append_bytes(path : String, bytes : Bytes, offset : Int64)
-  end
-
-  def delete_file(path : String)
-  end
-
-  def followers : Array(LavinMQ::Clustering::Follower)
-    Array(LavinMQ::Clustering::Follower).new
-  end
-
-  def syncing_followers : Array(LavinMQ::Clustering::Follower)
-    Array(LavinMQ::Clustering::Follower).new
-  end
-
-  def all_followers : Array(LavinMQ::Clustering::Follower)
-    Array(LavinMQ::Clustering::Follower).new
-  end
-
-  def isr_dirty? : Bool
-    false
-  end
-
-  def flush_isr : Nil
-  end
-
-  def wait_for_followers : Nil
-  end
-
-  def close
-  end
-
-  def listen(server : TCPServer)
-  end
-
-  def clear
-  end
-
-  def password : String
-    ""
-  end
+# Holds @save_lock across the block by parking a group create inside
+# replace_file, so every request the block starts queues on the lock. Returns
+# the status of each request the block hands back, in order.
+private def parked_behind_save_lock(http, replicator, &) : Array(Int32)
+  replicator.arm
+  holder = async { http.put("/api/mqtt/permission-groups/%2f/lock-holder").status_code }
+  replicator.entered.receive
+  queued = yield
+  sleep PARK_DELAY
+  replicator.release.send(nil)
+  holder.receive.should eq 201
+  queued.map(&.receive)
 end
 
 describe LavinMQ::HTTP::PermissionGroupsController do
@@ -269,29 +230,16 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       rule = {pattern: "block/#", read: true}.to_json
       http.put("/api/mqtt/permission-groups/%2f/grp/rules/block", body: rule).status_code.should eq 201
 
-      replicator.arm
-      blocker = Channel(Int32).new
-      spawn do
-        other = {pattern: "other/#", read: true}.to_json
-        blocker.send http.put("/api/mqtt/permission-groups/%2f/grp/rules/other", body: other).status_code
+      member, removal = parked_behind_save_lock(http, replicator) do
+        [async { http.put("/api/mqtt/permission-groups/%2f/grp/members/alice").status_code },
+         async { http.delete("/api/mqtt/permission-groups/%2f/grp/rules/block").status_code }]
       end
-      replicator.entered.receive # the group is committed, the lock is still held
-
-      member = Channel(Int32).new
-      spawn { member.send http.put("/api/mqtt/permission-groups/%2f/grp/members/alice").status_code }
-      removal = Channel(Int32).new
-      spawn { removal.send http.delete("/api/mqtt/permission-groups/%2f/grp/rules/block").status_code }
-      sleep 200.milliseconds # both have read the committed group and parked on the lock
-
-      replicator.release.send(nil)
-      blocker.receive.should eq 201
-      member.receive.should eq 201
-      removal.receive.should eq 204
 
       members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
       members.map(&.["username"].as_s).should eq ["alice"]
-      rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
-      rules.map(&.["identifier"].as_s).should eq ["other"]
+      JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a.should be_empty
+      member.should eq 201
+      removal.should eq 204
     end
   end
 
@@ -301,37 +249,22 @@ describe LavinMQ::HTTP::PermissionGroupsController do
   it "does not overwrite a group imported while the create waits for the save lock" do
     replicator = GatedPermissionReplicator.new
     with_http_server(replicator: replicator) do |http, s|
-      http.put("/api/mqtt/permission-groups/%2f/other").status_code.should eq 201
       defs = {mqtt_permissions: [
         {name: "grp", vhost: "/", members: ["alice"],
          rules: [{identifier: "sensors", pattern: "sensors/#", read: true, write: false}]},
       ]}.to_json
 
-      replicator.arm
-      blocker = Channel(Int32).new
-      spawn do
-        rule = {pattern: "block/#", read: true}.to_json
-        blocker.send http.put("/api/mqtt/permission-groups/%2f/other/rules/block", body: rule).status_code
+      imported, created = parked_behind_save_lock(http, replicator) do
+        import = async { http.post("/api/definitions", body: defs).status_code }
+        sleep PARK_DELAY # the import must park first, so it commits first
+        [import, async { http.put("/api/mqtt/permission-groups/%2f/grp").status_code }]
       end
-      replicator.entered.receive # the lock is held, everything below queues up
-
-      imported = Channel(Int32).new
-      spawn { imported.send http.post("/api/definitions", body: defs).status_code }
-      sleep 100.milliseconds # the import parks on the lock first, so it commits first
-      created = Channel(Int32).new
-      spawn { created.send http.put("/api/mqtt/permission-groups/%2f/grp").status_code }
-      sleep 100.milliseconds # the create read a missing group and parks behind the import
-
-      replicator.release.send(nil)
-      blocker.receive.should eq 201
-      import_status = imported.receive
-      create_status = created.receive
 
       group = s.vhosts["/"].mqtt_permission_service["grp"]?.not_nil!
       group.members.should eq ["alice"]
       group.rules.map(&.identifier).should eq ["sensors"]
-      import_status.should eq 200
-      create_status.should eq 204 # the name was taken by the time the lock was free
+      imported.should eq 200
+      created.should eq 204 # the name was taken by the time the lock was free
     end
   end
 
