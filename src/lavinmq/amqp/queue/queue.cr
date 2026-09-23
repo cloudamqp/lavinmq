@@ -1118,7 +1118,8 @@ module LavinMQ::AMQP
       end
       if route_to_retry && (delayed_retry_min = @delayed_retry_min)
         if retry_queue = active_retry_queue
-          return if route_to_retry_queue(sp, msg, retry_queue, delayed_retry_min)
+          retry_msg = @msg_store_lock.synchronize { @msg_store.copy(sp) }
+          return if route_to_retry_queue(sp, retry_msg, retry_queue, delayed_retry_min)
         end
       end
       was_empty = false
