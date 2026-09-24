@@ -7,6 +7,7 @@ require "../logger"
 require "../name_validator"
 require "./channel_reply_code"
 require "./connection_reply_code"
+require "./reply_text"
 require "../rough_time"
 require "../connection_info"
 require "../observable"
@@ -569,7 +570,7 @@ module LavinMQ
         end
 
         code = ConnectionReplyCode::CONNECTION_FORCED
-        send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
+        send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
       ensure
         @running = false
       end
@@ -586,7 +587,7 @@ module LavinMQ
         if frame.channel.zero?
           return send_connection_close(frame, ConnectionReplyCode::UNEXPECTED_FRAME, text)
         end
-        text = "#{code} - #{text}"
+        text = ReplyText.build(code, text)
         case frame
         when AMQ::Protocol::Frame::Method
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, frame.class_id, frame.method_id)
@@ -597,8 +598,8 @@ module LavinMQ
       end
 
       private def send_connection_close(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
-        text = "#{code} - #{text}"
-        @log.info { "Closing, #{text}" }
+        @log.info { "Closing, #{code} - #{text}" }
+        text = ReplyText.build(code, text)
         case frame
         when AMQ::Protocol::Frame::Method
           send AMQP::Frame::Connection::Close.new(code.value, text, frame.class_id, frame.method_id)
@@ -647,10 +648,10 @@ module LavinMQ
       def send_not_implemented(ex : AMQ::Protocol::Error::NotImplemented)
         code = ConnectionReplyCode::NOT_IMPLEMENTED
         if ex.channel.zero?
-          send AMQP::Frame::Connection::Close.new(code.value, code.to_s, ex.class_id, ex.method_id)
+          send AMQP::Frame::Connection::Close.new(code.value, ReplyText.build(code, ex.message), ex.class_id, ex.method_id)
           @running = false
         else
-          send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
+          send AMQP::Frame::Channel::Close.new(ex.channel, code.value, ReplyText.build(code, ex.message), ex.class_id, ex.method_id)
           close_channel(@channels[ex.channel]?)
         end
       end
