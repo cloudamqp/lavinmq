@@ -181,11 +181,11 @@ module LavinMQ
         {% end %}
       end
 
-      def bind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
+      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
-      def unbind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
+      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
@@ -203,7 +203,7 @@ module LavinMQ
       # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
       # while `MQTT::Exchange` overrides this to return `Array(MQTT::SubscriptionDetails)`.
       abstract def bindings_details
-      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
 
       # Number of bindings on this exchange. Counted cheaply, without allocating
       # the full `bindings_details` array.
@@ -224,7 +224,7 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
+                  exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -247,10 +247,10 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(LavinMQ::Exchange).new)
+        route_msg(msg, false, Set(AMQP::Queue).new, Set(AMQP::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
@@ -282,7 +282,7 @@ module LavinMQ
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                      exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
+                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
         each_destination(routing_key, headers) do |d|
           case d
@@ -291,7 +291,7 @@ module LavinMQ
             unless delayed? && d == @delayed_queue
               queues.add(d)
             end
-          in LavinMQ::Exchange
+          in AMQP::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end
         end
