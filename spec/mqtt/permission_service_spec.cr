@@ -164,6 +164,58 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
+  # The block runs under the same lock as the commit, so it always sees the
+  # group as it is at commit time.
+  it "updates a group from its state at commit time" do
+    with_service do |service|
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      changed = service.update("g") do |current|
+        LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
+          current.rules + [rule("b/#", read: true)])
+      end
+      changed.should be_true
+      service.can_read?(ctx("c1"), "a/x").should be_true
+      service.can_read?(ctx("c1"), "b/x").should be_true
+    end
+  end
+
+  it "creates a group only when the name is free" do
+    with_service do |service|
+      service.create(group("g", ["c1"], [rule("a/#", read: true)])).should be_true
+      service.create(group("g", ["c1"], [rule("b/#", read: true)])).should be_false
+      service.can_read?(ctx("c1"), "a/x").should be_true
+      service.can_read?(ctx("c1"), "b/x").should be_false
+    end
+  end
+
+  it "reports a missing group on update" do
+    with_service do |service|
+      service.update("nope") { |current| current }.should be_false
+      service.size.should eq 0
+    end
+  end
+
+  it "keeps the group as it is when the update block returns nil" do
+    with_service do |service|
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      service.update("g") { nil }.should be_true
+      service.can_read?(ctx("c1"), "a/x").should be_true
+    end
+  end
+
+  it "rejects an invalid group on update" do
+    with_service do |service|
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
+        service.update("g") do |current|
+          LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
+            [rule("a/#/b", read: true)])
+        end
+      end
+      service.can_read?(ctx("c1"), "a/x").should be_true
+    end
+  end
+
   it "grants only the requested verb" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
