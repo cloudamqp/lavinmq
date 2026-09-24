@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.10.0-rc.1] - 2026-09-18
+## [2.10.0-rc.2] - 2026-09-24
 
-This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, and a stream consumer that could starve other fibers during a fast replay.
+This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, a stream consumer that could starve other fibers during a fast replay, a connection lost when a client pipelined a frame behind a server-closed channel, and an AMQP reply text over 255 bytes that broke the frame it travelled in.
 
 ### Added
 
@@ -31,8 +31,17 @@ This release adds MQTT topic permissions, negative `x-stream-offset` values to r
 
 ### Fixed
 
+- A client that pipelined a method frame on a channel the server had just closed lost the whole connection with `504 CHANNEL_ERROR`. The channel now stays registered until the client replies `Channel.CloseOk`, which also covers `DELETE /api/channels/:name` [#2261](https://github.com/cloudamqp/lavinmq/pull/2261)
+- An AMQP `reply_text` longer than 255 bytes broke the frame after the header was written and dropped the connection. A passive declare of a missing queue with a long name reaches it, as do the `X-Reason` headers on `DELETE /api/channels/:name` and `DELETE /api/connections/:name`. The text is now truncated on a codepoint boundary [#2263](https://github.com/cloudamqp/lavinmq/pull/2263)
+- Boolean values in an `[sni:...]` config section were parsed case-sensitively, so `TRUE` read as false for 8 keys, including `tls_verify_peer` where it silently disabled mTLS [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
+- A shovel kept the `error` it stopped with after it was resumed, so a running shovel reported the reason it had aborted [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
+- A concurrent edit of an MQTT permission group could be lost. Every edit route read the group outside `@save_lock` and saved a stale copy, so a rule committed during the read was deleted again while both requests answered 2xx [#2265](https://github.com/cloudamqp/lavinmq/pull/2265)
 - Purged messages that had been requeued came back after a restart, because `purge_all` dropped them from memory without writing an ack record. The queue size counter could also underflow [#2247](https://github.com/cloudamqp/lavinmq/pull/2247)
 - A stream consumer replaying from an old offset yielded to other fibers only every 32768 messages, so a fast replay of large messages could starve publishers, other consumers and GC [#2227](https://github.com/cloudamqp/lavinmq/issues/2227)
+
+## [2.10.0-rc.1] - 2026-09-18
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.10.0-rc.1> for changes in this pre-release
 
 ## [2.9.3] - 2026-09-09
 
