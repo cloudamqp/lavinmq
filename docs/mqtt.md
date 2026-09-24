@@ -108,7 +108,7 @@ Topic permissions restrict which topics a user's MQTT clients can publish to and
 
 - A client can only publish to or receive on topics granted by a matching rule
 - Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic
-- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything
+- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything. Deleting the `default` group is not reliably carried over by a definitions export and import, see [Definitions](#definitions)
 - A vhost with no groups denies every topic
 - There is no administrator bypass
 - A user still needs a permission entry on the vhost to connect
@@ -198,11 +198,20 @@ curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/r
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
-Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present.
+Permission changes are saved to disk before becoming active. If saving fails, the request fails and the previous permissions remain active, including when attempting to revoke access.
+
+### Definitions
+
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
 
 Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
 
-Permission changes are saved to disk before becoming active. If saving fails, the request fails and the previous permissions remain active, including when attempting to revoke access. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
+Deleting the `default` group is not reliably carried over by an export and import:
+
+- If the vhost has no other groups, the export has no entries for it, so the import leaves the target as it is
+- Otherwise, a target vhost that already has `mqtt_permissions.json` keeps its `default` group. Every vhost has that file after its first restart or change to its groups
+
+To make a lockdown survive, keep the `default` group and remove or narrow its rule instead. `load_definitions` never replaces existing groups, so there this only takes effect on a vhost without `mqtt_permissions.json`, such as one the definitions file creates.
 
 ### Upgrading
 
