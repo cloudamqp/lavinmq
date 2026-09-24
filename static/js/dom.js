@@ -70,17 +70,7 @@ const button = {
   }
 }
 
-// Wires up CSS Anchor Positioning for tooltips built from the
-// `.arg-tooltip`/`.prop-tooltip` (trigger) + nested `.tooltiptext`/`.prop-tooltiptext`
-// (tooltip) pattern, without requiring any per-instance markup or inline styles.
-// Anchor positioning requires each trigger to have its own unique `anchor-name`,
-// matched by `position-anchor` on its tooltip — this assigns both, deriving the
-// name from an ever-increasing counter so every instance is guaranteed unique.
-// No-ops entirely on browsers without anchor positioning support (main.css falls
-// back to the historical bottom/left/transform positioning for those).
-// Called once below for content already in the DOM at load; call again with a
-// scoped root after rendering new tooltips dynamically (e.g. after a table
-// re-render), so only the new elements are wired up.
+// Assigns each .arg-tooltip/.prop-tooltip a unique anchor-name/position-anchor pair for CSS anchor positioning (no-op if unsupported); re-call with a scoped root after rendering tooltips dynamically.
 let tooltipAnchorCounter = 0
 
 function wireTooltipAnchors (root = document) {

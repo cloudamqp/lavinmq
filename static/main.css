@@ -2075,31 +2075,7 @@ fieldset.inline {
   pointer-events: none;
 }
 
-/* CSS Anchor Positioning progressive enhancement (Baseline newly-available as of
-   Jan 2026 — Chrome 125+, Safari 26+, recent Firefox; older browsers still get the
-   plain bottom/left/transform fallback above). Gated behind @supports because an
-   anchor can't also be its positioned element's containing block, so on a
-   supporting browser we drop `position: relative` from the anchor and let the
-   tooltip's containing block bubble up to the nearest positioned ancestor (e.g. a
-   modal dialog) — that's what lets it escape overflow/scroll clipping and flip
-   above/below automatically. Every `.arg-tooltip`/`.prop-tooltip` instance also
-   needs its own unique `anchor-name` (and matching `position-anchor` on its nested
-   tooltip span) — see `wireTooltipAnchors` in dom.js, which assigns these at
-   runtime so no markup or inline styles are needed.
-
-   Centering deliberately uses `justify-self: anchor-center`, NOT the lower-level
-   `left: anchor(center)` + `transform: translateX(-50%)` it might look like it
-   should be replaced with. That form gives perfect centering, but position-try-
-   fallbacks' overflow check runs on the pre-transform layout box, so it never
-   sees the translateX(-50%) shift and can't tell the tooltip has drifted off
-   the edge of the viewport — no fallback ever fires. `justify-self: anchor-
-   center` has its own "safe" clamping built in (no transform involved), so it
-   never renders off-screen; the trade-off is that for some elements (depends on
-   surrounding DOM structure — root cause not fully pinned down, reproducible
-   but narrow) that safe clamping fires as a false positive and the tooltip
-   ends up merely near its anchor rather than perfectly centered on it. That's
-   a cosmetic imperfection; going off-screen is a worse failure mode, so this
-   is the right side to err on. */
+/* @supports-gated anchor positioning (older browsers keep the fallback above); anchor must be position:static (can't be its own tooltip's containing block), and centering uses justify-self:anchor-center rather than left:anchor(center)+transform because position-try-fallbacks can't see transform-based overflow — anchor-center's built-in safe-clamping avoids off-screen tooltips at the cost of occasionally under-centering one. */
 @supports (anchor-name: --tooltip-anchor-support-check) {
   .arg-tooltip,
   .prop-tooltip {
@@ -2634,14 +2610,7 @@ pre.arguments .inactive-argument:before {
     width: 100%;
   }
 
-  /* [data-tab-content] (the queue detail page's tab panels) is `display: grid;
-     grid-template-columns: subgrid` so its cards line up with the 12-column
-     grid `main` uses on desktop. On mobile `main` switches to `display: flex`
-     above, so there's no longer a grid to subgrid from — the browser silently
-     falls back to a degenerate auto-sized grid that doesn't fill the
-     available width, capping every card inside at a fixed ~378px regardless
-     of viewport (too cramped on a tablet, still overflowing on a phone).
-     Matching `main`'s own mobile treatment here fixes it. */
+  /* [data-tab-content] normally subgrids into main's desktop grid, but main is flex here so the subgrid has nothing to inherit and collapses to a fixed ~378px — match main's flex layout to fix it. */
   [data-tab-content] {
     display: flex;
     flex-direction: column;
