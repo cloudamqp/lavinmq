@@ -336,7 +336,7 @@ module LavinMQ
       json.array do
         vhosts.each_value do |v|
           v.each_queue do |q|
-            next if q.exclusive?
+            next if q.exclusive? || q.internal?
             {
               "name":        q.name,
               "vhost":       q.vhost.name,

@@ -24,6 +24,7 @@ This release adds MQTT topic permissions, negative `x-stream-offset` values to r
 
 ### Changed
 
+- Internal queues (e.g. delayed exchange queues) are protected from AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED`, and they are no longer included in definitions exports. They remain visible and manageable through the HTTP API [#2252](https://github.com/cloudamqp/lavinmq/pull/2252)
 - A shovel with several `dest-uri`s now picks one at random on every start instead of failing over through them in order [#2128](https://github.com/cloudamqp/lavinmq/pull/2128)
 - Shovel deliveries are classified into outcomes: a `2xx` HTTP response acks the message, `408`, `429`, `5xx` and transport failures requeue it with backoff, statuses that describe the message itself dead-letter it, and repeated unusable-destination outcomes stop the shovel in a new `aborted` state that is resumed via the API or the management UI [#2128](https://github.com/cloudamqp/lavinmq/pull/2128)
 - Overview page card design updates in the management UI [#2145](https://github.com/cloudamqp/lavinmq/pull/2145) [#2174](https://github.com/cloudamqp/lavinmq/pull/2174)
