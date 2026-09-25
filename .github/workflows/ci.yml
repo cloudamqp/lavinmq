@@ -527,6 +527,7 @@ jobs:
         run: |
           chmod +x bin/lavinmq
           bin/lavinmq --data-dir /tmp/amqp --pidfile /tmp/lavinmq.pid >lavinmq.log 2>&1 &
+          curl -s -o /dev/null --retry 30 --retry-delay 1 --retry-connrefused http://localhost:15672/
 
       - name: Run stress test
         run: |
@@ -580,6 +581,7 @@ jobs:
         run: |
           chmod +x bin/lavinmq
           bin/lavinmq --data-dir /tmp/amqp --pidfile /tmp/lavinmq.pid >lavinmq.log 2>&1 &
+          curl -s -o /dev/null --retry 30 --retry-delay 1 --retry-connrefused http://localhost:15672/
 
       - name: Run shovel test
         run: |

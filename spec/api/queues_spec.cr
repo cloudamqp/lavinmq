@@ -494,6 +494,30 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "should not park peeked messages in the retry queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("q3-retry-peek", args: args)
+          q.publish_confirm "m1"
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
+          response = http.post("/api/queues/%2f/q3-retry-peek/get", body: body)
+          response.status_code.should eq 200
+          s.vhosts["/"].queue("q3-retry-peek").message_count.should eq 1
+          s.vhosts["/"].queue("amq.retry-q3-retry-peek").message_count.should eq 0
+        end
+      end
+    end
   end
   describe "POST /api/queues/vhost/name/get" do
     it "should get plain text messages" do
