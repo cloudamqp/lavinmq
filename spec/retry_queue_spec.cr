@@ -188,9 +188,29 @@ describe "Retry Queue" do
       end
     end
 
+    it "should purge parked messages with the queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("retry-purge", args: args)
+          q.publish_confirm "parked"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-retry-purge").message_count == 1 }
+
+          purged = ch.queue_purge("retry-purge")
+          purged[:message_count].should eq 1
+          s.vhosts["/"].queue("amq.retry-retry-purge").message_count.should eq 0
+        end
+      end
+    end
+
     it "should reject a queue name that leaves no room for the retry queue prefix" do
       with_amqp_server do |s|
-        name = "q" * 247
+        name = "q" * 246
         with_channel(s) do |ch|
           expect_raises(AMQP::Client::Channel::ClosedException, /too long/) do
             ch.queue(name, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))

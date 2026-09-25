@@ -1208,11 +1208,23 @@ module LavinMQ::AMQP
         @message_ttl_change.try_send? nil
         ensure_expire_fiber
       end
+      delete_count += purge_parked(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    # Parked messages would otherwise be republished after their delay,
+    # resurrecting messages the user just purged
+    private def purge_parked(max_count) : UInt32
+      retry_queue = @delayed_retry_queue
+      return 0_u32 unless retry_queue && max_count > 0
+      retry_queue.purge(max_count)
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Failed to purge retry queue" }
+      0_u32
     end
 
     def match?(frame)
