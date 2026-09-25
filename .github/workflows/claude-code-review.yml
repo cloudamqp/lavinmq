@@ -1,7 +1,7 @@
 name: Claude Code Review
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
     paths: # Only run on specific file changes
       - "src/**/*.cr"
       - "static/**/*.js"
@@ -11,6 +11,9 @@ on:
         description: 'PR number to review'
         required: true
         type: string
+concurrency:
+  group: claude-review-${{ inputs.pr_number || github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   claude-review:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
@@ -43,21 +46,86 @@ jobs:
             echo "$DELIM"
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
-      - name: Compute turn budget from diff size
+      # A review comment ends with a marker naming the commit it reviewed.
+      # When a marker is found and that commit is still reachable, only the
+      # changes since then are reviewed; otherwise a full review runs.
+      # The diff is inlined into the prompt when small enough.
+      - name: Prepare review context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
+        run: |
+          head_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
+          git fetch -q origin "pull/$PR/head" || true
+          prior=$(gh pr view "$PR" --repo "$REPO" --json comments \
+            -q '[.comments[] | select(.author.login == "claude") | .body] | last // ""')
+          last_sha=$(printf '%s' "$prior" | grep -o 'claude-review-sha: [0-9a-f]\{40\}' | tail -1 | awk '{print $2}' || true)
+          mode=full
+          if [ "$EVENT_ACTION" != "ready_for_review" ] && [ -n "$last_sha" ] && git cat-file -e "$last_sha" 2>/dev/null; then
+            mode=incremental
+          fi
+          echo "mode=$mode head_sha=$head_sha last_sha=${last_sha:-none}"
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "context<<$DELIM"
+            if [ "$mode" = "incremental" ]; then
+              echo "You have reviewed this PR before, at commit $last_sha. Your previous review comment:"
+              echo "--- PREVIOUS REVIEW ---"
+              printf '%s\n' "$prior"
+              echo "--- END PREVIOUS REVIEW ---"
+              echo
+              delta=$(git diff "$last_sha".."$head_sha")
+              if [ "${#delta}" -gt 60000 ]; then
+                echo "The changes since that review are too large to inline; fetch them with: git diff $last_sha..$head_sha"
+              else
+                echo "The changes since that review (git diff $last_sha..$head_sha):"
+                echo '```diff'
+                printf '%s\n' "$delta"
+                echo '```'
+              fi
+              echo
+              echo "Verify whether each finding in your previous review is addressed by these changes, review ONLY the changes since your last review (read full files when the delta alone lacks context), and post one complete updated review comment that supersedes the previous one. Do not re-review parts of the PR you already reviewed and that have not changed."
+            else
+              if [ "$EVENT_ACTION" = "ready_for_review" ]; then
+                echo "This PR just left draft state: do a final full review of the whole PR, even if parts were reviewed while it was a draft."
+                echo
+              fi
+              diff=$(gh pr diff "$PR" --repo "$REPO")
+              if [ "${#diff}" -gt 60000 ]; then
+                echo "The PR diff is too large to inline; fetch it with: gh pr diff"
+              else
+                echo "The full PR diff:"
+                echo '```diff'
+                printf '%s\n' "$diff"
+                echo '```'
+              fi
+            fi
+            echo "$DELIM"
+            echo "mode=$mode"
+            echo "head_sha=$head_sha"
+          } >> "$GITHUB_OUTPUT"
+      - name: Compute turn budget
         id: budget
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number || github.event.pull_request.number }}
         run: |
-          lines=$(gh pr view "$PR" --repo "${{ github.repository }}" --json additions,deletions -q '.additions + .deletions')
-          if [ "$lines" -lt 300 ]; then
-            turns=15
-          elif [ "$lines" -lt 1000 ]; then
-            turns=25
+          if [ "${{ steps.ctx.outputs.mode }}" = "incremental" ]; then
+            turns=20
           else
-            turns=60
+            lines=$(gh pr view "$PR" --repo "${{ github.repository }}" --json additions,deletions -q '.additions + .deletions')
+            if [ "$lines" -lt 300 ]; then
+              turns=15
+            elif [ "$lines" -lt 1000 ]; then
+              turns=25
+            else
+              turns=60
+            fi
           fi
-          echo "$lines changed lines, $turns turn budget"
+          echo "$turns turn budget (${{ steps.ctx.outputs.mode }} review)"
           echo "turns=$turns" >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         with:
@@ -69,14 +137,16 @@ jobs:
             Review this PR and report ONLY problems that need fixing.
             You have a maximum of ${{ steps.budget.outputs.turns }} turns — finish well within that limit.
 
+            ${{ steps.ctx.outputs.context }}
+
             Steps:
-            1. Run `gh pr diff` to read the changes
-            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change, and read every file you need in as few batched tool calls as possible.
-            3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
+            1. Analyze the diff provided above; fetch it yourself only if it was too large to inline. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change, and read every file you need in as few batched tool calls as possible.
+            2. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
+            3. End the comment with exactly this line: <!-- claude-review-sha: ${{ steps.ctx.outputs.head_sha }} -->
 
             ${{ steps.config.outputs.criteria }}
 
           claude_args: |
             --model ${{ steps.config.outputs.model }}
             --max-turns ${{ steps.budget.outputs.turns }}
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Read,Glob,Grep"
