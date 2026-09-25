@@ -226,4 +226,57 @@ describe LavinMQ::HTTP::BindingsController do
       end
     end
   end
+
+  describe "the mqtt exchange" do
+    # mqtt.default is not in vhost.exchanges, so every route reaching it has to
+    # resolve it by name.
+    it "lists subscriptions among the bindings" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.listed", "a/b", 1u8)
+
+        subscriptions = mqtt_bindings(http.get("/api/bindings"), "mqtt.listed")
+        subscriptions.size.should eq 1
+        subscriptions.first["routing_key"].should eq "a/b"
+        subscriptions.first["arguments"][LavinMQ::MQTT::QOS_HEADER].should eq 1
+        mqtt_bindings(http.get("/api/bindings/%2f"), "mqtt.listed").size.should eq 1
+      end
+    end
+
+    it "lists subscriptions as bindings with the exchange as source" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.source", "a/b", 1u8)
+
+        response = http.get("/api/exchanges/%2f/mqtt.default/bindings/source")
+        response.status_code.should eq 200
+        subscriptions = JSON.parse(response.body).as_a
+        subscriptions.map(&.["destination"]).should eq ["mqtt.source"]
+      end
+    end
+
+    # A single-segment topic filter, since the route takes `:props` rather than
+    # `*props` and a filter with a slash in it can't be addressed through it.
+    it "returns a single subscription by its properties key" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.props", "a", 1u8)
+
+        subscriptions = mqtt_bindings(http.get("/api/bindings"), "mqtt.props")
+        props = subscriptions.first["properties_key"].as_s
+        response = http.get("/api/bindings/%2f/e/mqtt.default/q/mqtt.props/#{props}")
+        response.status_code.should eq 200
+        JSON.parse(response.body)["routing_key"].should eq "a"
+      end
+    end
+  end
+end
+
+private def declare_mqtt_subscription(s, name, topic_filter, qos)
+  mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+  s.vhosts["/"].declare_queue(name, true, false, mqtt_args)
+  s.vhosts["/"].bind_queue(name, LavinMQ::MQTT::EXCHANGE, topic_filter,
+    LavinMQ::MQTT.qos_arguments(qos))
+end
+
+private def mqtt_bindings(response, destination)
+  response.status_code.should eq 200
+  JSON.parse(response.body).as_a.select { |b| b["destination"] == destination }
 end

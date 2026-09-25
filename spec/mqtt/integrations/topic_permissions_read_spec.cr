@@ -27,7 +27,7 @@ module MqttSpecs
           end
 
           read_packet(bob_io).should be_nil
-          exchange = server.vhosts["/"].exchange("mqtt.default")
+          exchange = server.vhosts["/"].mqtt_exchange
           exchange.publish_in_count.should eq 1
           exchange.publish_out_count.should eq 0
         end

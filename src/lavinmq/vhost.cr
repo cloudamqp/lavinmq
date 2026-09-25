@@ -11,11 +11,12 @@ require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
 require "digest/sha1"
 require "./amqp/queue"
+require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
-require "./mqtt/session"
+require "./mqtt/definitions_store"
 require "./mqtt/permission_service"
 require "./connection_store"
 require "./direct_reply_consumer_store"
@@ -42,6 +43,7 @@ module LavinMQ
     @flow = true
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
+    @mqtt_definitions : MQTT::DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = ConnectionStore.new
@@ -94,7 +96,7 @@ module LavinMQ
     end
 
     def mqtt_exchange : MQTT::Exchange
-      definitions.mqtt_exchange
+      mqtt.exchange
     end
 
     # Queue accessors
@@ -142,31 +144,36 @@ module LavinMQ
     # Session accessors
 
     def session?(name : String) : MQTT::Session?
-      definitions.session?(name)
+      mqtt.session?(name)
     end
 
     def session(name : String) : MQTT::Session
-      definitions.session(name)
+      mqtt.session(name)
     end
 
     def session_exists?(name : String) : Bool
-      definitions.session_exists?(name)
+      mqtt.session_exists?(name)
     end
 
     def each_session(& : MQTT::Session ->) : Nil
-      definitions.each_session { |v| yield v }
+      mqtt.each_session { |v| yield v }
     end
 
     def sessions : Array(MQTT::Session)
-      definitions.sessions
+      mqtt.sessions
     end
 
     def sessions_size : Int32
-      definitions.sessions_size
+      mqtt.sessions_size
     end
 
     def sessions_clear : Nil
-      definitions.sessions_clear
+      mqtt.sessions_clear
+    end
+
+    # The MQTT counterpart of `queue_bindings`.
+    def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
+      mqtt.subscriptions(session)
     end
 
     # Connection accessors
@@ -227,7 +234,8 @@ module LavinMQ
       @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
+      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self, @data_dir, @replicator, @log)
+      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log, mqtt)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -268,7 +276,7 @@ module LavinMQ
     end
 
     def queue_limit_reached? : Bool
-      @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+      @max_queues.try { |max| definitions.queues_size + mqtt.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -307,7 +315,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(AMQP::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else
@@ -409,9 +417,10 @@ module LavinMQ
     # Flush definitions written with fsync: false (e.g. during bulk import).
     def fsync_definitions
       definitions.fsync
+      mqtt.fsync
     end
 
-    def queue_bindings(queue : Queue)
+    def queue_bindings(queue : AMQP::Queue)
       definitions.queue_bindings(queue)
     end
 
@@ -524,6 +533,7 @@ module LavinMQ
       each_exchange &.close
       Fiber.yield
       definitions.close
+      mqtt.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
       @mqtt_permission_service.save!
     end
@@ -570,6 +580,7 @@ module LavinMQ
     end
 
     private def load!
+      mqtt.load!
       definitions.load!
       has_parameters = !@parameters.empty?
       has_policies = !@policies.empty? || !@operator_policies.empty?
@@ -638,6 +649,10 @@ module LavinMQ
 
     private def definitions : DefinitionsStore
       @definitions.not_nil!
+    end
+
+    def mqtt : MQTT::DefinitionsStore
+      @mqtt_definitions.not_nil!
     end
   end
 end
