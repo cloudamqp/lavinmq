@@ -1,7 +1,7 @@
 name: Claude Code Review
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
     paths: # Only run on specific file changes
       - "src/**/*.cr"
       - "static/**/*.js"
@@ -56,6 +56,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           head_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
           git fetch -q origin "pull/$PR/head" || true
@@ -63,7 +64,7 @@ jobs:
             -q '[.comments[] | select(.author.login == "claude") | .body] | last // ""')
           last_sha=$(printf '%s' "$prior" | grep -o 'claude-review-sha: [0-9a-f]\{40\}' | tail -1 | awk '{print $2}' || true)
           mode=full
-          if [ -n "$last_sha" ] && git cat-file -e "$last_sha" 2>/dev/null; then
+          if [ "$EVENT_ACTION" != "ready_for_review" ] && [ -n "$last_sha" ] && git cat-file -e "$last_sha" 2>/dev/null; then
             mode=incremental
           fi
           echo "mode=$mode head_sha=$head_sha last_sha=${last_sha:-none}"
@@ -88,6 +89,10 @@ jobs:
               echo
               echo "Verify whether each finding in your previous review is addressed by these changes, review ONLY the changes since your last review (read full files when the delta alone lacks context), and post one complete updated review comment that supersedes the previous one. Do not re-review parts of the PR you already reviewed and that have not changed."
             else
+              if [ "$EVENT_ACTION" = "ready_for_review" ]; then
+                echo "This PR just left draft state: do a final full review of the whole PR, even if parts were reviewed while it was a draft."
+                echo
+              fi
               diff=$(gh pr diff "$PR" --repo "$REPO")
               if [ "${#diff}" -gt 60000 ]; then
                 echo "The PR diff is too large to inline; fetch it with: gh pr diff"
