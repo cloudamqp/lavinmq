@@ -241,4 +241,5 @@ Note that connecting with a client_id already in use takes over that session, so
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - AMQP and MQTT components cannot be cross-connected. Exchange-to-exchange bindings between the MQTT exchange and AMQP exchanges are not supported, so an AMQP publisher cannot reach MQTT subscribers (or vice versa) within the same broker.
+- The MQTT exchange, `mqtt.default`, cannot be managed through the exchange and binding endpoints of the HTTP API. It is listed with the other exchanges and its subscriptions with the other bindings, but declaring or deleting it, publishing to it, and adding or removing bindings to or from it return `501 Not Implemented`. Subscriptions are made by MQTT clients with SUBSCRIBE and UNSUBSCRIBE, and restored by importing [definitions](definitions.md) that contain them.
 - MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).

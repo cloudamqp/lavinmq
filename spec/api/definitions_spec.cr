@@ -901,18 +901,25 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
-    it "re-imports an exported durable mqtt session as a session" do
+    # The bindings API refuses mqtt.default, but an import restores subscriptions.
+    it "re-imports an exported durable mqtt session with its subscriptions" do
       with_http_server do |http, s|
         mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
         s.vhosts["/"].declare_queue("mqtt.roundtrip", true, false, mqtt_args)
+        s.vhosts["/"].bind_queue("mqtt.roundtrip", LavinMQ::MQTT::EXCHANGE, "a/b",
+          LavinMQ::MQTT.qos_arguments(1u8))
         body = http.get("/api/definitions").body
         s.vhosts["/"].delete_queue("mqtt.roundtrip")
         s.vhosts["/"].session?("mqtt.roundtrip").should be_nil
+        s.vhosts["/"].mqtt_exchange.binding_count.should eq 0
 
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].session?("mqtt.roundtrip").should_not be_nil
+        session = s.vhosts["/"].session?("mqtt.roundtrip").should_not be_nil
         s.vhosts["/"].queue?("mqtt.roundtrip").should be_nil
+        subscriptions = s.vhosts["/"].mqtt_exchange.bindings_details.select { |b| b.destination == session }
+        subscriptions.map(&.routing_key).should eq ["a/b"]
+        subscriptions.first.binding_key.qos.should eq 1u8
       end
     end
 
