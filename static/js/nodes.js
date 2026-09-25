@@ -76,6 +76,7 @@ const renderGCStats = (gc) => {
     row.append(th, td)
     table.append(row)
   }
+  DOM.wireTooltipAnchors(table)
 }
 
 const refreshGCStats = () => {

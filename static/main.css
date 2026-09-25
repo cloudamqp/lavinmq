@@ -2052,21 +2052,20 @@ fieldset.inline {
   visibility: hidden;
   background-color: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
-  padding: 10px 10px;
-  border-radius: 6px;
-  width: max-content;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
   max-width: 400px;
   min-width: 150px;
+  position: absolute;
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  position: absolute;
+  margin-bottom: 4px;
   z-index: 10000;
   white-space: normal;
-}
-
-.prop-tooltip .prop-tooltiptext {
-  margin-bottom: 5px;
 }
 
 .arg-tooltip:hover .tooltiptext,
@@ -2074,6 +2073,24 @@ fieldset.inline {
   transition-delay: 0.3s;
   visibility: visible;
   pointer-events: none;
+}
+
+/* @supports-gated anchor positioning (older browsers keep the fallback above); anchor must be position:static (can't be its own tooltip's containing block), and centering uses justify-self:anchor-center rather than left:anchor(center)+transform because position-try-fallbacks can't see transform-based overflow — anchor-center's built-in safe-clamping avoids off-screen tooltips at the cost of occasionally under-centering one. */
+@supports (anchor-name: --tooltip-anchor-support-check) {
+  .arg-tooltip,
+  .prop-tooltip {
+    position: static;
+  }
+
+  .arg-tooltip .tooltiptext,
+  .prop-tooltip .prop-tooltiptext {
+    position-area: top;
+    position-try-fallbacks: flip-block;
+    justify-self: anchor-center;
+    bottom: auto;
+    left: auto;
+    transform: none;
+  }
 }
 
 pre.arguments>div {
@@ -2590,6 +2607,13 @@ pre.arguments .inactive-argument:before {
 
   .card {
     max-width: 100% !important;
+    width: 100%;
+  }
+
+  /* [data-tab-content] normally subgrids into main's desktop grid, but main is flex here so the subgrid has nothing to inherit and collapses to a fixed ~378px — match main's flex layout to fix it. */
+  [data-tab-content] {
+    display: flex;
+    flex-direction: column;
     width: 100%;
   }
 
