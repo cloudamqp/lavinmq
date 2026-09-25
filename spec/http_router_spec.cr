@@ -134,6 +134,18 @@ describe LavinMQ::HTTP::Router do
       routed.should be_true
     end
 
+    it "does not decode a bare percent sign together with the escapes after it" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:foo" do |c, params|
+        params.should eq Hash(String, String){"foo" => "%2F"}
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/%%32%46"))
+      routed.should be_true
+    end
+
     it "routes paths with escapes that decode to invalid UTF-8" do
       router = TestRouter.new
       routed = false
