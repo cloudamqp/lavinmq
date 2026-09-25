@@ -32,8 +32,24 @@ module LavinMQ::HTTP::Router
     end
   {% end %}
 
+  # %XX of an unreserved char is equivalent to the char (RFC 3986 6.2.2.2), so decode those
+  # to let literal segments match. The rest stays encoded: %2F must not become a separator,
+  # and decoded non-ASCII bytes could be invalid UTF-8, which makes Regex#match raise.
+  # A bare % is escaped so it can't pair with decoded digits into a new escape for URI.decode.
+  def self.normalize_path(path : String) : String
+    return path unless path.includes?('%')
+    path.gsub(/%([0-9A-Fa-f]{2})?/) do |escaped, match|
+      if hex = match[1]?
+        byte = hex.to_u8(16)
+        URI.unreserved?(byte) ? byte.unsafe_chr.to_s : escaped
+      else
+        "%25"
+      end
+    end
+  end
+
   def find_route(method, path)
-    search_path = "/#{method}/#{path.strip('/')}"
+    search_path = "/#{method}/#{Router.normalize_path(path).strip('/')}"
     @_routes.each do |r|
       if res = r.pattern.match(search_path)
         return {
