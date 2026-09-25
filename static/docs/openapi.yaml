@@ -151,6 +151,18 @@ components:
       "$ref": "./schemas/auth.yaml#/PasswordHash"
     vhost-limits:
       "$ref": "./schemas/vhost-limits.yaml#/vhost-limits"
+    mqtt-permission-group-summaries:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-summaries"
+    mqtt-permission-group-summary:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-summary"
+    mqtt-permission-group-members:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-members"
+    mqtt-permission-group-rules:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-group-rules"
+    mqtt-PutRuleRequestBody:
+      "$ref": "./schemas/mqtt-permissions.yaml#/PutRuleRequestBody"
+    mqtt-permission-groups:
+      "$ref": "./schemas/mqtt-permissions.yaml#/permission-groups"
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"
@@ -228,6 +240,20 @@ paths:
     "$ref": "./paths/main.yaml#/~1federation-links~1{vhost}"
   "/extensions":
     "$ref": "./paths/main.yaml#/~1extensions"
+  "/mqtt/permission-groups":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups"
+  "/mqtt/permission-groups/{vhost}":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}"
+  "/mqtt/permission-groups/{vhost}/{name}":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}"
+  "/mqtt/permission-groups/{vhost}/{name}/members":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1members"
+  "/mqtt/permission-groups/{vhost}/{name}/members/{username}":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1members~1{username}"
+  "/mqtt/permission-groups/{vhost}/{name}/rules":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1rules"
+  "/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}":
+    "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1rules~1{identifier}"
   "/nodes":
     "$ref": "./paths/nodes.yaml#/~1nodes"
   "/nodes/gc_stats":
@@ -329,6 +355,8 @@ tags:
     description: Query the server for various information (e.g. federation links, extensions).
   - name: shovels
     description: Manage shovels.
+  - name: mqtt
+    description: Manage MQTT topic permission groups.
   - name: nodes
     description: Get node statistics.
   - name: parameters

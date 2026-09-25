@@ -210,7 +210,7 @@ module LavinMQ
       # Handles a connection/runtime error during a run. Returns true if the run
       # loop should break (stopped, or the shoveled queue was deleted), false to
       # reconnect with backoff. A reconnect starts clean: both ends are stopped,
-      # so a failed-over destination list begins with its first entry again.
+      # so a multi-destination shovel draws a destination again on the next start.
       private def handle_run_error(ex, run_generation) : Bool
         return true if should_stop_loop?(run_generation)
         @state = State::Error
