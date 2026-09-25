@@ -180,6 +180,7 @@ describe LavinMQ::Config do
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
           on_leader_lost = echo "Leader lost"
+          syncfs_timeout = 20
         CONFIG
     end
     config = LavinMQ::Config.new
@@ -265,6 +266,7 @@ describe LavinMQ::Config do
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
     config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
     config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
+    config.clustering_syncfs_timeout.should eq 20.seconds
   ensure
     # Reset log level to default for other specs
     Log.setup(:fatal)
@@ -311,6 +313,7 @@ describe LavinMQ::Config do
       "--clustering-etcd-prefix=cli-prefix",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
+      "--clustering-syncfs-timeout=20",
     ]
     config.parse(argv)
 
@@ -351,6 +354,7 @@ describe LavinMQ::Config do
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
     config.clustering_port.should eq 5680
+    config.clustering_syncfs_timeout.should eq 20.seconds
   end
 
   it "can parse -d/--debug flag for verbose logging" do
@@ -386,6 +390,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
     ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
+    ENV["LAVINMQ_CLUSTERING_SYNCFS_TIMEOUT"] = "20"
     ENV["LAVINMQ_SYNC"] = "false"
     ENV["LAVINMQ_CONTROL_UNIX_PATH"] = "/tmp/lavinmqctl-env.sock"
     config = LavinMQ::Config.new
@@ -411,6 +416,7 @@ describe LavinMQ::Config do
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
     config.clustering_port.should eq 5681
+    config.clustering_syncfs_timeout.should eq 20.seconds
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
   ensure
     ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
@@ -435,6 +441,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
+    ENV.delete("LAVINMQ_CLUSTERING_SYNCFS_TIMEOUT")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")
   end
 
@@ -628,6 +635,23 @@ describe LavinMQ::Config do
         end
         config = LavinMQ::Config.new
         expect_raises(LavinMQ::Config::Error, /stats_interval/) do
+          config.parse(["-c", config_file.path])
+        end
+      end
+    end
+  end
+
+  describe "clustering_syncfs_timeout" do
+    it "rejects non-positive values" do
+      [0, -10].each do |seconds|
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [clustering]
+            syncfs_timeout = #{seconds}
+            CONFIG
+        end
+        config = LavinMQ::Config.new
+        expect_raises(LavinMQ::Config::Error, /clustering_syncfs_timeout/) do
           config.parse(["-c", config_file.path])
         end
       end

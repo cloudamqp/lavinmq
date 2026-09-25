@@ -87,6 +87,9 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      unless @clustering_syncfs_timeout.positive?
+        raise Error.new("clustering_syncfs_timeout must be positive (got #{@clustering_syncfs_timeout})")
+      end
     end
 
     private def parse_config_from_cli(argv)
