@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.10.0-rc.2] - 2026-09-24
+## [2.10.0] - 2026-09-25
 
-This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, a stream consumer that could starve other fibers during a fast replay, a connection lost when a client pipelined a frame behind a server-closed channel, and an AMQP reply text over 255 bytes that broke the frame it travelled in.
+This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, a stream consumer that could starve other fibers during a fast replay, and an AMQP reply text over 255 bytes that broke the frame it travelled in.
 
 ### Added
 
@@ -15,7 +15,7 @@ This release adds MQTT topic permissions, negative `x-stream-offset` values to r
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
 - `tls_prefer_server_ciphers` config option that makes the server's cipher order decide the negotiated cipher [#2204](https://github.com/cloudamqp/lavinmq/pull/2204)
-- Be able to close a specific channel [#2144](https://github.com/cloudamqp/lavinmq/issues/2144)
+- API endpoint and management UI action to close a single channel [#2212](https://github.com/cloudamqp/lavinmq/pull/2212)
 - `state` query parameter on `GET /api/queues` and `GET /api/queues/:vhost` to filter queues by state, e.g. `?state=closed` or `?state=paused,closed` [#2234](https://github.com/cloudamqp/lavinmq/pull/2234)
 - Per-queue delivered and acked totals in Prometheus metrics [#1837](https://github.com/cloudamqp/lavinmq/pull/1837)
 - Inter-node replication byte metrics in Prometheus [#2051](https://github.com/cloudamqp/lavinmq/pull/2051)
@@ -24,20 +24,21 @@ This release adds MQTT topic permissions, negative `x-stream-offset` values to r
 
 ### Changed
 
-- A shovel with several `dest-uri`s now picks one at random on every start instead of failing over through them in order [#2128](https://github.com/cloudamqp/lavinmq/pull/2128)
-- Shovel deliveries are classified into outcomes: a `2xx` HTTP response acks the message, `408`, `429`, `5xx` and transport failures requeue it with backoff, statuses that describe the message itself dead-letter it, and repeated unusable-destination outcomes stop the shovel in a new `aborted` state that is resumed via the API or the management UI [#2128](https://github.com/cloudamqp/lavinmq/pull/2128)
+- Shovel deliveries are classified into outcomes: a `2xx` HTTP response acks the message, `408`, `429`, `5xx` and transport failures requeue it with backoff, statuses that describe the message itself dead-letter it, and repeated unusable-destination outcomes stop the shovel in a new `aborted` state that is resumed via the API or the management UI. A dead-lettered message is dropped if the source queue has no dead-letter exchange [#2128](https://github.com/cloudamqp/lavinmq/pull/2128)
 - Overview page card design updates in the management UI [#2145](https://github.com/cloudamqp/lavinmq/pull/2145) [#2174](https://github.com/cloudamqp/lavinmq/pull/2174)
 - The management UI version is advertised via the `LavinMQ-Version` response header instead of being injected at build time [#2123](https://github.com/cloudamqp/lavinmq/pull/2123)
 
 ### Fixed
 
-- A client that pipelined a method frame on a channel the server had just closed lost the whole connection with `504 CHANNEL_ERROR`. The channel now stays registered until the client replies `Channel.CloseOk`, which also covers `DELETE /api/channels/:name` [#2261](https://github.com/cloudamqp/lavinmq/pull/2261)
 - An AMQP `reply_text` longer than 255 bytes broke the frame after the header was written and dropped the connection. A passive declare of a missing queue with a long name reaches it, as do the `X-Reason` headers on `DELETE /api/channels/:name` and `DELETE /api/connections/:name`. The text is now truncated on a codepoint boundary [#2263](https://github.com/cloudamqp/lavinmq/pull/2263)
 - Boolean values in an `[sni:...]` config section were parsed case-sensitively, so `TRUE` read as false for 8 keys, including `tls_verify_peer` where it silently disabled mTLS [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
-- A shovel kept the `error` it stopped with after it was resumed, so a running shovel reported the reason it had aborted [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
-- A concurrent edit of an MQTT permission group could be lost. Every edit route read the group outside `@save_lock` and saved a stale copy, so a rule committed during the read was deleted again while both requests answered 2xx [#2265](https://github.com/cloudamqp/lavinmq/pull/2265)
+- A shovel kept reporting the `error` it had stopped with after it recovered or was resumed [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
 - Purged messages that had been requeued came back after a restart, because `purge_all` dropped them from memory without writing an ack record. The queue size counter could also underflow [#2247](https://github.com/cloudamqp/lavinmq/pull/2247)
 - A stream consumer replaying from an old offset yielded to other fibers only every 32768 messages, so a fast replay of large messages could starve publishers, other consumers and GC [#2227](https://github.com/cloudamqp/lavinmq/issues/2227)
+
+## [2.10.0-rc.2] - 2026-09-24
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.10.0-rc.2> for changes in this pre-release
 
 ## [2.10.0-rc.1] - 2026-09-18
 
