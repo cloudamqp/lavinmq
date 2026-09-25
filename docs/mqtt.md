@@ -195,6 +195,7 @@ Example: allow every user to use only its own device subtrees under `chat/`.
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/members/%2A
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/rules/own-chat \
+  -H 'Content-Type: application/json' \
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 
