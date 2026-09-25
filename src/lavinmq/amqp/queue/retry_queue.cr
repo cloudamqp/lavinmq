@@ -11,7 +11,7 @@ module LavinMQ::AMQP
 
     @primary_queue : Queue
 
-    MAX_NAME_LENGTH = 256
+    MAX_NAME_LENGTH = 255
 
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
