@@ -1,5 +1,48 @@
 require "../spec_helper"
 
+# Holds the first permission group commit inside replace_file, which is where a
+# real leader suspends while it writes to the follower sockets.
+class GatedPermissionReplicator < NoOpReplicator
+  getter entered = Channel(Nil).new
+  getter release = Channel(Nil).new
+  @armed = false
+
+  def arm
+    @armed = true
+  end
+
+  def replace_file(path : String)
+    return unless @armed && path.ends_with?("mqtt_permissions.json")
+    @armed = false
+    @entered.send(nil)
+    @release.receive
+  end
+end
+
+# A request has no observable "parked on the mutex" state, so the specs below
+# wait instead. Too short a wait makes them pass without racing, never fail.
+PARK_DELAY = 200.milliseconds
+
+private def async(&block : -> Int32) : Channel(Int32)
+  channel = Channel(Int32).new
+  spawn { channel.send block.call }
+  channel
+end
+
+# Holds @save_lock across the block by parking a group create inside
+# replace_file, so every request the block starts queues on the lock. Returns
+# the status of each request the block hands back, in order.
+private def parked_behind_save_lock(http, replicator, &) : Array(Int32)
+  replicator.arm
+  holder = async { http.put("/api/mqtt/permission-groups/%2f/lock-holder").status_code }
+  replicator.entered.receive
+  queued = yield
+  sleep PARK_DELAY
+  replicator.release.send(nil)
+  holder.receive.should eq 201
+  queued.map(&.receive)
+end
+
 describe LavinMQ::HTTP::PermissionGroupsController do
   describe "groups" do
     it "reports failed saves without changing the active groups" do
@@ -177,7 +220,89 @@ describe LavinMQ::HTTP::PermissionGroupsController do
     end
   end
 
+  # Regression: these routes read the group, then park in Mutex#lock behind a
+  # commit that suspends inside replace_file. The read is fresh, the snapshot
+  # goes stale while they wait, and the last writer overwrites the others.
+  it "keeps both edits when two requests wait for the save lock" do
+    replicator = GatedPermissionReplicator.new
+    with_http_server(replicator: replicator) do |http, _|
+      http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+      rule = {pattern: "block/#", read: true}.to_json
+      http.put("/api/mqtt/permission-groups/%2f/grp/rules/block", body: rule).status_code.should eq 201
+
+      member, removal = parked_behind_save_lock(http, replicator) do
+        [async { http.put("/api/mqtt/permission-groups/%2f/grp/members/alice").status_code },
+         async { http.delete("/api/mqtt/permission-groups/%2f/grp/rules/block").status_code }]
+      end
+
+      members = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/members").body).as_a
+      members.map(&.["username"].as_s).should eq ["alice"]
+      JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a.should be_empty
+      member.should eq 201
+      removal.should eq 204
+    end
+  end
+
+  # Regression: the group create route checked the name outside the lock and
+  # then wrote an empty group. An import that commits while it parks on the
+  # lock is overwritten, and the route still answers 201.
+  it "does not overwrite a group imported while the create waits for the save lock" do
+    replicator = GatedPermissionReplicator.new
+    with_http_server(replicator: replicator) do |http, s|
+      defs = {mqtt_permissions: [
+        {name: "grp", vhost: "/", members: ["alice"],
+         rules: [{identifier: "sensors", pattern: "sensors/#", read: true, write: false}]},
+      ]}.to_json
+
+      imported, created = parked_behind_save_lock(http, replicator) do
+        import = async { http.post("/api/definitions", body: defs).status_code }
+        sleep PARK_DELAY # the import must park first, so it commits first
+        [import, async { http.put("/api/mqtt/permission-groups/%2f/grp").status_code }]
+      end
+
+      group = s.vhosts["/"].mqtt_permission_service["grp"]?.not_nil!
+      group.members.should eq ["alice"]
+      group.rules.map(&.identifier).should eq ["sensors"]
+      imported.should eq 200
+      created.should eq 204 # the name was taken by the time the lock was free
+    end
+  end
+
   describe "rules" do
+    # The handler must read the whole request body before it reads the group.
+    # A body that arrives in parts gives a concurrent edit time to commit.
+    it "keeps a rule committed while the request body is in flight" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
+
+        body = {pattern: "slow/#", read: true}.to_json
+        socket = TCPSocket.new(http.addr.address, http.addr.port)
+        socket.read_timeout = 5.seconds # a handler that keeps the lock must fail, not hang
+        begin
+          socket << "PUT /api/mqtt/permission-groups/%2f/grp/rules/slow HTTP/1.1\r\n"
+          socket << "Host: #{http.addr}\r\n"
+          socket << "Authorization: Basic Z3Vlc3Q6Z3Vlc3Q=\r\n"
+          socket << "Content-Type: application/json\r\n"
+          socket << "Content-Length: #{body.bytesize}\r\n\r\n"
+          socket << body[0, 5]
+          socket.flush
+          sleep 50.milliseconds # the handler now waits for the rest of the body
+
+          fast = {pattern: "fast/#", read: true}.to_json
+          http.put("/api/mqtt/permission-groups/%2f/grp/rules/fast", body: fast).status_code.should eq 201
+
+          socket << body[5..]
+          socket.flush
+          ::HTTP::Client::Response.from_io(socket).status_code.should eq 201
+        ensure
+          socket.close
+        end
+
+        rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/grp/rules").body).as_a
+        rules.map(&.["identifier"].as_s).sort!.should eq ["fast", "slow"]
+      end
+    end
+
     it "adds, lists, replaces and removes a rule by identifier" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/grp").status_code.should eq 201
@@ -233,6 +358,9 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         http.get("/api/mqtt/permission-groups/%2f/nope/rules").status_code.should eq 404
         http.put("/api/mqtt/permission-groups/%2f/nope/rules/r1", body: body).status_code.should eq 404
         http.delete("/api/mqtt/permission-groups/%2f/nope/rules/r1").status_code.should eq 404
+        # A missing group answers 404 before the body is validated, so a client
+        # that creates the group on 404 and retries is not sent a 400 instead.
+        http.put("/api/mqtt/permission-groups/%2f/nope/rules/r1", body: "{}").status_code.should eq 404
       end
     end
   end

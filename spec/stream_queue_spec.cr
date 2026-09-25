@@ -500,6 +500,34 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "anchors to the end of the restored stream after a restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-restart", args: stream_queue_args)
+          200.times { |i| q.publish_confirm "m#{i}" }
+        end
+
+        # The last offset is rebuilt from the segments on boot; a negative
+        # offset resolved against a stale or zeroed one would replay the whole
+        # stream instead of its tail.
+        restart_server(s)
+
+        with_channel(s) do |ch|
+          q = ch.queue("neg-offset-restart", args: stream_queue_args)
+          ch.prefetch 100
+          msgs = Channel(AMQP::Client::DeliverMessage).new(100)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
+            msgs.send(msg)
+            msg.ack
+          end
+          received = Array(AMQP::Client::DeliverMessage).new
+          100.times { received << msgs.receive }
+          StreamSpecHelpers.offset_from_headers(received.first.properties.headers).should eq 101
+          StreamSpecHelpers.offset_from_headers(received.last.properties.headers).should eq 200
+        end
+      end
+    end
+
     it "clamps Int64::MIN to the oldest available message" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

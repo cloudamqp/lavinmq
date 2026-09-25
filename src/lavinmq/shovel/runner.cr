@@ -60,6 +60,9 @@ module LavinMQ
           Log.info { "started" }
           @state = State::Running
           @retries = 0
+          # The error describes the run that ended, not this one; a resumed or
+          # reconnected shovel would otherwise show Running next to a stale reason.
+          @error = nil
           @source.each do |msg|
             @message_count += 1
             # Paused/terminated/aborted: start no new delivery. An already

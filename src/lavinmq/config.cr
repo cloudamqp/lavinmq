@@ -311,7 +311,7 @@ module LavinMQ
     end
 
     private def parse_value(value, type : Bool.class)
-      true?(value.downcase)
+      true?(value)
     end
 
     private def parse_value(value, type : Proc)
@@ -436,12 +436,14 @@ module LavinMQ
       end
     end
 
+    # Folded here, not at the call sites: the [sni:] branch passes raw ini
+    # values, so a capitalised TRUE read as false there but true in [main].
     private def false?(str : String?)
-      {"0", "false", "no", "off", "n"}.includes? str
+      {"0", "false", "no", "off", "n"}.includes? str.try &.downcase
     end
 
     private def true?(str : String?)
-      {"1", "true", "yes", "on", "y"}.includes? str
+      {"1", "true", "yes", "on", "y"}.includes? str.try &.downcase
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.

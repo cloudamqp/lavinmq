@@ -1,5 +1,6 @@
 require "../stats"
 require "./client"
+require "./reply_text"
 require "./consumer"
 require "./stream/stream_consumer"
 require "../error"
@@ -289,7 +290,7 @@ module LavinMQ
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           code = ChannelReplyCode::PRECONDITION_FAILED
-          send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
+          send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, e.message), 60_u16, 40_u16)
           Exchange::PublishResult::None
         end
       end
@@ -753,7 +754,7 @@ module LavinMQ
       # replies with Channel::CloseOk can't keep any of them alive.
       def close(reason : String) : Nil
         code = ChannelReplyCode::PRECONDITION_FAILED
-        send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{reason}", 0_u16, 0_u16)
+        send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, reason), 0_u16, 0_u16)
         @client.close_channel(self)
       end
 
@@ -780,7 +781,7 @@ module LavinMQ
                 unacked_ms = RoughTime.instant - unack.delivered_at
                 if unacked_ms > timeout.milliseconds
                   code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - consumer timeout", 60_u16, 20_u16)
+                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
                   break
                 end
               end

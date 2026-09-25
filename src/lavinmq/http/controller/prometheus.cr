@@ -206,7 +206,7 @@ module LavinMQ
         writer.write({name:  "cluster_received_bytes_total",
                       value: client.streamed_bytes,
                       type:  "counter",
-                      help:  "Total bytes received from the leader for replication"})
+                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
       end
     end
 
@@ -457,12 +457,12 @@ module LavinMQ
                         labels: {id: f.id.to_s(36)},
                         value:  f.sent_bytes,
                         type:   "counter",
-                        help:   "Total bytes sent to the follower for replication"})
+                        help:   "Bytes streamed to the follower over its current connection, counted from when it starts streaming; resets on reconnect"})
           writer.write({name:   "follower_bytes_acked_total",
                         labels: {id: f.id.to_s(36)},
                         value:  f.acked_bytes,
                         type:   "counter",
-                        help:   "Total bytes acknowledged as received by the follower"})
+                        help:   "Bytes the follower acknowledged over its current connection, counted from when it starts streaming; resets on reconnect"})
         end
         writer.write({name:  "mfile_count",
                       value: MFile.mmap_count,

@@ -706,7 +706,7 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec", [URI.parse(s.amqp_server.url)], "oo_q1",
-          prefetch: 3_u16, direct_user: s.users.direct_user, batch_ack_timeout: 50.milliseconds)
+          prefetch: 3_u16, direct_user: s.users.direct_user, batch_ack_timeout: 1.hour)
         with_channel(s) do |ch|
           x = ch.exchange("", "direct", passive: true)
           ch.queue("oo_q1")
@@ -719,8 +719,8 @@ describe LavinMQ::Shovel do
           # cumulative, so the source may only ack up to 1 until 2 is confirmed;
           # acking 3 would settle 2 before anyone has delivered it.
           source.ack(1_u64)
-          source.ack(3_u64)
-          sleep 200.milliseconds # a couple of ack-timeout flushes
+          source.ack(3_u64, batch: false)
+          wait_for { q1.unacked_count < 3 }
           q1.unacked_count.should eq 2
           source.ack(2_u64)
           should_eventually(eq 0) { q1.unacked_count }
@@ -1829,6 +1829,10 @@ describe LavinMQ::Shovel do
           shovel.resume
           should_eventually(be_true) { shovel.details_tuple[:confirmed] == 1 }
           shovel.running?.should be_true
+          # A Running shovel must not still advertise the reason it aborted:
+          # the UI and the API show state and error side by side, so a stale
+          # error reads as a shovel that is failing right now.
+          shovel.details_tuple[:error].should be_nil
           shovel.terminate
         end
       end
