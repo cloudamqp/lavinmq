@@ -399,10 +399,10 @@ module LavinMQ::AMQP10
     def send_transfer(session : Session, link : SenderLink, msg : BytesMessage,
                       sp : SegmentPosition, settled : Bool, redelivered = false) : Bool
       @write_lock.synchronize do
-        # Assign the delivery-id (== transfer-id of the first frame) and record
-        # the unacked entry under the lock so ids and unacked stay ordered even
-        # if two sender links deliver concurrently.
-        delivery_id = session.next_outgoing_id
+        # Assign the delivery-id and record the unacked entry under the lock so
+        # ids and unacked stay ordered even if two sender links deliver
+        # concurrently.
+        delivery_id = session.take_delivery_id
         tag = link.delivery_tag_buffer
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
         link.record_unacked(delivery_id, sp, MessageCodec.message_annotations(msg.properties.headers).try(&.dup)) unless settled

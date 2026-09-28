@@ -284,6 +284,9 @@ private class AMQP10SpecClient
     LavinMQ::AMQP10::Detach.from_value(read_value)
   end
 
+  # The delivery-id of the last delivery consume_one_fragmented read.
+  getter last_delivery_id : UInt32?
+
   def consume_one_fragmented(outcome = LavinMQ::AMQP10::Outcome::Accepted, max_frame_size : UInt32? = nil) : String
     payload = IO::Memory.new
     delivery_id = nil
@@ -299,6 +302,7 @@ private class AMQP10SpecClient
       break unless transfer.more
     end
     incoming = LavinMQ::AMQP10::MessageCodec.decode(IO::Memory.new(payload.to_slice))
+    @last_delivery_id = delivery_id
     LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16, delivery_id.not_nil!, outcome)
     String.new(incoming.body)
   end
@@ -2031,6 +2035,25 @@ describe LavinMQ::AMQP10 do
         client.attach_receiver("/queues/#{q.name}")
         client.flow
         client.consume_one_fragmented(max_frame_size: frame_max).should eq body
+        client.close
+      end
+    end
+  end
+
+  it "numbers deliveries in sequence however many frames each takes" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+        body = "x" * (frame_max.to_i * 3)
+        q = ch.queue("amqp10-fragmented-delivery-ids", auto_delete: true)
+        3.times { q.publish(body) }
+        client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max)
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 3_u32)
+        3.times do |i|
+          client.consume_one_fragmented(max_frame_size: frame_max).should eq body
+          client.last_delivery_id.should eq i.to_u32
+        end
         client.close
       end
     end

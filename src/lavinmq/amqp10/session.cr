@@ -671,9 +671,11 @@ module LavinMQ::AMQP10
     @detached_handles = Set(UInt32).new
     @sender_links = Array(SenderLink).new
     @next_local_handle = 0_u32
-    # Our outgoing transfer-id counter; a delivery-id equals the transfer-id of
-    # the delivery's first frame, so this doubles as the delivery-id source.
+    # Our outgoing transfer-id counter, advanced once per transfer frame.
     @next_outgoing_id = Atomic(UInt32).new(0_u32)
+    # Delivery-ids are a sequence of their own, advanced once per delivery
+    # however many frames it takes; only used under the client's write lock.
+    @next_delivery_id = 0_u32
     @next_incoming_id : Atomic(UInt32)
     @incoming_window_remaining = Atomic(UInt32).new(DEFAULT_WINDOW)
     # How many transfers the peer's session incoming-window can still accept.
@@ -908,6 +910,13 @@ module LavinMQ::AMQP10
 
     def next_outgoing_id : UInt32
       @next_outgoing_id.get(:acquire)
+    end
+
+    # Takes the next delivery-id; called by the client under the write lock.
+    def take_delivery_id : UInt32
+      id = @next_delivery_id
+      @next_delivery_id = id &+ 1
+      id
     end
 
     # Advance the outgoing transfer-id by the number of frames just written and
