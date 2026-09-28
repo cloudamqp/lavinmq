@@ -219,15 +219,7 @@ module LavinMQ::AMQP10
     end
 
     def send_attach(session : Session, link : Link, source : Source?, target : Target?, remote_attach : Attach? = nil) : Nil
-      # Each settle-mode field states the actual mode of the peer playing that
-      # role: ours for the role we play, echoed for the role the peer plays.
-      if link.role.receiver?
-        snd_mode = remote_attach.try(&.snd_settle_mode) || 0_u8
-        rcv_mode = 0_u8 # incoming transfers are always settled first
-      else
-        snd_mode = link.is_a?(SenderLink) && link.settled? ? 1_u8 : 0_u8
-        rcv_mode = remote_attach.try(&.rcv_settle_mode) || 0_u8
-      end
+      snd_mode, rcv_mode = settle_modes(link, remote_attach)
       fields_size = Codec.string_size(link.name) + Codec.uint_size(link.local_handle) + 1 + 2 + 2 +
                     (source.try(&.encoded_size) || 1) + (target.try(&.encoded_size) || 1)
       fields_count = 7
@@ -253,6 +245,16 @@ module LavinMQ::AMQP10
           io.write_byte 0x40_u8 # incomplete-unsettled: null
           Codec.write_uint(io, link.delivery_count)
         end
+      end
+    end
+
+    # Each settle-mode field states the actual mode of the peer playing that
+    # role: ours for the role we play, echoed for the role the peer plays.
+    private def settle_modes(link : Link, remote_attach : Attach?) : Tuple(UInt8, UInt8)
+      if link.role.receiver?
+        {remote_attach.try(&.snd_settle_mode) || 0_u8, 0_u8} # incoming transfers are always settled first
+      else
+        {link.is_a?(SenderLink) && link.settled? ? 1_u8 : 0_u8, remote_attach.try(&.rcv_settle_mode) || 0_u8}
       end
     end
 

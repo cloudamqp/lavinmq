@@ -405,7 +405,7 @@ module LavinMQ::AMQP10
           higher_prio_consumers = @queue.consumers.select { |c| c.priority > priority }
           break if higher_prio_consumers.empty?
         end
-        return true
+        true
       end
     end
 
@@ -439,7 +439,7 @@ module LavinMQ::AMQP10
         when @closed_channel.receive
           raise ClosedError.new
         end
-        return true
+        true
       end
     end
 
@@ -451,7 +451,7 @@ module LavinMQ::AMQP10
         when @closed_channel.receive
           raise ClosedError.new
         end
-        return true
+        true
       end
     end
 
@@ -465,7 +465,7 @@ module LavinMQ::AMQP10
         when @closed_channel.receive
           raise ClosedError.new
         end
-        return true
+        true
       end
     end
 

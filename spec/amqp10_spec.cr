@@ -531,7 +531,7 @@ describe LavinMQ::AMQP10::MessageCodec do
     incoming.properties.delivery_mode.should eq 2_u8
     incoming.properties.priority.should eq 7_u8
     incoming.properties.headers.not_nil!["app"].should eq "amqp10"
-    incoming.properties.headers.not_nil!["enabled"].should eq true
+    incoming.properties.headers.not_nil!["enabled"].should be_true
     incoming.properties.headers.not_nil!["tries"].should eq 3_u32
     incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
     String.new(incoming.body).should eq "body"
@@ -1575,7 +1575,7 @@ describe LavinMQ::AMQP10 do
         incoming = client.consume_one_message
         String.new(incoming.body).should eq "with-headers"
         incoming.properties.headers.not_nil!["app"].should eq "lavinmq"
-        incoming.properties.headers.not_nil!["enabled"].should eq true
+        incoming.properties.headers.not_nil!["enabled"].should be_true
         incoming.properties.headers.not_nil!["tries"].should eq 3_i32
         incoming.properties.headers.not_nil!["ratio"].should eq 1.5_f64
         client.close

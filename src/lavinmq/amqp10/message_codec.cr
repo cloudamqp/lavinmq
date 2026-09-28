@@ -620,7 +620,6 @@ module LavinMQ::AMQP10
       count
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def properties_fields_size(props, count) : Int32
       size = 0
       index = 0
@@ -667,7 +666,6 @@ module LavinMQ::AMQP10
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def application_property_value_size(value) : Int32
       case value
       when Nil, Bool
