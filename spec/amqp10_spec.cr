@@ -288,6 +288,12 @@ private class AMQP10SpecClient
     String.new(incoming.body)
   end
 
+  # A detach the server should not answer, e.g. the reply to its own detach.
+  def send_detach(handle : UInt32) : Nil
+    fields = [LavinMQ::AMQP10::Value.uint(handle), LavinMQ::AMQP10::Value.bool(true)]
+    send_performative(LavinMQ::AMQP10::Descriptor::DETACH, fields)
+  end
+
   def end_session(channel : UInt16 = 0_u16) : Nil
     send_performative(LavinMQ::AMQP10::Descriptor::END, Array(LavinMQ::AMQP10::Value).new, channel)
   end
@@ -1665,6 +1671,29 @@ describe LavinMQ::AMQP10 do
         attach.snd_settle_mode.should eq 0_u8
         attach = client.attach_receiver("/queues/#{q.name}", handle: 2_u32, name: "settled", snd_settle_mode: 1_u8)
         attach.snd_settle_mode.should eq 1_u8
+        client.close
+      end
+    end
+  end
+
+  it "ignores frames on rejected links until the peer detaches them" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-rejected-link-frames", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        # Clients typically issue credit right after attaching, before they see
+        # the server's detach of a rejected link.
+        client.attach_receiver_detached("/queues/missing", handle: 0_u32)
+        client.flow(handle: 0_u32)
+        client.attach_sender_detached("/queues/missing", handle: 1_u32)
+        client.publish_settled(1_u32, 1_u32, "to-nowhere")
+        client.send_detach(0_u32)
+        client.send_detach(1_u32)
+        client.expect_no_frame
+
+        # The connection is still usable and the handles can be reused.
+        client.attach_sender("/queues/#{q.name}", handle: 0_u32)
+        client.publish(0_u32, 2_u32, "after").should eq LavinMQ::AMQP10::Outcome::Accepted
         client.close
       end
     end

@@ -643,6 +643,10 @@ module LavinMQ::AMQP10
     getter remote_window : BoolChannel
     property? running = true
     @links = Hash(UInt32, Link).new
+    # Remote handles of links we detached (a rejected attach or a server-side
+    # detach) whose detach the peer has not sent yet. Frames the peer sent
+    # before it saw our detach still reference them and are ignored.
+    @detached_handles = Set(UInt32).new
     @sender_links = Array(SenderLink).new
     @next_local_handle = 0_u32
     # Our outgoing transfer-id counter; a delivery-id equals the transfer-id of
@@ -725,6 +729,7 @@ module LavinMQ::AMQP10
     # link from the session maps. Used by consumer-timeout and queue deletion.
     def detach_link(link : SenderLink, error : ErrorInfo? = nil) : Nil
       @links.delete(link.remote_handle)
+      @detached_handles << link.remote_handle
       @sender_links.delete(link)
       @client.send_detach(self, link.local_handle, true, error)
       link.close
@@ -755,6 +760,7 @@ module LavinMQ::AMQP10
       end
     rescue ex : ProtocolError
       @client.log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
+      @detached_handles << frame.handle
       @client.send_rejected_attach(self, frame, local_handle)
       @client.send_detach(self, local_handle, true,
         ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, ex.message))
@@ -807,6 +813,7 @@ module LavinMQ::AMQP10
     def flow(frame : Flow) : Nil
       update_remote_window(frame)
       if handle = frame.handle
+        return if @detached_handles.includes?(handle)
         link = @links[handle]? || raise ProtocolError.new("unknown link handle #{handle}")
         case link
         when SenderLink
@@ -830,6 +837,7 @@ module LavinMQ::AMQP10
 
     def transfer(transfer : TransferCodec::TransferView, payload : Bytes) : Nil
       advance_incoming_window
+      return if @detached_handles.includes?(transfer.handle)
       link = @links[transfer.handle]? || raise ProtocolError.new("unknown link handle #{transfer.handle}")
       receiver = link.as?(ReceiverLink) || raise ProtocolError.new("transfer sent on non-receiver link")
       # Only continuation frames may omit the delivery-id (2.7.5); without one
@@ -859,6 +867,9 @@ module LavinMQ::AMQP10
     end
 
     def detach(frame : Detach) : Nil
+      # The peer's answer to a detach we sent: nothing to reply, and the
+      # handle may be reused from now on.
+      return if @detached_handles.delete(frame.handle)
       if link = @links.delete(frame.handle)
         @sender_links.delete(link)
         link.close
