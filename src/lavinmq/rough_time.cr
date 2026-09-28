@@ -1,77 +1,52 @@
-require "../stdlib/channel"
-
-# Cached clocks for hot paths, updated every 100ms by a background ticker.
+# Cheap, low resolution clocks for hot paths.
 #
-# Reading the real clocks costs ~30ns, which adds up at several reads per
-# message. To not wake up 10 times per second when nothing reads the time, the
-# ticker parks after PARK_AFTER ticks without any readers. The first read while
-# parked refreshes the values itself (so it never returns a stale time) and
-# wakes the ticker up again.
+# Reads the kernel's coarse clocks, which are served from the vDSO/commpage
+# without a syscall and only updated at the timer tick (typically 1-4 ms on
+# Linux). No background thread is needed, so nothing wakes up when idle.
+#
+# NOTE: `RoughTime.instant` must only be compared with other
+# `RoughTime.instant` values, not with `Time.instant`. On Linux `Time.instant`
+# uses `CLOCK_BOOTTIME` (includes suspended time) while there's no coarse
+# variant of that clock, so `CLOCK_MONOTONIC_COARSE` is used here.
 module RoughTime
-  TICK       = 100.milliseconds
-  PARK_AFTER = 10
+  UNIX_EPOCH_IN_SECONDS = 62135596800_i64
 
-  @@utc = Time.utc
-  @@unix_ms : Int64 = @@utc.to_unix_ms // 100 * 100
-  @@instant = Time.instant
-  @@used = Atomic(Bool).new(false)
-  @@parked = Atomic(Bool).new(false)
-  @@wakeup = ::Channel(Nil).new(1)
-
-  Fiber::ExecutionContext::Isolated.new("RoughTime") do
-    idle_ticks = 0
-    loop do
-      sleep TICK
-      refresh
-      if @@used.swap(false, :relaxed)
-        idle_ticks = 0
-      elsif (idle_ticks += 1) >= PARK_AFTER
-        @@parked.set(true, :release)
-        @@wakeup.receive
-        idle_ticks = 0
-      end
-    end
-  end
+  {% if flag?(:linux) %}
+    REALTIME_CLOCK  = LibC::CLOCK_REALTIME_COARSE
+    MONOTONIC_CLOCK = LibC::CLOCK_MONOTONIC_COARSE
+  {% elsif flag?(:freebsd) || flag?(:dragonfly) %}
+    REALTIME_CLOCK  = LibC::CLOCK_REALTIME_FAST
+    MONOTONIC_CLOCK = LibC::CLOCK_MONOTONIC_FAST
+  {% elsif flag?(:darwin) %}
+    # CLOCK_REALTIME is already read from the commpage without a syscall.
+    REALTIME_CLOCK = LibC::CLOCK_REALTIME
+    # CLOCK_MONOTONIC_RAW_APPROX, same base as CLOCK_MONOTONIC_RAW used by
+    # Time.instant, but only updated at context switches
+    MONOTONIC_CLOCK = 5
+  {% else %}
+    REALTIME_CLOCK  = LibC::CLOCK_REALTIME
+    MONOTONIC_CLOCK = LibC::CLOCK_MONOTONIC
+  {% end %}
 
   def self.utc : Time
-    touch
-    @@utc
+    ts = clock_gettime(REALTIME_CLOCK)
+    Time.utc(seconds: ts.tv_sec.to_i64 + UNIX_EPOCH_IN_SECONDS, nanoseconds: ts.tv_nsec.to_i32)
   end
 
   def self.unix_ms : Int64
-    touch
-    @@unix_ms
+    ts = clock_gettime(REALTIME_CLOCK)
+    ms = ts.tv_sec.to_i64 * 1000 + ts.tv_nsec.to_i64 // 1_000_000
+    ms // 100 * 100
   end
 
   def self.instant : Time::Instant
-    touch
-    @@instant
+    ts = clock_gettime(MONOTONIC_CLOCK)
+    Time::Instant.new(seconds: ts.tv_sec.to_i64, nanoseconds: ts.tv_nsec.to_i32)
   end
 
-  # :nodoc:
-  def self.parked? : Bool
-    @@parked.get(:acquire)
-  end
-
-  @[AlwaysInline]
-  private def self.touch : Nil
-    if @@parked.get(:acquire)
-      unpark
-    elsif !@@used.get(:relaxed)
-      @@used.set(true, :relaxed)
-    end
-  end
-
-  private def self.unpark : Nil
-    refresh
-    @@used.set(true, :relaxed)
-    _, unparked = @@parked.compare_and_set(true, false, :acquire_release, :relaxed)
-    @@wakeup.try_send?(nil) if unparked
-  end
-
-  private def self.refresh : Nil
-    @@utc = utc = Time.utc
-    @@unix_ms = utc.to_unix_ms // 100 * 100
-    @@instant = Time.instant
+  private def self.clock_gettime(clock) : LibC::Timespec
+    ret = LibC.clock_gettime(clock, out ts)
+    raise RuntimeError.from_errno("clock_gettime") unless ret == 0
+    ts
   end
 end
