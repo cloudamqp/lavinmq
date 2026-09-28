@@ -2463,6 +2463,24 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "refuses receivers on queues an exclusive consumer holds" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-exclusive-consumer") # not auto-delete: it outlives the consumer
+        tag = q.subscribe(exclusive: true) { }
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver_detached("/queues/#{q.name}")
+        client.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+
+        q.unsubscribe(tag)
+        internal_q = s.vhosts["/"].queue(q.name)
+        should_eventually(be_false) { internal_q.has_exclusive_consumer? }
+        client.attach_receiver("/queues/#{q.name}", handle: 1_u32).source.not_nil!.address.should eq "/queues/#{q.name}"
+        client.close
+      end
+    end
+  end
+
   it "creates and deletes dynamic source queues on detach" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))

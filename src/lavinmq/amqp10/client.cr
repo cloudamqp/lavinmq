@@ -207,6 +207,8 @@ module LavinMQ::AMQP10
       queue_name = Address.parse_source(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid source address #{address}")
       q = @vhost.queue?(queue_name).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{queue_name}' not found")
       raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
+      # Queue#add_consumer does not enforce an exclusive consumer's claim.
+      raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' in exclusive use") if q.has_exclusive_consumer?
       unless @user.can_read?(@vhost.name, queue_name)
         raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{queue_name}'")
       end
