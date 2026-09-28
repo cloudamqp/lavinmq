@@ -288,6 +288,10 @@ private class AMQP10SpecClient
     String.new(incoming.body)
   end
 
+  def end_session(channel : UInt16 = 0_u16) : Nil
+    send_performative(LavinMQ::AMQP10::Descriptor::END, Array(LavinMQ::AMQP10::Value).new, channel)
+  end
+
   def detach(handle = 0_u32) : Nil
     fields = [LavinMQ::AMQP10::Value.uint(handle), LavinMQ::AMQP10::Value.bool(true)]
     send_performative(LavinMQ::AMQP10::Descriptor::DETACH, fields)
@@ -1498,6 +1502,42 @@ describe LavinMQ::AMQP10 do
         # We have received one transfer, so our next-incoming-id is 1; make room for one more.
         client.session_flow(next_incoming_id: 1_u32, incoming_window: 1_u32)
         client.consume_one.should eq "two"
+        client.close
+      end
+    end
+  end
+
+  it "ends a session closed via the management API and discards its in-flight frames" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-session-close", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        q.publish("unacked")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+        client.read_delivery
+        should_eventually(eq 1) { internal_q.unacked_count }
+
+        amqp10_session(s).close("closed by admin")
+
+        end_frame = client.read_value
+        end_frame.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::END
+        error = client.error_fields(end_frame)
+        error[0].symbol?.should eq LavinMQ::AMQP10::ErrorCondition::PRECONDITION_FAILED
+        error[1].string?.should eq "closed by admin"
+        should_eventually(eq 1) { internal_q.message_count }
+        internal_q.unacked_count.should eq 0
+
+        # Sent before the peer processed our end: must be ignored, not treated
+        # as a frame on an unknown session.
+        client.flow
+        client.end_session
+        client.expect_no_frame
+
+        # The channel can be reused once the end exchange is complete.
+        client.begin_session
+        client.read_performative_code.should eq LavinMQ::AMQP10::Descriptor::BEGIN
         client.close
       end
     end

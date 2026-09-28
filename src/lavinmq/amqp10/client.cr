@@ -34,6 +34,10 @@ module LavinMQ::AMQP10
 
     @connected_at = RoughTime.unix_ms
     @sessions = Hash(UInt16, Session).new
+    # Channels of sessions we ended (e.g. closed via the management API) whose
+    # end the peer has not answered yet; their frames are discarded meanwhile.
+    @ending_sessions = Set(UInt16).new
+    @ending_lock = Mutex.new(:checked)
     @exclusive_queues = Array(LavinMQ::AMQP::Queue).new
     @running = true
     @write_lock = Mutex.new(:checked)
@@ -301,11 +305,40 @@ module LavinMQ::AMQP10
       end
     end
 
-    def send_end(channel : UInt16) : Nil
-      send_frame((8 + 3 + 1).to_u32, channel) do |io|
-        Codec.write_descriptor(io, Descriptor::END)
-        io.write_byte 0x45_u8 # empty list0
+    def send_end(channel : UInt16, error : ErrorInfo? = nil) : Nil
+      if error
+        fields_size = error.encoded_size
+        frame_size = 8 + 3 + Codec.list_header_size(fields_size) + fields_size
+        send_frame(frame_size.to_u32, channel) do |io|
+          Codec.write_descriptor(io, Descriptor::END)
+          Codec.write_list_header(io, fields_size, 1)
+          error.write_to(io)
+        end
+      else
+        send_frame((8 + 3 + 1).to_u32, channel) do |io|
+          Codec.write_descriptor(io, Descriptor::END)
+          io.write_byte 0x45_u8 # empty list0
+        end
       end
+    end
+
+    # Server-initiated session end: the session is closed right away, like a
+    # 0-9-1 channel closed via the management API, and the peer is told why.
+    # The session stays registered until the peer answers with its own end.
+    def end_session(session : Session, error : ErrorInfo) : Nil
+      @ending_lock.synchronize { return unless @ending_sessions.add?(session.id) }
+      session.close
+      send_end(session.id, error)
+    end
+
+    private def ending_session?(channel : UInt16) : Bool
+      @ending_lock.synchronize { @ending_sessions.includes?(channel) }
+    end
+
+    # The peer answered our end: the channel may be reused from now on.
+    private def finish_ending_session(channel : UInt16) : Nil
+      @ending_lock.synchronize { @ending_sessions.delete(channel) }
+      @sessions.delete(channel).try &.close
     end
 
     def send_close(error : ErrorInfo? = nil) : Nil
@@ -500,7 +533,15 @@ module LavinMQ::AMQP10
       raise DecodeError.new("unexpected SASL frame after SASL negotiation") unless frame.type == AMQP_FRAME_TYPE
       return if frame.body.empty? # empty (idle-timeout keepalive) frame
 
-      case peek_descriptor_code(frame.body)
+      code = peek_descriptor_code(frame.body)
+      if ending_session?(frame.channel)
+        # Frames the peer sent before it saw our end are dropped; its end
+        # completes the exchange and must not be answered with another one.
+        finish_ending_session(frame.channel) if code == Descriptor::END
+        return
+      end
+
+      case code
       when Descriptor::TRANSFER
         reader = frame.body_reader
         transfer = TransferCodec.read_transfer(reader)

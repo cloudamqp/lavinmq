@@ -953,6 +953,11 @@ module LavinMQ::AMQP10
       @client.vhost.event_tick(EventType::ClientReject)
     end
 
+    # Ends the session from the server side, e.g. via the management API.
+    def close(reason : String) : Nil
+      @client.end_session(self, ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, reason))
+    end
+
     def close
       return unless @running
       @running = false
