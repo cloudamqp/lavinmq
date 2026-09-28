@@ -36,20 +36,23 @@ module LavinMQ::AMQP10
         user = authenticate_without_sasl(socket, connection_info, log) || return
         mechanism = "ANONYMOUS"
       end
-      # Sized for our frame_max; the client keeps using it once the negotiated
-      # (never larger) size is known, rather than allocating a second buffer.
+      # Sized for our frame_max, the limit we advertise for incoming frames;
+      # the client keeps using it rather than allocating a second buffer.
       reader = FrameReader.new(socket, Config.instance.frame_max)
       open = read_open(reader, log) || return
+      # Outgoing frames must fit the peer's max-frame-size (and ours).
       max_frame_size = negotiated_frame_max(open.max_frame_size)
+      local_max_frame_size = local_frame_max(max_frame_size)
       channel_max = server_channel_max
       # Advertise our own idle-timeout so dead peers are reaped, and honor the
       # peer's so it does not drop us during idle periods.
       local_idle_timeout = server_idle_timeout
       remote_idle_timeout = open.idle_time_out
-      vhost = resolve_vhost(socket, open, user, max_frame_size, channel_max, local_idle_timeout, log) || return
+      vhost = resolve_vhost(socket, open, user, local_max_frame_size, channel_max, local_idle_timeout, log) || return
 
       client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size,
-        remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max)
+        remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max,
+        local_max_frame_size: local_max_frame_size)
       client.send_open
       client
     rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | DecodeError | ProtocolError
@@ -220,6 +223,14 @@ module LavinMQ::AMQP10
     private def server_channel_max : UInt16
       channel_max = Config.instance.channel_max
       channel_max.zero? ? UInt16::MAX : channel_max
+    end
+
+    # The max-frame-size we advertise and accept incoming frames up to: our
+    # frame_max, or with frame_max 0 (unlimited) the negotiated size, so the
+    # frame buffer never grows past what the peer sends.
+    private def local_frame_max(negotiated : UInt32) : UInt32
+      server = Config.instance.frame_max
+      server.zero? ? negotiated : server
     end
 
     private def negotiated_frame_max(client_frame_max) : UInt32

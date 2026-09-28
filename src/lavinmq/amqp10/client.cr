@@ -59,7 +59,11 @@ module LavinMQ::AMQP10
                    @remote_idle_timeout : UInt32? = nil,
                    @local_idle_timeout : UInt32? = nil,
                    @frame_reader : FrameReader? = nil,
-                   @channel_max : UInt16 = UInt16::MAX)
+                   @channel_max : UInt16 = UInt16::MAX,
+                   local_max_frame_size : UInt32? = nil)
+      # Ours, advertised in the Open and the limit for incoming frames;
+      # @max_frame_size is the limit for outgoing ones.
+      @local_max_frame_size = local_max_frame_size || @max_frame_size
       @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
       @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
       @log = Logger.new(Log, @metadata)
@@ -201,7 +205,7 @@ module LavinMQ::AMQP10
     end
 
     def send_open : Nil
-      open = Open.new(SERVER_CONTAINER_ID, nil, @max_frame_size, @channel_max, @local_idle_timeout)
+      open = Open.new(SERVER_CONTAINER_ID, nil, @local_max_frame_size, @channel_max, @local_idle_timeout)
       send_frame(open.frame_size, 0_u16) { |io| open.write_body(io) }
     end
 
@@ -474,12 +478,12 @@ module LavinMQ::AMQP10
     end
 
     # Keeps using the reader the Open was read with when its buffer can hold
-    # the negotiated max-frame-size, which it always can unless frame_max is 0
+    # our max-frame-size, which it always can unless frame_max is 0
     # (unlimited) and the reader was sized to the minimum.
     private def connection_frame_reader : FrameReader
-      reader = @frame_reader.try { |r| r if r.buffer_size >= @max_frame_size } ||
-               FrameReader.new(@socket, @max_frame_size)
-      reader.max_frame_size = @max_frame_size
+      reader = @frame_reader.try { |r| r if r.buffer_size >= @local_max_frame_size } ||
+               FrameReader.new(@socket, @local_max_frame_size)
+      reader.max_frame_size = @local_max_frame_size
       reader
     end
 

@@ -20,7 +20,7 @@ LavinMQ accepts AMQP 1.0 connections on the same listener as AMQP 0-9-1. The pro
 
 | Parameter | Value |
 |-----------|-------|
-| `max-frame-size` | The lower of the client's value and `frame_max` (default 131,072 bytes). Deliveries larger than that are split over several `transfer` frames. |
+| `max-frame-size` | `frame_max` (default 131,072 bytes), the largest frame LavinMQ accepts. Frames it sends fit the lower of that and the client's value; deliveries larger than that are split over several `transfer` frames. |
 | `channel-max` | `channel_max` (default 2,048). A `begin` on a channel above it closes the connection. `0` in the config means unlimited. |
 | `idle-time-out` | `heartbeat` in seconds, converted to milliseconds (default 300 s). `0` disables it. |
 

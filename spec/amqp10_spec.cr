@@ -1531,18 +1531,42 @@ describe LavinMQ::AMQP10 do
     end
   end
 
-  it "closes the connection on frames larger than the negotiated max-frame-size" do
+  it "closes the connection on frames larger than its max-frame-size" do
+    frame_max = LavinMQ::Config.instance.frame_max
+    LavinMQ::Config.instance.frame_max = 4096_u32
     with_amqp_server do |s|
-      frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
-      client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max)
+      # The peer's larger max-frame-size limits only what the server sends.
+      client = AMQP10SpecClient.new(amqp_port(s), frame_max: 65_536_u32)
       # The limit counts the 8 byte frame header as well.
-      client.send_junk_frame(frame_max.to_i + 1)
+      client.send_junk_frame(4097)
 
       close = client.read_value
       close.descriptor_code?.should eq LavinMQ::AMQP10::Descriptor::CLOSE
       client.error_fields(close)[0].symbol?.should eq LavinMQ::AMQP10::ErrorCondition::DECODE_ERROR
-      client.error_fields(close)[1].string?.should eq "AMQP 1.0 frame too large #{frame_max + 1}"
+      client.error_fields(close)[1].string?.should eq "AMQP 1.0 frame too large 4097"
       client.close
+    end
+  ensure
+    LavinMQ::Config.instance.frame_max = frame_max.not_nil!
+  end
+
+  it "advertises its own max-frame-size and accepts frames up to it from a peer with a smaller one" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-own-frame-max", auto_delete: true)
+        frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+        client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max, expect_open: false)
+        open = LavinMQ::AMQP10::Open.from_value(client.read_value)
+        open.max_frame_size.should eq LavinMQ::Config.instance.frame_max
+
+        client.begin_session
+        client.read_performative_code.should eq LavinMQ::AMQP10::Descriptor::BEGIN
+        client.attach_sender("/queues/#{q.name}")
+        body = "x" * 2000 # a frame larger than the peer's own max-frame-size
+        client.publish(0_u32, 1_u32, body).should eq LavinMQ::AMQP10::Outcome::Accepted
+        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq body
+        client.close
+      end
     end
   end
 
