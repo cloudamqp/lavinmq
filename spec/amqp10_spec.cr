@@ -2040,6 +2040,33 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "waits for the peer's session window between the frames of a delivery" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        frame_max = LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE
+        body = "x" * (frame_max.to_i * 2)
+        q = ch.queue("amqp10-fragmented-session-window", auto_delete: true)
+        q.publish(body)
+        client = AMQP10SpecClient.new(amqp_port(s), frame_max: frame_max, incoming_window: 1_u32)
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow
+        frames = 0
+        loop do
+          transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(client.reader.read.body_reader)
+          frames += 1
+          break unless transfer.more
+          # The window is used up: the next frame waits until it is reopened.
+          client.io.read_timeout = 200.milliseconds
+          expect_raises(IO::TimeoutError) { client.reader.read }
+          client.io.read_timeout = 5.seconds
+          client.session_flow(frames.to_u32, 1_u32)
+        end
+        frames.should be > 2
+        client.close
+      end
+    end
+  end
+
   it "numbers deliveries in sequence however many frames each takes" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

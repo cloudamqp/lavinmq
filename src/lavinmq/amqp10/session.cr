@@ -465,7 +465,7 @@ module LavinMQ::AMQP10
 
     # Blocks until the peer's session incoming-window has room for another
     # transfer, so we never overrun the window the client advertised.
-    private def wait_for_remote_window
+    def wait_for_remote_window
       unless @session.remote_window_open?
         @session.client.flush
         select

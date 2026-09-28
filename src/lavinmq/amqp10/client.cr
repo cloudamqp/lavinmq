@@ -406,9 +406,11 @@ module LavinMQ::AMQP10
         tag = link.delivery_tag_buffer
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
         link.record_unacked(delivery_id, sp, MessageCodec.message_annotations(msg.properties.headers).try(&.dup)) unless settled
-        bytes, frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
-          delivery_id, tag, msg, @max_frame_size, settled, redelivered)
-        session.advance_outgoing(frames)
+        bytes, _frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
+          delivery_id, tag, msg, @max_frame_size, settled, redelivered) do |more|
+          session.advance_outgoing(1_u32)
+          wait_for_session_window(session, link) if more
+        end
         add_send_bytes(bytes)
       end
       true
@@ -416,6 +418,22 @@ module LavinMQ::AMQP10
       @log.debug { "Lost AMQP 1.0 connection while sending transfer: #{ex.inspect}" }
       close_socket
       false
+    end
+
+    # The peer's session window can run out partway through a delivery; the
+    # remaining frames wait for its flow. The write lock is released meanwhile,
+    # as the read loop needs it to answer frames, and the window is checked
+    # again under the lock, which every transfer is written under.
+    private def wait_for_session_window(session : Session, link : SenderLink) : Nil
+      until session.remote_window_open?
+        @socket.flush
+        @write_lock.unlock
+        begin
+          link.wait_for_remote_window
+        ensure
+          @write_lock.lock
+        end
+      end
     end
 
     def flush : Nil

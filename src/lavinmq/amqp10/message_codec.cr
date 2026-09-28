@@ -434,10 +434,19 @@ module LavinMQ::AMQP10
       Sequence
     end
 
-    # Returns the number of AMQP 1.0 transfer frames written.
+    # Returns the bytes and the number of AMQP 1.0 transfer frames written.
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
                        delivery_tag : Bytes, msg : BytesMessage, max_frame_size = UInt32::MAX,
                        settled = false, redelivered = false) : Tuple(UInt64, UInt32)
+      write_transfer(io, channel, handle, delivery_id, delivery_tag, msg, max_frame_size, settled, redelivered) { }
+    end
+
+    # Yields after each frame is written, with whether more frames of the
+    # delivery follow, so the caller can account for the peer's session window
+    # frame by frame.
+    def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
+                       delivery_tag : Bytes, msg : BytesMessage, max_frame_size, settled, redelivered,
+                       & : Bool -> Nil) : Tuple(UInt64, UInt32)
       if msg.bodysize > UInt32::MAX
         raise ProtocolError.new("message too large for AMQP 1.0 data section")
       end
@@ -454,10 +463,13 @@ module LavinMQ::AMQP10
         TransferCodec.write_transfer_performative(io, handle, delivery_id, delivery_tag, false, settled)
         write_message_sections_prefix(io, msg, sizes)
         io.write msg.body
+        yield false
         return {frame_size, 1_u32}
       end
 
-      write_fragmented_transfer(io, channel, handle, delivery_id, delivery_tag, msg, sizes, max, settled)
+      write_fragmented_transfer(io, channel, handle, delivery_id, delivery_tag, msg, sizes, max, settled) do |more|
+        yield more
+      end
     end
 
     private def compute_section_sizes(msg : BytesMessage, redelivered : Bool) : SectionSizes
@@ -662,7 +674,7 @@ module LavinMQ::AMQP10
 
     private def write_fragmented_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
                                           delivery_tag : Bytes, msg : BytesMessage, sizes : SectionSizes,
-                                          max : UInt64, settled : Bool) : Tuple(UInt64, UInt32)
+                                          max : UInt64, settled : Bool, & : Bool -> Nil) : Tuple(UInt64, UInt32)
       prefix_size = sizes.total
       prefix_offset = 0
       body_offset = 0
@@ -706,6 +718,7 @@ module LavinMQ::AMQP10
           chunk_size, prefix_writer)
         written += frame_size
         frames += 1
+        yield more
       end
 
       {written, frames}
