@@ -41,7 +41,7 @@ module LavinMQ
 
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
-      def stop_link(federated_exchange : Exchange)
+      def stop_link(federated_exchange : AMQP::Exchange)
         @ex_links.delete(federated_exchange.name).try(&.delete)
       end
 
@@ -61,7 +61,7 @@ module LavinMQ
       # get bindings for downstream exchange
       # add bindings from upstream exchange to x-federation-upstream exchange
       # keep downstream exchange bindings reflected on x-federation-upstream exchange
-      def link(federated_exchange : Exchange) : ExchangeLink
+      def link(federated_exchange : AMQP::Exchange) : ExchangeLink
         if link = @ex_links[federated_exchange.name]?
           return link
         end

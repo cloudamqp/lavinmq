@@ -4,7 +4,7 @@ require "./event_type"
 require "./queue_factory"
 require "./amqp/exchange/*"
 require "./amqp/queue"
-require "./mqtt/exchange"
+require "./mqtt/definitions_store"
 
 module LavinMQ
   class DefinitionsStore
@@ -12,18 +12,10 @@ module LavinMQ
 
     @definitions_file : File
 
-    # The vhost's MQTT exchange. Created with the store rather than declared, so
-    # that it's always there when frames are applied — bindings with it as
-    # source would be dropped otherwise. It isn't durable, which is what keeps
-    # it out of the definitions file.
-    getter mqtt_exchange : MQTT::Exchange
-
-    def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?, @log : Logger)
+    def initialize(@vhost : VHost, @data_dir : String, @replicator : Clustering::Replicator?,
+                   @log : Logger, @mqtt : MQTT::DefinitionsStore)
       @exchanges = Hash(String, Exchange).new
       @queues = Hash(String, AMQP::Queue).new
-      @sessions = Hash(String, MQTT::Session).new
-      @mqtt_exchange = MQTT::Exchange.new(@vhost, MQTT::EXCHANGE)
-      @exchanges[MQTT::EXCHANGE] = @mqtt_exchange
       @definitions_lock = Mutex.new(:reentrant)
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       # Unbuffered (sync) writes: replication offsets (store_definition) and a
@@ -129,36 +121,6 @@ module LavinMQ
       @queues.clear
     end
 
-    # Session accessors
-
-    def session?(name : String) : MQTT::Session?
-      @sessions[name]?
-    end
-
-    def session(name : String) : MQTT::Session
-      @sessions[name]
-    end
-
-    def session_exists?(name : String) : Bool
-      @sessions.has_key?(name)
-    end
-
-    def each_session(& : MQTT::Session ->) : Nil
-      @sessions.each_value { |v| yield v }
-    end
-
-    def sessions : Array(MQTT::Session)
-      @sessions.values
-    end
-
-    def sessions_size : Int32
-      @sessions.size
-    end
-
-    def sessions_clear : Nil
-      @sessions.clear
-    end
-
     # ameba:disable Metrics/CyclomaticComplexity
     def apply(f, loading = false, fsync = true) : Bool
       @definitions_lock.synchronize do
@@ -195,18 +157,19 @@ module LavinMQ
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
-          return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
-          q = QueueFactory.make(@vhost, f)
-          if q.is_a?(MQTT::Session)
-            @sessions[f.queue_name] = q
+          return false if @queues.has_key?(f.queue_name) || @mqtt.session_exists?(f.queue_name)
+          if mqtt_session? f
+            # Persisted, policy-applied and event-ticked by the MQTT store.
+            @mqtt.declare_session(f.queue_name, f.auto_delete,
+              loading: loading, fsync: fsync) || return false
           else
-            @queues[f.queue_name] = q.as(AMQP::Queue)
+            q = @queues[f.queue_name] = QueueFactory.make(@vhost, f)
+            @vhost.apply_policies([q] of Queue) unless loading
+            store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
+            @vhost.event_tick(EventType::QueueDeclared) unless loading
           end
-          @vhost.apply_policies([q] of Queue) unless loading
-          store_definition(f, fsync: fsync) if !loading && f.durable && !f.exclusive
-          @vhost.event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
+          if q = @queues.delete(f.queue_name)
             unless @vhost.closed?
               @exchanges.each_value do |ex|
                 ex.bindings_details.each do |binding|
@@ -218,33 +181,49 @@ module LavinMQ
             store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
             @vhost.event_tick(EventType::QueueDeleted) unless loading
             q.delete
+          elsif s = @mqtt.delete_session(f.queue_name)
+            # delete_session drops the subscriptions, persists and event-ticks
+            s.delete
           else
             return false
           end
         when AMQP::Frame::Queue::Bind
-          x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
-          return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
+          if f.exchange_name == MQTT::EXCHANGE
+            s = @mqtt.session?(f.queue_name) || return false
+            return false unless @mqtt.subscribe(s, f.routing_key, MQTT.qos(f.arguments),
+                                  loading: loading, fsync: fsync)
+          else
+            x = @exchanges[f.exchange_name]? || return false
+            q = @queues[f.queue_name]? || @mqtt.session?(f.queue_name) || return false
+            return false unless x.bind(q, f.routing_key, f.arguments)
+            store_definition(f, fsync: fsync) if !loading && persist_binding?(x, q)
+          end
         when AMQP::Frame::Queue::Unbind
-          x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || @sessions[f.queue_name]? || return false
-          return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
+          if f.exchange_name == MQTT::EXCHANGE
+            s = @mqtt.session?(f.queue_name) || return false
+            return false unless @mqtt.unsubscribe(s, f.routing_key)
+          else
+            x = @exchanges[f.exchange_name]? || return false
+            q = @queues[f.queue_name]? || @mqtt.session?(f.queue_name) || return false
+            return false unless x.unbind(q, f.routing_key, f.arguments)
+            store_definition(f, dirty: true) if !loading && persist_binding?(x, q)
+          end
         else raise "Cannot apply frame #{f.class} in vhost #{@vhost.name}"
         end
         true
       end
     end
 
-    # Bindings are stored so they can be restored on boot. The MQTT exchange is
-    # not durable — it's created with the store, never declared — but bindings
-    # from durable sessions to it must survive a restart.
     private def persist_binding?(x : Exchange, q : Queue) : Bool
-      q.durable? && !q.exclusive? && (x.durable? || x.same?(@mqtt_exchange))
+      x.durable? && q.durable? && !q.exclusive?
     end
 
-    def queue_bindings(queue : Queue)
+    # How both the MQTT broker and definition imports declare a session.
+    private def mqtt_session?(frame) : Bool
+      frame.arguments["x-queue-type"]? == "mqtt"
+    end
+
+    def queue_bindings(queue : AMQP::Queue)
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
@@ -259,6 +238,7 @@ module LavinMQ
       queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
       should_compact = false
+      mqtt_frames = false
       io = @definitions_file
       if io.size.zero?
         load_default_definitions
@@ -291,12 +271,14 @@ module LavinMQ
             end
             should_compact = true
           when AMQP::Frame::Queue::Declare
+            mqtt_frames = true if mqtt_session? f
             queues[f.queue_name] = f
           when AMQP::Frame::Queue::Delete
             queues.delete f.queue_name
             queue_bindings.delete f.queue_name
             should_compact = true
           when AMQP::Frame::Queue::Bind
+            mqtt_frames = true if f.exchange_name == MQTT::EXCHANGE
             queue_bindings[f.queue_name] << f
           when AMQP::Frame::Queue::Unbind
             queue_bindings[f.queue_name].reject! do |b|
@@ -323,7 +305,18 @@ module LavinMQ
       queue_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
 
       @log.info { "Definitions loaded" }
-      compact! if should_compact
+
+      if mqtt_frames
+        # The frames have been applied into the MQTT store above; make them
+        # durable there before rewriting this file without them. A crash in
+        # between leaves them in both files and the next boot drops the
+        # duplicates, whereas the reverse order would lose them.
+        @log.info { "Migrating MQTT definitions to definitions.mqtt" }
+        @mqtt.rewrite!
+        compact!
+      elsif should_compact
+        compact!
+      end
     end
 
     def close : Nil
@@ -353,8 +346,6 @@ module LavinMQ
         # @definitions_file after the rename.
         io = File.open("#{@definitions_file_path}.tmp", "a+").tap &.sync = true
         SchemaVersion.prefix(io, :definition)
-        # Durable only, which is what keeps the MQTT exchange out: it's created
-        # with the store, and `make_exchange` can't build its type from a frame.
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable?, e.auto_delete?, e.internal?,
@@ -366,14 +357,6 @@ module LavinMQ
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
         end
-        @sessions.each_value.select(&.durable?).each do |s|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, s.name, false, s.durable?, s.exclusive?,
-            s.auto_delete?, false, s.arguments)
-          io.write_bytes f
-        end
-        # Not filtered on the source being durable: the bindings written here
-        # are the ones the incremental path in `apply` would have stored, which
-        # includes bindings from durable sessions to the (non-durable) MQTT exchange.
         @exchanges.each_value do |e|
           e.bindings_details.each do |binding|
             args = binding.arguments || AMQP::Table.new
