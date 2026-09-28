@@ -52,6 +52,11 @@
         @interval.get(:relaxed).nanoseconds
       end
 
+      # Back off exponentially while idle, reset as soon as there's work.
+      def self.next_interval(every : Time::Span, busy : Bool) : Time::Span
+        busy ? DEFAULT_EVERY : Math.min(every * 2, MAX_EVERY)
+      end
+
       # Called by threads entering a blocking syscall. Only takes the lock when
       # the monitor is backed off, so the common case is one atomic load.
       def wake : Nil
@@ -67,7 +72,7 @@
           busy = transfer_schedulers_blocked_on_syscall_and_check_busy
           increase_parallelism(now)
           collect_stacks(now)
-          every = busy || woken ? DEFAULT_EVERY : Math.min(every * 2, MAX_EVERY)
+          every = self.class.next_interval(every, busy || woken)
           @interval.set(every.total_nanoseconds.to_i64, :relaxed)
         rescue exception
           Crystal.print_error_buffered("BUG: %s#run_loop crashed", self.class.name, exception: exception)
