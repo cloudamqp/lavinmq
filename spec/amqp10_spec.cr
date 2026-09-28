@@ -1386,6 +1386,40 @@ describe LavinMQ::AMQP10 do
     LavinMQ::Config.instance.heartbeat = heartbeat.not_nil!
   end
 
+  it "reads frames the peer sends partly before and partly after an idle check" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-frame-across-idle-check", auto_delete: true)
+        # The peer's 400 ms idle-timeout makes the server's reads time out
+        # every 200 ms to send keepalives.
+        client = AMQP10SpecClient.new(amqp_port(s), idle_timeout: 400_u32)
+        client.attach_sender("/queues/#{q.name}")
+        payload = IO::Memory.new
+        LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, 0_u32, 1_u32, "1".to_slice, false, false)
+        LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+        LavinMQ::AMQP10::Codec.write_binary(payload, "split".to_slice)
+        frame = IO::Memory.new
+        LavinMQ::AMQP10::FrameWriter.write_frame_header(frame, (8 + payload.size).to_u32, LavinMQ::AMQP10::AMQP_FRAME_TYPE, 0_u16)
+        frame.write payload.to_slice
+        bytes = frame.to_slice
+        client.io.write bytes[0, 5] # part of the frame header
+        client.io.flush
+        sleep 500.milliseconds
+        client.io.write bytes[5..]
+        client.io.flush
+
+        loop do
+          reply = client.reader.read
+          next if reply.body.empty? # keepalives sent meanwhile
+          LavinMQ::AMQP10::TransferCodec.read_disposition(reply.body_reader).outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+          break
+        end
+        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "split"
+        client.close
+      end
+    end
+  end
+
   it "tears down idle connections after management close" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))
