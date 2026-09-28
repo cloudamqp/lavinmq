@@ -129,7 +129,6 @@ module LavinMQ::AMQP
         !close
       else
         handle_arguments
-        spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
         true
       end
     end
@@ -275,18 +274,11 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    UNMAP_INTERVAL_SECONDS = 5
-
-    private def unmap_and_remove_segments_loop
-      sleep rand(UNMAP_INTERVAL_SECONDS).seconds
-      until closed?
-        sleep UNMAP_INTERVAL_SECONDS.seconds
-        break if closed?
-        unmap_and_remove_segments
-      end
-    end
-
-    private def unmap_and_remove_segments
+    # Called periodically by the vhost's single shared sweep fiber
+    # (VHost#unmap_stream_segments_loop) rather than one timer per stream, so
+    # the number of wakeups doesn't grow with the number of stream queues.
+    def unmap_and_remove_segments
+      return if closed?
       used_segments = Set(UInt32).new
       @consumers_lock.synchronize do
         @consumers.each do |consumer|

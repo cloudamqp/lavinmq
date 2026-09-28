@@ -230,6 +230,7 @@ module LavinMQ
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      spawn unmap_stream_segments_loop, name: "Unmap stream segments loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -243,6 +244,24 @@ module LavinMQ
           c.each_channel do |ch|
             ch.check_consumer_timeout
           end
+        end
+      end
+    end
+
+    # One shared sweep per vhost for all its stream queues, rather than one
+    # timer fiber per stream queue - keeps the number of wakeups independent
+    # of how many stream queues exist.
+    UNMAP_STREAM_SEGMENTS_INTERVAL = 5.seconds
+
+    private def unmap_stream_segments_loop
+      loop do
+        select
+        when timeout UNMAP_STREAM_SEGMENTS_INTERVAL
+        when closed.when_true.receive?
+          return
+        end
+        each_queue do |q|
+          q.unmap_and_remove_segments if q.is_a?(AMQP::Stream)
         end
       end
     end
