@@ -15,7 +15,8 @@ module LavinMQ::AMQP10
     INTERNAL_HEADER_PREFIX = "x-amqp10-"
     # Set when the body was an amqp-value section rather than data sections:
     # "string" or "binary" (the body holds the value's bytes) or "value" (the
-    # body holds the value in its AMQP 1.0 encoding).
+    # body holds the value in its AMQP 1.0 encoding), or "none" when the
+    # message had no body section at all (e.g. Proton sends a null body so).
     BODY_TYPE_HEADER = "x-amqp10-body-type"
     # Set when message-id or correlation-id was not a string: "ulong",
     # "uuid" or "binary". The 0-9-1 property holds the id as a string.
@@ -26,12 +27,14 @@ module LavinMQ::AMQP10
 
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
+    # ameba:disable Metrics/CyclomaticComplexity
     def decode(reader : IO::Memory) : Incoming
       props = LavinMQ::AMQP::Properties.new
       to = nil
       body = EMPTY_BODY
       body_io : IO::Memory? = nil
       body_type : String? = nil
+      body_seen = false
       message_id_type : String? = nil
       correlation_id_type : String? = nil
       annotations : Bytes? = nil
@@ -52,8 +55,10 @@ module LavinMQ::AMQP10
         when Descriptor::APPLICATION_PROPERTIES
           props = read_application_properties(reader, props)
         when Descriptor::DATA
+          body_seen = true
           body, body_io = append_data_section(body, body_io, Codec.read_binary_value(reader))
         when Descriptor::AMQP_VALUE
+          body_seen = true
           body_io = nil
           body, body_type = read_amqp_value_body(reader)
         else
@@ -64,6 +69,7 @@ module LavinMQ::AMQP10
       if chunks = body_io
         body = chunks.to_slice
       end
+      body_type = "none" if body_type.nil? && !body_seen
       # Applied last: the application-properties section replaces the headers.
       props = with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations)
       Incoming.new(props, body, to)
@@ -404,6 +410,7 @@ module LavinMQ::AMQP10
       String
       Binary
       Value
+      None
     end
 
     # Returns the number of AMQP 1.0 transfer frames written.
@@ -449,7 +456,11 @@ module LavinMQ::AMQP10
       app_count, app_fields = headers ? application_properties_fields_size(headers) : {0, 0}
       app_sec = app_count.zero? ? 0 : 3 + Codec.map_header_size(app_fields, app_count * 2) + app_fields
       body_kind = body_kind(headers)
-      body_sec = 3 + (body_kind.value? ? 0 : Codec.binary_header_size(msg.bodysize))
+      body_sec = case body_kind
+                 when .none?  then 0
+                 when .value? then 3
+                 else              3 + Codec.binary_header_size(msg.bodysize)
+                 end
       total = header_sec + annotations_sec + props_sec + app_sec + body_sec
       SectionSizes.new(total, delivery_count, header_count, header_fields, annotations, props_count, props_fields,
         message_id_kind, correlation_id_kind, app_count, app_fields, body_kind)
@@ -579,6 +590,8 @@ module LavinMQ::AMQP10
         BodyKind::Binary
       elsif headers.has_entry?(BODY_TYPE_HEADER, "value")
         BodyKind::Value
+      elsif headers.has_entry?(BODY_TYPE_HEADER, "none")
+        BodyKind::None
       else
         BodyKind::Data
       end
@@ -605,6 +618,8 @@ module LavinMQ::AMQP10
         end
       in .value?
         Codec.write_descriptor(io, Descriptor::AMQP_VALUE)
+      in .none?
+        # no body section; the stored body is empty
       end
     end
 

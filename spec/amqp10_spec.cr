@@ -984,6 +984,21 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     LavinMQ::AMQP10::Codec.read_string_value(reader).should eq "-1"
   end
 
+  it "delivers a message published without a body section without one" do
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES,
+      [LavinMQ::AMQP10::Value.string("id")])
+    msg = stored_message(payload.to_slice)
+    msg.bodysize.should eq 0
+    delivered_sections(msg).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::PROPERTIES]
+
+    # An empty data section, or an empty 0-9-1 body, is still delivered as data.
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, Bytes.empty)
+    delivered_sections(stored_message(payload.to_slice)).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
+  end
+
   it "keeps 0-9-1 friendly bodies for string and binary amqp-values" do
     payload = IO::Memory.new
     LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(
