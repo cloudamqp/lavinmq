@@ -973,6 +973,33 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     header[4].uint?.should eq 3_u64
   end
 
+  it "delivers a published first-acquirer true until the message is redelivered" do
+    [true, false].each do |first_acquirer|
+      payload = IO::Memory.new
+      LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::HEADER, [
+        LavinMQ::AMQP10::Value.bool(false), LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null,
+        LavinMQ::AMQP10::Value.bool(first_acquirer),
+      ])
+      LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+      LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+      msg = stored_message(payload.to_slice)
+
+      sections = delivered_sections(msg)
+      if first_acquirer
+        sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
+        header = section_fields(sections[0][1])
+        header.size.should eq 4
+        header[3].bool?.should be_true
+      else
+        sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
+      end
+
+      header = section_fields(delivered_sections(msg, redelivered: true)[0][1])
+      header[3].null?.should be_true
+      header[4].uint?.should eq 1_u64
+    end
+  end
+
   it "sizes fragmented redeliveries including the header section" do
     body = "x" * 1200
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new(priority: 3_u8),

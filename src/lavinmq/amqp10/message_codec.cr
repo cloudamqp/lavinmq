@@ -25,6 +25,9 @@ module LavinMQ::AMQP10
     CORRELATION_ID_TYPE_HEADER = "x-amqp10-correlation-id-type"
     # The message-annotations section's map, in its AMQP 1.0 encoding.
     MESSAGE_ANNOTATIONS_HEADER = "x-amqp10-message-annotations"
+    # Set when the publisher's header section had first-acquirer true; it is
+    # delivered as true until the message is first redelivered.
+    FIRST_ACQUIRER_HEADER = "x-amqp10-first-acquirer"
 
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
@@ -39,13 +42,14 @@ module LavinMQ::AMQP10
       message_id_type : String? = nil
       correlation_id_type : String? = nil
       annotations : Bytes? = nil
+      first_acquirer = false
 
       until reader.pos >= reader.bytesize
         section_start = reader.pos
         descriptor = Codec.read_descriptor_code(reader)
         case descriptor
         when Descriptor::HEADER
-          props = read_header(reader, props)
+          props, first_acquirer = read_header(reader, props)
         when Descriptor::MESSAGE_ANNOTATIONS
           annotations = read_annotations(reader)
         when Descriptor::DELIVERY_ANNOTATIONS, Descriptor::FOOTER
@@ -80,7 +84,7 @@ module LavinMQ::AMQP10
       end
       body_type = "none" if body_type.nil? && !body_seen
       # Applied last: the application-properties section replaces the headers.
-      props = with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations)
+      props = with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations, first_acquirer)
       Incoming.new(props, body, to)
     rescue ex : IO::EOFError
       raise DecodeError.new("truncated AMQP 1.0 message", cause: ex)
@@ -132,9 +136,11 @@ module LavinMQ::AMQP10
     end
 
     # Properties is a struct: returns the updated copy.
-    private def with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations) : LavinMQ::AMQP::Properties
-      return props unless body_type || message_id_type || correlation_id_type || annotations
+    private def with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations,
+                                      first_acquirer) : LavinMQ::AMQP::Properties
+      return props unless body_type || message_id_type || correlation_id_type || annotations || first_acquirer
       headers = props.headers || LavinMQ::AMQP::Table.new
+      headers[FIRST_ACQUIRER_HEADER] = true if first_acquirer
       headers[BODY_TYPE_HEADER] = body_type if body_type
       headers[MESSAGE_ANNOTATIONS_HEADER] = annotations if annotations
       headers[MESSAGE_ID_TYPE_HEADER] = message_id_type if message_id_type
@@ -143,8 +149,10 @@ module LavinMQ::AMQP10
       props
     end
 
-    private def read_header(reader, props) : LavinMQ::AMQP::Properties
+    # Properties is a struct: returns the updated copy and first-acquirer.
+    private def read_header(reader, props) : Tuple(LavinMQ::AMQP::Properties, Bool)
       count, end_pos = Codec.read_list_header(reader)
+      first_acquirer = false
       index = 0
       while index < count
         case index
@@ -159,13 +167,15 @@ module LavinMQ::AMQP10
           if ttl = read_optional_uint_value(reader)
             props.expiration = ttl.to_s
           end
+        when 3
+          first_acquirer = read_optional_bool_value(reader) == true
         else
           Codec.skip_value(reader)
         end
         index += 1
       end
       reader.skip(end_pos - reader.pos) if reader.pos < end_pos
-      props
+      {props, first_acquirer}
     end
 
     private def read_application_properties(reader, props) : LavinMQ::AMQP::Properties
@@ -394,6 +404,7 @@ module LavinMQ::AMQP10
     private record SectionSizes,
       total : Int32,
       delivery_count : UInt32,
+      first_acquirer : Bool,
       header_count : Int32,
       header_fields : Int32,
       annotations : Bytes?,
@@ -452,7 +463,8 @@ module LavinMQ::AMQP10
     private def compute_section_sizes(msg : BytesMessage, redelivered : Bool) : SectionSizes
       props = msg.properties
       delivery_count = delivery_count(props, redelivered)
-      header_count = header_field_count(props, delivery_count)
+      first_acquirer = delivery_count.zero? && first_acquirer?(props.headers)
+      header_count = header_field_count(props, delivery_count, first_acquirer)
       header_fields = header_count.zero? ? 0 : header_fields_size(props, header_count, delivery_count)
       header_sec = header_count.zero? ? 0 : 3 + Codec.list_header_size(header_fields) + header_fields
       annotations = message_annotations(props.headers)
@@ -472,7 +484,7 @@ module LavinMQ::AMQP10
                  else                         3 + Codec.binary_header_size(msg.bodysize)
                  end
       total = header_sec + annotations_sec + props_sec + app_sec + body_sec
-      SectionSizes.new(total, delivery_count, header_count, header_fields, annotations, props_count, props_fields,
+      SectionSizes.new(total, delivery_count, first_acquirer, header_count, header_fields, annotations, props_count, props_fields,
         message_id_kind, correlation_id_kind, app_count, app_fields, body_kind)
     end
 
@@ -786,11 +798,19 @@ module LavinMQ::AMQP10
       redelivered ? 1_u32 : 0_u32
     end
 
-    private def header_field_count(props, delivery_count : UInt32) : Int32
+    # Whether the publisher sent first-acquirer true; only delivered as such
+    # while the message has not been delivered before.
+    private def first_acquirer?(headers : LavinMQ::AMQP::Table?) : Bool
+      return false unless headers
+      headers.has_entry?(FIRST_ACQUIRER_HEADER, true)
+    end
+
+    private def header_field_count(props, delivery_count : UInt32, first_acquirer : Bool) : Int32
       count = 0
       count = 1 if props.delivery_mode
       count = 2 if props.priority
       count = 3 if header_ttl(props)
+      count = 4 if first_acquirer
       count = 5 if delivery_count > 0
       count
     end
@@ -805,7 +825,7 @@ module LavinMQ::AMQP10
                 when 2
                   (ttl = header_ttl(props)) ? Codec.uint_size(ttl) : 1
                 when 4 then Codec.uint_size(delivery_count)
-                else        1 # first-acquirer: null
+                else        1 # first-acquirer: true or null
                 end
         index += 1
       end
@@ -834,7 +854,7 @@ module LavinMQ::AMQP10
           else
             io.write_byte 0x40_u8
           end
-        when 3 then io.write_byte 0x40_u8 # first-acquirer: null
+        when 3 then io.write_byte(sizes.first_acquirer ? 0x41_u8 : 0x40_u8) # first-acquirer: true or null
         when 4 then Codec.write_uint(io, sizes.delivery_count.to_u64)
         end
         index += 1
