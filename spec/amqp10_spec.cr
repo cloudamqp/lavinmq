@@ -1782,6 +1782,31 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "answers a drain requested while waiting on an empty queue with credit" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-drain-after-credit", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 5_u32)
+        sleep 100.milliseconds # the deliver loop now waits for a message
+        client.flow(credit: 5_u32, drain: true)
+
+        flow = client.read_flow # within the read timeout, not the loop's idle timeout
+        flow.link_credit.should eq 0_u32
+        flow.delivery_count.should eq 5_u32
+        flow.drain.should be_true
+
+        # The link carries on normally afterwards.
+        client.flow(credit: 1_u32, delivery_count: 5_u32)
+        q.publish("after-drain")
+        _transfer, incoming = client.read_delivery
+        String.new(incoming.body).should eq "after-drain"
+        client.close
+      end
+    end
+  end
+
   it "delivers available messages then drains remaining credit" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

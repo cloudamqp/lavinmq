@@ -202,7 +202,9 @@ module LavinMQ::AMQP10
     @unack_lock = Mutex.new(:checked)
     @credit = 0_u32
     @credit_lock = Mutex.new(:checked)
-    @drain = Atomic(Bool).new(false)
+    # A BoolChannel so that a deliver loop waiting on an empty queue wakes to
+    # answer a drain requested meanwhile.
+    @drain = BoolChannel.new(false)
     @deliver_loop_running = Atomic(Bool).new(false)
     @credit_available = BoolChannel.new(false)
     @closed_channel = ::Channel(Nil).new
@@ -272,7 +274,7 @@ module LavinMQ::AMQP10
     end
 
     private def drain? : Bool
-      @drain.get(:acquire)
+      @drain.value
     end
 
     private def complete_drain : Nil
@@ -337,6 +339,7 @@ module LavinMQ::AMQP10
         end
         wait_for_queue
         raise ClosedError.new if closed?
+        next if drain? && @queue.empty? # woken to complete the drain above
         next if wait_for_paused_queue
         next if wait_for_flow
         next if wait_for_remote_window
@@ -428,10 +431,11 @@ module LavinMQ::AMQP10
     end
 
     private def wait_for_queue
-      while !closed? && @queue.empty?
+      while !closed? && @queue.empty? && !drain?
         @session.client.flush
         select
         when @queue.empty.when_false.receive
+        when @drain.when_true.receive
         when @closed_channel.receive
         when timeout Config.instance.deliver_loop_idle_timeout
           raise IdleTimeout.new
@@ -558,6 +562,7 @@ module LavinMQ::AMQP10
     def close : Nil
       return unless close_once
       @credit_available.close
+      @drain.close
       @closed_channel.close
       @unack_lock.synchronize do
         @unacked.each do |unack|
