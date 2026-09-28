@@ -131,17 +131,23 @@ module LavinMQ::AMQP
 
     getter? internal = false
 
-    private def queue_expire_loop
+    # `gen` is the @loop_generation this fiber was spawned in. A fiber that
+    # outlives restart! (e.g. parked on the vhost closed gate) would otherwise
+    # resume against the restarted queue's fresh channels as a second loop.
+    private def queue_expire_loop(gen : UInt32)
       @vhost.closed.when_false.receive?
       loop do
+        break unless @loop_generation.get == gen
         break unless @expires
         @consumers_empty.when_true.receive
+        break unless @loop_generation.get == gen
         break unless ttl = @expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
+          break unless @loop_generation.get == gen
           expire_queue
           close
           break
@@ -154,7 +160,7 @@ module LavinMQ::AMQP
       return if @queue_expire_loop_running.swap(true)
       gen = @loop_generation.get
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
-        queue_expire_loop
+        queue_expire_loop(gen)
       ensure
         @queue_expire_loop_running.set(false) if @loop_generation.get == gen
       end

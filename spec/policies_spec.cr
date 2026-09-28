@@ -396,6 +396,36 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "stale queue_expire_loop surviving restart! exits instead of running a second loop" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      loop_count = -> do
+        c = 0
+        Fiber.list do |f|
+          n = f.@name
+          c += 1 if n && n.includes?("queue_expire_loop") && n.includes?("/stale_expire")
+        end
+        c
+      end
+      # Park the expire fiber on the vhost closed gate so it survives close/restart!
+      vhost.closed.set(true)
+      args = LavinMQ::AMQP::Table.new({"x-expires" => 60_000})
+      q = LavinMQ::AMQP::DurableQueue.create(vhost, "stale_expire", arguments: args)
+      wait_for { loop_count.call == 1 }
+      q.close
+      q.restart!.should be_true
+      wait_for { loop_count.call == 2 }
+      vhost.closed.set(false)
+      wait_for { loop_count.call == 1 }
+      sleep 50.milliseconds
+      loop_count.call.should eq 1
+      q.@queue_expire_loop_running.get.should be_true
+    ensure
+      s.try &.vhosts["/"].closed.set(false)
+      q.try &.delete
+    end
+  end
+
   it "should drop messages if above delivery-limit" do
     with_amqp_server do |s|
       defs = {"delivery-limit" => JSON::Any.new(0_i64)} of String => JSON::Any

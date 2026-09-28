@@ -151,7 +151,7 @@ module LavinMQ::AMQP
     end
 
     # internal queues can't expire so make this noop
-    private def queue_expire_loop
+    private def queue_expire_loop(gen : UInt32)
     end
 
     def publish(message : Message) : PublishResult

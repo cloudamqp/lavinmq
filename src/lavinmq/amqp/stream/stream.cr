@@ -112,7 +112,7 @@ module LavinMQ::AMQP
       # Streams doesn't handle message expiration
     end
 
-    private def queue_expire_loop
+    private def queue_expire_loop(gen : UInt32)
       # Streams doesn't handle queue expiration
     end
 
