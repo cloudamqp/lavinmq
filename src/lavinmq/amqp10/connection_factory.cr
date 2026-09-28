@@ -57,7 +57,7 @@ module LavinMQ::AMQP10
         return
       end
       username, password = plain_credentials(init[1])
-      context = Auth::Context.new(username, password, loopback: connection_info.remote_address.loopback?)
+      context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
       if user = @authenticator.authenticate(context)
         send_sasl_outcome(socket, 0_u8)
         user

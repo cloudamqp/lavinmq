@@ -545,6 +545,30 @@ private def delivered_sections(msg : LavinMQ::BytesMessage, redelivered = false)
   message_sections(reader.peek)
 end
 
+# Runs the SASL exchange against an AMQP 1.0 connection factory, as a client
+# connecting from connection_info. Returns the advertised mechanisms and the
+# sasl-outcome code.
+private def factory_sasl(s, connection_info, mechanism, response = Bytes.empty) : Tuple(Array(String), UInt8)
+  client, server = UNIXSocket.pair
+  client.read_timeout = 5.seconds
+  factory = LavinMQ::AMQP10::ConnectionFactory.new(s.authenticator, s.vhosts)
+  spawn { factory.start(server, connection_info) }
+  header = Bytes.new(8)
+  client.read_fully(header)
+  header.should eq LavinMQ::AMQP10::SASL_HEADER
+  reader = LavinMQ::AMQP10::FrameReader.new(client, LavinMQ::Config.instance.frame_max)
+  mechanisms = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.not_nil!.value.list?.not_nil!
+  offered = mechanisms[0].list?.not_nil!.map(&.symbol?.not_nil!)
+  fields = [LavinMQ::AMQP10::Value.symbol(mechanism), LavinMQ::AMQP10::Value.binary(response)]
+  LavinMQ::AMQP10::FrameWriter.write_performative(client, 0_u16, LavinMQ::AMQP10::SASL_FRAME_TYPE,
+    LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
+  outcome = LavinMQ::AMQP10::Codec.decode(reader.read.body_reader).described?.not_nil!.value.list?.not_nil!
+  {offered, outcome[0].uint?.not_nil!.to_u8}
+ensure
+  client.try &.close
+  server.try &.close
+end
+
 # Splits an encoded message into its sections, as descriptor code => section bytes.
 private def message_sections(message : Bytes) : Array(Tuple(UInt64, Bytes))
   reader = IO::Memory.new(message)
@@ -1289,6 +1313,15 @@ describe LavinMQ::AMQP10 do
   it "fails bad SASL PLAIN authentication" do
     with_amqp_server do |s|
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong").should eq 1
+    end
+  end
+
+  it "does not count proxied connections from loopback as loopback for the default user" do
+    with_amqp_server do |s|
+      loopback = Socket::IPAddress.new("127.0.0.1", 0)
+      proxied = LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true)
+      factory_sasl(s, proxied, "PLAIN", "\0guest\0guest".to_slice)[1].should eq 1
+      factory_sasl(s, LavinMQ::ConnectionInfo.local, "PLAIN", "\0guest\0guest".to_slice)[1].should eq 0
     end
   end
 
