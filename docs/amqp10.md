@@ -70,7 +70,8 @@ A receiving link acts as a consumer on the queue. Messages are delivered as link
 | Disposition | Effect |
 |-------------|--------|
 | `accepted` | Acknowledged and removed from the queue |
-| `released`, `modified` | Requeued |
+| `released` | Requeued |
+| `modified` | Requeued; its `message-annotations` are merged into the message's annotations for later deliveries. The merge is kept in memory, like delivery counts, and lost on restart. `undeliverable-here` is not honoured. |
 | `rejected` | Dropped, or dead-lettered if the queue has a dead-letter exchange |
 
 A redelivered message carries a `header` section whose `delivery-count` is the number of earlier deliveries on queues with a `delivery-limit`, and 1 on other queues, which do not count them.

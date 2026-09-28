@@ -401,7 +401,7 @@ module LavinMQ::AMQP10
         delivery_id = session.next_outgoing_id
         tag = link.delivery_tag_buffer
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
-        link.record_unacked(delivery_id, sp) unless settled
+        link.record_unacked(delivery_id, sp, MessageCodec.message_annotations(msg.properties.headers).try(&.dup)) unless settled
         bytes, frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
           delivery_id, tag, msg, @max_frame_size, settled, redelivered)
         session.advance_outgoing(frames)

@@ -458,10 +458,61 @@ module LavinMQ::AMQP10
     # The stored message-annotations map, if any, as a view into the headers.
     # Anything but one complete encoded map (e.g. a header set by a 0-9-1
     # publisher) is not delivered.
-    private def message_annotations(headers : LavinMQ::AMQP::Table?) : Bytes?
+    def message_annotations(headers : LavinMQ::AMQP::Table?) : Bytes?
       return unless headers && headers.has_key?(MESSAGE_ANNOTATIONS_HEADER)
       bytes = headers[MESSAGE_ANNOTATIONS_HEADER]?.as?(Bytes) || return
       bytes if encoded_map?(bytes)
+    end
+
+    # Merges two encoded annotation maps: entries of `update` replace those of
+    # `base` with the same key. Works on the encoded entries, so values of
+    # any type are carried over unchanged.
+    def merge_annotations(base : Bytes?, update : Bytes) : Bytes
+      update_entries = map_entries(update)
+      return update.dup unless base
+      replaced = update_entries.map { |key, _| key }.to_set
+      entries = map_entries(base).reject! { |key, _| replaced.includes?(key) }
+      entries.concat(update_entries)
+      fields_size = entries.sum(0) { |_, entry| entry.bytesize }
+      io = IO::Memory.new
+      Codec.write_map_header(io, fields_size, entries.size * 2)
+      entries.each { |_, entry| io.write entry }
+      io.to_slice
+    end
+
+    # The entries of an encoded map as {key identity, encoded key and value}.
+    private def map_entries(map : Bytes) : Array(Tuple(String, Bytes))
+      reader = IO::Memory.new(map)
+      count, end_pos = Codec.read_map_header(reader)
+      entries = Array(Tuple(String, Bytes)).new(count // 2)
+      (count // 2).times do
+        start = reader.pos
+        key = annotation_key(reader)
+        Codec.skip_value(reader)
+        entries << {key, map[start, reader.pos - start]}
+      end
+      raise DecodeError.new("annotations map entries overran its size") if reader.pos > end_pos
+      entries
+    rescue ex : IO::EOFError
+      raise DecodeError.new("truncated annotations map", cause: ex)
+    end
+
+    # Annotation keys are symbols or ulongs; compare them by value so that,
+    # e.g., a sym8 and a sym32 encoding of the same symbol are the same key.
+    private def annotation_key(reader : IO::Memory) : String
+      start = reader.pos
+      case Codec.read_byte(reader)
+      when 0xa1, 0xa3, 0xb1, 0xb3
+        reader.pos = start
+        "s:#{Codec.read_string_value(reader)}"
+      when 0x44, 0x53, 0x80
+        reader.pos = start
+        "u:#{Codec.read_uint_value(reader)}"
+      else
+        reader.pos = start
+        Codec.skip_value(reader)
+        "r:#{Codec.slice_from(reader, start).hexstring}"
+      end
     end
 
     private def encoded_map?(bytes : Bytes) : Bool

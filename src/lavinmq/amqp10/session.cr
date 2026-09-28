@@ -185,7 +185,10 @@ module LavinMQ::AMQP10
   end
 
   class SenderLink < Link
-    record Unack, delivery_id : UInt32, queue : LavinMQ::AMQP::Queue, sp : SegmentPosition, delivered_at : Time::Instant
+    # `annotations` are the message-annotations the delivery went out with
+    # (copied, nil if none), the base a modified outcome's annotations merge into.
+    record Unack, delivery_id : UInt32, queue : LavinMQ::AMQP::Queue, sp : SegmentPosition,
+      delivered_at : Time::Instant, annotations : Bytes?
 
     getter queue
     getter delivery_tag_buffer : Bytes
@@ -222,9 +225,9 @@ module LavinMQ::AMQP10
 
     # Called by the client under the connection write lock, so recording the
     # unacked delivery and writing the transfer stay ordered together.
-    def record_unacked(delivery_id : UInt32, sp : SegmentPosition) : Nil
+    def record_unacked(delivery_id : UInt32, sp : SegmentPosition, annotations : Bytes? = nil) : Nil
       @unack_lock.synchronize do
-        @unacked << Unack.new(delivery_id, @queue, sp, RoughTime.instant)
+        @unacked << Unack.new(delivery_id, @queue, sp, RoughTime.instant, annotations)
       end
     end
 
@@ -496,7 +499,9 @@ module LavinMQ::AMQP10
 
     # Applies the outcome to the unacked deliveries in first..last; returns
     # whether any of them belonged to this link.
-    def settle(first : UInt32, last : UInt32, outcome : Outcome) : Bool
+    # `annotations` are a modified outcome's message-annotations, merged into
+    # the requeued message for its later deliveries.
+    def settle(first : UInt32, last : UInt32, outcome : Outcome, annotations : Bytes? = nil) : Bool
       found = false
       @unack_lock.synchronize do
         # @unacked is sorted ascending by delivery-id, so skip links whose range
@@ -516,8 +521,11 @@ module LavinMQ::AMQP10
           in .accepted?
             unack.queue.ack(unack.sp)
             @session.increment_ack_count
-          in .released?, .modified?
+          in .released?
             unack.queue.reject(unack.sp, requeue: true)
+            @session.increment_reject_count
+          in .modified?
+            unack.queue.reject(unack.sp, requeue: true, header_overrides: annotation_overrides(unack, annotations))
             @session.increment_reject_count
           in .rejected?
             unack.queue.reject(unack.sp, requeue: false)
@@ -531,6 +539,15 @@ module LavinMQ::AMQP10
         set_consumer_capacity(credit > 0)
       end
       found
+    end
+
+    private def annotation_overrides(unack : Unack, annotations : Bytes?) : LavinMQ::AMQP::Table?
+      return unless annotations
+      merged = MessageCodec.merge_annotations(unack.annotations, annotations)
+      LavinMQ::AMQP::Table.new({MessageCodec::MESSAGE_ANNOTATIONS_HEADER => merged})
+    rescue ex : DecodeError
+      @session.client.log.warn { "Ignoring invalid modified message-annotations: #{ex.message}" }
+      nil
     end
 
     def close : Nil
@@ -860,7 +877,8 @@ module LavinMQ::AMQP10
       end
       last = frame.last || frame.first
       found = false
-      @sender_links.each { |link| found = true if link.settle(frame.first, last, outcome) }
+      annotations = frame.message_annotations if outcome.modified?
+      @sender_links.each { |link| found = true if link.settle(frame.first, last, outcome, annotations) }
       # A rcv-settle-mode second receiver keeps the delivery until we settle it,
       # so an unsettled disposition is answered with our settled one.
       @client.send_settlement(self, frame.first, frame.last, outcome) if found && !frame.settled

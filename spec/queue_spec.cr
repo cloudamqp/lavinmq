@@ -791,6 +791,35 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "header overrides" do
+    it "applies headers set on reject to the message's later deliveries until it is acked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("header-overrides", auto_delete: true)
+          q.publish("msg", props: AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({"keep" => "yes", "k" => "old"})))
+          queue = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Queue)
+          should_eventually(eq 1) { queue.message_count }
+
+          sp = nil
+          queue.basic_get(false) { |env| sp = env.segment_position }.should be_true
+          queue.reject(sp.not_nil!, true, LavinMQ::AMQP::Table.new({"k" => "new", "added" => 1}))
+
+          headers = nil
+          queue.basic_get(false) do |env|
+            sp = env.segment_position
+            headers = env.message.properties.headers
+          end.should be_true
+          headers.not_nil!["keep"].should eq "yes"
+          headers.not_nil!["k"].should eq "new"
+          headers.not_nil!["added"].should eq 1
+
+          queue.ack(sp.not_nil!)
+          queue.@header_overrides.not_nil!.empty?.should be_true
+        end
+      end
+    end
+  end
+
   describe "deduplication" do
     it "should not accept message if it's a duplicate" do
       with_amqp_server do |s|

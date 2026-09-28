@@ -394,6 +394,24 @@ private class AMQP10SpecClient
       LavinMQ::AMQP10::AMQP_FRAME_TYPE, code, fields)
   end
 
+  # Publishes an already encoded message and returns the outcome.
+  def publish_raw(handle : UInt32, delivery_id : UInt32, message : Bytes) : LavinMQ::AMQP10::Outcome
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, delivery_id.to_s.to_slice, false, false)
+    payload.write message
+    write_amqp_frame(payload.to_slice)
+    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.not_nil!
+  end
+
+  # Settles a delivery with a modified outcome carrying message-annotations.
+  def settle_modified(delivery_id : UInt32, annotations : LavinMQ::AMQP10::Value, delivery_failed = true) : Nil
+    modified = LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::MODIFIED),
+      LavinMQ::AMQP10::Value.list([LavinMQ::AMQP10::Value.bool(delivery_failed), LavinMQ::AMQP10::Value.bool(false), annotations]))
+    fields = [LavinMQ::AMQP10::Value.bool(true), LavinMQ::AMQP10::Value.uint(delivery_id), LavinMQ::AMQP10::Value.null,
+              LavinMQ::AMQP10::Value.bool(true), modified]
+    send_performative(LavinMQ::AMQP10::Descriptor::DISPOSITION, fields)
+  end
+
   # Pre-settled transfer: the server publishes it without replying with a disposition.
   def publish_settled(handle : UInt32, delivery_id : UInt32, body : String) : Nil
     write_publish(handle, delivery_id, body, settled: true)
@@ -538,6 +556,21 @@ private def message_sections(message : Bytes) : Array(Tuple(UInt64, Bytes))
     sections << {code, message[start, reader.pos - start]}
   end
   sections
+end
+
+private def annotations_map(pairs : Hash(String, LavinMQ::AMQP10::Value)) : LavinMQ::AMQP10::Value
+  LavinMQ::AMQP10::Value.map(pairs.map { |k, v| {LavinMQ::AMQP10::Value.symbol(k), v} })
+end
+
+private def encoded(value : LavinMQ::AMQP10::Value) : Bytes
+  io = IO::Memory.new
+  LavinMQ::AMQP10::Codec.write_value(io, value)
+  io.to_slice
+end
+
+# The entries of an encoded annotations map, by symbol key.
+private def annotation_entries(map : Bytes) : Hash(String, LavinMQ::AMQP10::Value)
+  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(map)).map?.not_nil!.to_h { |k, v| {k.symbol?.not_nil!, v} }
 end
 
 # The fields of a list-bodied section such as header or properties.
@@ -859,6 +892,26 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::HEADER, LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS,
                                    LavinMQ::AMQP10::Descriptor::DATA]
     sections[1][1].should eq section.to_slice
+  end
+
+  it "merges modified annotations into the stored ones, replacing equal keys" do
+    base = encoded(annotations_map({"x-opt-a" => LavinMQ::AMQP10::Value.long(1_i64), "x-opt-b" => LavinMQ::AMQP10::Value.long(2_i64)}))
+    update = encoded(annotations_map({"x-opt-b" => LavinMQ::AMQP10::Value.string("new"), "x-opt-c" => LavinMQ::AMQP10::Value.null}))
+
+    merged = annotation_entries(LavinMQ::AMQP10::MessageCodec.merge_annotations(base, update))
+
+    merged.keys.sort!.should eq ["x-opt-a", "x-opt-b", "x-opt-c"]
+    merged["x-opt-a"].int?.should eq 1_i64
+    merged["x-opt-b"].string?.should eq "new"
+    annotation_entries(LavinMQ::AMQP10::MessageCodec.merge_annotations(nil, update)).size.should eq 2
+  end
+
+  it "treats differently encoded equal annotation keys as the same key" do
+    base = Bytes[0xc1, 6, 2, 0xa3, 1, 'k'.ord, 0x55, 1]            # {sym8 k => 1}
+    update = Bytes[0xc1, 9, 2, 0xb3, 0, 0, 0, 1, 'k'.ord, 0x55, 2] # {sym32 k => 2}
+    merged = annotation_entries(LavinMQ::AMQP10::MessageCodec.merge_annotations(base, update))
+    merged.size.should eq 1
+    merged["k"].int?.should eq 2_i64
   end
 
   it "does not store null or empty message annotations" do
@@ -1988,6 +2041,46 @@ describe LavinMQ::AMQP10 do
         sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
         section_fields(sections[0][1])[4].uint?.should eq 1_u64
         client.settle(transfer.delivery_id.not_nil!)
+        client.close
+      end
+    end
+  end
+
+  it "applies modified annotations to the message's later deliveries" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-modified-annotations", auto_delete: true)
+        internal_q = s.vhosts["/"].queue(q.name)
+        message = IO::Memory.new
+        LavinMQ::AMQP10::Codec.write_value(message, LavinMQ::AMQP10::Value.described(
+          LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS),
+          annotations_map({"x-opt-a1" => LavinMQ::AMQP10::Value.long(12345_i64)})))
+        LavinMQ::AMQP10::Codec.write_descriptor(message, LavinMQ::AMQP10::Descriptor::DATA)
+        LavinMQ::AMQP10::Codec.write_binary(message, "body".to_slice)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.publish_raw(0_u32, 1_u32, message.to_slice).should eq LavinMQ::AMQP10::Outcome::Accepted
+        client.attach_receiver("/queues/#{q.name}", handle: 1_u32)
+        client.flow(handle: 1_u32, credit: 10_u32)
+
+        transfer, _sections = client.read_delivery_sections
+        client.settle_modified(transfer.delivery_id.not_nil!,
+          annotations_map({"x-opt-reason" => LavinMQ::AMQP10::Value.string("app offline")}))
+        transfer, _sections = client.read_delivery_sections
+        client.settle_modified(transfer.delivery_id.not_nil!,
+          annotations_map({"x-opt-retry" => LavinMQ::AMQP10::Value.long(2_i64)}))
+
+        transfer, sections = client.read_delivery_sections
+        sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::HEADER, LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS,
+                                       LavinMQ::AMQP10::Descriptor::DATA]
+        annotations = sections[1][1]
+        entries = annotation_entries(annotations[3, annotations.size - 3]) # skip the descriptor
+        entries["x-opt-a1"].int?.should eq 12345_i64
+        entries["x-opt-reason"].string?.should eq "app offline"
+        entries["x-opt-retry"].int?.should eq 2_i64
+        client.settle(transfer.delivery_id.not_nil!)
+        should_eventually(eq 0) { internal_q.message_count + internal_q.unacked_count }
+        internal_q.@header_overrides.not_nil!.empty?.should be_true
         client.close
       end
     end
