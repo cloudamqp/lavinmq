@@ -9,6 +9,7 @@ on:
       - 'static/**'
       - 'views/**'
       - '.github/workflows/ci.yml'
+      - '.github/amqpnetlite-link-tests.sh'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
   push:
@@ -23,6 +24,7 @@ on:
       - 'static/**'
       - 'views/**'
       - '.github/workflows/ci.yml'
+      - '.github/amqpnetlite-link-tests.sh'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
   workflow_dispatch:
@@ -371,6 +373,58 @@ jobs:
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
             --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*, **/*/default_queue_type*"
+
+  amqpnetlite-test:
+    name: AMQP.Net Lite client test
+    runs-on: ubuntu-24.04
+    needs: compile
+
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - name: Checkout LavinMQ for the test runner and TLS certificates
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          # The ProtocolHandler test connects with TLS to localhost:5671
+          bin/lavinmq --data-dir /tmp/amqp --amqps-port 5671 \
+            --cert spec/resources/server_certificate.pem --key spec/resources/server_key.pem &
+
+      - name: Clone AMQP.Net Lite
+        uses: actions/checkout@v7
+        with:
+          repository: Azure/amqpnetlite
+          ref: 627945023fed381afdadec8ef0dd07d883674638
+          path: amqpnetlite
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build tests
+        run: |
+          cd amqpnetlite
+          # netcoreapp3.1 is end-of-life; the tests run unchanged on .NET 8
+          sed -i 's|<TargetFramework>netcoreapp3.1</TargetFramework>|<TargetFramework>net8.0</TargetFramework>|' \
+            test/Test.Amqp.NetCoreApp/Test.Amqp.NetCoreApp.csproj
+          dotnet build test/Test.Amqp.NetCoreApp/Test.Amqp.NetCoreApp.csproj -c Release
+
+      - name: Run link tests
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: 1
+          DOTNET_NOLOGO: 1
+        run: .github/amqpnetlite-link-tests.sh amqpnetlite/bin/Release/Test.Amqp.NetCoreApp/net8.0/Test.Amqp.Net.dll
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
