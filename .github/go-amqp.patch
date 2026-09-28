@@ -1,5 +1,5 @@
 diff --git a/integration_test.go b/integration_test.go
-index 9f378ad..4bef2f9 100644
+index 9f378ad..8c234fb 100644
 --- a/integration_test.go
 +++ b/integration_test.go
 @@ -117,7 +117,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
@@ -11,7 +11,20 @@ index 9f378ad..4bef2f9 100644
  				cancel()
  				if err != nil {
  					t.Fatal(err)
-@@ -159,7 +159,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
+@@ -150,6 +150,12 @@ func TestIntegrationRoundTrip(t *testing.T) {
+ 							}
+ 						}(i, d)
+ 					}
++					// Wait for the sends still in flight, or the sender is closed
++					// under them when the broker settles after the receiver got
++					// the messages (e.g. once they are persisted).
++					for i := 0; i < cap(maxSendSemaphore); i++ {
++						maxSendSemaphore <- struct{}{}
++					}
+ 				}()
+ 
+ 				receiveErr := lockedError{}
+@@ -159,7 +165,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
  
  					// Create a receiver
  					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -20,7 +33,7 @@ index 9f378ad..4bef2f9 100644
  						Credit: 10,
  					})
  					cancel()
-@@ -267,7 +267,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
+@@ -267,7 +273,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
  			// add a random suffix to the link name so the test broker always creates a new node
  			targetName := fmt.Sprintf("%s %d", tt.label, rng.Uint64())
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -29,7 +42,7 @@ index 9f378ad..4bef2f9 100644
  			cancel()
  			if err != nil {
  				t.Fatal(err)
-@@ -285,7 +285,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
+@@ -285,7 +291,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
  
  			// Create a receiver
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -38,7 +51,7 @@ index 9f378ad..4bef2f9 100644
  				Credit:                    int32(len(tt.data)),
  				RequestedSenderSettleMode: amqp.SenderSettleModeSettled.Ptr(),
  			})
-@@ -385,7 +385,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
+@@ -385,7 +391,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
  
  				// Create a sender
  				ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -47,7 +60,7 @@ index 9f378ad..4bef2f9 100644
  				cancel()
  				if err != nil {
  					t.Fatal(err)
-@@ -417,7 +417,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
+@@ -417,7 +423,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
  
  					// Create a receiver
  					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -56,7 +69,7 @@ index 9f378ad..4bef2f9 100644
  						SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
  					})
  					cancel()
-@@ -540,7 +540,7 @@ func TestIntegrationSessionHandleMax(t *testing.T) {
+@@ -540,7 +546,7 @@ func TestIntegrationSessionHandleMax(t *testing.T) {
  			// Create a sender
  			for i := 0; i < tt.links; i++ {
  				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -65,7 +78,7 @@ index 9f378ad..4bef2f9 100644
  				cancel()
  				switch {
  				case err == nil:
-@@ -609,7 +609,7 @@ func TestIntegrationLinkName(t *testing.T) {
+@@ -609,7 +615,7 @@ func TestIntegrationLinkName(t *testing.T) {
  			}
  
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -74,7 +87,7 @@ index 9f378ad..4bef2f9 100644
  				Name: tt.name,
  			})
  			cancel()
-@@ -620,7 +620,7 @@ func TestIntegrationLinkName(t *testing.T) {
+@@ -620,7 +626,7 @@ func TestIntegrationLinkName(t *testing.T) {
  
  			// This one should fail
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -83,7 +96,7 @@ index 9f378ad..4bef2f9 100644
  				Name: tt.name,
  			})
  			cancel()
-@@ -671,7 +671,7 @@ func TestIntegrationClose(t *testing.T) {
+@@ -671,7 +677,7 @@ func TestIntegrationClose(t *testing.T) {
  
  			// Create a sender
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -92,7 +105,7 @@ index 9f378ad..4bef2f9 100644
  			cancel()
  			if err != nil {
  				t.Fatal(err)
-@@ -714,7 +714,7 @@ func TestIntegrationClose(t *testing.T) {
+@@ -714,7 +720,7 @@ func TestIntegrationClose(t *testing.T) {
  
  			// Create a sender
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -101,7 +114,7 @@ index 9f378ad..4bef2f9 100644
  			cancel()
  			if err != nil {
  				t.Fatal(err)
-@@ -760,7 +760,7 @@ func TestIntegrationClose(t *testing.T) {
+@@ -760,7 +766,7 @@ func TestIntegrationClose(t *testing.T) {
  
  			// Create a sender
  			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -110,7 +123,7 @@ index 9f378ad..4bef2f9 100644
  			cancel()
  			if err != nil {
  				t.Fatal(err)
-@@ -930,7 +930,7 @@ func TestReceiverModeFirst(t *testing.T) {
+@@ -930,7 +936,7 @@ func TestReceiverModeFirst(t *testing.T) {
  	require.NoError(t, err)
  
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -119,7 +132,7 @@ index 9f378ad..4bef2f9 100644
  	cancel()
  	require.NoError(t, err)
  
-@@ -952,14 +952,14 @@ func TestReceiverModeFirst(t *testing.T) {
+@@ -952,14 +958,14 @@ func TestReceiverModeFirst(t *testing.T) {
  
  	// create a new sender
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -136,7 +149,7 @@ index 9f378ad..4bef2f9 100644
  		Credit: linkCredit,
  	})
  	cancel()
-@@ -1015,7 +1015,7 @@ func TestSenderExactlyOnce(t *testing.T) {
+@@ -1015,7 +1021,7 @@ func TestSenderExactlyOnce(t *testing.T) {
  	require.NoError(t, err)
  
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -145,7 +158,7 @@ index 9f378ad..4bef2f9 100644
  		SettlementMode:              amqp.SenderSettleModeUnsettled.Ptr(),
  		RequestedReceiverSettleMode: amqp.ReceiverSettleModeSecond.Ptr(),
  	})
-@@ -1028,7 +1028,7 @@ func TestSenderExactlyOnce(t *testing.T) {
+@@ -1028,7 +1034,7 @@ func TestSenderExactlyOnce(t *testing.T) {
  	require.NoError(t, err)
  
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -154,7 +167,7 @@ index 9f378ad..4bef2f9 100644
  		SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
  	})
  	cancel()
-@@ -1065,7 +1065,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
+@@ -1065,7 +1071,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
  	// add a random suffix to the link name so the test broker always creates a new node
  	targetName := fmt.Sprintf("TestReceivingLotsOfSettledMessages %d", rng.Uint64())
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -163,7 +176,7 @@ index 9f378ad..4bef2f9 100644
  	cancel()
  	require.NoError(t, err)
  
-@@ -1083,7 +1083,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
+@@ -1083,7 +1089,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
  
  	// Create a receiver
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -172,7 +185,7 @@ index 9f378ad..4bef2f9 100644
  		Credit:                    linkCredit,
  		RequestedSenderSettleMode: amqp.SenderSettleModeSettled.Ptr(),
  	})
-@@ -1132,7 +1132,7 @@ func TestNewReceiverWithCancelledContext(t *testing.T) {
+@@ -1132,7 +1138,7 @@ func TestNewReceiverWithCancelledContext(t *testing.T) {
  	for times := 0; times < 100; times++ {
  		ctx, cancel = context.WithCancel(context.Background())
  		cancel()
@@ -181,7 +194,7 @@ index 9f378ad..4bef2f9 100644
  		require.ErrorIs(t, err, context.Canceled)
  		require.Nil(t, receiver)
  	}
-@@ -1172,7 +1172,7 @@ func TestMultipleSendersSharedSession(t *testing.T) {
+@@ -1172,7 +1178,7 @@ func TestMultipleSendersSharedSession(t *testing.T) {
  		go func() {
  			defer wg.Done()
  			for msgCount := 0; msgCount < 50; msgCount++ {
@@ -190,7 +203,7 @@ index 9f378ad..4bef2f9 100644
  				require.NoError(t, err)
  				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
  				err = sender.Send(ctx, amqp.NewMessage(bigMsgData), nil)
-@@ -1213,7 +1213,7 @@ func TestDrainingLink(t *testing.T) {
+@@ -1213,7 +1219,7 @@ func TestDrainingLink(t *testing.T) {
  	session, err := conn.NewSession(context.Background(), nil)
  	require.NoError(t, err)
  
@@ -199,7 +212,7 @@ index 9f378ad..4bef2f9 100644
  		Credit:         -1,
  		SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
  	})
-@@ -1226,7 +1226,7 @@ func TestDrainingLink(t *testing.T) {
+@@ -1226,7 +1232,7 @@ func TestDrainingLink(t *testing.T) {
  
  	// we'll send one message right now
  	send := func(count int) {
@@ -208,7 +221,7 @@ index 9f378ad..4bef2f9 100644
  		require.NoError(t, err)
  
  		defer func() {
-@@ -1290,7 +1290,7 @@ func TestSenderNullValue(t *testing.T) {
+@@ -1290,7 +1296,7 @@ func TestSenderNullValue(t *testing.T) {
  	require.NoError(t, err)
  
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -217,7 +230,7 @@ index 9f378ad..4bef2f9 100644
  		SettlementMode:              amqp.SenderSettleModeUnsettled.Ptr(),
  		RequestedReceiverSettleMode: amqp.ReceiverSettleModeSecond.Ptr(),
  	})
-@@ -1303,7 +1303,7 @@ func TestSenderNullValue(t *testing.T) {
+@@ -1303,7 +1309,7 @@ func TestSenderNullValue(t *testing.T) {
  	require.NoError(t, err)
  
  	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
