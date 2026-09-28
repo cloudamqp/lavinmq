@@ -55,7 +55,7 @@ jobs:
           elif [ "$lines" -lt 1000 ]; then
             turns=25
           else
-            turns=40
+            turns=60
           fi
           echo "$lines changed lines, $turns turn budget"
           echo "turns=$turns" >> "$GITHUB_OUTPUT"
