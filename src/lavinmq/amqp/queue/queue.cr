@@ -109,6 +109,9 @@ module LavinMQ::AMQP
 
     # Idle fiber management
     @message_expire_fiber_active = Atomic(Bool).new(false)
+    @queue_expire_fiber_active = Atomic(Bool).new(false)
+    @policy_limits_fiber_active = Atomic(Bool).new(false)
+    @policy_limits_pending = Atomic(Bool).new(false)
 
     def message_expire_fiber_active?
       @message_expire_fiber_active.get(:relaxed)
@@ -121,8 +124,12 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break unless @expires
-        @consumers_empty.when_true.receive
+        break if @closed || !@expires
+        select
+        when @consumers_empty.when_true.receive
+        when @queue_expiration_ttl_change.receive
+          next
+        end
         break unless ttl = @expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
@@ -135,6 +142,9 @@ module LavinMQ::AMQP
         end
       end
     rescue ::Channel::ClosedError
+    ensure
+      @queue_expire_fiber_active.set(false, :release)
+      ensure_queue_expire_fiber
     end
 
     private def message_expire_loop
@@ -254,7 +264,7 @@ module LavinMQ::AMQP
           @paused.set(true)
         end
         handle_arguments
-        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+        ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
         true
       end
@@ -274,6 +284,40 @@ module LavinMQ::AMQP
       return if @message_expire_fiber_active.swap(true)
       @log.debug { "Starting message expire loop" }
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    private def ensure_queue_expire_fiber
+      return if @closed || !@expires
+      return if @queue_expire_fiber_active.swap(true)
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    private def schedule_policy_limits
+      @policy_limits_pending.set(true, :release)
+      ensure_policy_limits_fiber
+    end
+
+    private def ensure_policy_limits_fiber
+      return if @closed || !@policy_limits_pending.get(:acquire)
+      return if @policy_limits_fiber_active.swap(true)
+      spawn apply_policy_limits, name: "Queue#apply_policy_limits #{@vhost.name}/#{@name}"
+    end
+
+    private def apply_policy_limits
+      @vhost.closed.when_false.receive?
+      while !@closed && @policy_limits_pending.swap(false)
+        @msg_store_lock.synchronize do
+          break if @closed
+          # Read the current limits after acquiring the lock. Policy churn while
+          # this pass yields requests another pass, without spawning more fibers.
+          drop_overflow
+          drop_redelivered
+        end
+      end
+    rescue ::Channel::ClosedError
+    ensure
+      @policy_limits_fiber_active.set(false, :release)
+      ensure_policy_limits_fiber
     end
 
     # Ensure the expire fiber is running if there are messages that need expiring
@@ -361,20 +405,14 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_policy_limits
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_policy_limits
           return true
         end
       when "message-ttl"
@@ -388,7 +426,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          ensure_queue_expire_fiber
           @queue_expiration_ttl_change.try_send? nil
           @effective_args.delete("x-expires")
           return true
@@ -416,10 +454,7 @@ module LavinMQ::AMQP
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
           @effective_args.delete("x-delivery-limit")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_redelivered
-          end
+          schedule_policy_limits
           return true
         end
       when "federation-upstream"
