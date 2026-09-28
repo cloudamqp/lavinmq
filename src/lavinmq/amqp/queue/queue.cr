@@ -116,11 +116,9 @@ module LavinMQ::AMQP
 
     private EXPIRE_FIBER_IDLE_THRESHOLD = 30.seconds
 
-    # Idempotency guards for spawn sites driven by policy/argument application.
-    # Without these, every `apply_policy_argument` call spawned a fresh fiber,
-    # so heavy policy churn against the same queue (the stress driver hits
-    # `stress.q` hundreds of times) accumulated zombie loops parked on
-    # `@consumers_empty.when_true` etc.
+    # Idempotency guards for spawn sites driven by policy/argument application,
+    # so repeated applies against the same queue share one fiber instead of
+    # accumulating loops parked on `@consumers_empty.when_true` etc.
     @queue_expire_loop_running = Atomic(Bool).new(false)
     @drop_overflow_loop_running = Atomic(Bool).new(false)
     @drop_overflow_pending = Atomic(Bool).new(false)
@@ -162,11 +160,14 @@ module LavinMQ::AMQP
       @drop_overflow_pending.set(true)
       return if @drop_overflow_loop_running.swap(true)
       spawn(name: "Queue#drop_overflow #{@vhost.name}/#{@name}") do
-        @vhost.closed.when_false.receive?
-        while @drop_overflow_pending.swap(false)
-          drop_overflow
+        begin
+          @vhost.closed.when_false.receive?
+          while @drop_overflow_pending.swap(false)
+            drop_overflow
+          end
+        ensure
+          @drop_overflow_loop_running.set(false)
         end
-        @drop_overflow_loop_running.set(false)
         # Re-trigger if a request slipped in after the last swap.
         schedule_drop_overflow if @drop_overflow_pending.get
       end
@@ -176,11 +177,15 @@ module LavinMQ::AMQP
       @drop_redelivered_pending.set(true)
       return if @drop_redelivered_loop_running.swap(true)
       spawn(name: "Queue#drop_redelivered #{@vhost.name}/#{@name}") do
-        @vhost.closed.when_false.receive?
-        while @drop_redelivered_pending.swap(false)
-          drop_redelivered
+        begin
+          @vhost.closed.when_false.receive?
+          while @drop_redelivered_pending.swap(false)
+            drop_redelivered
+          end
+        ensure
+          @drop_redelivered_loop_running.set(false)
         end
-        @drop_redelivered_loop_running.set(false)
+        # Re-trigger if a request slipped in after the last swap.
         schedule_drop_redelivered if @drop_redelivered_pending.get
       end
     end
@@ -347,6 +352,11 @@ module LavinMQ::AMQP
       @closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
+      @queue_expire_loop_running.set(false)
+      @drop_overflow_loop_running.set(false)
+      @drop_overflow_pending.set(false)
+      @drop_redelivered_loop_running.set(false)
+      @drop_redelivered_pending.set(false)
 
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new

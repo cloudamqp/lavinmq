@@ -245,22 +245,16 @@ describe LavinMQ::VHost do
   end
 
   it "repeated policy applies do not spawn duplicate Queue loops" do
-    # Regression for the stress driver finding 15+ zombie
-    # Queue#queue_expire_loop / drop_overflow fibers for the same queue.
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("repeat")
-        s.vhosts["/"].queue("repeat").as(LavinMQ::AMQP::Queue)
+        q = s.vhosts["/"].queue("repeat").as(LavinMQ::AMQP::Queue)
         defs = {
           "expires"          => JSON::Any.new(60_000_i64),
           "max-length"       => JSON::Any.new(100_i64),
           "max-length-bytes" => JSON::Any.new(1_000_000_i64),
           "delivery-limit"   => JSON::Any.new(10_i64),
         } of String => JSON::Any
-        20.times do |i|
-          s.vhosts["/"].add_policy("p#{i}", "^repeat$", "queues", defs, i.to_i8)
-        end
-        Fiber.yield
         loop_count = ->(needle : String) do
           c = 0
           Fiber.list do |f|
@@ -269,10 +263,52 @@ describe LavinMQ::VHost do
           end
           c
         end
-        loop_count.call("queue_expire_loop").should eq 1
-        loop_count.call("drop_overflow").should be <= 1
-        loop_count.call("drop_redelivered").should be <= 1
+        # Hold the store lock so drop_overflow/drop_redelivered fibers stay
+        # alive (blocked on the lock) and can be counted
+        q.@msg_store_lock.synchronize do
+          20.times do |i|
+            s.vhosts["/"].add_policy("p#{i}", "^repeat$", "queues", defs, i.to_i8)
+          end
+          sleep 50.milliseconds
+          loop_count.call("queue_expire_loop").should eq 1
+          loop_count.call("drop_overflow").should eq 1
+          loop_count.call("drop_redelivered").should eq 1
+        end
         20.times { |i| s.vhosts["/"].delete_policy("p#{i}") }
+      end
+    end
+  end
+
+  it "clears drop_overflow guard when drop_overflow raises" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("raise")
+        2.times { q.publish "m" }
+        queue = s.vhosts["/"].queue("raise").as(LavinMQ::AMQP::Queue)
+        wait_for { queue.message_count == 2 }
+        # A closed store makes drop_overflow raise ClosedError on shift?
+        queue.@msg_store.close
+        defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+        s.vhosts["/"].add_policy("ml", "^raise$", "queues", defs, 0_i8)
+        wait_for { queue.@drop_overflow_pending.get == false }
+        wait_for { queue.@drop_overflow_loop_running.get == false }
+      end
+    end
+  end
+
+  it "restart! clears policy loop guards" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue("restart")
+        q = s.vhosts["/"].queue("restart").as(LavinMQ::AMQP::Queue)
+        q.close
+        q.@drop_overflow_loop_running.set(true)
+        q.@drop_redelivered_loop_running.set(true)
+        q.@queue_expire_loop_running.set(true)
+        q.restart!.should be_true
+        q.@drop_overflow_loop_running.get.should be_false
+        q.@drop_redelivered_loop_running.get.should be_false
+        q.@queue_expire_loop_running.get.should be_false
       end
     end
   end
