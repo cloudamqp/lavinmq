@@ -13,10 +13,11 @@ module LavinMQ::AMQP10
     # has no field for are kept in headers with this prefix; they are never
     # delivered as application-properties, nor accepted from a publisher.
     INTERNAL_HEADER_PREFIX = "x-amqp10-"
-    # Set when the body was an amqp-value section rather than data sections:
+    # Set when the body was anything but data sections:
     # "string" or "binary" (the body holds the value's bytes) or "value" (the
     # body holds the value in its AMQP 1.0 encoding), or "none" when the
-    # message had no body section at all (e.g. Proton sends a null body so).
+    # message had no body section at all (e.g. Proton sends a null body so),
+    # or "sequence" (the body holds the amqp-sequence sections as encoded).
     BODY_TYPE_HEADER = "x-amqp10-body-type"
     # Set when message-id or correlation-id was not a string: "ulong",
     # "uuid" or "binary". The 0-9-1 property holds the id as a string.
@@ -40,6 +41,7 @@ module LavinMQ::AMQP10
       annotations : Bytes? = nil
 
       until reader.pos >= reader.bytesize
+        section_start = reader.pos
         descriptor = Codec.read_descriptor_code(reader)
         case descriptor
         when Descriptor::HEADER
@@ -61,6 +63,13 @@ module LavinMQ::AMQP10
           body_seen = true
           body_io = nil
           body, body_type = read_amqp_value_body(reader)
+        when Descriptor::AMQP_SEQUENCE
+          # Stored as the encoded sections, descriptors included, and
+          # delivered as they arrived.
+          body_seen = true
+          body_type = "sequence"
+          Codec.skip_value(reader)
+          body, body_io = append_data_section(body, body_io, Codec.slice_from(reader, section_start))
         else
           Codec.skip_value(reader)
         end
@@ -411,6 +420,7 @@ module LavinMQ::AMQP10
       Binary
       Value
       None
+      Sequence
     end
 
     # Returns the number of AMQP 1.0 transfer frames written.
@@ -457,9 +467,9 @@ module LavinMQ::AMQP10
       app_sec = app_count.zero? ? 0 : 3 + Codec.map_header_size(app_fields, app_count * 2) + app_fields
       body_kind = body_kind(headers)
       body_sec = case body_kind
-                 when .none?  then 0
-                 when .value? then 3
-                 else              3 + Codec.binary_header_size(msg.bodysize)
+                 when .none?, .sequence? then 0
+                 when .value?            then 3
+                 else                         3 + Codec.binary_header_size(msg.bodysize)
                  end
       total = header_sec + annotations_sec + props_sec + app_sec + body_sec
       SectionSizes.new(total, delivery_count, header_count, header_fields, annotations, props_count, props_fields,
@@ -592,6 +602,8 @@ module LavinMQ::AMQP10
         BodyKind::Value
       elsif headers.has_entry?(BODY_TYPE_HEADER, "none")
         BodyKind::None
+      elsif headers.has_entry?(BODY_TYPE_HEADER, "sequence")
+        BodyKind::Sequence
       else
         BodyKind::Data
       end
@@ -620,6 +632,8 @@ module LavinMQ::AMQP10
         Codec.write_descriptor(io, Descriptor::AMQP_VALUE)
       in .none?
         # no body section; the stored body is empty
+      in .sequence?
+        # the stored body is the encoded amqp-sequence sections
       end
     end
 

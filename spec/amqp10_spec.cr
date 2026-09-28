@@ -999,6 +999,25 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     delivered_sections(stored_message(payload.to_slice)).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
   end
 
+  it "delivers amqp-sequence bodies as they were published" do
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES,
+      [LavinMQ::AMQP10::Value.string("id")])
+    sequences = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_described_list(sequences, LavinMQ::AMQP10::Descriptor::AMQP_SEQUENCE,
+      [LavinMQ::AMQP10::Value.int(1), LavinMQ::AMQP10::Value.string("two")])
+    LavinMQ::AMQP10::Codec.write_described_list(sequences, LavinMQ::AMQP10::Descriptor::AMQP_SEQUENCE,
+      [LavinMQ::AMQP10::Value.null])
+    payload.write sequences.to_slice
+    msg = stored_message(payload.to_slice)
+    msg.properties.headers.not_nil!["x-amqp10-body-type"].should eq "sequence"
+
+    sections = delivered_sections(msg)
+    sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::PROPERTIES,
+                                   LavinMQ::AMQP10::Descriptor::AMQP_SEQUENCE, LavinMQ::AMQP10::Descriptor::AMQP_SEQUENCE]
+    (sections[1][1] + sections[2][1]).should eq sequences.to_slice
+  end
+
   it "keeps 0-9-1 friendly bodies for string and binary amqp-values" do
     payload = IO::Memory.new
     LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(
