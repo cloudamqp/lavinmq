@@ -17,6 +17,7 @@ require "./io_memory_reset"
 require "./message_codec"
 require "./transfer_codec"
 require "./types"
+require "./session"
 
 module LavinMQ::AMQP10
   class Client < LavinMQ::Client

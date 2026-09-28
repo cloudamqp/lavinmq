@@ -1,4 +1,5 @@
 require "../stats"
+require "../exchange"
 require "./client"
 require "./io_memory_reset"
 
