@@ -1,6 +1,6 @@
 # Definitions
 
-Definitions are the complete declarative state of a LavinMQ server: vhosts, users, permissions, exchanges, queues, bindings, policies, and parameters.
+Definitions are the complete declarative state of a LavinMQ server: vhosts, users, permissions, MQTT permission groups, exchanges, queues, bindings, policies, and parameters.
 
 ## Export
 
@@ -38,6 +38,8 @@ lavinmqctl import_definitions definitions.json
 
 Import is additive: new resources are created and bindings/policies/parameters/users with the same name are replaced. Re-declaring an existing queue or exchange with mismatching properties (durable, auto-delete, arguments) returns a `precondition_failed` error rather than overwriting.
 
+MQTT permission groups are imported additively too, with two differences: an import can remove a vhost's automatic `default` group, and it does not always carry a lockdown over to the target. See [MQTT topic permissions](mqtt.md#definitions).
+
 ## Load on startup
 
 Set `load_definitions` in the `[main]` section of the config file to import a JSON definitions file every time the broker boots:
@@ -50,7 +52,7 @@ load_definitions = /etc/lavinmq/definitions.json
 Behavior:
 
 - The file is imported before listeners start accepting connections.
-- Existing users, permissions, vhosts, policies, and parameters are preserved. The file only adds to or updates state, never deletes. Queues and exchanges with mismatching properties return `precondition_failed` and skip without overwriting.
+- Existing users, permissions, vhosts, policies, and parameters are preserved. The file only adds to or updates state, never deletes, apart from the automatic MQTT `default` group (see [MQTT topic permissions](mqtt.md#definitions)). Queues and exchanges with mismatching properties return `precondition_failed` and skip without overwriting.
 - On a fresh data directory, the default vhost (`/`) and default user are not seeded if `load_definitions` is set; the file is expected to declare the desired bootstrap state.
 - If the file is missing, unreadable, or contains invalid JSON, the broker logs an error and exits with a non-zero status instead of starting.
 
