@@ -216,6 +216,29 @@ private class AMQP10SpecClient
     disposition.outcome.not_nil!
   end
 
+  # Publishes an encoded message split over transfer frames of chunk_size bytes.
+  def publish_raw_fragmented(handle : UInt32, delivery_id : UInt32, message : Bytes, chunk_size : Int32) : LavinMQ::AMQP10::Outcome
+    offset = 0
+    while offset < message.bytesize
+      first = offset.zero?
+      chunk = message[offset, Math.min(chunk_size, message.bytesize - offset)]
+      offset += chunk.bytesize
+      more = offset < message.bytesize
+      payload = IO::Memory.new
+      if first
+        LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, delivery_id.to_s.to_slice, more, false)
+      else
+        LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::TRANSFER, [
+          LavinMQ::AMQP10::Value.uint(handle), LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null,
+          LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.bool(more),
+        ])
+      end
+      payload.write chunk
+      write_amqp_frame(payload.to_slice)
+    end
+    LavinMQ::AMQP10::TransferCodec.read_disposition(@reader.read.body_reader).outcome.not_nil!
+  end
+
   # A single-frame transfer that omits the mandatory delivery-id.
   def write_transfer_without_delivery_id(handle : UInt32, body : String) : Nil
     payload = IO::Memory.new
@@ -2297,6 +2320,24 @@ describe LavinMQ::AMQP10 do
         sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
         section_fields(sections[0][1])[4].uint?.should eq 1_u64
         client.settle(transfer.delivery_id.not_nil!)
+        client.close
+      end
+    end
+  end
+
+  it "accepts values with descriptors nested deeper than the stack could recurse" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-deeply-described", auto_delete: true)
+        depth = 1_000_000
+        message = IO::Memory.new
+        LavinMQ::AMQP10::Codec.write_descriptor(message, LavinMQ::AMQP10::Descriptor::AMQP_VALUE)
+        depth.times { message.write_byte 0x00_u8 } # each descriptor a described value
+        (depth + 1).times { message.write_byte 0x40_u8 }
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.publish_raw_fragmented(0_u32, 1_u32, message.to_slice, 65_536).should eq LavinMQ::AMQP10::Outcome::Accepted
+        q.message_count.should eq 1
         client.close
       end
     end
