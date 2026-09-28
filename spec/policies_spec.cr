@@ -9,6 +9,26 @@ class PoliciesSpec
   end
 end
 
+# Once armed, drop_overflow blocks on a gate and then raises on its next call,
+# so a spec can queue another request while the coalescing fiber is mid-run.
+class RaiseOnceDropOverflowQueue < LavinMQ::AMQP::Queue
+  @gate = ::Channel(Nil).new
+  property? armed = false
+
+  def release_gate
+    @gate.send nil
+  end
+
+  private def drop_overflow(dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil) : Nil
+    if @armed
+      @armed = false
+      @gate.receive
+      raise LavinMQ::MessageStore::ClosedError.new
+    end
+    super
+  end
+end
+
 describe LavinMQ::VHost do
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
@@ -293,6 +313,29 @@ describe LavinMQ::VHost do
         wait_for { queue.@drop_overflow_pending.get == false }
         wait_for { queue.@drop_overflow_loop_running.get == false }
       end
+    end
+  end
+
+  it "services a drop_overflow request queued while a failing run was in flight" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      q = RaiseOnceDropOverflowQueue.create(vhost, "raise_once")
+      3.times { q.publish(LavinMQ::Message.new("", q.name, "m", LavinMQ::AMQP::Properties.new)) }
+      q.message_count.should eq 3
+      q.armed = true
+      p1 = LavinMQ::Policy.new("a", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"max-length" => JSON::Any.new(2_i64)}, 0_i8)
+      q.apply_policy(p1, nil)
+      wait_for { q.@drop_overflow_pending.get == false } # fiber is inside drop_overflow
+      p2 = LavinMQ::Policy.new("b", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"max-length" => JSON::Any.new(1_i64)}, 0_i8)
+      q.apply_policy(p2, nil)
+      q.@drop_overflow_pending.get.should be_true
+      q.release_gate
+      wait_for { q.message_count == 1 }
+      wait_for { q.@drop_overflow_loop_running.get == false }
+    ensure
+      q.try &.delete
     end
   end
 

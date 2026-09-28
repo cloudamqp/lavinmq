@@ -171,7 +171,12 @@ module LavinMQ::AMQP
         begin
           @vhost.closed.when_false.receive?
           while @loop_generation.get == gen && @drop_overflow_pending.swap(false)
-            drop_overflow
+            begin
+              drop_overflow
+            rescue ex
+              # Keep going so a request queued during this run isn't lost
+              @log.error(ex) { "drop_overflow failed" }
+            end
           end
         ensure
           @drop_overflow_loop_running.set(false) if @loop_generation.get == gen
@@ -189,7 +194,12 @@ module LavinMQ::AMQP
         begin
           @vhost.closed.when_false.receive?
           while @loop_generation.get == gen && @drop_redelivered_pending.swap(false)
-            drop_redelivered
+            begin
+              drop_redelivered
+            rescue ex
+              # Keep going so a request queued during this run isn't lost
+              @log.error(ex) { "drop_redelivered failed" }
+            end
           end
         ensure
           @drop_redelivered_loop_running.set(false) if @loop_generation.get == gen
