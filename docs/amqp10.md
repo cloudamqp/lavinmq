@@ -84,12 +84,12 @@ Messages are stored in the AMQP 0-9-1 format. Sections and properties map as fol
 | `header.durable` | `delivery-mode` (2 when durable) |
 | `header.priority` | `priority` |
 | `header.ttl` | `expiration` (milliseconds) |
-| `properties.message-id` | `message-id` (numeric and UUID ids as strings) |
+| `properties.message-id` | `message-id`, as a string; `ulong`, `uuid` and `binary` ids are delivered to AMQP 1.0 consumers with their original type |
 | `properties.user-id` | `user-id` |
 | `properties.to` | Publish target for anonymous links; not stored |
 | `properties.subject` | `type` |
 | `properties.reply-to` | `reply-to` |
-| `properties.correlation-id` | `correlation-id` |
+| `properties.correlation-id` | `correlation-id`, typed like `message-id` |
 | `properties.content-type` | `content-type` |
 | `properties.content-encoding` | `content-encoding` |
 | `properties.absolute-expiry-time` | `expiration`, as the remaining time when published |
@@ -101,7 +101,7 @@ Messages are stored in the AMQP 0-9-1 format. Sections and properties map as fol
 
 String properties are limited to 255 bytes, as in 0-9-1. AMQP 1.0 consumers receive the body in the section it was published in: an `amqp-value` body comes back as the same `amqp-value`, and `data` sections, or a body published over 0-9-1, come back as a single `data` section.
 
-Details the 0-9-1 format has no field for are kept in headers prefixed `x-amqp10-`, such as `x-amqp10-body-type` for an `amqp-value` body. 0-9-1 consumers see these headers; AMQP 1.0 consumers do not receive them as application-properties, and AMQP 1.0 publishers cannot set them.
+Details the 0-9-1 format has no field for are kept in headers prefixed `x-amqp10-`, such as `x-amqp10-body-type` for an `amqp-value` body and `x-amqp10-message-id-type` for a non-string message-id. 0-9-1 consumers see these headers; AMQP 1.0 consumers do not receive them as application-properties, and AMQP 1.0 publishers cannot set them.
 
 ## Not Supported
 

@@ -783,6 +783,57 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     end
   end
 
+  it "delivers message-id and correlation-id with the type they were published with" do
+    uuid = UUID.random
+    ids = {
+      Bytes[0xa1, 3, 'a'.ord, 'b'.ord, 'c'.ord], # string
+      Bytes[0x53, 7],                            # smallulong
+      Bytes[0x80, 0, 0, 0, 0, 0, 0, 0x4e, 0x20], # ulong 20000
+      Bytes[0x44],                               # ulong0
+      Bytes[0x98] + uuid.bytes.to_slice,         # uuid
+      Bytes[0xa0, 3, 1, 2, 3],                   # binary
+    }
+    ids.each_with_index do |id, i|
+      correlation_id = ids[(i + 2) % ids.size]
+      fields = IO::Memory.new
+      fields.write id
+      4.times { fields.write_byte 0x40_u8 } # user-id, to, subject, reply-to
+      fields.write correlation_id
+      payload = IO::Memory.new
+      LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::PROPERTIES)
+      LavinMQ::AMQP10::Codec.write_list_header(payload, fields.size, 6)
+      payload.write fields.to_slice
+      LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+      LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+
+      sections = delivered_sections(stored_message(payload.to_slice))
+      sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::PROPERTIES, LavinMQ::AMQP10::Descriptor::DATA]
+      reader = IO::Memory.new(sections[0][1])
+      LavinMQ::AMQP10::Codec.read_descriptor_code(reader)
+      LavinMQ::AMQP10::Codec.read_list_header(reader)
+      values = Array(Bytes).new
+      6.times do
+        start = reader.pos
+        LavinMQ::AMQP10::Codec.skip_value(reader)
+        values << sections[0][1][start, reader.pos - start]
+      end
+      values[0].should eq id
+      values[5].should eq correlation_id
+    end
+  end
+
+  it "delivers a stored id as a string when it does not parse as its type" do
+    headers = AMQ::Protocol::Table.new({"x-amqp10-message-id-type" => "uuid", "x-amqp10-correlation-id-type" => "ulong"})
+    props = AMQ::Protocol::Properties.new(message_id: "not-a-uuid", correlation_id: "-1", headers: headers)
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, 4_u64, "body".to_slice)
+    reader = IO::Memory.new(delivered_sections(msg)[0][1])
+    LavinMQ::AMQP10::Codec.read_descriptor_code(reader)
+    LavinMQ::AMQP10::Codec.read_list_header(reader)
+    LavinMQ::AMQP10::Codec.read_string_value(reader).should eq "not-a-uuid"
+    4.times { LavinMQ::AMQP10::Codec.skip_value(reader) }
+    LavinMQ::AMQP10::Codec.read_string_value(reader).should eq "-1"
+  end
+
   it "keeps 0-9-1 friendly bodies for string and binary amqp-values" do
     payload = IO::Memory.new
     LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(

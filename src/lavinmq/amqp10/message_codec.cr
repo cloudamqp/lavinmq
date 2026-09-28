@@ -17,6 +17,10 @@ module LavinMQ::AMQP10
     # "string" or "binary" (the body holds the value's bytes) or "value" (the
     # body holds the value in its AMQP 1.0 encoding).
     BODY_TYPE_HEADER = "x-amqp10-body-type"
+    # Set when message-id or correlation-id was not a string: "ulong",
+    # "uuid" or "binary". The 0-9-1 property holds the id as a string.
+    MESSAGE_ID_TYPE_HEADER     = "x-amqp10-message-id-type"
+    CORRELATION_ID_TYPE_HEADER = "x-amqp10-correlation-id-type"
 
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
@@ -26,6 +30,8 @@ module LavinMQ::AMQP10
       body = EMPTY_BODY
       body_io : IO::Memory? = nil
       body_type : String? = nil
+      message_id_type : String? = nil
+      correlation_id_type : String? = nil
 
       until reader.pos >= reader.bytesize
         descriptor = Codec.read_descriptor_code(reader)
@@ -35,7 +41,7 @@ module LavinMQ::AMQP10
         when Descriptor::DELIVERY_ANNOTATIONS, Descriptor::MESSAGE_ANNOTATIONS, Descriptor::FOOTER
           Codec.skip_value(reader)
         when Descriptor::PROPERTIES
-          props, to = read_properties(reader, props)
+          props, to, message_id_type, correlation_id_type = read_properties(reader, props)
         when Descriptor::APPLICATION_PROPERTIES
           props = read_application_properties(reader, props)
         when Descriptor::DATA
@@ -51,7 +57,8 @@ module LavinMQ::AMQP10
       if chunks = body_io
         body = chunks.to_slice
       end
-      props = with_internal_header(props, BODY_TYPE_HEADER, body_type) if body_type
+      # Applied last: the application-properties section replaces the headers.
+      props = with_internal_headers(props, body_type, message_id_type, correlation_id_type)
       Incoming.new(props, body, to)
     rescue ex : IO::EOFError
       raise DecodeError.new("truncated AMQP 1.0 message", cause: ex)
@@ -89,9 +96,12 @@ module LavinMQ::AMQP10
     end
 
     # Properties is a struct: returns the updated copy.
-    private def with_internal_header(props, key : String, value : String) : LavinMQ::AMQP::Properties
+    private def with_internal_headers(props, body_type, message_id_type, correlation_id_type) : LavinMQ::AMQP::Properties
+      return props unless body_type || message_id_type || correlation_id_type
       headers = props.headers || LavinMQ::AMQP::Table.new
-      headers[key] = value
+      headers[BODY_TYPE_HEADER] = body_type if body_type
+      headers[MESSAGE_ID_TYPE_HEADER] = message_id_type if message_id_type
+      headers[CORRELATION_ID_TYPE_HEADER] = correlation_id_type if correlation_id_type
       props.headers = headers
       props
     end
@@ -172,15 +182,20 @@ module LavinMQ::AMQP10
       end
     end
 
+    # Returns the properties, the to address, and the message-id and
+    # correlation-id types when they were not strings.
     # ameba:disable Metrics/CyclomaticComplexity
-    private def read_properties(reader, props) : Tuple(LavinMQ::AMQP::Properties, String?)
+    private def read_properties(reader, props) : Tuple(LavinMQ::AMQP::Properties, String?, String?, String?)
       count, end_pos = Codec.read_list_header(reader)
       to = nil
+      message_id_type = nil
+      correlation_id_type = nil
       index = 0
       while index < count
         case index
         when 0
-          props.message_id = shortstr(read_message_id(reader))
+          message_id, message_id_type = read_message_id(reader)
+          props.message_id = shortstr(message_id)
         when 1
           if user_id = Codec.read_binary_value(reader)
             props.user_id = shortstr(String.new(user_id))
@@ -192,7 +207,8 @@ module LavinMQ::AMQP10
         when 4
           props.reply_to = shortstr(Codec.read_string_value(reader))
         when 5
-          props.correlation_id = shortstr(read_message_id(reader))
+          correlation_id, correlation_id_type = read_message_id(reader)
+          props.correlation_id = shortstr(correlation_id)
         when 6
           props.content_type = shortstr(Codec.read_string_value(reader))
         when 7
@@ -216,39 +232,40 @@ module LavinMQ::AMQP10
         index += 1
       end
       reader.skip(end_pos - reader.pos) if reader.pos < end_pos
-      {props, to}
+      {props, to, message_id_type, correlation_id_type}
     end
 
+    # Returns the id as a string, and its type unless it was a string.
     # ameba:disable Metrics/CyclomaticComplexity
-    private def read_message_id(reader) : String?
+    private def read_message_id(reader) : Tuple(String?, String?)
       case code = Codec.read_byte(reader)
       when 0x40
-        nil
+        {nil, nil}
       when 0xa1, 0xa3
-        reader.read_string(Codec.read_byte(reader).to_i)
+        {reader.read_string(Codec.read_byte(reader).to_i), nil}
       when 0xb1, 0xb3
-        reader.read_string(Codec.read_size32(reader, "string32"))
-      when 0x43
-        "0"
+        {reader.read_string(Codec.read_size32(reader, "string32")), nil}
+      when 0x43 # uint is not a valid id type; kept as a string
+        {"0", nil}
       when 0x52
-        Codec.read_byte(reader).to_s
+        {Codec.read_byte(reader).to_s, nil}
       when 0x70
-        reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian).to_s
+        {reader.read_bytes(UInt32, IO::ByteFormat::NetworkEndian).to_s, nil}
       when 0x44
-        "0"
+        {"0", "ulong"}
       when 0x53
-        Codec.read_byte(reader).to_s
+        {Codec.read_byte(reader).to_s, "ulong"}
       when 0x80
-        reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian).to_s
+        {reader.read_bytes(UInt64, IO::ByteFormat::NetworkEndian).to_s, "ulong"}
       when 0xa0
-        reader.read_string(Codec.read_byte(reader).to_i)
+        {reader.read_string(Codec.read_byte(reader).to_i), "binary"}
       when 0xb0
-        reader.read_string(Codec.read_size32(reader, "binary32"))
+        {reader.read_string(Codec.read_size32(reader, "binary32")), "binary"}
       when 0x98
-        read_uuid_value(reader)
+        {read_uuid_value(reader), "uuid"}
       else
         Codec.skip_value_payload(reader, code)
-        nil
+        {nil, nil}
       end
     end
 
@@ -343,9 +360,19 @@ module LavinMQ::AMQP10
       header_fields : Int32,
       props_count : Int32,
       props_fields : Int32,
+      message_id_kind : IdKind,
+      correlation_id_kind : IdKind,
       app_count : Int32,
       app_fields : Int32,
       body_kind : BodyKind
+
+    # How message-id and correlation-id are encoded, from their type headers.
+    private enum IdKind
+      String
+      ULong
+      UUID
+      Binary
+    end
 
     # The section the stored body is delivered in, from BODY_TYPE_HEADER.
     private enum BodyKind
@@ -387,15 +414,62 @@ module LavinMQ::AMQP10
       header_fields = header_count.zero? ? 0 : header_fields_size(props, header_count)
       header_sec = header_count.zero? ? 0 : 3 + Codec.list_header_size(header_fields) + header_fields
       props_count = properties_field_count(props)
-      props_fields = props_count.zero? ? 0 : properties_fields_size(props, props_count)
-      props_sec = props_count.zero? ? 0 : 3 + Codec.list_header_size(props_fields) + props_fields
       headers = props.headers
+      message_id_kind = id_kind(headers, MESSAGE_ID_TYPE_HEADER, props.message_id)
+      correlation_id_kind = id_kind(headers, CORRELATION_ID_TYPE_HEADER, props.correlation_id)
+      props_fields = props_count.zero? ? 0 : properties_fields_size(props, props_count, message_id_kind, correlation_id_kind)
+      props_sec = props_count.zero? ? 0 : 3 + Codec.list_header_size(props_fields) + props_fields
       app_count, app_fields = headers ? application_properties_fields_size(headers) : {0, 0}
       app_sec = app_count.zero? ? 0 : 3 + Codec.map_header_size(app_fields, app_count * 2) + app_fields
       body_kind = body_kind(headers)
       body_sec = 3 + (body_kind.value? ? 0 : Codec.binary_header_size(msg.bodysize))
       total = header_sec + props_sec + app_sec + body_sec
-      SectionSizes.new(total, header_count, header_fields, props_count, props_fields, app_count, app_fields, body_kind)
+      SectionSizes.new(total, header_count, header_fields, props_count, props_fields,
+        message_id_kind, correlation_id_kind, app_count, app_fields, body_kind)
+    end
+
+    # Falls back to a string when the stored id does not parse as its type,
+    # e.g. a type header set by a 0-9-1 publisher.
+    private def id_kind(headers : LavinMQ::AMQP::Table?, key : String, id : String?) : IdKind
+      return IdKind::String unless id && headers && headers.has_key?(key)
+      if headers.has_entry?(key, "ulong")
+        id.to_u64? ? IdKind::ULong : IdKind::String
+      elsif headers.has_entry?(key, "uuid")
+        UUID.parse?(id) ? IdKind::UUID : IdKind::String
+      elsif headers.has_entry?(key, "binary")
+        IdKind::Binary
+      else
+        IdKind::String
+      end
+    end
+
+    private def id_size(id : String?, kind : IdKind) : Int32
+      return 1 unless id
+      case kind
+      in .string? then Codec.string_size(id)
+      in .binary? then Codec.binary_header_size(id.bytesize.to_u64) + id.bytesize
+      in .uuid?   then 17
+      in .u_long?
+        value = id.to_u64
+        value.zero? ? 1 : value <= UInt8::MAX ? 2 : 9
+      end
+    end
+
+    private def write_id(io, id : String?, kind : IdKind) : Nil
+      return io.write_byte(0x40_u8) unless id
+      case kind
+      in .string? then Codec.write_string(io, id)
+      in .binary? then Codec.write_binary(io, id.to_slice)
+      in .u_long? then Codec.write_ulong(io, id.to_u64)
+      in .uuid?
+        # id_kind only picks UUID when the id parses as one
+        if uuid = UUID.parse?(id)
+          io.write_byte 0x98_u8
+          io.write uuid.bytes.to_slice
+        else
+          Codec.write_string(io, id)
+        end
+      end
     end
 
     private def body_kind(headers : LavinMQ::AMQP::Table?) : BodyKind
@@ -439,7 +513,7 @@ module LavinMQ::AMQP10
     private def write_message_sections_prefix(io, msg : BytesMessage, sizes : SectionSizes? = nil) : Nil
       sizes ||= compute_section_sizes(msg)
       write_header_section(io, msg.properties, sizes.header_count, sizes.header_fields)
-      write_properties_section(io, msg.properties, sizes.props_count, sizes.props_fields)
+      write_properties_section(io, msg.properties, sizes)
       write_application_properties_section(io, msg.properties.headers, sizes.app_count, sizes.app_fields)
       write_body_section_header(io, sizes.body_kind, msg.bodysize)
     end
@@ -618,19 +692,20 @@ module LavinMQ::AMQP10
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def write_properties_section(io, props, count : Int32, fields_size : Int32) : Nil
+    private def write_properties_section(io, props, sizes : SectionSizes) : Nil
+      count = sizes.props_count
       return if count.zero?
       Codec.write_descriptor(io, Descriptor::PROPERTIES)
-      Codec.write_list_header(io, fields_size, count)
+      Codec.write_list_header(io, sizes.props_fields, count)
       index = 0
       while index < count
         case index
-        when 0 then Codec.write_nullable_string(io, props.message_id)
+        when 0 then write_id(io, props.message_id, sizes.message_id_kind)
         when 1 then write_nullable_binary_string(io, props.user_id)
         when 2 then io.write_byte 0x40_u8
         when 3 then Codec.write_nullable_string(io, props.type)
         when 4 then Codec.write_nullable_string(io, props.reply_to)
-        when 5 then Codec.write_nullable_string(io, props.correlation_id)
+        when 5 then write_id(io, props.correlation_id, sizes.correlation_id_kind)
         when 6 then write_nullable_symbol(io, props.content_type)
         when 7 then write_nullable_symbol(io, props.content_encoding)
         when 8 then io.write_byte 0x40_u8
@@ -682,16 +757,16 @@ module LavinMQ::AMQP10
       count
     end
 
-    private def properties_fields_size(props, count) : Int32
+    private def properties_fields_size(props, count, message_id_kind : IdKind, correlation_id_kind : IdKind) : Int32
       size = 0
       index = 0
       while index < count
         size += case index
-                when 0 then Codec.nullable_string_size(props.message_id)
+                when 0 then id_size(props.message_id, message_id_kind)
                 when 1 then nullable_binary_string_size(props.user_id)
                 when 3 then Codec.nullable_string_size(props.type)
                 when 4 then Codec.nullable_string_size(props.reply_to)
-                when 5 then Codec.nullable_string_size(props.correlation_id)
+                when 5 then id_size(props.correlation_id, correlation_id_kind)
                 when 6 then Codec.nullable_string_size(props.content_type)
                 when 7 then Codec.nullable_string_size(props.content_encoding)
                 when 9 then props.timestamp_raw ? 9 : 1
