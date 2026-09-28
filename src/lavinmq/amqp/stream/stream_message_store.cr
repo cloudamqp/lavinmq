@@ -74,6 +74,7 @@ module LavinMQ::AMQP
     end
 
     def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
+      return if @closed
       @segments.each do |seg_id, mfile|
         next if mfile == @wfile
         next if except.includes? seg_id

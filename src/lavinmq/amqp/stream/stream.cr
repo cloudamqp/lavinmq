@@ -286,6 +286,9 @@ module LavinMQ::AMQP
         end
       end
       @msg_store_lock.synchronize do
+        # Re-check: the queue/store can close while we were waiting for the
+        # lock (Queue#close takes this same lock to close the store).
+        next if closed? || stream_msg_store.closed
         stream_msg_store.drop_overflow
         stream_msg_store.unmap_segments(except: used_segments)
       end

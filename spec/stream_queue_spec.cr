@@ -33,6 +33,17 @@ module StreamSpecHelpers
   end
 end
 
+module LavinMQ
+  # unmap_and_remove_segments is protected, callable only from within the
+  # LavinMQ namespace (as VHost's sweep loop does) - this lets specs invoke
+  # it the same way without widening its real visibility.
+  module StreamSpecInternals
+    def self.unmap_and_remove_segments(stream : AMQP::Stream)
+      stream.unmap_and_remove_segments
+    end
+  end
+end
+
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
@@ -1351,6 +1362,60 @@ describe LavinMQ::AMQP::Stream do
         store.push(msg) # the trailing segment should still be writable
         store.@segment_msg_count[last_seg_id].should eq 1
         store.close
+      end
+    end
+  end
+
+  describe "unmap_and_remove_segments (called by VHost's shared sweep)" do
+    it "unmaps segments not in use by a consumer without raising" do
+      queue_name = Random::Secure.hex
+      # Half-segment payload so 3 messages span multiple segments.
+      data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+        end
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        stream.stream_msg_store.@segments.size.should be >= 2
+
+        LavinMQ::StreamSpecInternals.unmap_and_remove_segments(stream)
+
+        # The segments are still on disk and readable afterward - dontneed
+        # only drops the page cache, it doesn't touch the data.
+        msg = StreamSpecHelpers.consume_one(s, queue_name, Random::Secure.hex,
+          AMQP::Client::Arguments.new({"x-stream-offset": "first"}))
+        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+      end
+    end
+
+    it "is a no-op on a closed queue instead of raising" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        stream.close
+
+        LavinMQ::StreamSpecInternals.unmap_and_remove_segments(stream)
+      end
+    end
+
+    it "store's unmap_segments is a no-op after the store is closed instead of raising" do
+      # Regression: MessageStore#close closes each segment's MFile but leaves
+      # them in @segments, so a sweep that reaches unmap_segments after the
+      # store closed used to hit mfile.dontneed -> IO::Error: Closed mfile.
+      # Needs >= 2 segments: unmap_segments always skips @wfile, so with a
+      # single segment it never reaches a dontneed call at all.
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        2.times { store.push(msg) }
+        store.@segments.size.should be >= 2
+        store.close
+
+        store.unmap_segments
       end
     end
   end

@@ -261,7 +261,10 @@ module LavinMQ
           return
         end
         each_queue do |q|
-          q.unmap_and_remove_segments if q.is_a?(AMQP::Stream)
+          next unless q.is_a?(AMQP::Stream)
+          q.unmap_and_remove_segments
+        rescue ex
+          @log.error(ex) { "Unmap sweep failed for stream queue #{q.name}" }
         end
       end
     end
