@@ -29,6 +29,26 @@ class RaiseOnceDropOverflowQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Once armed, queue_expire_loop blocks on a gate after the loop has exited but
+# before the spawn block's ensure clears the running flag, holding open the
+# window where a concurrent apply could find the guard still set.
+class GatedExpireQueue < LavinMQ::AMQP::Queue
+  @gate = ::Channel(Nil).new
+  property? armed = false
+
+  def release_gate
+    @gate.send nil
+  end
+
+  private def queue_expire_loop(gen : UInt32)
+    super
+    if @armed
+      @armed = false
+      @gate.receive
+    end
+  end
+end
+
 describe LavinMQ::VHost do
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
@@ -422,6 +442,40 @@ describe LavinMQ::VHost do
       q.@queue_expire_loop_running.get.should be_true
     ensure
       s.try &.vhosts["/"].closed.set(false)
+      q.try &.delete
+    end
+  end
+
+  it "re-applying expires while the expire loop is exiting doesn't lose the loop" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      q = GatedExpireQueue.create(vhost, "gated_expire")
+      loop_count = -> do
+        c = 0
+        Fiber.list do |f|
+          n = f.@name
+          c += 1 if n && n.includes?("queue_expire_loop") && n.includes?("/gated_expire")
+        end
+        c
+      end
+      expires = LavinMQ::Policy.new("e", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"expires" => JSON::Any.new(60_000_i64)}, 0_i8)
+      other = LavinMQ::Policy.new("o", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"max-length" => JSON::Any.new(10_i64)}, 0_i8)
+      q.apply_policy(expires, nil)
+      wait_for { loop_count.call == 1 }
+      sleep 10.milliseconds # let the loop park in its select
+      q.armed = true
+      # Clears @expires and wakes the loop, which exits and parks on the gate
+      q.apply_policy(other, nil)
+      wait_for { !q.armed? }
+      # Re-apply expires while the exiting loop still holds the guard
+      q.apply_policy(expires, nil)
+      q.release_gate
+      sleep 50.milliseconds
+      loop_count.call.should eq 1
+      q.@queue_expire_loop_running.get.should be_true
+    ensure
       q.try &.delete
     end
   end

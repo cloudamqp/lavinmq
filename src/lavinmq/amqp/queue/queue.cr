@@ -120,6 +120,7 @@ module LavinMQ::AMQP
     # so repeated applies against the same queue share one fiber instead of
     # accumulating loops parked on `@consumers_empty.when_true` etc.
     @queue_expire_loop_running = Atomic(Bool).new(false)
+    @queue_expire_pending = Atomic(Bool).new(false)
     @drop_overflow_loop_running = Atomic(Bool).new(false)
     @drop_overflow_pending = Atomic(Bool).new(false)
     @drop_redelivered_loop_running = Atomic(Bool).new(false)
@@ -156,13 +157,24 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     end
 
+    # Same pending/running bridge as schedule_drop_overflow: queue_expire_loop
+    # exits by itself when @expires is cleared, so a request arriving while it
+    # is on its way out must either be picked up by the while loop or trigger a
+    # new fiber after the running flag is released.
     private def start_queue_expire_loop
+      @queue_expire_pending.set(true)
       return if @queue_expire_loop_running.swap(true)
       gen = @loop_generation.get
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
-        queue_expire_loop(gen)
-      ensure
-        @queue_expire_loop_running.set(false) if @loop_generation.get == gen
+        begin
+          while @loop_generation.get == gen && @queue_expire_pending.swap(false)
+            queue_expire_loop(gen)
+          end
+        ensure
+          @queue_expire_loop_running.set(false) if @loop_generation.get == gen
+        end
+        # Re-trigger if a request slipped in after the last swap.
+        start_queue_expire_loop if @loop_generation.get == gen && @queue_expire_pending.get
       end
     end
 
@@ -379,6 +391,7 @@ module LavinMQ::AMQP
       @message_expire_fiber_active.set(false, :release)
       @loop_generation.add(1)
       @queue_expire_loop_running.set(false)
+      @queue_expire_pending.set(false)
       @drop_overflow_loop_running.set(false)
       @drop_overflow_pending.set(false)
       @drop_redelivered_loop_running.set(false)
