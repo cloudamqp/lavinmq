@@ -99,7 +99,8 @@ Messages are stored in the AMQP 0-9-1 format. Sections and properties map as fol
 | `application-properties` | `headers` |
 | `data` | Body. Several `data` sections are concatenated. |
 | `amqp-value` | Body. String and binary values become the body as-is; other values are stored in their AMQP 1.0 encoding. |
-| `delivery-annotations`, `message-annotations`, `footer` | Ignored |
+| `message-annotations` | Kept in the `x-amqp10-message-annotations` header and delivered unchanged to AMQP 1.0 consumers |
+| `delivery-annotations`, `footer` | Ignored |
 
 String properties are limited to 255 bytes, as in 0-9-1. AMQP 1.0 consumers receive the body in the section it was published in: an `amqp-value` body comes back as the same `amqp-value`, and `data` sections, or a body published over 0-9-1, come back as a single `data` section.
 

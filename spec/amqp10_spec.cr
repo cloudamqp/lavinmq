@@ -840,6 +840,44 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
     end
   end
 
+  it "delivers message annotations the way they were published" do
+    annotations = LavinMQ::AMQP10::Value.map([
+      {LavinMQ::AMQP10::Value.symbol("x-opt-a1"), LavinMQ::AMQP10::Value.long(12345_i64)},
+      {LavinMQ::AMQP10::Value.symbol("x-opt-reason"), LavinMQ::AMQP10::Value.string("x" * 300)},
+    ])
+    section = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(section, LavinMQ::AMQP10::Value.described(
+      LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS), annotations))
+    payload = IO::Memory.new
+    payload.write section.to_slice
+    LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+
+    msg = stored_message(payload.to_slice)
+    sections = delivered_sections(msg, redelivered: true)
+
+    sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::HEADER, LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS,
+                                   LavinMQ::AMQP10::Descriptor::DATA]
+    sections[1][1].should eq section.to_slice
+  end
+
+  it "does not store null or empty message annotations" do
+    [LavinMQ::AMQP10::Value.null, LavinMQ::AMQP10::Value.map(Array(Tuple(LavinMQ::AMQP10::Value, LavinMQ::AMQP10::Value)).new)].each do |value|
+      payload = IO::Memory.new
+      LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(
+        LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::MESSAGE_ANNOTATIONS), value))
+      LavinMQ::AMQP10::Codec.write_descriptor(payload, LavinMQ::AMQP10::Descriptor::DATA)
+      LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+      stored_message(payload.to_slice).properties.headers.should be_nil
+    end
+  end
+
+  it "does not deliver an annotations header that is not an encoded map" do
+    headers = AMQ::Protocol::Table.new({"x-amqp10-message-annotations" => Bytes[0xc1, 9, 1]})
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new(headers: headers), 4_u64, "body".to_slice)
+    delivered_sections(msg).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
+  end
+
   it "reports redeliveries in the header section's delivery-count" do
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new, 4_u64, "body".to_slice)
     delivered_sections(msg).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]

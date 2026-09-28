@@ -21,6 +21,8 @@ module LavinMQ::AMQP10
     # "uuid" or "binary". The 0-9-1 property holds the id as a string.
     MESSAGE_ID_TYPE_HEADER     = "x-amqp10-message-id-type"
     CORRELATION_ID_TYPE_HEADER = "x-amqp10-correlation-id-type"
+    # The message-annotations section's map, in its AMQP 1.0 encoding.
+    MESSAGE_ANNOTATIONS_HEADER = "x-amqp10-message-annotations"
 
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
@@ -32,13 +34,18 @@ module LavinMQ::AMQP10
       body_type : String? = nil
       message_id_type : String? = nil
       correlation_id_type : String? = nil
+      annotations : Bytes? = nil
 
       until reader.pos >= reader.bytesize
         descriptor = Codec.read_descriptor_code(reader)
         case descriptor
         when Descriptor::HEADER
           props = read_header(reader, props)
-        when Descriptor::DELIVERY_ANNOTATIONS, Descriptor::MESSAGE_ANNOTATIONS, Descriptor::FOOTER
+        when Descriptor::MESSAGE_ANNOTATIONS
+          annotations = read_annotations(reader)
+        when Descriptor::DELIVERY_ANNOTATIONS, Descriptor::FOOTER
+          # delivery-annotations are for the next hop only; footers carry
+          # hashes and signatures of the bare message, not stored either.
           Codec.skip_value(reader)
         when Descriptor::PROPERTIES
           props, to, message_id_type, correlation_id_type = read_properties(reader, props)
@@ -58,7 +65,7 @@ module LavinMQ::AMQP10
         body = chunks.to_slice
       end
       # Applied last: the application-properties section replaces the headers.
-      props = with_internal_headers(props, body_type, message_id_type, correlation_id_type)
+      props = with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations)
       Incoming.new(props, body, to)
     rescue ex : IO::EOFError
       raise DecodeError.new("truncated AMQP 1.0 message", cause: ex)
@@ -95,11 +102,26 @@ module LavinMQ::AMQP10
       end
     end
 
+    # The encoded annotations map, copied out of the frame buffer, or nil for
+    # a null or empty map.
+    private def read_annotations(reader : IO::Memory) : Bytes?
+      start = reader.pos
+      if reader.peek.try(&.first?) == 0x40_u8 # null
+        reader.skip(1)
+        return
+      end
+      count, end_pos = Codec.read_map_header(reader)
+      reader.pos = end_pos
+      return if count.zero?
+      Codec.slice_from(reader, start).dup
+    end
+
     # Properties is a struct: returns the updated copy.
-    private def with_internal_headers(props, body_type, message_id_type, correlation_id_type) : LavinMQ::AMQP::Properties
-      return props unless body_type || message_id_type || correlation_id_type
+    private def with_internal_headers(props, body_type, message_id_type, correlation_id_type, annotations) : LavinMQ::AMQP::Properties
+      return props unless body_type || message_id_type || correlation_id_type || annotations
       headers = props.headers || LavinMQ::AMQP::Table.new
       headers[BODY_TYPE_HEADER] = body_type if body_type
+      headers[MESSAGE_ANNOTATIONS_HEADER] = annotations if annotations
       headers[MESSAGE_ID_TYPE_HEADER] = message_id_type if message_id_type
       headers[CORRELATION_ID_TYPE_HEADER] = correlation_id_type if correlation_id_type
       props.headers = headers
@@ -359,6 +381,7 @@ module LavinMQ::AMQP10
       delivery_count : UInt32,
       header_count : Int32,
       header_fields : Int32,
+      annotations : Bytes?,
       props_count : Int32,
       props_fields : Int32,
       message_id_kind : IdKind,
@@ -415,6 +438,8 @@ module LavinMQ::AMQP10
       header_count = header_field_count(props, delivery_count)
       header_fields = header_count.zero? ? 0 : header_fields_size(props, header_count, delivery_count)
       header_sec = header_count.zero? ? 0 : 3 + Codec.list_header_size(header_fields) + header_fields
+      annotations = message_annotations(props.headers)
+      annotations_sec = annotations ? 3 + annotations.bytesize : 0
       props_count = properties_field_count(props)
       headers = props.headers
       message_id_kind = id_kind(headers, MESSAGE_ID_TYPE_HEADER, props.message_id)
@@ -425,9 +450,29 @@ module LavinMQ::AMQP10
       app_sec = app_count.zero? ? 0 : 3 + Codec.map_header_size(app_fields, app_count * 2) + app_fields
       body_kind = body_kind(headers)
       body_sec = 3 + (body_kind.value? ? 0 : Codec.binary_header_size(msg.bodysize))
-      total = header_sec + props_sec + app_sec + body_sec
-      SectionSizes.new(total, delivery_count, header_count, header_fields, props_count, props_fields,
+      total = header_sec + annotations_sec + props_sec + app_sec + body_sec
+      SectionSizes.new(total, delivery_count, header_count, header_fields, annotations, props_count, props_fields,
         message_id_kind, correlation_id_kind, app_count, app_fields, body_kind)
+    end
+
+    # The stored message-annotations map, if any, as a view into the headers.
+    # Anything but one complete encoded map (e.g. a header set by a 0-9-1
+    # publisher) is not delivered.
+    private def message_annotations(headers : LavinMQ::AMQP::Table?) : Bytes?
+      return unless headers && headers.has_key?(MESSAGE_ANNOTATIONS_HEADER)
+      bytes = headers[MESSAGE_ANNOTATIONS_HEADER]?.as?(Bytes) || return
+      bytes if encoded_map?(bytes)
+    end
+
+    private def encoded_map?(bytes : Bytes) : Bool
+      case bytes[0]?
+      when 0xc1
+        bytes.size >= 3 && bytes[1].to_i + 2 == bytes.size
+      when 0xd1
+        bytes.size >= 9 && IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[1, 4]).to_u64 + 5 == bytes.size
+      else
+        false
+      end
     end
 
     # Falls back to a string when the stored id does not parse as its type,
@@ -514,6 +559,10 @@ module LavinMQ::AMQP10
 
     private def write_message_sections_prefix(io, msg : BytesMessage, sizes : SectionSizes) : Nil
       write_header_section(io, msg.properties, sizes)
+      if annotations = sizes.annotations
+        Codec.write_descriptor(io, Descriptor::MESSAGE_ANNOTATIONS)
+        io.write annotations
+      end
       write_properties_section(io, msg.properties, sizes)
       write_application_properties_section(io, msg.properties.headers, sizes.app_count, sizes.app_fields)
       write_body_section_header(io, sizes.body_kind, msg.bodysize)
