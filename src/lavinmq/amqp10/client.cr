@@ -437,8 +437,7 @@ module LavinMQ::AMQP10
     end
 
     private def read_loop
-      reader = @frame_reader || FrameReader.new(@socket, @max_frame_size)
-      reader.max_frame_size = @max_frame_size
+      reader = connection_frame_reader
       configure_idle_timeout
       @last_recv = RoughTime.instant
       while @running
@@ -469,6 +468,16 @@ module LavinMQ::AMQP10
       cleanup
       close_socket
       @log.info { "AMQP 1.0 connection disconnected for user=#{@user.name} duration=#{duration}" }
+    end
+
+    # Keeps using the reader the Open was read with when its buffer can hold
+    # the negotiated max-frame-size, which it always can unless frame_max is 0
+    # (unlimited) and the reader was sized to the minimum.
+    private def connection_frame_reader : FrameReader
+      reader = @frame_reader.try { |r| r if r.buffer_size >= @max_frame_size } ||
+               FrameReader.new(@socket, @max_frame_size)
+      reader.max_frame_size = @max_frame_size
+      reader
     end
 
     private def configure_idle_timeout : Nil

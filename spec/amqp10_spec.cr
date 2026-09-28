@@ -1093,6 +1093,26 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "accepts frames above the handshake buffer size when frame_max is unlimited" do
+    frame_max = LavinMQ::Config.instance.frame_max
+    LavinMQ::Config.instance.frame_max = 0_u32
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-unlimited-frame-max", auto_delete: true)
+        # frame_max 0 is unlimited, so the peer's 4096 wins; the Open was read
+        # with a minimum-size buffer that must not cap the connection.
+        client = AMQP10SpecClient.new(amqp_port(s), frame_max: 4096_u32)
+        client.attach_sender("/queues/#{q.name}")
+        body = "x" * 2000
+        client.publish(0_u32, 1_u32, body).should eq LavinMQ::AMQP10::Outcome::Accepted
+        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq body
+        client.close
+      end
+    end
+  ensure
+    LavinMQ::Config.instance.frame_max = frame_max.not_nil!
+  end
+
   it "rejects oversized fragmented publishes before the final frame" do
     LavinMQ::Config.instance.max_message_size = 16
     with_amqp_server do |s|
