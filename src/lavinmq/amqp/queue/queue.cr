@@ -142,9 +142,6 @@ module LavinMQ::AMQP
         end
       end
     rescue ::Channel::ClosedError
-    ensure
-      @queue_expire_fiber_active.set(false, :release)
-      ensure_queue_expire_fiber
     end
 
     private def message_expire_loop
@@ -289,7 +286,14 @@ module LavinMQ::AMQP
     private def ensure_queue_expire_fiber
       return if @closed || !@expires
       return if @queue_expire_fiber_active.swap(true)
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      rescue ex
+        @log.error(ex) { "queue_expire_loop failed" }
+      ensure
+        @queue_expire_fiber_active.set(false, :release)
+        ensure_queue_expire_fiber
+      end
     end
 
     private def schedule_policy_limits
@@ -310,8 +314,18 @@ module LavinMQ::AMQP
           break if @closed
           # Read the current limits after acquiring the lock. Policy churn while
           # this pass yields requests another pass, without spawning more fibers.
-          drop_overflow
-          drop_redelivered
+          # A failed operation must not skip the other limit check or discard
+          # another policy update that arrived during this pass.
+          begin
+            drop_overflow
+          rescue ex
+            @log.error(ex) { "drop_overflow failed" }
+          end
+          begin
+            drop_redelivered
+          rescue ex
+            @log.error(ex) { "drop_redelivered failed" }
+          end
         end
       end
     rescue ::Channel::ClosedError
