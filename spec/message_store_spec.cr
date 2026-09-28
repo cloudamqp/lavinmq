@@ -497,6 +497,26 @@ describe LavinMQ::MessageStore do
   end
 
   describe "replication" do
+    it "sends the shortened segment to followers after dropping a torn trailing record" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("ex", "rk", "a stored message")) }
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        # Tear the last record and remove the meta file, so produce_metadata
+        # rebuilds the segment and resizes it past the incomplete record.
+        File.open(seg_path, "r+") { |f| f.truncate(f.size - 3) }
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.close
+        replicator.replaced_files.should contain(seg_path)
+      end
+    end
+
     it "registers the initial segment file" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new

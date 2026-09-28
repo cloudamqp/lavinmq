@@ -1304,5 +1304,58 @@ describe LavinMQ::AMQP::Stream do
         store.close
       end
     end
+
+    it "loads when the trailing record is torn mid-body" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        body = "a stream message"
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, body.bytesize.to_u64, IO::Memory.new(body))
+        store.push(msg)
+        torn_pos = store.push(msg).position
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        # Cut the last few body bytes of the final record, and remove the meta
+        # file so produce_metadata has to rebuild the segment metadata.
+        File.open(seg_path, "r+") { |f| f.truncate(f.size - 3) }
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.@size.should eq 1
+        store.@segments.last_value.size.should eq torn_pos
+        store.close
+      end
+    end
+
+    it "appends after a torn trailing record was dropped" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        body = "a stream message"
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, body.bytesize.to_u64, IO::Memory.new(body))
+        store.push(msg)
+        torn_pos = store.push(msg).position
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        File.open(seg_path, "r+") { |f| f.truncate(f.size - 3) }
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        seg_id = store.@segments.last_key
+        store.push(msg).position.should eq torn_pos
+        store.close
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.@size.should eq 2
+        env = store.read(seg_id, torn_pos)
+        env.should_not be_nil
+        String.new(env.not_nil!.message.body).should eq body
+        store.close
+      end
+    end
   end
 end
