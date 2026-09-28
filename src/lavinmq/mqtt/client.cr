@@ -226,21 +226,7 @@ module LavinMQ
           return
         end
         if packet.qos == 2 && packet_id
-          # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by
-          # id alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
-          if @broker.qos2_publish_received?(@client_id, packet_id)
-            begin
-              @broker.publish(packet)
-            rescue ex
-              # An id left behind by a routing failure would dedupe away the
-              # client's re-send, turning a duplicate into silent loss.
-              @broker.qos2_release(@client_id, packet_id)
-              raise ex
-            end
-            vhost.event_tick(EventType::ClientPublish)
-          end
-          # Answered on both paths: a re-send means our first PUBREC was lost.
-          send(Protocol::PubRec.new(packet_id))
+          recieve_qos2_publish(packet, packet_id)
           return
         end
         @broker.publish(packet)
@@ -288,6 +274,24 @@ module LavinMQ
         @pending_pubacks.lock do |pending|
           pending.shift if pending.first?.try(&.seq.<= seq)
         end
+      end
+
+      # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
+      # alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
+      private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
+        if @broker.qos2_publish_received?(@client_id, packet_id)
+          begin
+            @broker.publish(packet)
+          rescue ex
+            # An id left behind by a routing failure would dedupe away the
+            # client's re-send, turning a duplicate into silent loss.
+            @broker.qos2_release(@client_id, packet_id)
+            raise ex
+          end
+          vhost.event_tick(EventType::ClientPublish)
+        end
+        # Answered on both paths: a re-send means our first PUBREC was lost.
+        send(Protocol::PubRec.new(packet_id))
       end
 
       # Without a session there is nothing these can refer to. Dropped rather
