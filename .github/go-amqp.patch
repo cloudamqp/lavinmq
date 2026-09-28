@@ -1,0 +1,269 @@
+diff --git a/integration_test.go b/integration_test.go
+index 9f378ad..4bef2f9 100644
+--- a/integration_test.go
++++ b/integration_test.go
+@@ -117,7 +117,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
+ 
+ 				// Create a sender
+ 				ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-				sender, err := session.NewSender(ctx, targetName, nil)
++				sender, err := session.NewSender(ctx, lavinmqQueue(targetName), nil)
+ 				cancel()
+ 				if err != nil {
+ 					t.Fatal(err)
+@@ -159,7 +159,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
+ 
+ 					// Create a receiver
+ 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+-					receiver, err := session.NewReceiver(ctx, targetName, &amqp.ReceiverOptions{
++					receiver, err := session.NewReceiver(ctx, lavinmqQueue(targetName), &amqp.ReceiverOptions{
+ 						Credit: 10,
+ 					})
+ 					cancel()
+@@ -267,7 +267,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
+ 			// add a random suffix to the link name so the test broker always creates a new node
+ 			targetName := fmt.Sprintf("%s %d", tt.label, rng.Uint64())
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			sender, err := session.NewSender(ctx, targetName, nil)
++			sender, err := session.NewSender(ctx, lavinmqQueue(targetName), nil)
+ 			cancel()
+ 			if err != nil {
+ 				t.Fatal(err)
+@@ -285,7 +285,7 @@ func TestIntegrationRoundTrip_Buffered(t *testing.T) {
+ 
+ 			// Create a receiver
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			receiver, err := session.NewReceiver(ctx, targetName, &amqp.ReceiverOptions{
++			receiver, err := session.NewReceiver(ctx, lavinmqQueue(targetName), &amqp.ReceiverOptions{
+ 				Credit:                    int32(len(tt.data)),
+ 				RequestedSenderSettleMode: amqp.SenderSettleModeSettled.Ptr(),
+ 			})
+@@ -385,7 +385,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
+ 
+ 				// Create a sender
+ 				ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-				sender, err := session.NewSender(ctx, targetName, nil)
++				sender, err := session.NewSender(ctx, lavinmqQueue(targetName), nil)
+ 				cancel()
+ 				if err != nil {
+ 					t.Fatal(err)
+@@ -417,7 +417,7 @@ func TestIntegrationReceiverModeSecond(t *testing.T) {
+ 
+ 					// Create a receiver
+ 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+-					receiver, err := session.NewReceiver(ctx, targetName, &amqp.ReceiverOptions{
++					receiver, err := session.NewReceiver(ctx, lavinmqQueue(targetName), &amqp.ReceiverOptions{
+ 						SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 					})
+ 					cancel()
+@@ -540,7 +540,7 @@ func TestIntegrationSessionHandleMax(t *testing.T) {
+ 			// Create a sender
+ 			for i := 0; i < tt.links; i++ {
+ 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+-				sender, err := session.NewSender(ctx, fmt.Sprintf("TestIntegrationSessionHandleMax %d", rng.Uint64()), nil)
++				sender, err := session.NewSender(ctx, lavinmqQueue(fmt.Sprintf("TestIntegrationSessionHandleMax %d", rng.Uint64())), nil)
+ 				cancel()
+ 				switch {
+ 				case err == nil:
+@@ -609,7 +609,7 @@ func TestIntegrationLinkName(t *testing.T) {
+ 			}
+ 
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			senderOrigin, err := session.NewSender(ctx, "TestIntegrationLinkName", &amqp.SenderOptions{
++			senderOrigin, err := session.NewSender(ctx, lavinmqQueue("TestIntegrationLinkName"), &amqp.SenderOptions{
+ 				Name: tt.name,
+ 			})
+ 			cancel()
+@@ -620,7 +620,7 @@ func TestIntegrationLinkName(t *testing.T) {
+ 
+ 			// This one should fail
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			sender, err := session.NewSender(ctx, "TestIntegrationLinkName", &amqp.SenderOptions{
++			sender, err := session.NewSender(ctx, lavinmqQueue("TestIntegrationLinkName"), &amqp.SenderOptions{
+ 				Name: tt.name,
+ 			})
+ 			cancel()
+@@ -671,7 +671,7 @@ func TestIntegrationClose(t *testing.T) {
+ 
+ 			// Create a sender
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			receiver, err := session.NewReceiver(ctx, "TestIntegrationClose", nil)
++			receiver, err := session.NewReceiver(ctx, lavinmqQueue("TestIntegrationClose"), nil)
+ 			cancel()
+ 			if err != nil {
+ 				t.Fatal(err)
+@@ -714,7 +714,7 @@ func TestIntegrationClose(t *testing.T) {
+ 
+ 			// Create a sender
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			receiver, err := session.NewReceiver(ctx, "TestIntegrationClose", nil)
++			receiver, err := session.NewReceiver(ctx, lavinmqQueue("TestIntegrationClose"), nil)
+ 			cancel()
+ 			if err != nil {
+ 				t.Fatal(err)
+@@ -760,7 +760,7 @@ func TestIntegrationClose(t *testing.T) {
+ 
+ 			// Create a sender
+ 			ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-			receiver, err := session.NewReceiver(ctx, "TestIntegrationClose", nil)
++			receiver, err := session.NewReceiver(ctx, lavinmqQueue("TestIntegrationClose"), nil)
+ 			cancel()
+ 			if err != nil {
+ 				t.Fatal(err)
+@@ -930,7 +930,7 @@ func TestReceiverModeFirst(t *testing.T) {
+ 	require.NoError(t, err)
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	sender, err := session.NewSender(ctx, "TestReceiverModeFirst", nil)
++	sender, err := session.NewSender(ctx, lavinmqQueue("TestReceiverModeFirst"), nil)
+ 	cancel()
+ 	require.NoError(t, err)
+ 
+@@ -952,14 +952,14 @@ func TestReceiverModeFirst(t *testing.T) {
+ 
+ 	// create a new sender
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	sender, err = session.NewSender(ctx, "TestReceiverModeFirstOther", nil)
++	sender, err = session.NewSender(ctx, lavinmqQueue("TestReceiverModeFirstOther"), nil)
+ 	cancel()
+ 	require.NoError(t, err)
+ 
+ 	// now drain the messages
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	recv, err := session.NewReceiver(ctx, "TestReceiverModeFirst", &amqp.ReceiverOptions{
++	recv, err := session.NewReceiver(ctx, lavinmqQueue("TestReceiverModeFirst"), &amqp.ReceiverOptions{
+ 		Credit: linkCredit,
+ 	})
+ 	cancel()
+@@ -1015,7 +1015,7 @@ func TestSenderExactlyOnce(t *testing.T) {
+ 	require.NoError(t, err)
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	sender, err := session.NewSender(ctx, "TestSenderExactlyOnce", &amqp.SenderOptions{
++	sender, err := session.NewSender(ctx, lavinmqQueue("TestSenderExactlyOnce"), &amqp.SenderOptions{
+ 		SettlementMode:              amqp.SenderSettleModeUnsettled.Ptr(),
+ 		RequestedReceiverSettleMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 	})
+@@ -1028,7 +1028,7 @@ func TestSenderExactlyOnce(t *testing.T) {
+ 	require.NoError(t, err)
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	receiver, err := session.NewReceiver(ctx, "TestSenderExactlyOnce", &amqp.ReceiverOptions{
++	receiver, err := session.NewReceiver(ctx, lavinmqQueue("TestSenderExactlyOnce"), &amqp.ReceiverOptions{
+ 		SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 	})
+ 	cancel()
+@@ -1065,7 +1065,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
+ 	// add a random suffix to the link name so the test broker always creates a new node
+ 	targetName := fmt.Sprintf("TestReceivingLotsOfSettledMessages %d", rng.Uint64())
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	sender, err := session.NewSender(ctx, targetName, nil)
++	sender, err := session.NewSender(ctx, lavinmqQueue(targetName), nil)
+ 	cancel()
+ 	require.NoError(t, err)
+ 
+@@ -1083,7 +1083,7 @@ func TestReceivingLotsOfSettledMessages(t *testing.T) {
+ 
+ 	// Create a receiver
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	receiver, err := session.NewReceiver(ctx, targetName, &amqp.ReceiverOptions{
++	receiver, err := session.NewReceiver(ctx, lavinmqQueue(targetName), &amqp.ReceiverOptions{
+ 		Credit:                    linkCredit,
+ 		RequestedSenderSettleMode: amqp.SenderSettleModeSettled.Ptr(),
+ 	})
+@@ -1132,7 +1132,7 @@ func TestNewReceiverWithCancelledContext(t *testing.T) {
+ 	for times := 0; times < 100; times++ {
+ 		ctx, cancel = context.WithCancel(context.Background())
+ 		cancel()
+-		receiver, err := session.NewReceiver(ctx, "thesource", nil)
++		receiver, err := session.NewReceiver(ctx, lavinmqQueue("thesource"), nil)
+ 		require.ErrorIs(t, err, context.Canceled)
+ 		require.Nil(t, receiver)
+ 	}
+@@ -1172,7 +1172,7 @@ func TestMultipleSendersSharedSession(t *testing.T) {
+ 		go func() {
+ 			defer wg.Done()
+ 			for msgCount := 0; msgCount < 50; msgCount++ {
+-				sender, err := session.NewSender(context.Background(), "TestMultipleSendersSharedSession", nil)
++				sender, err := session.NewSender(context.Background(), lavinmqQueue("TestMultipleSendersSharedSession"), nil)
+ 				require.NoError(t, err)
+ 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+ 				err = sender.Send(ctx, amqp.NewMessage(bigMsgData), nil)
+@@ -1213,7 +1213,7 @@ func TestDrainingLink(t *testing.T) {
+ 	session, err := conn.NewSession(context.Background(), nil)
+ 	require.NoError(t, err)
+ 
+-	receiver, err := session.NewReceiver(context.Background(), queue, &amqp.ReceiverOptions{
++	receiver, err := session.NewReceiver(context.Background(), lavinmqQueue(queue), &amqp.ReceiverOptions{
+ 		Credit:         -1,
+ 		SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 	})
+@@ -1226,7 +1226,7 @@ func TestDrainingLink(t *testing.T) {
+ 
+ 	// we'll send one message right now
+ 	send := func(count int) {
+-		sender, err := session.NewSender(context.Background(), queue, nil)
++		sender, err := session.NewSender(context.Background(), lavinmqQueue(queue), nil)
+ 		require.NoError(t, err)
+ 
+ 		defer func() {
+@@ -1290,7 +1290,7 @@ func TestSenderNullValue(t *testing.T) {
+ 	require.NoError(t, err)
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	sender, err := session.NewSender(ctx, "TestSenderNullValue", &amqp.SenderOptions{
++	sender, err := session.NewSender(ctx, lavinmqQueue("TestSenderNullValue"), &amqp.SenderOptions{
+ 		SettlementMode:              amqp.SenderSettleModeUnsettled.Ptr(),
+ 		RequestedReceiverSettleMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 	})
+@@ -1303,7 +1303,7 @@ func TestSenderNullValue(t *testing.T) {
+ 	require.NoError(t, err)
+ 
+ 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+-	receiver, err := session.NewReceiver(ctx, "TestSenderNullValue", &amqp.ReceiverOptions{
++	receiver, err := session.NewReceiver(ctx, lavinmqQueue("TestSenderNullValue"), &amqp.ReceiverOptions{
+ 		SettlementMode: amqp.ReceiverSettleModeSecond.Ptr(),
+ 	})
+ 	cancel()
+diff --git a/lavinmq_test.go b/lavinmq_test.go
+new file mode 100644
+index 0000000..0209a59
+--- /dev/null
++++ b/lavinmq_test.go
+@@ -0,0 +1,35 @@
++package amqp_test
++
++import (
++	"fmt"
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++)
++
++// lavinmqQueue declares the queue over LavinMQ's HTTP API and returns its
++// AMQP 1.0 address. LavinMQ addresses queues as /queues/<name> and does not
++// create them on attach, unlike the broker these tests are written for.
++func lavinmqQueue(name string) string {
++	api := os.Getenv("LAVINMQ_HTTP_URL")
++	if api == "" {
++		api = "http://127.0.0.1:15672"
++	}
++	req, err := http.NewRequest(http.MethodPut, api+"/api/queues/%2F/"+url.PathEscape(name),
++		strings.NewReader(`{"durable":false}`))
++	if err != nil {
++		panic(err)
++	}
++	req.SetBasicAuth("guest", "guest")
++	req.Header.Set("Content-Type", "application/json")
++	resp, err := http.DefaultClient.Do(req)
++	if err != nil {
++		panic(err)
++	}
++	resp.Body.Close()
++	if resp.StatusCode >= 300 {
++		panic(fmt.Sprintf("declaring queue %q: %s", name, resp.Status))
++	}
++	return "/queues/" + url.PathEscape(name)
++}

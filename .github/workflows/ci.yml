@@ -10,6 +10,7 @@ on:
       - 'views/**'
       - '.github/workflows/ci.yml'
       - '.github/amqpnetlite-link-tests.sh'
+      - '.github/go-amqp.patch'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
   push:
@@ -25,6 +26,7 @@ on:
       - 'views/**'
       - '.github/workflows/ci.yml'
       - '.github/amqpnetlite-link-tests.sh'
+      - '.github/go-amqp.patch'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
   workflow_dispatch:
@@ -425,6 +427,56 @@ jobs:
           DOTNET_CLI_TELEMETRY_OPTOUT: 1
           DOTNET_NOLOGO: 1
         run: .github/amqpnetlite-link-tests.sh amqpnetlite/bin/Release/Test.Amqp.NetCoreApp/net8.0/Test.Amqp.Net.dll
+
+  go-amqp-test:
+    name: go-amqp client test
+    runs-on: ubuntu-24.04
+    needs: compile
+
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - name: Checkout LavinMQ for the test patch
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/lavinmq
+          bin/lavinmq --data-dir /tmp/amqp &
+          until curl -fsS -o /dev/null -u guest:guest http://127.0.0.1:15672/api/overview; do sleep 1; done
+
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.26.3
+
+      - name: Clone go-amqp
+        uses: actions/checkout@v7
+        with:
+          repository: Azure/go-amqp
+          ref: d37713f68a4e81fa426bc94a76737c67e5d7cb26
+          path: go-amqp
+
+      - name: Patch tests
+        # The integration tests use bare queue names and expect the broker to
+        # create queues; LavinMQ addresses them as /queues/<name>, declared
+        # over the HTTP API.
+        run: git -C go-amqp apply ../.github/go-amqp.patch
+
+      - name: Run tests
+        env:
+          AMQP_BROKER_ADDR: amqp://127.0.0.1:5672
+        run: |
+          cd go-amqp
+          go test -race -count=1 ./...
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
