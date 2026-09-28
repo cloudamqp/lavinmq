@@ -56,12 +56,17 @@ module LavinMQ::AMQP10
     @partial_settled = false
     # True while fragments of a multi-transfer delivery are being collected.
     getter? partial_active = false
+    # rcv-settle-mode second: outcomes are sent unsettled and the delivery is
+    # settled once the sender settles it. With no link recovery there is no
+    # state to keep in between, the message is already published.
+    getter? settle_second : Bool
     @target : PublishAddress?
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
                    local_handle : UInt32, @target : PublishAddress?, dynamic_queue : LavinMQ::AMQP::Queue? = nil,
-                   initial_delivery_count : UInt32 = 0_u32)
+                   initial_delivery_count : UInt32 = 0_u32, rcv_settle_mode : UInt8? = nil)
       super(session, name, remote_handle, local_handle, Role::Receiver, dynamic_queue)
+      @settle_second = rcv_settle_mode == 1_u8
       # The sender computes its credit from the delivery-count we report, which
       # must start where the sender's own count starts (attach 2.7.3).
       @delivery_count.set(initial_delivery_count)
@@ -179,7 +184,7 @@ module LavinMQ::AMQP10
     private def settle(delivery_id, settled, outcome)
       return if settled
       if delivery_id
-        @session.client.send_disposition(@session, delivery_id, outcome)
+        @session.client.send_disposition(@session, delivery_id, outcome, settled: !@settle_second)
       end
     end
   end
@@ -764,7 +769,7 @@ module LavinMQ::AMQP10
       in .sender?
         target = attach_receiver(frame, local_handle)
         link = ReceiverLink.new(self, frame.name, frame.handle, local_handle, target[0], target[1],
-          frame.initial_delivery_count || 0_u32)
+          frame.initial_delivery_count || 0_u32, frame.rcv_settle_mode)
         @links[frame.handle] = link
         @client.send_attach(self, link, frame.source, target[2], frame)
         @client.send_flow(self, link, link.credit)

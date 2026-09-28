@@ -53,7 +53,7 @@ Publishing requires write permission on the exchange (an empty exchange name for
 
 ## Publishing
 
-Incoming transfers are settled by LavinMQ as soon as they are processed (`rcv-settle-mode` first). Pre-settled transfers (`snd-settle-mode` settled) get no disposition.
+Incoming transfers are settled by LavinMQ as soon as they are processed (`rcv-settle-mode` first), or, on links attached with `rcv-settle-mode` second, answered with an unsettled disposition, leaving the sender to settle them. Pre-settled transfers (`snd-settle-mode` settled) get no disposition.
 
 | Outcome | When |
 |---------|------|

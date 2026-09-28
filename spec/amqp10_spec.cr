@@ -270,9 +270,10 @@ private class AMQP10SpecClient
     {transfer, incoming}
   end
 
-  def settle(delivery_id : UInt32, outcome = LavinMQ::AMQP10::Outcome::Accepted, settled = true) : Nil
+  def settle(delivery_id : UInt32, outcome = LavinMQ::AMQP10::Outcome::Accepted, settled = true,
+             role = LavinMQ::AMQP10::Role::Receiver) : Nil
     LavinMQ::AMQP10::TransferCodec.write_disposition(@io, 0_u16,
-      delivery_id, outcome, settled)
+      delivery_id, outcome, settled, role)
   end
 
   def read_disposition : LavinMQ::AMQP10::TransferCodec::DispositionView
@@ -418,8 +419,8 @@ private class AMQP10SpecClient
     write_publish(handle, delivery_id, body, settled: true)
   end
 
-  private def write_publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil,
-                            settled = false) : Nil
+  def write_publish(handle : UInt32, delivery_id : UInt32, body : String, to : String? = nil,
+                    settled = false) : Nil
     payload = IO::Memory.new
     tag = delivery_id.to_s.to_slice
     LavinMQ::AMQP10::TransferCodec.write_transfer_performative(payload, handle, delivery_id, tag, false, settled)
@@ -2128,15 +2129,36 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "leaves settling incoming deliveries to rcv-settle-mode second senders" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-rcv-settle-second", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}", rcv_settle_mode: 1_u8).rcv_settle_mode.should eq 1_u8
+        client.write_publish(0_u32, 1_u32, "second")
+        disposition = client.read_disposition
+        disposition.outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+        disposition.settled.should be_false
+        # The sender settles; nothing is expected in reply.
+        client.settle(1_u32, role: LavinMQ::AMQP10::Role::Sender)
+        q.get(no_ack: true).not_nil!.body_io.gets_to_end.should eq "second"
+
+        client.attach_sender("/queues/#{q.name}", handle: 1_u32, name: "first").rcv_settle_mode.should eq 0_u8
+        client.write_publish(1_u32, 2_u32, "first")
+        client.read_disposition.settled.should be_true
+        client.close
+      end
+    end
+  end
+
   it "advertises the settle modes actually in use on attach" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("amqp10-settle-modes", auto_delete: true)
         client = AMQP10SpecClient.new(amqp_port(s))
-        # Incoming transfers are always settled first, whatever the sender asks for.
         attach = client.attach_sender("/queues/#{q.name}", snd_settle_mode: 2_u8, rcv_settle_mode: 1_u8)
         attach.snd_settle_mode.should eq 2_u8
-        attach.rcv_settle_mode.should eq 0_u8
+        attach.rcv_settle_mode.should eq 1_u8
         # Mixed is not supported for deliveries: they are sent unsettled.
         attach = client.attach_receiver("/queues/#{q.name}", handle: 1_u32, name: "mixed", snd_settle_mode: 2_u8)
         attach.snd_settle_mode.should eq 0_u8

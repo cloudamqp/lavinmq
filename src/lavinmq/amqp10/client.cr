@@ -257,7 +257,7 @@ module LavinMQ::AMQP10
     # role: ours for the role we play, echoed for the role the peer plays.
     private def settle_modes(link : Link, remote_attach : Attach?) : Tuple(UInt8, UInt8)
       if link.role.receiver?
-        {remote_attach.try(&.snd_settle_mode) || 0_u8, 0_u8} # incoming transfers are always settled first
+        {remote_attach.try(&.snd_settle_mode) || 0_u8, link.as?(ReceiverLink).try(&.settle_second?) ? 1_u8 : 0_u8}
       else
         {link.is_a?(SenderLink) && link.settled? ? 1_u8 : 0_u8, remote_attach.try(&.rcv_settle_mode) || 0_u8}
       end
@@ -380,9 +380,9 @@ module LavinMQ::AMQP10
       add_send_bytes(bytes)
     end
 
-    def send_disposition(session : Session, first : UInt32, outcome : Outcome) : Nil
+    def send_disposition(session : Session, first : UInt32, outcome : Outcome, settled = true) : Nil
       bytes = @write_lock.synchronize do
-        TransferCodec.write_disposition(@socket, session.id, first, outcome)
+        TransferCodec.write_disposition(@socket, session.id, first, outcome, settled)
       end
       add_send_bytes(bytes)
     end
