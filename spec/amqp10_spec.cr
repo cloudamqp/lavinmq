@@ -10,11 +10,12 @@ private class AMQP10SpecClient
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
                  idle_timeout : UInt32? = nil, expect_open = true,
-                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, mechanism = "PLAIN")
+                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, mechanism : String? = "PLAIN")
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
-    sasl_handshake(username, password, mechanism)
+    # A nil mechanism skips the SASL layer.
+    sasl_handshake(username, password, mechanism) if mechanism
     send_transport_header(split_transport_header)
     send_open(hostname, frame_max, idle_timeout)
     # Callers that expect the server to refuse the connection read the reply themselves.
@@ -543,6 +544,26 @@ private def delivered_sections(msg : LavinMQ::BytesMessage, redelivered = false)
   reader = IO::Memory.new(bytes[8, frame_size.to_i - 8])
   LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
   message_sections(reader.peek)
+end
+
+# Hands an AMQP 1.0 connection factory a client that sent the AMQP protocol
+# header, skipping SASL, from connection_info. Returns the protocol header
+# the server answers with; a SASL header is followed by a disconnect.
+private def factory_without_sasl(s, connection_info) : Bytes
+  client, server = UNIXSocket.pair
+  client.read_timeout = 5.seconds
+  factory = LavinMQ::AMQP10::ConnectionFactory.new(s.authenticator, s.vhosts)
+  spawn { factory.start(server, connection_info, sasl: false) }
+  header = Bytes.new(8)
+  client.read_fully(header)
+  if header == LavinMQ::AMQP10::SASL_HEADER
+    eof = uninitialized UInt8[1]
+    client.read(eof.to_slice).should eq 0
+  end
+  header
+ensure
+  client.try &.close
+  server.try &.close
 end
 
 # Runs the SASL exchange against an AMQP 1.0 connection factory, as a client
@@ -1269,17 +1290,29 @@ describe LavinMQ::AMQP10 do
     end
   end
 
-  it "rejects bare AMQP 1.0 transport by advertising SASL" do
+  it "logs in loopback clients that skip SASL as the default user" do
     with_amqp_server do |s|
-      io = TCPSocket.new("localhost", amqp_port(s))
-      io.write LavinMQ::AMQP10::PROTOCOL_HEADER
-      io.flush
-      header = Bytes.new(8)
-      io.read_fully(header)
-      header.should eq LavinMQ::AMQP10::SASL_HEADER
-      eof = uninitialized UInt8[1]
-      io.read(eof.to_slice).should eq 0
-      io.close
+      client = AMQP10SpecClient.new(amqp_port(s), mechanism: nil)
+      conn = wait_for { s.connections.first?.as?(LavinMQ::AMQP10::Client) }
+      conn.user.name.should eq "guest"
+      conn.auth_mechanism.should eq "ANONYMOUS"
+      client.close
+    end
+  end
+
+  it "requires SASL from other than loopback, and once the default password is changed" do
+    with_amqp_server do |s|
+      remote = LavinMQ::ConnectionInfo.new(Socket::IPAddress.new("192.0.2.1", 5000), Socket::IPAddress.new("192.0.2.2", 5672))
+      loopback = Socket::IPAddress.new("127.0.0.1", 0)
+      proxied = LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true)
+      factory_without_sasl(s, remote).should eq LavinMQ::AMQP10::SASL_HEADER
+      factory_without_sasl(s, proxied).should eq LavinMQ::AMQP10::SASL_HEADER
+      factory_without_sasl(s, LavinMQ::ConnectionInfo.local).should eq LavinMQ::AMQP10::PROTOCOL_HEADER
+
+      s.users["guest"].update_password("changed")
+      factory_without_sasl(s, LavinMQ::ConnectionInfo.local).should eq LavinMQ::AMQP10::SASL_HEADER
+    ensure
+      s.try &.users["guest"].update_password("guest")
     end
   end
 

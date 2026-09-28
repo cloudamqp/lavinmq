@@ -10,23 +10,32 @@ require "./session"
 module LavinMQ::AMQP10
   class ConnectionFactory < LavinMQ::ConnectionFactory
     Log = LavinMQ::Log.for "amqp10.connection_factory"
-    # The default user's default password; SASL ANONYMOUS logs in with it.
+    # The default user's default password. SASL ANONYMOUS, and clients that
+    # skip SASL, log in with it, and only on loopback connections: they are
+    # granted what a local client logging in with the default credentials
+    # would get, so neither works once the default user's password changes.
     ANONYMOUS_PASSWORD = "guest".to_slice
 
     def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
     end
 
-    def start(socket, connection_info) : Client?
+    def start(socket, connection_info, sasl = true) : Client?
       metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-      start(socket, connection_info, Logger.new(Log, metadata))
+      start(socket, connection_info, Logger.new(Log, metadata), sasl)
     end
 
-    def start(socket, connection_info, log : Logger) : Client?
-      socket.write SASL_HEADER
-      socket.flush
-
-      user, mechanism = authenticate(socket, connection_info, log) || return
-      confirm_transport_header(socket, log) || return
+    # With sasl false the client has sent the AMQP protocol header, skipping
+    # the SASL layer.
+    def start(socket, connection_info, log : Logger, sasl = true) : Client?
+      if sasl
+        socket.write SASL_HEADER
+        socket.flush
+        user, mechanism = authenticate(socket, connection_info, log) || return
+        confirm_transport_header(socket, log) || return
+      else
+        user = authenticate_without_sasl(socket, connection_info, log) || return
+        mechanism = "ANONYMOUS"
+      end
       # Sized for our frame_max; the client keeps using it once the negotiated
       # (never larger) size is known, rather than allocating a second buffer.
       reader = FrameReader.new(socket, Config.instance.frame_max)
@@ -63,9 +72,6 @@ module LavinMQ::AMQP10
           send_sasl_outcome(socket, 1_u8)
           return
         end
-        # Granted only what a local client logging in with the default
-        # credentials over PLAIN would get, so it stops working once the
-        # default user's password is changed.
         username, password = Config.instance.default_user, ANONYMOUS_PASSWORD
       else
         send_sasl_outcome(socket, 1_u8)
@@ -80,6 +86,25 @@ module LavinMQ::AMQP10
         send_sasl_outcome(socket, 1_u8)
         nil
       end
+    end
+
+    # A client that skips SASL is logged in like with SASL ANONYMOUS, so only
+    # on loopback connections. Others are answered with the SASL protocol
+    # header, as SASL is required, and disconnected.
+    private def authenticate_without_sasl(socket, connection_info, log)
+      if connection_info.loopback?
+        context = Auth::Context.new(Config.instance.default_user, ANONYMOUS_PASSWORD, loopback: true)
+        if user = @authenticator.authenticate(context)
+          socket.write PROTOCOL_HEADER
+          socket.flush
+          return user
+        end
+      end
+      socket.write SASL_HEADER
+      socket.flush
+      socket.close
+      log.warn { "AMQP 1.0 client attempted non-SASL transport, closing socket" }
+      nil
     end
 
     private def send_sasl_mechanisms(socket, anonymous : Bool)

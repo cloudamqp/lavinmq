@@ -37,6 +37,8 @@ module LavinMQ
           end
         when :amqp10
           @amqp10.start(socket, connection_info, logger)
+        when :amqp10_without_sasl
+          @amqp10.start(socket, connection_info, logger, sasl: false)
         end
       rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error
         Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
@@ -83,11 +85,7 @@ module LavinMQ
         elsif slice == LavinMQ::AMQP10::SASL_HEADER
           :amqp10
         elsif slice == LavinMQ::AMQP10::PROTOCOL_HEADER
-          socket.write LavinMQ::AMQP10::SASL_HEADER
-          socket.flush
-          socket.close
-          log.warn { "AMQP 1.0 client attempted non-SASL transport, closing socket" }
-          nil
+          :amqp10_without_sasl
         else
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
