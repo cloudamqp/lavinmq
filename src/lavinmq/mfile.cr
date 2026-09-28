@@ -271,8 +271,28 @@ class MFile < IO
     {% end %}
   end
 
+  # A single madvise(MADV_DONTNEED) spanning PMD_SIZE (2 MiB with 4K pages) or
+  # more lets the kernel reclaim the emptied page table, and that reclaim
+  # flushes the TLB at the wrong address on Linux 7.0 through 7.1.8
+  # (CVE-2026-74674). Whatever maps that address next then faults in a loop.
+  # Staying under it costs one extra syscall per MiB and drops the same pages.
+  DONTNEED_CHUNK_SIZE = 1024i64 * 1024
+
+  # Yields `{offset, length}` pairs covering *capacity*, each small enough not
+  # to trigger page table reclaim.
+  def self.each_dontneed_chunk(capacity : Int64, chunk : Int64 = DONTNEED_CHUNK_SIZE, & : Int64, Int64 ->) : Nil
+    offset = 0i64
+    while offset < capacity
+      length = Math.min(chunk, capacity - offset)
+      yield offset, length
+      offset += length
+    end
+  end
+
   def dontneed
-    advise(Advice::DontNeed)
+    MFile.each_dontneed_chunk(@capacity) do |offset, length|
+      advise(Advice::DontNeed, @buffer + offset, length)
+    end
   end
 
   # Resize the file, so that read operations can't happen beyond `new_size`
