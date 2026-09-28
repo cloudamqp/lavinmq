@@ -12,11 +12,8 @@ require "../observable"
 require "../amqp/queue/event"
 require "../amqp/queue"
 require "./address"
-require "./frame"
-require "./io_memory_reset"
+require "./protocol"
 require "./message_codec"
-require "./transfer_codec"
-require "./types"
 require "./session"
 
 module LavinMQ::AMQP10
@@ -402,7 +399,7 @@ module LavinMQ::AMQP10
         tag = link.delivery_tag_buffer
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
         link.record_unacked(delivery_id, sp) unless settled
-        bytes, frames = TransferCodec.write_transfer(@socket, session.id, link.local_handle,
+        bytes, frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
           delivery_id, tag, msg, @max_frame_size, settled)
         session.advance_outgoing(frames)
         add_send_bytes(bytes)
@@ -576,7 +573,7 @@ module LavinMQ::AMQP10
     end
 
     private def peek_descriptor_code(body : Bytes) : UInt64?
-      MessageCodec.read_descriptor_code(@descriptor_reader.reset(body))
+      Codec.read_descriptor_code(@descriptor_reader.reset(body))
     rescue DecodeError | IO::EOFError
       nil
     end

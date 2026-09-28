@@ -170,7 +170,7 @@ private class AMQP10SpecClient
 
     loop do
       frame = @reader.read
-      code = LavinMQ::AMQP10::MessageCodec.read_descriptor_code(frame.body_reader)
+      code = LavinMQ::AMQP10::Codec.read_descriptor_code(frame.body_reader)
       case code
       when LavinMQ::AMQP10::Descriptor::FLOW
         flows << LavinMQ::AMQP10::Flow.from_value(LavinMQ::AMQP10::Codec.decode(frame.body_reader))
@@ -675,7 +675,7 @@ describe LavinMQ::AMQP10::MessageCodec do
     data = Bytes.new(17)
     data[0] = 0x94_u8
     reader = IO::Memory.new(data)
-    LavinMQ::AMQP10::MessageCodec.skip_value(reader)
+    LavinMQ::AMQP10::Codec.skip_value(reader)
     reader.pos.should eq 17
   end
 
@@ -717,161 +717,14 @@ describe LavinMQ::AMQP10::MessageCodec do
   end
 end
 
-describe LavinMQ::AMQP10::Value do
-  it "keeps values compact enough for inline scalar storage" do
-    sizeof(LavinMQ::AMQP10::Value).should be <= 32
-  end
-end
-
-describe LavinMQ::AMQP10::Codec do
-  it "decodes one-byte signed integer values" do
-    value = LavinMQ::AMQP10::Codec.decode(IO::Memory.new(Bytes[0x51_u8, 0xff_u8]))
-
-    value.int?.should eq -1_i64
-
-    value = LavinMQ::AMQP10::Codec.decode(IO::Memory.new(Bytes[0x54_u8, 0xff_u8]))
-    value.int?.should eq -1_i64
-
-    value = LavinMQ::AMQP10::Codec.decode(IO::Memory.new(Bytes[0x55_u8, 0xff_u8]))
-    value.int?.should eq -1_i64
-  end
-
-  it "preserves float and double values" do
-    io = IO::Memory.new
-    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.float(1.25_f32))
-    value = LavinMQ::AMQP10::Codec.decode(IO::Memory.new(io.to_slice))
-    value.float?.should eq 1.25_f32
-
-    io.clear
-    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.double(1.5_f64))
-    value = LavinMQ::AMQP10::Codec.decode(IO::Memory.new(io.to_slice))
-    value.double?.should eq 1.5_f64
-  end
-
-  it "includes the constructor byte in array8 encoded size" do
-    io = IO::Memory.new
-    LavinMQ::AMQP10::Codec.write_value(io, LavinMQ::AMQP10::Value.array([LavinMQ::AMQP10::Value.symbol("PLAIN")]))
-
-    io.to_slice.should eq Bytes[0xe0_u8, 0x08_u8, 0x01_u8, 0xa3_u8, 0x05_u8,
-      0x50_u8, 0x4c_u8, 0x41_u8, 0x49_u8, 0x4e_u8]
-  end
-
-  it "rejects compound counts larger than the encoded payload" do
-    payload = Bytes[0xd0_u8, 0_u8, 0_u8, 0_u8, 4_u8, 0x7f_u8, 0xff_u8, 0xff_u8, 0xff_u8]
-
-    expect_raises(LavinMQ::AMQP10::DecodeError) do
-      LavinMQ::AMQP10::Codec.decode(IO::Memory.new(payload))
-    end
-  end
-
-  it "rejects a list element that overruns the list's own declared size" do
-    payload = IO::Memory.new
-    payload.write_byte 0xc0_u8                         # list8
-    payload.write_byte 7_u8                            # size: count byte + 6 payload bytes
-    payload.write_byte 1_u8                            # count: 1 element
-    payload.write_byte 0xb1_u8                         # string32 constructor
-    LavinMQ::AMQP10::Codec.write_u32(payload, 100_u32) # claims a 100-byte string,
-    payload.write Bytes.new(100)                       # far larger than the list's own 6-byte payload
-    # but still present in the surrounding buffer, so the read itself succeeds
-    # and only the post-loop "did we overrun end_pos" check can catch it.
-
-    expect_raises(LavinMQ::AMQP10::DecodeError, /overran declared size/) do
-      LavinMQ::AMQP10::Codec.decode(IO::Memory.new(payload.to_slice))
-    end
-  end
-
-  it "raises DecodeError for oversized variable-width values" do
-    payload = IO::Memory.new
-    payload.write_byte 0xb1_u8
-    LavinMQ::AMQP10::Codec.write_u32(payload, UInt32::MAX)
-
-    expect_raises(LavinMQ::AMQP10::DecodeError) do
-      LavinMQ::AMQP10::Codec.decode(IO::Memory.new(payload.to_slice))
-    end
-  end
-
-  it "rejects excessively nested described values" do
-    payload = IO::Memory.new
-    80.times do
-      payload.write_byte 0x00_u8
-      payload.write_byte 0x43_u8
-    end
-    payload.write_byte 0x40_u8
-
-    expect_raises(LavinMQ::AMQP10::DecodeError) do
-      LavinMQ::AMQP10::Codec.decode(IO::Memory.new(payload.to_slice))
-    end
-  end
-end
-
-describe LavinMQ::AMQP10::TransferCodec do
-  it "decodes transfer aborted from field 9" do
-    {true, false}.each do |aborted|
-      payload = IO::Memory.new
-      fields = [
-        LavinMQ::AMQP10::Value.uint(1_u32),
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.null,
-        LavinMQ::AMQP10::Value.bool(aborted),
-        LavinMQ::AMQP10::Value.bool(!aborted),
-      ]
-      LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::TRANSFER, fields)
-
-      transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(IO::Memory.new(payload.to_slice))
-
-      transfer.aborted.should eq aborted
-    end
-  end
-
-  it "writes mandatory session fields in flow frames" do
-    io = IO::Memory.new
-
-    written = LavinMQ::AMQP10::TransferCodec.write_flow(io, 3_u16, 11_u32, 22_u32, 33_u32, 44_u32,
-      5_u32, 6_u32, 7_u32)
-
-    written.should eq io.size
-    bytes = io.to_slice
-    frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
-    reader = IO::Memory.new(bytes[8, frame_size.to_i - 8])
-    flow = LavinMQ::AMQP10::Flow.from_value(LavinMQ::AMQP10::Codec.decode(reader))
-
-    flow.next_incoming_id.should eq 11_u32
-    flow.incoming_window.should eq 22_u32
-    flow.next_outgoing_id.should eq 33_u32
-    flow.outgoing_window.should eq 44_u32
-    flow.handle.should eq 5_u32
-    flow.delivery_count.should eq 6_u32
-    flow.link_credit.should eq 7_u32
-  end
-
-  it "raises DecodeError for out-of-range uint fields" do
-    payload = IO::Memory.new
-    payload.write_byte 0x00_u8
-    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::TRANSFER)
-    payload.write_byte 0xc0_u8
-    payload.write_byte 10_u8
-    payload.write_byte 1_u8
-    payload.write_byte 0x80_u8
-    LavinMQ::AMQP10::Codec.write_u64(payload, UInt64::MAX)
-
-    expect_raises(LavinMQ::AMQP10::DecodeError) do
-      LavinMQ::AMQP10::TransferCodec.read_transfer(IO::Memory.new(payload.to_slice))
-    end
-  end
-
+describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
   it "fragments outgoing transfers to the negotiated frame max" do
     body = "x" * 1200
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new,
       body.bytesize.to_u64, body.to_slice)
     io = IO::Memory.new
 
-    written, frames = LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
+    written, frames = LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
       "tag".to_slice, msg, LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE)
 
     written.should eq io.size
@@ -914,7 +767,7 @@ describe LavinMQ::AMQP10::TransferCodec do
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
     io = IO::Memory.new
 
-    written, _frames = LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
+    written, _frames = LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
       "tag".to_slice, msg, LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE)
 
     written.should eq io.size
@@ -954,7 +807,7 @@ describe LavinMQ::AMQP10::TransferCodec do
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
     io = IO::Memory.new
 
-    LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+    LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
 
     bytes = io.to_slice
     frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
@@ -973,7 +826,7 @@ describe LavinMQ::AMQP10::TransferCodec do
       msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
       io.clear
 
-      LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+      LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
 
       bytes = io.to_slice
       frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
@@ -990,7 +843,7 @@ describe LavinMQ::AMQP10::TransferCodec do
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, body.bytesize.to_u64, body.to_slice)
     io = IO::Memory.new
 
-    LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+    LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
 
     bytes = io.to_slice
     frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
@@ -1009,7 +862,7 @@ describe LavinMQ::AMQP10::TransferCodec do
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new, body.bytesize.to_u64, body.to_slice)
     io = IO::Memory.new
 
-    LavinMQ::AMQP10::TransferCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg, settled: true)
+    LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg, settled: true)
 
     bytes = io.to_slice
     frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
@@ -1017,58 +870,6 @@ describe LavinMQ::AMQP10::TransferCodec do
     transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
 
     transfer.settled.should be_true
-  end
-
-  it "reports the bytes written for a disposition" do
-    io = IO::Memory.new
-    bytes = LavinMQ::AMQP10::TransferCodec.write_disposition(io, 0_u16, 300_u32,
-      LavinMQ::AMQP10::Outcome::Accepted, true, LavinMQ::AMQP10::Role::Sender, 305_u32)
-    bytes.should eq io.size
-    frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, io.to_slice[0, 4])
-    frame_size.should eq io.size
-    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(IO::Memory.new(io.to_slice[8, io.size - 8]))
-    disposition.role.should eq LavinMQ::AMQP10::Role::Sender
-    disposition.first.should eq 300_u32
-    disposition.last.should eq 305_u32
-    disposition.settled.should be_true
-  end
-
-  it "reports a non-terminal delivery state without a terminal outcome" do
-    received = LavinMQ::AMQP10::Value.described(
-      LavinMQ::AMQP10::Value.ulong(0x23_u64), # amqp:received:list
-      LavinMQ::AMQP10::Value.list(Array(LavinMQ::AMQP10::Value).new)    )
-    fields = [
-      LavinMQ::AMQP10::Value.bool(true),
-      LavinMQ::AMQP10::Value.uint(5_u32),
-      LavinMQ::AMQP10::Value.null,
-      LavinMQ::AMQP10::Value.bool(false),
-      received,
-    ]
-    payload = IO::Memory.new
-    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::DISPOSITION, fields)
-
-    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(IO::Memory.new(payload.to_slice))
-
-    disposition.outcome.should be_nil
-    disposition.state_present.should be_true
-  end
-
-  it "distinguishes a bare settlement from an absent state" do
-    fields = [
-      LavinMQ::AMQP10::Value.bool(true),
-      LavinMQ::AMQP10::Value.uint(5_u32),
-      LavinMQ::AMQP10::Value.null,
-      LavinMQ::AMQP10::Value.bool(true),
-      LavinMQ::AMQP10::Value.null,
-    ]
-    payload = IO::Memory.new
-    LavinMQ::AMQP10::Codec.write_described_list(payload, LavinMQ::AMQP10::Descriptor::DISPOSITION, fields)
-
-    disposition = LavinMQ::AMQP10::TransferCodec.read_disposition(IO::Memory.new(payload.to_slice))
-
-    disposition.outcome.should be_nil
-    disposition.state_present.should be_false
-    disposition.settled.should be_true
   end
 end
 

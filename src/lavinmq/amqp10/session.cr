@@ -1,7 +1,7 @@
 require "../stats"
 require "../exchange"
 require "./client"
-require "./io_memory_reset"
+require "./protocol"
 
 module LavinMQ::AMQP10
   abstract class Link

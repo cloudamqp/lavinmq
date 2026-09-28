@@ -29,6 +29,8 @@ dependencies:
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
     version: ">= 1.3.0"
+  amqp10-protocol:
+    github: cloudamqp/amqp10-protocol.cr
   systemd:
     github: 84codes/systemd.cr
   lz4:

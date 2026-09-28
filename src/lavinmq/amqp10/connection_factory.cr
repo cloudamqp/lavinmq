@@ -3,6 +3,7 @@ require "../auth/authenticator"
 require "../auth/context"
 require "../vhost_store"
 require "../logger"
+require "./protocol"
 require "./client"
 require "./session"
 
