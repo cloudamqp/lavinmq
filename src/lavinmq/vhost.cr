@@ -249,7 +249,7 @@ module LavinMQ
       end
     end
 
-    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+    def enqueue_ack(channel : PublishConfirmTarget, msgid : UInt64)
       @persister.enqueue_ack(channel, msgid)
     end
 

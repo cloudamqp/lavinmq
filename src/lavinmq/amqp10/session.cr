@@ -2,6 +2,7 @@ require "../stats"
 require "../exchange"
 require "./client"
 require "./protocol"
+require "../publish_confirm_target"
 
 module LavinMQ::AMQP10
   abstract class Link
@@ -44,6 +45,8 @@ module LavinMQ::AMQP10
   end
 
   class ReceiverLink < Link
+    include LavinMQ::PublishConfirmTarget
+
     # Credit granted to the peer's sender at attach, topped up to the full
     # amount again once half of it has been used so the link never runs dry.
     LINK_CREDIT = DEFAULT_WINDOW
@@ -60,6 +63,13 @@ module LavinMQ::AMQP10
     # settled once the sender settles it. With no link recovery there is no
     # state to keep in between, the message is already published.
     getter? settle_second : Bool
+    # Accepted outcomes are sent once the message is persisted (and replicated
+    # to the in-sync followers), as publisher confirms are: the Persister
+    # confirms ids in order, each mapped here to its delivery-id.
+    @unconfirmed = Deque(Tuple(UInt64, UInt32)).new
+    @unconfirmed_lock = Mutex.new(:checked)
+    @confirm_total = 0_u64
+    @confirm_mailbox : ::Channel(UInt64)?
     @target : PublishAddress?
 
     def initialize(session : Session, name : String, remote_handle : UInt32,
@@ -183,9 +193,69 @@ module LavinMQ::AMQP10
 
     private def settle(delivery_id, settled, outcome)
       return if settled
-      if delivery_id
+      return unless delivery_id
+      if outcome.accepted?
+        accept_when_persisted(delivery_id)
+      else
+        # Rejected or released: nothing is stored, no durability to wait for.
         @session.client.send_disposition(@session, delivery_id, outcome, settled: !@settle_second)
       end
+    end
+
+    private def accept_when_persisted(delivery_id : UInt32) : Nil
+      @confirm_mailbox ||= begin
+        mailbox = ::Channel(UInt64).new(1)
+        spawn confirm_writer(mailbox), name: "AMQP 1.0 receiver link confirm writer"
+        mailbox
+      end
+      msgid = @confirm_total &+= 1
+      @unconfirmed_lock.synchronize { @unconfirmed << {msgid, delivery_id} }
+      @session.client.vhost.enqueue_ack(self, msgid)
+    end
+
+    # Called from the Persister's thread with the highest persisted id. Never
+    # blocks: ids are cumulative, so one still waiting in the mailbox is
+    # replaced.
+    def enqueue_confirm_ack(msgid : UInt64) : Nil
+      mailbox = @confirm_mailbox || return
+      loop do
+        return if mailbox.try_send(msgid)
+        mailbox.try_receive?
+      end
+    rescue ::Channel::ClosedError
+    end
+
+    private def confirm_writer(mailbox : ::Channel(UInt64)) : Nil
+      while msgid = mailbox.receive?
+        send_accepted(msgid)
+      end
+    end
+
+    # Sends Accepted for the deliveries persisted up to msgid, one disposition
+    # per run of consecutive delivery-ids.
+    private def send_accepted(msgid : UInt64) : Nil
+      first = last = nil
+      loop do
+        delivery_id = @unconfirmed_lock.synchronize do
+          entry = @unconfirmed.first?
+          @unconfirmed.shift[1] if entry && entry[0] <= msgid
+        end
+        if delivery_id && last && delivery_id == last &+ 1
+          last = delivery_id
+          next
+        end
+        if first && last
+          last_id = last == first ? nil : last
+          @session.client.send_disposition(@session, first, Outcome::Accepted, settled: !@settle_second, last: last_id)
+        end
+        break unless delivery_id
+        first = last = delivery_id
+      end
+    end
+
+    def close : Nil
+      super
+      @confirm_mailbox.try &.close
     end
   end
 

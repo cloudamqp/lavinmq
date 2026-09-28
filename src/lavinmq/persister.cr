@@ -1,6 +1,6 @@
 require "./config"
 require "./logger"
-require "./amqp/channel"
+require "./publish_confirm_target"
 require "./clustering/replicator"
 require "./clustering/follower"
 require "sync/exclusive"
@@ -20,7 +20,7 @@ module LavinMQ
     # Clustering::Server#wait_for_followers), which is safe because a
     # follower only reaches the in-sync set after a full_sync that includes
     # every prior write.
-    @pending_acks : Sync::Exclusive(Hash(AMQP::Channel, UInt64)) = Sync::Exclusive.new(Hash(AMQP::Channel, UInt64).new, :unchecked)
+    @pending_acks : Sync::Exclusive(Hash(PublishConfirmTarget, UInt64)) = Sync::Exclusive.new(Hash(PublishConfirmTarget, UInt64).new, :unchecked)
 
     def initialize(data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -38,7 +38,7 @@ module LavinMQ
     # Basic.Ack frames out of delivery-tag order (see #2078). The loop skips the
     # actual syncfs while sync is disabled (see drain_pending_acks), so no-sync
     # only pays a single hop to the loop, not a disk flush.
-    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
+    def enqueue_ack(channel : PublishConfirmTarget, msgid : UInt64)
       @pending_acks.lock { |acks| acks[channel] = msgid }
       @publish_confirm_requested.try_send true
     rescue ::Channel::ClosedError
@@ -73,13 +73,13 @@ module LavinMQ
     end
 
     private def drain_pending_acks
-      acks : Hash(AMQP::Channel, UInt64)? = nil
+      acks : Hash(PublishConfirmTarget, UInt64)? = nil
       @pending_acks.replace do |current|
         if current.empty?
           current
         else
           acks = current
-          Hash(AMQP::Channel, UInt64).new
+          Hash(PublishConfirmTarget, UInt64).new
         end
       end
       return unless acks

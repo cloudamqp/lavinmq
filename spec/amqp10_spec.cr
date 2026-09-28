@@ -1680,10 +1680,15 @@ describe LavinMQ::AMQP10 do
         # deliveries is the one that triggers it.
         used = LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT // 2
         used.times { |i| client.publish_settled(0_u32, i.to_u32, "credit") }
-        _flows, outcome = client.publish_reading_flows(0_u32, used, "credit")
+        flows, outcome = client.publish_reading_flows(0_u32, used, "credit")
         outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
 
-        refill = client.read_flow
+        # Accepted waits for the message to be persisted, so the refill may
+        # come before it; session flows (no handle) are not the refill.
+        refill = flows.find(&.handle) || loop do
+          flow = client.read_flow
+          break flow if flow.handle
+        end
         refill.handle.should eq 0_u32
         refill.delivery_count.should eq 5_u32 + used + 1
         refill.link_credit.should eq LavinMQ::AMQP10::ReceiverLink::LINK_CREDIT
@@ -2261,6 +2266,57 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "accepts a publish only once it is persisted" do
+    held = Channel(Nil).new
+    LavinMQ::Persister.held_confirms = held
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-accept-persisted", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.write_publish(0_u32, 1_u32, "persisted")
+        should_eventually(eq 1) { s.vhosts["/"].queue(q.name).message_count }
+        client.io.read_timeout = 200.milliseconds
+        expect_raises(IO::TimeoutError) { client.reader.read } # no outcome yet
+
+        # Outcomes that store nothing have no persistence to wait for.
+        client.io.read_timeout = 5.seconds
+        client.attach_sender("/exchanges/amq.direct/nowhere", handle: 1_u32, name: "unrouted")
+        client.publish(1_u32, 2_u32, "unrouted").should eq LavinMQ::AMQP10::Outcome::Released
+
+        held.close
+        disposition = client.read_disposition
+        disposition.first.should eq 1_u32
+        disposition.outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+        client.close
+      end
+    end
+  ensure
+    LavinMQ::Persister.held_confirms = nil
+  end
+
+  it "accepts runs of persisted deliveries in one disposition" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-accept-range", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        LavinMQ::Persister.held_confirms = held = Channel(Nil).new
+        3.times { |i| client.write_publish(0_u32, i.to_u32, "run") }
+        should_eventually(eq 3) { s.vhosts["/"].queue(q.name).message_count }
+        LavinMQ::Persister.held_confirms = nil
+        held.close
+
+        disposition = client.read_disposition
+        disposition.outcome.should eq LavinMQ::AMQP10::Outcome::Accepted
+        {disposition.first, disposition.last}.should eq({0_u32, 2_u32})
+        client.close
+      end
+    end
+  ensure
+    LavinMQ::Persister.held_confirms = nil
+  end
+
   it "leaves settling incoming deliveries to rcv-settle-mode second senders" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -2408,8 +2464,11 @@ describe LavinMQ::AMQP10 do
         q = ch.queue("amqp10-fixed-width-values", auto_delete: true)
         client = AMQP10SpecClient.new(amqp_port(s))
         client.attach_sender("/queues/#{q.name}")
-        client.attach_receiver("/queues/#{q.name}", handle: 1_u32)
-        client.flow(handle: 1_u32, credit: 100_u32)
+        # Another connection, so the delivery and the publish's disposition
+        # (sent once persisted) do not race on one socket.
+        consumer = AMQP10SpecClient.new(amqp_port(s))
+        consumer.attach_receiver("/queues/#{q.name}")
+        consumer.flow(credit: 100_u32)
         # short (0x61) was once rejected as an unsupported value
         {0x61 => 2, 0x60 => 2, 0x73 => 4, 0x74 => 4, 0x84 => 8, 0x94 => 16, 0x98 => 16}.each_with_index do |(code, width), i|
           message = IO::Memory.new
@@ -2417,10 +2476,11 @@ describe LavinMQ::AMQP10 do
           message.write_byte code.to_u8
           width.times { |b| message.write_byte (b + 1).to_u8 }
           client.publish_raw(0_u32, i.to_u32, message.to_slice).should eq LavinMQ::AMQP10::Outcome::Accepted
-          transfer, sections = client.read_delivery_sections
+          transfer, sections = consumer.read_delivery_sections
           sections.should eq [{LavinMQ::AMQP10::Descriptor::AMQP_VALUE, message.to_slice}]
-          client.settle(transfer.delivery_id.not_nil!)
+          consumer.settle(transfer.delivery_id.not_nil!)
         end
+        consumer.close
         client.close
       end
     end

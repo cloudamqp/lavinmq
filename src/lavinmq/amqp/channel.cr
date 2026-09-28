@@ -11,12 +11,14 @@ require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
+require "../publish_confirm_target"
 
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
+      include PublishConfirmTarget
 
       getter id, name, client
       property? running = true

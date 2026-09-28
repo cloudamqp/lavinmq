@@ -391,9 +391,10 @@ module LavinMQ::AMQP10
       add_send_bytes(bytes)
     end
 
-    def send_disposition(session : Session, first : UInt32, outcome : Outcome, settled = true) : Nil
+    def send_disposition(session : Session, first : UInt32, outcome : Outcome, settled = true,
+                         last : UInt32? = nil) : Nil
       bytes = @write_lock.synchronize do
-        TransferCodec.write_disposition(@socket, session.id, first, outcome, settled)
+        TransferCodec.write_disposition(@socket, session.id, first, outcome, settled, Role::Receiver, last)
       end
       add_send_bytes(bytes)
     end
