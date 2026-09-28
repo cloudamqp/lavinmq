@@ -168,7 +168,12 @@ module LavinMQ::AMQP
       spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
         begin
           while @loop_generation.get == gen && @queue_expire_pending.swap(false)
-            queue_expire_loop(gen)
+            begin
+              queue_expire_loop(gen)
+            rescue ex
+              # Keep going so a request queued during this run isn't lost
+              @log.error(ex) { "queue_expire_loop failed" }
+            end
           end
         ensure
           @queue_expire_loop_running.set(false) if @loop_generation.get == gen

@@ -31,10 +31,12 @@ end
 
 # Once armed, queue_expire_loop blocks on a gate after the loop has exited but
 # before the spawn block's ensure clears the running flag, holding open the
-# window where a concurrent apply could find the guard still set.
+# window where a concurrent apply could find the guard still set. With
+# raise_after_gate it then raises, as if expire_queue/close had failed.
 class GatedExpireQueue < LavinMQ::AMQP::Queue
   @gate = ::Channel(Nil).new
   property? armed = false
+  property? raise_after_gate = false
 
   def release_gate
     @gate.send nil
@@ -45,6 +47,7 @@ class GatedExpireQueue < LavinMQ::AMQP::Queue
     if @armed
       @armed = false
       @gate.receive
+      raise "simulated queue_expire_loop failure" if @raise_after_gate
     end
   end
 end
@@ -474,6 +477,42 @@ describe LavinMQ::VHost do
       q.release_gate
       sleep 50.milliseconds
       loop_count.call.should eq 1
+      q.@queue_expire_loop_running.get.should be_true
+    ensure
+      q.try &.delete
+    end
+  end
+
+  it "re-applying expires while the expire loop raises doesn't lose the loop" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      q = GatedExpireQueue.create(vhost, "raising_expire")
+      loop_count = -> do
+        c = 0
+        Fiber.list do |f|
+          n = f.@name
+          c += 1 if n && n.includes?("queue_expire_loop") && n.includes?("/raising_expire")
+        end
+        c
+      end
+      expires = LavinMQ::Policy.new("e", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"expires" => JSON::Any.new(60_000_i64)}, 0_i8)
+      other = LavinMQ::Policy.new("o", "/", /.*/, LavinMQ::Policy::Target::Queues,
+        {"max-length" => JSON::Any.new(10_i64)}, 0_i8)
+      q.apply_policy(expires, nil)
+      wait_for { loop_count.call == 1 }
+      sleep 10.milliseconds # let the loop park in its select
+      q.raise_after_gate = true
+      q.armed = true
+      q.apply_policy(other, nil)
+      wait_for { !q.armed? }
+      # Queue a request while the run that is about to raise is in flight
+      q.apply_policy(expires, nil)
+      q.@queue_expire_pending.get.should be_true
+      q.release_gate
+      sleep 50.milliseconds
+      loop_count.call.should eq 1
+      q.@queue_expire_pending.get.should be_false
       q.@queue_expire_loop_running.get.should be_true
     ensure
       q.try &.delete
