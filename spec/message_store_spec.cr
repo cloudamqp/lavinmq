@@ -517,6 +517,25 @@ describe LavinMQ::MessageStore do
       end
     end
 
+    it "does not send intact segments to followers when it rebuilds metadata" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil)
+        2.times { store.push(LavinMQ::Message.new("ex", "rk", "a stored message")) }
+        seg_path = store.@segments.last_value.path
+        store.close
+
+        # Remove only the meta file. The segment itself is intact, so the
+        # metadata rebuild must not re-replicate it.
+        meta_path = seg_path.sub("msgs.", "meta.")
+        File.delete(meta_path) if File.exists?(meta_path)
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.close
+        replicator.replaced_files.should_not contain(seg_path)
+      end
+    end
+
     it "registers the initial segment file" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new

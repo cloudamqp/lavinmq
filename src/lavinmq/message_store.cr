@@ -661,7 +661,9 @@ module LavinMQ
         @bytesize += bytesize
         @size += 1
       rescue IO::EOFError
-        if pos
+        # EOF at a record boundary is the normal end of an intact segment;
+        # anything before it is an incomplete record to drop.
+        if pos && pos < mfile.size
           mfile.resize(pos)
           @replicator.try &.replace_file(mfile) # followers append at their own end
           @log.warn { "Dropping incomplete trailing record in segment #{seg} at pos #{pos}" }
