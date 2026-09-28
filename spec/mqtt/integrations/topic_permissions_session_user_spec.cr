@@ -26,7 +26,7 @@ module MqttSpecs
 
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "chat/a", payload: "for-alice".to_slice, qos: 0u8)
+          publish(pub_io, topic: "chat/a", payload: "for-alice".to_slice, qos: 1u8)
           pingpong(pub_io)
         end
 
@@ -39,7 +39,7 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
-            publish(pub_io, topic: "chat/b", payload: "for-bob".to_slice, qos: 0u8)
+            publish(pub_io, topic: "chat/b", payload: "for-bob".to_slice, qos: 1u8)
             pingpong(pub_io)
           end
           # bob is not a member, so nothing new is accepted into the session.
@@ -74,7 +74,7 @@ module MqttSpecs
 
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 0u8)
+          publish(pub_io, topic: "chat/a", payload: "after-restart".to_slice, qos: 1u8)
           pingpong(pub_io)
         end
 
@@ -115,8 +115,8 @@ module MqttSpecs
 
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
-            publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 0u8)
-            publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 0u8)
+            publish(pub_io, topic: "chat/a", payload: "member-only".to_slice, qos: 1u8)
+            publish(pub_io, topic: "public/a", payload: "for-all".to_slice, qos: 1u8)
             pingpong(pub_io)
           end
 
