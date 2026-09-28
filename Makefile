@@ -6,7 +6,6 @@ VIEW_SOURCES := $(wildcard views/*.shtml)
 VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
-NPM_REGISTRY ?= https://registry.npmjs.org
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
@@ -60,33 +59,33 @@ bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
 static/js/lib/chart.js: | static/js/lib
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/chart.js/-/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
 	tar -zxOf- package/dist/chart.js > $@
 	[ "038d0a4f9c61f0b35ff70f883e7591403a349542625a4caaf48caa141adedfd5 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/chart.js/-/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chart.js/-/chart.js-4.0.1.tgz | \
 	tar -zxOf- package/dist/chunks/helpers.segment.js > $@
 	[ "b4746b748fe583a18ef921e341b8b65166c2ebd0b737fde6527b254baaeb1aa1 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/luxon.js: | static/js/lib
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/luxon/-/luxon-3.7.2.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/luxon/-/luxon-3.7.2.tgz | \
 	tar -zxOf- package/build/es6/luxon.mjs > $@
 	[ "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/chartjs-adapter-luxon/-/chartjs-adapter-luxon-1.3.1.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/chartjs-adapter-luxon/-/chartjs-adapter-luxon-1.3.1.tgz | \
 	tar -zxOf- package/dist/chartjs-adapter-luxon.esm.js > $@
 	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
 	[ "17d7b6567d656a004f86b6b5cbdbe64cb308e9a2ebfa7675caa79ba0bc72ef91 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/@stoplight/elements/-/elements-8.2.0.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
 	tar -zxOf- package/web-components.min.js > $@
 	[ "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
 static/js/lib/elements-8.2.0.css: | static/js/lib
-	curl --fail --retry 5 -sL $(NPM_REGISTRY)/@stoplight/elements/-/elements-8.2.0.tgz | \
+	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
 	tar -zxOf- package/styles.min.css > $@
 	[ "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
