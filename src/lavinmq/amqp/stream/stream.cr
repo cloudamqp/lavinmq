@@ -277,7 +277,7 @@ module LavinMQ::AMQP
     # Called periodically by the vhost's single shared sweep fiber
     # (VHost#unmap_stream_segments_loop) rather than one timer per stream, so
     # the number of wakeups doesn't grow with the number of stream queues.
-    def unmap_and_remove_segments
+    protected def unmap_and_remove_segments
       return if closed?
       used_segments = Set(UInt32).new
       @consumers_lock.synchronize do
