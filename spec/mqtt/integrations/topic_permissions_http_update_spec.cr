@@ -6,7 +6,7 @@ module MqttSpecs
 
   def self.serve_http(server)
     h = server.http_server
-    addr = h.bind_tcp("::1", 0)
+    addr = h.bind_tcp("127.0.0.1", 0)
     spawn(name: "http listen") { h.listen }
     Fiber.yield
     HTTPSpecHelper.new(addr)
