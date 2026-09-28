@@ -12,7 +12,7 @@ LavinMQ accepts AMQP 1.0 connections on the same listener as AMQP 0-9-1. The pro
 ## Connection Setup
 
 - **SASL is required.** A client that sends the bare AMQP 1.0 protocol header is answered with the SASL protocol header and disconnected; clients must start with the SASL header (`AMQP\x03\x01\x00\x00`).
-- **Mechanisms:** `PLAIN` only. Credentials are validated against the configured [authentication chain](authentication.md).
+- **Mechanisms:** `PLAIN`, with credentials validated against the configured [authentication chain](authentication.md), and `ANONYMOUS` on loopback connections only (not proxied ones). `ANONYMOUS` logs in as the default user with the default password (`guest`), so it grants what a local client logging in with those credentials would get, and stops working once the default user's password is changed.
 - **Virtual host selection:** set the `hostname` field of the `open` frame to `vhost:<name>`. Any other value, or no hostname, selects the default vhost `/`. The user needs permissions on the vhost.
 - If the vhost does not exist, the user lacks access, or the vhost's `max-connections` limit is reached, the server replies with `open` followed by `close` carrying `amqp:not-found`, `amqp:unauthorized-access` or `amqp:not-allowed`.
 
@@ -113,7 +113,7 @@ Details the 0-9-1 format has no field for are kept in headers prefixed `x-amqp10
 - Transactions
 - Management (`$management`) links
 - Direct reply-to via `amq.direct.reply-to` addresses
-- SASL mechanisms other than `PLAIN`
+- SASL mechanisms other than `PLAIN` and `ANONYMOUS`
 
 ## Further Reading
 

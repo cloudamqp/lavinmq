@@ -10,11 +10,11 @@ private class AMQP10SpecClient
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
                  idle_timeout : UInt32? = nil, expect_open = true,
-                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW)
+                 incoming_window : UInt32 = LavinMQ::AMQP10::DEFAULT_WINDOW, mechanism = "PLAIN")
     @io = TCPSocket.new("localhost", port)
     @io.read_timeout = 5.seconds
     @reader = LavinMQ::AMQP10::FrameReader.new(@io, LavinMQ::Config.instance.frame_max)
-    sasl_handshake(username, password)
+    sasl_handshake(username, password, mechanism)
     send_transport_header(split_transport_header)
     send_open(hostname, frame_max, idle_timeout)
     # Callers that expect the server to refuse the connection read the reply themselves.
@@ -317,15 +317,15 @@ private class AMQP10SpecClient
     read_performative_code.should eq LavinMQ::AMQP10::Descriptor::DETACH
   end
 
-  private def sasl_handshake(username, password)
+  private def sasl_handshake(username, password, mechanism)
     @io.write LavinMQ::AMQP10::SASL_HEADER
     @io.flush
     header = Bytes.new(8)
     @io.read_fully(header)
     header.should eq LavinMQ::AMQP10::SASL_HEADER
     @reader.read # sasl-mechanisms
-    response = "\0#{username}\0#{password}"
-    fields = [LavinMQ::AMQP10::Value.symbol("PLAIN"), LavinMQ::AMQP10::Value.binary(response.to_slice)]
+    response = mechanism == "PLAIN" ? "\0#{username}\0#{password}" : ""
+    fields = [LavinMQ::AMQP10::Value.symbol(mechanism), LavinMQ::AMQP10::Value.binary(response.to_slice)]
     LavinMQ::AMQP10::FrameWriter.write_performative(@io, 0_u16, LavinMQ::AMQP10::SASL_FRAME_TYPE,
       LavinMQ::AMQP10::Descriptor::SASL_INIT, fields)
     frame = @reader.read
@@ -1313,6 +1313,39 @@ describe LavinMQ::AMQP10 do
   it "fails bad SASL PLAIN authentication" do
     with_amqp_server do |s|
       AMQP10SpecClient.authenticate(amqp_port(s), "guest", "wrong").should eq 1
+    end
+  end
+
+  it "authenticates loopback connections with SASL ANONYMOUS as the default user" do
+    with_amqp_server do |s|
+      client = AMQP10SpecClient.new(amqp_port(s), mechanism: "ANONYMOUS")
+      conn = wait_for { s.connections.first?.as?(LavinMQ::AMQP10::Client) }
+      conn.user.name.should eq "guest"
+      conn.auth_mechanism.should eq "ANONYMOUS"
+      client.close
+
+      factory_sasl(s, LavinMQ::ConnectionInfo.local, "ANONYMOUS")
+        .should eq({["PLAIN", "ANONYMOUS"], 0_u8})
+    end
+  end
+
+  it "neither offers nor accepts SASL ANONYMOUS from other than loopback" do
+    with_amqp_server do |s|
+      remote = LavinMQ::ConnectionInfo.new(Socket::IPAddress.new("192.0.2.1", 5000), Socket::IPAddress.new("192.0.2.2", 5672))
+      factory_sasl(s, remote, "ANONYMOUS").should eq({["PLAIN"], 1_u8})
+      loopback = Socket::IPAddress.new("127.0.0.1", 0)
+      proxied = LavinMQ::ConnectionInfo.new(loopback, loopback, proxied: true)
+      factory_sasl(s, proxied, "ANONYMOUS").should eq({["PLAIN"], 1_u8})
+    end
+  end
+
+  it "refuses SASL ANONYMOUS once the default user's password is changed" do
+    with_amqp_server do |s|
+      s.users["guest"].update_password("changed")
+      factory_sasl(s, LavinMQ::ConnectionInfo.local, "ANONYMOUS")[1].should eq 1
+      factory_sasl(s, LavinMQ::ConnectionInfo.local, "PLAIN", "\0guest\0changed".to_slice)[1].should eq 0
+    ensure
+      s.try &.users["guest"].update_password("guest")
     end
   end
 

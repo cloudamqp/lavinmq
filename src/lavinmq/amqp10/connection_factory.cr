@@ -10,6 +10,8 @@ require "./session"
 module LavinMQ::AMQP10
   class ConnectionFactory < LavinMQ::ConnectionFactory
     Log = LavinMQ::Log.for "amqp10.connection_factory"
+    # The default user's default password; SASL ANONYMOUS logs in with it.
+    ANONYMOUS_PASSWORD = "guest".to_slice
 
     def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
     end
@@ -23,7 +25,7 @@ module LavinMQ::AMQP10
       socket.write SASL_HEADER
       socket.flush
 
-      user = authenticate(socket, connection_info, log) || return
+      user, mechanism = authenticate(socket, connection_info, log) || return
       confirm_transport_header(socket, log) || return
       # Sized for our frame_max; the client keeps using it once the negotiated
       # (never larger) size is known, rather than allocating a second buffer.
@@ -37,7 +39,7 @@ module LavinMQ::AMQP10
       remote_idle_timeout = open.idle_time_out
       vhost = resolve_vhost(socket, open, user, max_frame_size, channel_max, local_idle_timeout, log) || return
 
-      client = Client.new(socket, connection_info, vhost, user, "PLAIN", max_frame_size,
+      client = Client.new(socket, connection_info, vhost, user, mechanism, max_frame_size,
         remote_idle_timeout, local_idle_timeout, frame_reader: reader, channel_max: channel_max)
       client.send_open
       client
@@ -50,17 +52,29 @@ module LavinMQ::AMQP10
     end
 
     private def authenticate(socket, connection_info, log)
-      send_sasl_mechanisms(socket)
-      init = read_sasl_init(socket)
-      unless init[0] == "PLAIN"
+      loopback = connection_info.loopback?
+      send_sasl_mechanisms(socket, anonymous: loopback)
+      mechanism, response = read_sasl_init(socket)
+      case mechanism
+      when "PLAIN"
+        username, password = plain_credentials(response)
+      when "ANONYMOUS"
+        unless loopback
+          send_sasl_outcome(socket, 1_u8)
+          return
+        end
+        # Granted only what a local client logging in with the default
+        # credentials over PLAIN would get, so it stops working once the
+        # default user's password is changed.
+        username, password = Config.instance.default_user, ANONYMOUS_PASSWORD
+      else
         send_sasl_outcome(socket, 1_u8)
         return
       end
-      username, password = plain_credentials(init[1])
-      context = Auth::Context.new(username, password, loopback: connection_info.loopback?)
+      context = Auth::Context.new(username, password, loopback: loopback)
       if user = @authenticator.authenticate(context)
         send_sasl_outcome(socket, 0_u8)
-        user
+        {user, mechanism}
       else
         log.info { "Authentication failure for user \"#{username}\"" }
         send_sasl_outcome(socket, 1_u8)
@@ -68,9 +82,11 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def send_sasl_mechanisms(socket)
+    private def send_sasl_mechanisms(socket, anonymous : Bool)
+      mechanisms = [Value.symbol("PLAIN")]
+      mechanisms << Value.symbol("ANONYMOUS") if anonymous
       fields = Array(Value).new(1)
-      fields << Value.array([Value.symbol("PLAIN")])
+      fields << Value.array(mechanisms)
       FrameWriter.write_performative(socket, 0_u16, SASL_FRAME_TYPE, Descriptor::SASL_MECHANISMS, fields)
     end
 
