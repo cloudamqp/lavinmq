@@ -760,17 +760,17 @@ module LavinMQ::AMQP10
       end
     rescue ex : ProtocolError
       @client.log.warn { "AMQP 1.0 attach rejected: #{ex.message}" }
+      condition = ex.is_a?(LinkError) ? ex.condition : ErrorCondition::PRECONDITION_FAILED
       @detached_handles << frame.handle
       @client.send_rejected_attach(self, frame, local_handle)
-      @client.send_detach(self, local_handle, true,
-        ErrorInfo.new(ErrorCondition::PRECONDITION_FAILED, ex.message))
+      @client.send_detach(self, local_handle, true, ErrorInfo.new(condition, ex.message))
     end
 
     private def attach_receiver(frame, local_handle)
       target = frame.target || Target.new(nil)
       reject_unsupported_terminus!(target)
       if target.dynamic
-        raise ProtocolError.new("dynamic target address must be empty") if target.address
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic target address must be empty") if target.address
         q = @client.declare_dynamic_queue
         address = "/queues/#{q.name}"
         parsed = PublishAddress.new("", q.name)
@@ -784,13 +784,13 @@ module LavinMQ::AMQP10
     end
 
     private def attach_sender(frame, local_handle)
-      source = frame.source || raise ProtocolError.new("source required")
+      source = frame.source || raise LinkError.new(ErrorCondition::INVALID_FIELD, "source required")
       reject_unsupported_terminus!(source)
       if source.filter
-        raise ProtocolError.new("source filters are not supported")
+        raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "source filters are not supported")
       end
       if source.dynamic
-        raise ProtocolError.new("dynamic source address must be empty") if source.address
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic source address must be empty") if source.address
         q = @client.declare_dynamic_queue
         address = "/queues/#{q.name}"
         {q, q, Source.new(address, dynamic: true)}
@@ -798,15 +798,15 @@ module LavinMQ::AMQP10
         q = @client.resolve_source(address)
         {q, nil, source}
       else
-        raise ProtocolError.new("source address required")
+        raise LinkError.new(ErrorCondition::INVALID_FIELD, "source address required")
       end
     end
 
     private def reject_unsupported_terminus!(terminus : Source | Target) : Nil
-      raise ProtocolError.new("durable termini are not supported") unless terminus.durable.zero?
-      raise ProtocolError.new("dynamic-node-properties are not supported") if terminus.dynamic_node_properties
+      raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "durable termini are not supported") unless terminus.durable.zero?
+      raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "dynamic-node-properties are not supported") if terminus.dynamic_node_properties
       if address = terminus.address
-        raise ProtocolError.new("management links are not supported") if address.includes?("$management")
+        raise LinkError.new(ErrorCondition::NOT_IMPLEMENTED, "management links are not supported") if address.includes?("$management")
       end
     end
 

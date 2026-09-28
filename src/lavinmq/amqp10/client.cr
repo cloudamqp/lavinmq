@@ -151,14 +151,14 @@ module LavinMQ::AMQP10
     end
 
     def declare_dynamic_queue : LavinMQ::AMQP::Queue
-      raise ProtocolError.new("Server low on disk space, can not create queue") unless @vhost.flow?
+      raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "Server low on disk space, can not create queue") unless @vhost.flow?
       if @vhost.queue_limit_reached?
-        raise ProtocolError.new("queue limit in vhost '#{@vhost.name}' is reached")
+        raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "queue limit in vhost '#{@vhost.name}' is reached")
       end
 
       name = LavinMQ::AMQP::Queue.generate_name
       unless @user.can_config?(@vhost.name, name)
-        raise ProtocolError.new("User '#{@user.name}' does not have permissions to queue '#{name}'")
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
       end
       frame = LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, false, true, true, false, LavinMQ::AMQP::Table.new)
       @vhost.apply(frame)
@@ -175,26 +175,27 @@ module LavinMQ::AMQP10
     end
 
     def resolve_publish_target(address : String) : PublishAddress
-      parsed = Address.parse_target(address) || raise ProtocolError.new("invalid target address #{address}")
+      # An address outside the /queues/ and /exchanges/ schemes names no node we have.
+      parsed = Address.parse_target(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid target address #{address}")
       if parsed.exchange.empty?
-        q = @vhost.queue?(parsed.routing_key).as?(LavinMQ::AMQP::Queue) || raise ProtocolError.new("queue '#{parsed.routing_key}' not found")
-        raise ProtocolError.new("Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
+        q = @vhost.queue?(parsed.routing_key).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{parsed.routing_key}' not found")
+        raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
       else
-        ex = @vhost.exchange?(parsed.exchange) || raise ProtocolError.new("exchange '#{parsed.exchange}' not found")
-        raise ProtocolError.new("Exchange '#{parsed.exchange}' is internal") if ex.internal?
+        ex = @vhost.exchange?(parsed.exchange) || raise LinkError.new(ErrorCondition::NOT_FOUND, "exchange '#{parsed.exchange}' not found")
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "Exchange '#{parsed.exchange}' is internal") if ex.internal?
       end
       unless @user.can_write?(@vhost.name, parsed.exchange, @acl_write_cache)
-        raise ProtocolError.new("User '#{@user.name}' not allowed to publish to exchange '#{parsed.exchange}'")
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' not allowed to publish to exchange '#{parsed.exchange}'")
       end
       parsed
     end
 
     def resolve_source(address : String) : LavinMQ::AMQP::Queue
-      queue_name = Address.parse_source(address) || raise ProtocolError.new("invalid source address #{address}")
-      q = @vhost.queue?(queue_name).as?(LavinMQ::AMQP::Queue) || raise ProtocolError.new("queue '#{queue_name}' not found")
-      raise ProtocolError.new("Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
+      queue_name = Address.parse_source(address) || raise LinkError.new(ErrorCondition::NOT_FOUND, "invalid source address #{address}")
+      q = @vhost.queue?(queue_name).as?(LavinMQ::AMQP::Queue) || raise LinkError.new(ErrorCondition::NOT_FOUND, "queue '#{queue_name}' not found")
+      raise LinkError.new(ErrorCondition::RESOURCE_LOCKED, "Queue '#{q.name}' is exclusive") if queue_exclusive_to_other_client?(q)
       unless @user.can_read?(@vhost.name, queue_name)
-        raise ProtocolError.new("User '#{@user.name}' does not have permissions to queue '#{queue_name}'")
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{queue_name}'")
       end
       q
     end

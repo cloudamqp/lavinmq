@@ -6,5 +6,15 @@ module LavinMQ
   # includes AMQ::Protocol; this namespace adds the broker side on top.
   module AMQP10
     include ::AMQP10::Protocol
+
+    # A link attach refused for a reason the peer should see as a specific
+    # error condition (amqp:not-found, amqp:unauthorized-access, ...).
+    class LinkError < ProtocolError
+      getter condition : String
+
+      def initialize(@condition : String, message : String)
+        super(message)
+      end
+    end
   end
 end

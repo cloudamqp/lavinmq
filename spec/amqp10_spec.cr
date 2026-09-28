@@ -4,6 +4,8 @@ private class AMQP10SpecClient
   getter io, reader
   # The Flow the server sent right after the last attach_sender.
   getter attach_flow : LavinMQ::AMQP10::Flow?
+  # The error condition of the detach read by the last attach_*_detached.
+  getter last_detach_condition : String?
 
   def initialize(port : Int32, username = "guest", password = "guest", hostname : String? = nil,
                  frame_max = LavinMQ::Config.instance.frame_max, split_transport_header = false,
@@ -91,7 +93,9 @@ private class AMQP10SpecClient
     attach.role.should eq LavinMQ::AMQP10::Role::Receiver
     attach.source.should be_nil
     attach.target.should be_nil
-    detach = LavinMQ::AMQP10::Detach.from_value(read_value)
+    detach_value = read_value
+    @last_detach_condition = error_condition(detach_value)
+    detach = LavinMQ::AMQP10::Detach.from_value(detach_value)
     detach.handle.should eq attach.handle
     detach
   end
@@ -121,7 +125,9 @@ private class AMQP10SpecClient
     attach.source.should be_nil
     attach.target.should be_nil
     attach.initial_delivery_count.should eq 0_u32
-    detach = LavinMQ::AMQP10::Detach.from_value(read_value)
+    detach_value = read_value
+    @last_detach_condition = error_condition(detach_value)
+    detach = LavinMQ::AMQP10::Detach.from_value(detach_value)
     detach.handle.should eq attach.handle
     detach
   end
@@ -427,6 +433,13 @@ private class AMQP10SpecClient
 
   def read_value
     LavinMQ::AMQP10::Codec.decode(@reader.read.body_reader)
+  end
+
+  # The error condition carried by a performative whose last field is an error, if any.
+  def error_condition(performative : LavinMQ::AMQP10::Value) : String?
+    fields = performative.described?.try(&.value.list?) || return
+    error = fields.last?.try(&.described?) || return
+    error.value.list?.try(&.first?).try(&.symbol?)
   end
 
   # The error list carried by a Close or Detach performative: [condition, description]
@@ -1672,6 +1685,45 @@ describe LavinMQ::AMQP10 do
         attach = client.attach_receiver("/queues/#{q.name}", handle: 2_u32, name: "settled", snd_settle_mode: 1_u8)
         attach.snd_settle_mode.should eq 1_u8
         client.close
+      end
+    end
+  end
+
+  it "rejects attaches with an error condition matching the cause" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        s.users.create("amqp10-limited", "pw")
+        s.users.add_permission("amqp10-limited", "/", /^$/, /^$/, /^$/)
+        q = ch.queue("amqp10-attach-errors", auto_delete: true)
+        not_found = LavinMQ::AMQP10::ErrorCondition::NOT_FOUND
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender_detached("/queues/missing", handle: 0_u32)
+        client.last_detach_condition.should eq not_found
+        client.attach_sender_detached("/exchanges/missing/rk", handle: 1_u32)
+        client.last_detach_condition.should eq not_found
+        client.attach_receiver_detached("/queues/missing", handle: 2_u32)
+        client.last_detach_condition.should eq not_found
+        # A bare node name resolves to no node.
+        client.attach_sender_detached("f47ac10b-58cc-4372-a567-0e02b2c3d479", handle: 3_u32)
+        client.last_detach_condition.should eq not_found
+        client.attach_receiver_detached("f47ac10b-58cc-4372-a567-0e02b2c3d479", handle: 4_u32)
+        client.last_detach_condition.should eq not_found
+        client.attach_receiver_detached("/queues/#{q.name}", handle: 5_u32, name: "durable", durable: 2_u32)
+        client.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::NOT_IMPLEMENTED
+        client.close
+
+        limited = AMQP10SpecClient.new(amqp_port(s), username: "amqp10-limited", password: "pw")
+        limited.attach_receiver_detached("/queues/#{q.name}")
+        limited.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::UNAUTHORIZED_ACCESS
+        limited.close
+
+        owner = AMQP10SpecClient.new(amqp_port(s))
+        address = owner.attach_sender(nil, dynamic: true).target.not_nil!.address.not_nil!
+        other = AMQP10SpecClient.new(amqp_port(s))
+        other.attach_receiver_detached(address)
+        other.last_detach_condition.should eq LavinMQ::AMQP10::ErrorCondition::RESOURCE_LOCKED
+        other.close
+        owner.close
       end
     end
   end

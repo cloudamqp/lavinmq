@@ -38,7 +38,16 @@ Addresses follow the [RabbitMQ AMQP 1.0 address format](https://www.rabbitmq.com
 | *(no address)* | Anonymous terminus: each message carries its target in the `to` property | — |
 | *(dynamic)* | An exclusive, auto-delete queue is created and its `/queues/...` address returned in the `attach` | Same |
 
-Dynamic queues live as long as the connection that created them. Publishing to internal exchanges, `$management` addresses, durable termini, `dynamic-node-properties` and source filters are refused with a `detach` carrying `amqp:precondition-failed`.
+Dynamic queues live as long as the connection that created them. A refused attach is answered with an `attach` without a terminus followed by a `detach` carrying the reason:
+
+| Condition | When |
+|-----------|------|
+| `amqp:not-found` | The queue or exchange does not exist, or the address is not one of the formats above |
+| `amqp:unauthorized-access` | The user lacks the permission, or the exchange is internal |
+| `amqp:resource-locked` | The queue is exclusive to another connection |
+| `amqp:resource-limit-exceeded` | A dynamic queue cannot be created: the vhost queue limit is reached or disk space is low |
+| `amqp:not-implemented` | `$management` addresses, durable termini, `dynamic-node-properties` or source filters |
+| `amqp:invalid-field` | A dynamic terminus with an address, or a receiving link without a source address |
 
 Publishing requires write permission on the exchange (an empty exchange name for queue targets), consuming requires read permission on the queue. A `user-id` property must match the authenticated user unless the user may impersonate others.
 
