@@ -84,7 +84,9 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  it "does not activate a new grant when saving fails" do
+  # Like the other stores, memory changes first and a failed save leaves disk
+  # behind. The raised error tells the caller the change is not confirmed.
+  it "keeps a new grant in memory when saving fails" do
     with_data_dir do |data_dir|
       service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
       path = File.join(data_dir, "mqtt_permissions.json")
@@ -93,14 +95,14 @@ describe LavinMQ::MQTT::PermissionService do
       expect_raises(LavinMQ::MQTT::PermissionService::SaveError) do
         service.put(group("g", ["c1"], [rule("a/#", read: true, write: true)]))
       end
-      service["g"]?.should be_nil
-      service.can_read?(ctx("c1"), "a/b").should be_false
-      service.can_write?(ctx("c1"), "a/b").should be_false
+      service["g"]?.should_not be_nil
+      service.can_read?(ctx("c1"), "a/b").should be_true
+      service.can_write?(ctx("c1"), "a/b").should be_true
       File.read(path).should eq original
     end
   end
 
-  it "keeps a deleted group's grants when saving the deletion fails" do
+  it "revokes a deleted group's grants in memory when saving the deletion fails" do
     with_data_dir do |data_dir|
       service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
       service.put(group("g", ["c1"], [rule("a/#", read: true, write: true)]))
@@ -108,9 +110,9 @@ describe LavinMQ::MQTT::PermissionService do
       original = File.read(path)
       Dir.mkdir("#{path}.tmp")
       expect_raises(LavinMQ::MQTT::PermissionService::SaveError) { service.delete("g") }
-      service["g"]?.should_not be_nil
-      service.can_read?(ctx("c1"), "a/b").should be_true
-      service.can_write?(ctx("c1"), "a/b").should be_true
+      service["g"]?.should be_nil
+      service.can_read?(ctx("c1"), "a/b").should be_false
+      service.can_write?(ctx("c1"), "a/b").should be_false
       File.read(path).should eq original
     end
   end
@@ -166,16 +168,19 @@ describe LavinMQ::MQTT::PermissionService do
 
   # The block runs under the same lock as the commit, so it always sees the
   # group as it is at commit time.
-  it "updates a group from its state at commit time" do
-    with_service do |service|
+  it "commits a mutation made by the update block" do
+    with_data_dir do |data_dir|
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      changed = service.update("g") do |current|
-        LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
-          current.rules + [rule("b/#", read: true)])
+      found = service.update("g") do |current|
+        current.put_rule(rule("b/#", read: true))
+        true
       end
-      changed.should be_true
+      found.should be_true
       service.can_read?(ctx("c1"), "a/x").should be_true
       service.can_read?(ctx("c1"), "b/x").should be_true
+      reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      reloaded.can_read?(ctx("c1"), "b/x").should be_true
     end
   end
 
@@ -190,26 +195,30 @@ describe LavinMQ::MQTT::PermissionService do
 
   it "reports a missing group on update" do
     with_service do |service|
-      service.update("nope") { |current| current }.should be_false
+      service.update("nope") { true }.should be_false
       service.size.should eq 0
     end
   end
 
-  it "keeps the group as it is when the update block returns nil" do
-    with_service do |service|
+  it "does not save when the update block returns false" do
+    with_data_dir do |data_dir|
+      service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      service.update("g") { nil }.should be_true
+      path = File.join(data_dir, "mqtt_permissions.json")
+      saved = File.read(path)
+      service.update("g") { false }.should be_true
       service.can_read?(ctx("c1"), "a/x").should be_true
+      File.read(path).should eq saved
     end
   end
 
-  it "rejects an invalid group on update" do
+  it "rejects an invalid rule on update" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
       expect_raises(ArgumentError, /Invalid MQTT topic filter/) do
         service.update("g") do |current|
-          LavinMQ::MQTT::PermissionGroup.new(current.name, current.vhost, current.members,
-            [rule("a/#/b", read: true)])
+          current.put_rule(rule("a/#/b", read: true))
+          true
         end
       end
       service.can_read?(ctx("c1"), "a/x").should be_true

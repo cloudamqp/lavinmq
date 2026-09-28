@@ -15,7 +15,7 @@ end
 
 describe LavinMQ::GlobalDefinitions do
   [false, true].each do |skip_existing|
-    it "keeps all active groups after a failed import save with skip_existing=#{skip_existing}" do
+    it "keeps a failed import active in memory with skip_existing=#{skip_existing}" do
       defs = {"mqtt_permissions" => [
         {"name" => "default", "vhost" => "/", "members" => ["*"],
          "rules" => [{"identifier" => "public", "pattern" => "public/#", "read" => true, "write" => true}]},
@@ -25,7 +25,6 @@ describe LavinMQ::GlobalDefinitions do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
         service = vhost.mqtt_permission_service
-        original = service.to_json
         path = File.join(vhost.data_dir, "mqtt_permissions.json")
         Dir.mkdir("#{path}.tmp")
         if skip_existing
@@ -33,9 +32,10 @@ describe LavinMQ::GlobalDefinitions do
         else
           http.post("/api/definitions", body: defs.to_json).status_code.should eq 500
         end
-        service.to_json.should eq original
-        service["sensors"]?.should be_nil
-        service.can_write?(ctx("guest"), "anything").should be_true
+        # The import stays active in memory; only disk lags until the next save.
+        service["sensors"]?.should_not be_nil
+        service.can_write?(ctx("guest"), "anything").should be_false
+        service.can_write?(ctx("guest"), "public/1").should be_true
         File.exists?(path).should be_false
 
         Dir.delete("#{path}.tmp")
