@@ -73,6 +73,8 @@ A receiving link acts as a consumer on the queue. Messages are delivered as link
 | `released`, `modified` | Requeued |
 | `rejected` | Dropped, or dead-lettered if the queue has a dead-letter exchange |
 
+A redelivered message carries a `header` section whose `delivery-count` is the number of earlier deliveries on queues with a `delivery-limit`, and 1 on other queues, which do not count them.
+
 AMQP 1.0 consumers take part in [single active consumer](consumers.md), respect [paused queues](queues.md) and yield to 0-9-1 consumers with a higher priority (AMQP 1.0 consumers have priority 0). When the oldest unacknowledged delivery exceeds the [consumer timeout](consumers.md), the link is detached with `amqp:precondition-failed`; deleting the queue detaches it with `amqp:resource-deleted`. Sessions appear as channels and links as consumers in the management UI and API.
 
 ## Message Mapping

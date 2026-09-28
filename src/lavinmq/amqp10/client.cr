@@ -393,7 +393,7 @@ module LavinMQ::AMQP10
     end
 
     def send_transfer(session : Session, link : SenderLink, msg : BytesMessage,
-                      sp : SegmentPosition, settled : Bool) : Bool
+                      sp : SegmentPosition, settled : Bool, redelivered = false) : Bool
       @write_lock.synchronize do
         # Assign the delivery-id (== transfer-id of the first frame) and record
         # the unacked entry under the lock so ids and unacked stay ordered even
@@ -403,7 +403,7 @@ module LavinMQ::AMQP10
         IO::ByteFormat::NetworkEndian.encode(delivery_id.to_u64, tag)
         link.record_unacked(delivery_id, sp) unless settled
         bytes, frames = MessageCodec.write_transfer(@socket, session.id, link.local_handle,
-          delivery_id, tag, msg, @max_frame_size, settled)
+          delivery_id, tag, msg, @max_frame_size, settled, redelivered)
         session.advance_outgoing(frames)
         add_send_bytes(bytes)
       end

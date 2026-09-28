@@ -351,7 +351,7 @@ module LavinMQ::AMQP10
         set_consumer_capacity(has_credit)
         # send_transfer assigns the delivery-id and records the unacked entry
         # under the connection write lock so ids stay ordered across links.
-        unless @session.client.send_transfer(@session, self, env.message, env.segment_position, settled)
+        unless @session.client.send_transfer(@session, self, env.message, env.segment_position, settled, env.redelivered)
           # The transfer failed and the socket is closed; break the loop and let
           # connection cleanup requeue and detach, avoiding a self-close deadlock
           # on the queue's deliver-loop wait-group.

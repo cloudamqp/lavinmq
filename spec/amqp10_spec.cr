@@ -254,6 +254,13 @@ private class AMQP10SpecClient
     {transfer, incoming}
   end
 
+  # The message sections of the next (single-frame) delivery.
+  def read_delivery_sections : Tuple(LavinMQ::AMQP10::TransferCodec::TransferView, Array(Tuple(UInt64, Bytes)))
+    reader = @reader.read.body_reader
+    transfer = LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+    {transfer, message_sections(reader.peek.dup)}
+  end
+
   def read_delivery
     frame = @reader.read
     reader = frame.body_reader
@@ -510,21 +517,32 @@ end
 
 # Encodes `msg` as a single-frame delivery and returns the message sections
 # after the transfer performative, as descriptor code => section bytes.
-private def delivered_sections(msg : LavinMQ::BytesMessage) : Array(Tuple(UInt64, Bytes))
+private def delivered_sections(msg : LavinMQ::BytesMessage, redelivered = false) : Array(Tuple(UInt64, Bytes))
   io = IO::Memory.new
-  LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+  LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg, redelivered: redelivered)
   bytes = io.to_slice
   frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
   reader = IO::Memory.new(bytes[8, frame_size.to_i - 8])
   LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+  message_sections(reader.peek)
+end
+
+# Splits an encoded message into its sections, as descriptor code => section bytes.
+private def message_sections(message : Bytes) : Array(Tuple(UInt64, Bytes))
+  reader = IO::Memory.new(message)
   sections = [] of Tuple(UInt64, Bytes)
   while reader.pos < reader.bytesize
     start = reader.pos
     code = LavinMQ::AMQP10::Codec.read_descriptor_code(reader)
     LavinMQ::AMQP10::Codec.skip_value(reader)
-    sections << {code, bytes[8 + start, reader.pos - start]}
+    sections << {code, message[start, reader.pos - start]}
   end
   sections
+end
+
+# The fields of a list-bodied section such as header or properties.
+private def section_fields(section : Bytes) : Array(LavinMQ::AMQP10::Value)
+  LavinMQ::AMQP10::Codec.decode(IO::Memory.new(section)).described?.not_nil!.value.list?.not_nil!
 end
 
 # Decodes a published AMQP 1.0 message and stores it the way a queue would.
@@ -820,6 +838,47 @@ describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
       values[0].should eq id
       values[5].should eq correlation_id
     end
+  end
+
+  it "reports redeliveries in the header section's delivery-count" do
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new, 4_u64, "body".to_slice)
+    delivered_sections(msg).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
+
+    sections = delivered_sections(msg, redelivered: true)
+    sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
+    header = section_fields(sections[0][1])
+    header[0].bool?.should be_false # durable
+    header[4].uint?.should eq 1_u64 # delivery-count
+
+    # A queue with a delivery-limit tracks the exact count.
+    props = AMQ::Protocol::Properties.new(delivery_mode: 2_u8, headers: AMQ::Protocol::Table.new({"x-delivery-count" => 3}))
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", props, 4_u64, "body".to_slice)
+    header = section_fields(delivered_sections(msg, redelivered: true)[0][1])
+    header[0].bool?.should be_true
+    header[4].uint?.should eq 3_u64
+  end
+
+  it "sizes fragmented redeliveries including the header section" do
+    body = "x" * 1200
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new(priority: 3_u8),
+      body.bytesize.to_u64, body.to_slice)
+    io = IO::Memory.new
+    written, _frames = LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32,
+      "tag".to_slice, msg, LavinMQ::AMQP10::MIN_MAX_FRAME_SIZE, redelivered: true)
+    written.should eq io.size
+    payload = IO::Memory.new
+    bytes = io.to_slice
+    offset = 0
+    while offset < bytes.bytesize
+      frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[offset, 4])
+      reader = IO::Memory.new(bytes[offset + 8, frame_size.to_i - 8])
+      LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+      payload.write reader.peek
+      offset += frame_size.to_i
+    end
+    sections = message_sections(payload.to_slice)
+    sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::HEADER, LavinMQ::AMQP10::Descriptor::DATA]
+    section_fields(sections[0][1])[4].uint?.should eq 1_u64
   end
 
   it "delivers a stored id as a string when it does not parse as its type" do
@@ -1870,6 +1929,27 @@ describe LavinMQ::AMQP10 do
         # The connection is still usable and the handles can be reused.
         client.attach_sender("/queues/#{q.name}", handle: 0_u32)
         client.publish(0_u32, 2_u32, "after").should eq LavinMQ::AMQP10::Outcome::Accepted
+        client.close
+      end
+    end
+  end
+
+  it "sends a header with delivery-count when a released message is redelivered" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-redelivery-header", auto_delete: true)
+        q.publish("again")
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_receiver("/queues/#{q.name}")
+        client.flow(credit: 2_u32)
+        transfer, sections = client.read_delivery_sections
+        sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::DATA]
+        client.settle(transfer.delivery_id.not_nil!, LavinMQ::AMQP10::Outcome::Released)
+
+        transfer, sections = client.read_delivery_sections
+        sections[0][0].should eq LavinMQ::AMQP10::Descriptor::HEADER
+        section_fields(sections[0][1])[4].uint?.should eq 1_u64
+        client.settle(transfer.delivery_id.not_nil!)
         client.close
       end
     end
