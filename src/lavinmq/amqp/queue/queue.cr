@@ -124,6 +124,10 @@ module LavinMQ::AMQP
     @drop_overflow_pending = Atomic(Bool).new(false)
     @drop_redelivered_loop_running = Atomic(Bool).new(false)
     @drop_redelivered_pending = Atomic(Bool).new(false)
+    # Bumped by reset_queue_state. A fiber only clears its running flag if the
+    # generation is unchanged, so a stale fiber that outlives restart! can't
+    # release the guard owned by the fiber spawned after the restart.
+    @loop_generation = Atomic(UInt32).new(0)
 
     getter? internal = false
 
@@ -144,13 +148,16 @@ module LavinMQ::AMQP
         end
       end
     rescue ::Channel::ClosedError
-    ensure
-      @queue_expire_loop_running.set(false)
     end
 
     private def start_queue_expire_loop
       return if @queue_expire_loop_running.swap(true)
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+      gen = @loop_generation.get
+      spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      ensure
+        @queue_expire_loop_running.set(false) if @loop_generation.get == gen
+      end
     end
 
     # Coalescing scheduler for drop_overflow. Multiple back-to-back policy
@@ -159,34 +166,36 @@ module LavinMQ::AMQP
     private def schedule_drop_overflow
       @drop_overflow_pending.set(true)
       return if @drop_overflow_loop_running.swap(true)
+      gen = @loop_generation.get
       spawn(name: "Queue#drop_overflow #{@vhost.name}/#{@name}") do
         begin
           @vhost.closed.when_false.receive?
-          while @drop_overflow_pending.swap(false)
+          while @loop_generation.get == gen && @drop_overflow_pending.swap(false)
             drop_overflow
           end
         ensure
-          @drop_overflow_loop_running.set(false)
+          @drop_overflow_loop_running.set(false) if @loop_generation.get == gen
         end
         # Re-trigger if a request slipped in after the last swap.
-        schedule_drop_overflow if @drop_overflow_pending.get
+        schedule_drop_overflow if @loop_generation.get == gen && @drop_overflow_pending.get
       end
     end
 
     private def schedule_drop_redelivered
       @drop_redelivered_pending.set(true)
       return if @drop_redelivered_loop_running.swap(true)
+      gen = @loop_generation.get
       spawn(name: "Queue#drop_redelivered #{@vhost.name}/#{@name}") do
         begin
           @vhost.closed.when_false.receive?
-          while @drop_redelivered_pending.swap(false)
+          while @loop_generation.get == gen && @drop_redelivered_pending.swap(false)
             drop_redelivered
           end
         ensure
-          @drop_redelivered_loop_running.set(false)
+          @drop_redelivered_loop_running.set(false) if @loop_generation.get == gen
         end
         # Re-trigger if a request slipped in after the last swap.
-        schedule_drop_redelivered if @drop_redelivered_pending.get
+        schedule_drop_redelivered if @loop_generation.get == gen && @drop_redelivered_pending.get
       end
     end
 
@@ -352,6 +361,7 @@ module LavinMQ::AMQP
       @closed = false
       @state = QueueState::Running
       @message_expire_fiber_active.set(false, :release)
+      @loop_generation.add(1)
       @queue_expire_loop_running.set(false)
       @drop_overflow_loop_running.set(false)
       @drop_overflow_pending.set(false)

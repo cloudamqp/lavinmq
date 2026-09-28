@@ -313,6 +313,46 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "stale drop_overflow fiber surviving restart! doesn't release the new fiber's guard" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        vhost = s.vhosts["/"]
+        x = ch.queue("stale", durable: true)
+        2.times { x.publish "m" }
+        q = vhost.queue("stale").as(LavinMQ::AMQP::Queue)
+        wait_for { q.message_count == 2 }
+        loop_count = -> do
+          c = 0
+          Fiber.list do |f|
+            n = f.@name
+            c += 1 if n && n.includes?("drop_overflow") && n.includes?("/stale")
+          end
+          c
+        end
+        defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+        q.@msg_store_lock.synchronize do
+          # Stale fiber: blocked on the store lock across close/restart!
+          vhost.add_policy("ml", "^stale$", "queues", defs, 0_i8)
+          wait_for { loop_count.call == 1 }
+          # Park the post-restart fiber on the vhost closed gate so it stays live
+          vhost.closed.set(true)
+          q.close
+          q.restart!.should be_true
+          wait_for { loop_count.call == 2 }
+        end
+        # Let the stale fiber finish while the new one is still parked
+        wait_for { loop_count.call == 1 }
+        # A further apply must coalesce into the live fiber, not spawn another
+        defs2 = {"max-length" => JSON::Any.new(2_i64)} of String => JSON::Any
+        vhost.add_policy("ml2", "^stale$", "queues", defs2, 1_i8)
+        sleep 50.milliseconds
+        loop_count.call.should eq 1
+      ensure
+        s.vhosts["/"].closed.set(false)
+      end
+    end
+  end
+
   it "should drop messages if above delivery-limit" do
     with_amqp_server do |s|
       defs = {"delivery-limit" => JSON::Any.new(0_i64)} of String => JSON::Any
