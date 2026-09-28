@@ -154,7 +154,9 @@ module LavinMQ::AMQP10
       q.exclusive? && !@exclusive_queues.includes?(q)
     end
 
-    def declare_dynamic_queue : LavinMQ::AMQP::Queue
+    # A dynamic source is consumed from and a dynamic target published to (via
+    # the default exchange), so that access is required as well as configure.
+    def declare_dynamic_queue(*, consume : Bool) : LavinMQ::AMQP::Queue
       raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "Server low on disk space, can not create queue") unless @vhost.flow?
       if @vhost.queue_limit_reached?
         raise LinkError.new(ErrorCondition::RESOURCE_LIMIT_EXCEEDED, "queue limit in vhost '#{@vhost.name}' is reached")
@@ -163,6 +165,13 @@ module LavinMQ::AMQP10
       name = LavinMQ::AMQP::Queue.generate_name
       unless @user.can_config?(@vhost.name, name)
         raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
+      end
+      if consume
+        unless @user.can_read?(@vhost.name, name)
+          raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' does not have permissions to queue '#{name}'")
+        end
+      elsif !@user.can_write?(@vhost.name, "", @acl_write_cache)
+        raise LinkError.new(ErrorCondition::UNAUTHORIZED_ACCESS, "User '#{@user.name}' not allowed to publish to exchange ''")
       end
       frame = LavinMQ::AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, false, true, true, false, LavinMQ::AMQP::Table.new)
       @vhost.apply(frame)

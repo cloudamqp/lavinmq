@@ -2441,6 +2441,28 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "requires read or write permission as well as configure for dynamic links" do
+    with_amqp_server do |s|
+      s.users.create("amqp10-configure-only", "pw")
+      s.users.add_permission("amqp10-configure-only", "/", /.*/, /^$/, /^$/)
+      queues = s.vhosts["/"].queues.size
+      unauthorized = LavinMQ::AMQP10::ErrorCondition::UNAUTHORIZED_ACCESS
+      client = AMQP10SpecClient.new(amqp_port(s), username: "amqp10-configure-only", password: "pw")
+      client.attach_receiver_detached(nil, dynamic: true)
+      client.last_detach_condition.should eq unauthorized
+      client.attach_sender_detached(nil, handle: 1_u32, dynamic: true)
+      client.last_detach_condition.should eq unauthorized
+      s.vhosts["/"].queues.size.should eq queues # no queue left behind
+      client.close
+
+      s.users.add_permission("amqp10-configure-only", "/", /.*/, /.*/, /.*/)
+      client = AMQP10SpecClient.new(amqp_port(s), username: "amqp10-configure-only", password: "pw")
+      client.attach_receiver(nil, dynamic: true).source.not_nil!.dynamic.should be_true
+      client.attach_sender(nil, handle: 1_u32, name: "dynamic-target", dynamic: true)
+      client.close
+    end
+  end
+
   it "creates and deletes dynamic source queues on detach" do
     with_amqp_server do |s|
       client = AMQP10SpecClient.new(amqp_port(s))

@@ -795,7 +795,7 @@ module LavinMQ::AMQP10
       reject_unsupported_terminus!(target)
       if target.dynamic
         raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic target address must be empty") if target.address
-        q = @client.declare_dynamic_queue
+        q = @client.declare_dynamic_queue(consume: false)
         address = "/queues/#{q.name}"
         parsed = PublishAddress.new("", q.name)
         {parsed, q, Target.new(address, dynamic: true)}
@@ -815,7 +815,7 @@ module LavinMQ::AMQP10
       end
       if source.dynamic
         raise LinkError.new(ErrorCondition::INVALID_FIELD, "dynamic source address must be empty") if source.address
-        q = @client.declare_dynamic_queue
+        q = @client.declare_dynamic_queue(consume: true)
         address = "/queues/#{q.name}"
         {q, q, Source.new(address, dynamic: true)}
       elsif address = source.address
