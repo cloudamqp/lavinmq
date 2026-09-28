@@ -2046,6 +2046,30 @@ describe LavinMQ::AMQP10 do
     end
   end
 
+  it "accepts and delivers amqp-value bodies of every fixed-width type" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("amqp10-fixed-width-values", auto_delete: true)
+        client = AMQP10SpecClient.new(amqp_port(s))
+        client.attach_sender("/queues/#{q.name}")
+        client.attach_receiver("/queues/#{q.name}", handle: 1_u32)
+        client.flow(handle: 1_u32, credit: 100_u32)
+        # short (0x61) was once rejected as an unsupported value
+        {0x61 => 2, 0x60 => 2, 0x73 => 4, 0x74 => 4, 0x84 => 8, 0x94 => 16, 0x98 => 16}.each_with_index do |(code, width), i|
+          message = IO::Memory.new
+          LavinMQ::AMQP10::Codec.write_descriptor(message, LavinMQ::AMQP10::Descriptor::AMQP_VALUE)
+          message.write_byte code.to_u8
+          width.times { |b| message.write_byte (b + 1).to_u8 }
+          client.publish_raw(0_u32, i.to_u32, message.to_slice).should eq LavinMQ::AMQP10::Outcome::Accepted
+          transfer, sections = client.read_delivery_sections
+          sections.should eq [{LavinMQ::AMQP10::Descriptor::AMQP_VALUE, message.to_slice}]
+          client.settle(transfer.delivery_id.not_nil!)
+        end
+        client.close
+      end
+    end
+  end
+
   it "applies modified annotations to the message's later deliveries" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
