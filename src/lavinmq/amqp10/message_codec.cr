@@ -9,6 +9,15 @@ module LavinMQ::AMQP10
 
     EMPTY_BODY = Bytes.empty
 
+    # Messages are stored in the 0-9-1 format. AMQP 1.0 details that format
+    # has no field for are kept in headers with this prefix; they are never
+    # delivered as application-properties, nor accepted from a publisher.
+    INTERNAL_HEADER_PREFIX = "x-amqp10-"
+    # Set when the body was an amqp-value section rather than data sections:
+    # "string" or "binary" (the body holds the value's bytes) or "value" (the
+    # body holds the value in its AMQP 1.0 encoding).
+    BODY_TYPE_HEADER = "x-amqp10-body-type"
+
     record Incoming, properties : LavinMQ::AMQP::Properties, body : Bytes, to : String?
 
     def decode(reader : IO::Memory) : Incoming
@@ -16,6 +25,7 @@ module LavinMQ::AMQP10
       to = nil
       body = EMPTY_BODY
       body_io : IO::Memory? = nil
+      body_type : String? = nil
 
       until reader.pos >= reader.bytesize
         descriptor = Codec.read_descriptor_code(reader)
@@ -32,7 +42,7 @@ module LavinMQ::AMQP10
           body, body_io = append_data_section(body, body_io, Codec.read_binary_value(reader))
         when Descriptor::AMQP_VALUE
           body_io = nil
-          body = read_amqp_value_body(reader)
+          body, body_type = read_amqp_value_body(reader)
         else
           Codec.skip_value(reader)
         end
@@ -41,6 +51,7 @@ module LavinMQ::AMQP10
       if chunks = body_io
         body = chunks.to_slice
       end
+      props = with_internal_header(props, BODY_TYPE_HEADER, body_type) if body_type
       Incoming.new(props, body, to)
     rescue ex : IO::EOFError
       raise DecodeError.new("truncated AMQP 1.0 message", cause: ex)
@@ -60,22 +71,29 @@ module LavinMQ::AMQP10
       end
     end
 
-    private def read_amqp_value_body(reader : IO::Memory) : Bytes
+    # Returns the body and its BODY_TYPE_HEADER value. Strings and binaries
+    # are stored as their bytes, so 0-9-1 consumers see the plain payload;
+    # any other value (lists, maps, numbers, symbols, null) has no 0-9-1
+    # equivalent and is stored in its AMQP 1.0 encoding.
+    private def read_amqp_value_body(reader : IO::Memory) : Tuple(Bytes, String)
       start = reader.pos
       case code = Codec.read_byte(reader)
-      when 0x40
-        EMPTY_BODY
-      when 0xa0, 0xa1, 0xa3
-        Codec.read_slice(reader, Codec.read_byte(reader).to_i)
-      when 0xb0, 0xb1, 0xb3
-        Codec.read_slice(reader, Codec.read_size32(reader, "value32"))
+      when 0xa0 then {Codec.read_slice(reader, Codec.read_byte(reader).to_i), "binary"}
+      when 0xb0 then {Codec.read_slice(reader, Codec.read_size32(reader, "binary32")), "binary"}
+      when 0xa1 then {Codec.read_slice(reader, Codec.read_byte(reader).to_i), "string"}
+      when 0xb1 then {Codec.read_slice(reader, Codec.read_size32(reader, "string32")), "string"}
       else
-        # Structured amqp-value bodies (lists, maps, numbers) have no 0-9-1
-        # equivalent; preserve the raw encoded value verbatim instead of
-        # silently dropping it.
         Codec.skip_value_payload(reader, code)
-        Codec.slice_from(reader, start)
+        {Codec.slice_from(reader, start), "value"}
       end
+    end
+
+    # Properties is a struct: returns the updated copy.
+    private def with_internal_header(props, key : String, value : String) : LavinMQ::AMQP::Properties
+      headers = props.headers || LavinMQ::AMQP::Table.new
+      headers[key] = value
+      props.headers = headers
+      props
     end
 
     private def read_header(reader, props) : LavinMQ::AMQP::Properties
@@ -110,7 +128,7 @@ module LavinMQ::AMQP10
         (count // 2).times do
           key = Codec.read_string_value(reader)
           value = read_application_property_value(reader)
-          headers[key] = value if key
+          headers[key] = value if key && !key.starts_with?(INTERNAL_HEADER_PREFIX)
         end
         props.headers = headers unless headers.empty?
       end
@@ -325,7 +343,17 @@ module LavinMQ::AMQP10
       header_fields : Int32,
       props_count : Int32,
       props_fields : Int32,
-      app_fields : Int32
+      app_count : Int32,
+      app_fields : Int32,
+      body_kind : BodyKind
+
+    # The section the stored body is delivered in, from BODY_TYPE_HEADER.
+    private enum BodyKind
+      Data
+      String
+      Binary
+      Value
+    end
 
     # Returns the number of AMQP 1.0 transfer frames written.
     def write_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
@@ -362,25 +390,58 @@ module LavinMQ::AMQP10
       props_fields = props_count.zero? ? 0 : properties_fields_size(props, props_count)
       props_sec = props_count.zero? ? 0 : 3 + Codec.list_header_size(props_fields) + props_fields
       headers = props.headers
-      if headers && !headers.empty?
-        app_fields = application_properties_fields_size(headers)
-        app_sec = 3 + Codec.map_header_size(app_fields, headers.size * 2) + app_fields
+      app_count, app_fields = headers ? application_properties_fields_size(headers) : {0, 0}
+      app_sec = app_count.zero? ? 0 : 3 + Codec.map_header_size(app_fields, app_count * 2) + app_fields
+      body_kind = body_kind(headers)
+      body_sec = 3 + (body_kind.value? ? 0 : Codec.binary_header_size(msg.bodysize))
+      total = header_sec + props_sec + app_sec + body_sec
+      SectionSizes.new(total, header_count, header_fields, props_count, props_fields, app_count, app_fields, body_kind)
+    end
+
+    private def body_kind(headers : LavinMQ::AMQP::Table?) : BodyKind
+      return BodyKind::Data unless headers
+      return BodyKind::Data unless headers.has_key?(BODY_TYPE_HEADER)
+      if headers.has_entry?(BODY_TYPE_HEADER, "string")
+        BodyKind::String
+      elsif headers.has_entry?(BODY_TYPE_HEADER, "binary")
+        BodyKind::Binary
+      elsif headers.has_entry?(BODY_TYPE_HEADER, "value")
+        BodyKind::Value
       else
-        app_fields = 0
-        app_sec = 0
+        BodyKind::Data
       end
-      data_sec = 3 + Codec.binary_header_size(msg.bodysize)
-      total = header_sec + props_sec + app_sec + data_sec
-      SectionSizes.new(total, header_count, header_fields, props_count, props_fields, app_fields)
+    end
+
+    # The descriptor and value constructor preceding the stored body bytes;
+    # a "value" body already is a complete encoded value.
+    private def write_body_section_header(io, kind : BodyKind, bodysize : UInt64) : Nil
+      case kind
+      in .data?
+        Codec.write_descriptor(io, Descriptor::DATA)
+        Codec.write_binary_header(io, bodysize)
+      in .binary?
+        Codec.write_descriptor(io, Descriptor::AMQP_VALUE)
+        Codec.write_binary_header(io, bodysize)
+      in .string?
+        Codec.write_descriptor(io, Descriptor::AMQP_VALUE)
+        if bodysize <= UInt8::MAX
+          io.write_byte 0xa1_u8
+          io.write_byte bodysize.to_u8
+        else
+          io.write_byte 0xb1_u8
+          Codec.write_u32(io, bodysize.to_u32)
+        end
+      in .value?
+        Codec.write_descriptor(io, Descriptor::AMQP_VALUE)
+      end
     end
 
     private def write_message_sections_prefix(io, msg : BytesMessage, sizes : SectionSizes? = nil) : Nil
       sizes ||= compute_section_sizes(msg)
       write_header_section(io, msg.properties, sizes.header_count, sizes.header_fields)
       write_properties_section(io, msg.properties, sizes.props_count, sizes.props_fields)
-      write_application_properties_section(io, msg.properties.headers, sizes.app_fields)
-      Codec.write_descriptor(io, Descriptor::DATA)
-      Codec.write_binary_header(io, msg.bodysize)
+      write_application_properties_section(io, msg.properties.headers, sizes.app_count, sizes.app_fields)
+      write_body_section_header(io, sizes.body_kind, msg.bodysize)
     end
 
     private def write_fragmented_transfer(io : IO, channel : UInt16, handle : UInt32, delivery_id : UInt32,
@@ -596,12 +657,13 @@ module LavinMQ::AMQP10
       seconds.clamp(MIN_TIMESTAMP_SECONDS, MAX_TIMESTAMP_SECONDS) * 1000_i64
     end
 
-    private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?, fields_size : Int32) : Nil
+    private def write_application_properties_section(io, headers : LavinMQ::AMQP::Table?, count : Int32, fields_size : Int32) : Nil
       return unless headers
-      return if headers.empty?
+      return if count.zero?
       Codec.write_descriptor(io, Descriptor::APPLICATION_PROPERTIES)
-      Codec.write_map_header(io, fields_size, headers.size * 2)
+      Codec.write_map_header(io, fields_size, count * 2)
       headers.each do |key, value|
+        next if key.starts_with?(INTERNAL_HEADER_PREFIX)
         Codec.write_string(io, key)
         write_application_property_value(io, value)
       end
@@ -644,13 +706,18 @@ module LavinMQ::AMQP10
       value ? Codec.binary_header_size(value.bytesize.to_u64) + value.bytesize : 1
     end
 
-    private def application_properties_fields_size(headers : LavinMQ::AMQP::Table) : Int32
+    # The number of headers delivered as application-properties and their
+    # encoded size; internal headers are left out.
+    private def application_properties_fields_size(headers : LavinMQ::AMQP::Table) : Tuple(Int32, Int32)
+      count = 0
       size = 0
       headers.each do |key, value|
+        next if key.starts_with?(INTERNAL_HEADER_PREFIX)
+        count += 1
         size += Codec.string_size(key)
         size += application_property_value_size(value)
       end
-      size
+      {count, size}
     end
 
     private def write_nullable_symbol(io, value : String?) : Nil

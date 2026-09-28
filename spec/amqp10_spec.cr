@@ -508,6 +508,31 @@ private class AMQP10PrioritySpecConsumer < LavinMQ::Client::Channel::Consumer
   end
 end
 
+# Encodes `msg` as a single-frame delivery and returns the message sections
+# after the transfer performative, as descriptor code => section bytes.
+private def delivered_sections(msg : LavinMQ::BytesMessage) : Array(Tuple(UInt64, Bytes))
+  io = IO::Memory.new
+  LavinMQ::AMQP10::MessageCodec.write_transfer(io, 0_u16, 0_u32, 7_u32, "tag".to_slice, msg)
+  bytes = io.to_slice
+  frame_size = IO::ByteFormat::NetworkEndian.decode(UInt32, bytes[0, 4])
+  reader = IO::Memory.new(bytes[8, frame_size.to_i - 8])
+  LavinMQ::AMQP10::TransferCodec.read_transfer(reader)
+  sections = [] of Tuple(UInt64, Bytes)
+  while reader.pos < reader.bytesize
+    start = reader.pos
+    code = LavinMQ::AMQP10::Codec.read_descriptor_code(reader)
+    LavinMQ::AMQP10::Codec.skip_value(reader)
+    sections << {code, bytes[8 + start, reader.pos - start]}
+  end
+  sections
+end
+
+# Decodes a published AMQP 1.0 message and stores it the way a queue would.
+private def stored_message(payload : Bytes) : LavinMQ::BytesMessage
+  incoming = LavinMQ::AMQP10::MessageCodec.decode(IO::Memory.new(payload))
+  LavinMQ::BytesMessage.new(1_i64, "", "rk", incoming.properties, incoming.body.bytesize.to_u64, incoming.body.dup)
+end
+
 private def amqp10_session(server : LavinMQ::Server) : LavinMQ::AMQP10::Session
   wait_for do
     found = nil.as(LavinMQ::AMQP10::Session?)
@@ -737,6 +762,54 @@ describe LavinMQ::AMQP10::MessageCodec do
 end
 
 describe "LavinMQ::AMQP10::MessageCodec.write_transfer" do
+  it "delivers amqp-value bodies in the section type they were published with" do
+    values = [
+      LavinMQ::AMQP10::Value.string("text"),
+      LavinMQ::AMQP10::Value.string("x" * 300),
+      LavinMQ::AMQP10::Value.binary(Bytes[1, 2, 3]),
+      LavinMQ::AMQP10::Value.list([LavinMQ::AMQP10::Value.uint(1_u32), LavinMQ::AMQP10::Value.string("a")]),
+      LavinMQ::AMQP10::Value.null,
+    ]
+    values.each do |value|
+      body = LavinMQ::AMQP10::Value.described(LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE), value)
+      payload = IO::Memory.new
+      LavinMQ::AMQP10::Codec.write_value(payload, body)
+
+      sections = delivered_sections(stored_message(payload.to_slice))
+
+      # The internal body-type header is not an application property.
+      sections.map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::AMQP_VALUE]
+      sections[0][1].should eq payload.to_slice
+    end
+  end
+
+  it "keeps 0-9-1 friendly bodies for string and binary amqp-values" do
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(
+      LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::AMQP_VALUE), LavinMQ::AMQP10::Value.string("text")))
+    msg = stored_message(payload.to_slice)
+    String.new(msg.body).should eq "text"
+    msg.properties.headers.not_nil!["x-amqp10-body-type"].should eq "string"
+  end
+
+  it "delivers data bodies, including those published over 0-9-1, as a data section" do
+    msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new(headers: AMQ::Protocol::Table.new({"app" => "x"})),
+      4_u64, "body".to_slice)
+    delivered_sections(msg).map(&.[0]).should eq [LavinMQ::AMQP10::Descriptor::APPLICATION_PROPERTIES, LavinMQ::AMQP10::Descriptor::DATA]
+  end
+
+  it "ignores internal headers set by an AMQP 1.0 publisher" do
+    payload = IO::Memory.new
+    LavinMQ::AMQP10::Codec.write_value(payload, LavinMQ::AMQP10::Value.described(
+      LavinMQ::AMQP10::Value.ulong(LavinMQ::AMQP10::Descriptor::APPLICATION_PROPERTIES),
+      LavinMQ::AMQP10::Value.map([{LavinMQ::AMQP10::Value.string("x-amqp10-body-type"), LavinMQ::AMQP10::Value.string("value")}])))
+    payload.write_byte 0x00_u8
+    LavinMQ::AMQP10::Codec.write_ulong(payload, LavinMQ::AMQP10::Descriptor::DATA)
+    LavinMQ::AMQP10::Codec.write_binary(payload, "body".to_slice)
+
+    stored_message(payload.to_slice).properties.headers.should be_nil
+  end
+
   it "fragments outgoing transfers to the negotiated frame max" do
     body = "x" * 1200
     msg = LavinMQ::BytesMessage.new(1_i64, "", "rk", AMQ::Protocol::Properties.new,
