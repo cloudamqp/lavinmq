@@ -442,12 +442,13 @@ module LavinMQ
 
       # Bounds how long the persister tolerates a blocked disk sync
       # (msync/syncfs) before the process exits so a standby node can take
-      # over. A standalone node only logs.
+      # over. Without a live synchronized follower, only log the stall.
+      # Allow headroom for filesystem-wide syncs under healthy write load.
       @[CliOpt("", "--clustering-sync-timeout=SECONDS",
-        "Seconds to tolerate a blocked disk sync before exiting (default: 10)", section: "clustering")]
+        "Seconds to tolerate a blocked disk sync before failover, when a synchronized follower is available (default: 60)", section: "clustering")]
       @[IniOpt(ini_name: sync_timeout, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_SYNC_TIMEOUT")]
-      property clustering_sync_timeout : Time::Span = 10.seconds
+      property clustering_sync_timeout : Time::Span = 60.seconds
 
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0

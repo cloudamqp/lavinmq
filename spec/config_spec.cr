@@ -654,6 +654,10 @@ describe LavinMQ::Config do
   end
 
   describe "clustering_sync_timeout" do
+    it "allows a minute for healthy disk syncs by default" do
+      LavinMQ::Config.new.clustering_sync_timeout.should eq 60.seconds
+    end
+
     it "rejects non-positive values" do
       [0, -10].each do |seconds|
         config_file = File.tempfile do |file|

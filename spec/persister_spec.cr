@@ -1,5 +1,13 @@
 require "./spec_helper"
 
+private class WatchdogReplicator < NoOpReplicator
+  getter all_followers = Array(LavinMQ::Clustering::Follower).new
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    @all_followers.select(&.synced?)
+  end
+end
+
 private class ShortTimeoutPersister < LavinMQ::Persister
   getter sync_started = Channel(Nil).new
   getter resume_sync = Channel(Nil).new
@@ -135,13 +143,51 @@ describe LavinMQ::Persister do
   {% end %}
 
   describe "sync watchdog" do
-    it "exits when a sync outlives the timeout while clustered" do
+    it "exits when a sync outlives the timeout with a live synchronized follower" do
       with_datadir do |data_dir|
-        persister = ShortTimeoutPersister.new(SpyReplicator.new, data_dir: data_dir)
+        socket, peer = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(socket, data_dir, FakeFileIndex.new(data_dir))
+        follower.mark_synced!
+        replicator = WatchdogReplicator.new
+        replicator.all_followers << follower
+        persister = ShortTimeoutPersister.new(replicator, data_dir: data_dir)
         ex = expect_raises(SpecExit) { persister.wait_for_sync_public }
         ex.code.should eq 1
       ensure
         persister.try &.close
+        follower.try &.close
+        peer.try &.close
+      end
+    end
+
+    {"absent", "syncing", "disconnected"}.each do |state|
+      it "keeps serving when followers are #{state}" do
+        with_datadir do |data_dir|
+          replicator = WatchdogReplicator.new
+          socket, peer = FakeSocket.pair
+          follower = LavinMQ::Clustering::Follower.new(socket, data_dir, FakeFileIndex.new(data_dir))
+          unless state == "absent"
+            replicator.all_followers << follower
+            if state == "disconnected"
+              follower.mark_synced!
+              follower.close
+            end
+          end
+          persister = ShortTimeoutPersister.new(replicator, data_dir: data_dir)
+          file = MFile.new(File.join(data_dir, "segment"), 4096)
+          done = Channel(Nil).new(1)
+          persister.mark_dirty(file)
+          spawn { persister.sync; done.send nil }
+          persister.sync_started.receive
+          sleep 10.milliseconds
+          persister.resume_sync.send nil
+          done.receive
+        ensure
+          persister.try &.close
+          file.try &.close
+          follower.try &.close
+          peer.try &.close
+        end
       end
     end
 

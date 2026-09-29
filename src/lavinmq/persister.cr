@@ -124,17 +124,17 @@ module LavinMQ
     rescue ::Channel::ClosedError
     end
 
-    # Exit on a blocked sync only when clustered: standalone there is no
-    # follower to take over, and dying would turn a slow disk into an outage.
+    # Exit only with a live, synchronized follower available for failover.
+    # A lone leader or one still seeding its followers must keep serving.
     protected def wait_for_sync : Nil
       select
       when @sync_signals.receive
       when timeout sync_timeout
-        if @replicator
+        if @replicator.try &.followers.any? { |follower| !follower.dead? }
           Log.fatal { "Disk sync blocked for more than #{sync_timeout}, exiting so a follower can take over" }
           exit 1
         end
-        Log.error { "Disk sync blocked for more than #{sync_timeout}" }
+        Log.error { "Disk sync blocked for more than #{sync_timeout}; no synchronized follower is available for failover" }
         # Consume the real completion so it isn't mistaken for the next start.
         @sync_signals.receive
       end

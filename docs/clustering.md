@@ -62,6 +62,21 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
 
+### Disk Sync Watchdog
+
+The leader monitors disk syncs used by publisher confirms, MQTT QoS 1, and
+transactions. If a sync blocks for more than `sync_timeout` seconds in the
+`[clustering]` section (default: `60`), the process exits only when a live,
+synchronized follower is available for failover. A standalone node, a leader
+with no followers, or one whose followers are still syncing logs the stall and
+waits for the sync to finish.
+
+The timeout can also be set with `--clustering-sync-timeout=SECONDS` or
+`LAVINMQ_CLUSTERING_SYNC_TIMEOUT`. Allow enough time for a filesystem-wide sync
+under peak write load. The watchdog detects a blocked active sync; it does not
+probe an idle disk. This addresses the stalled publisher-confirm sync described
+in [#2151](https://github.com/cloudamqp/lavinmq/issues/2151).
+
 ### Leader Election Hooks
 
 Shell commands can be executed on leadership transitions:
