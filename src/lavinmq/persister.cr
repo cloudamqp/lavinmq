@@ -55,7 +55,7 @@ module LavinMQ
     # write to the replicator, so that a marked write is on the wire before
     # the `$` fsync request that has to cover it (see sync_dirty_files).
     def mark_dirty(mfile : MFile) : Nil
-      return if mfile.mark_needs_msync!
+      return if mfile.mark_needs_msync!(sync_on_close: Config.instance.sync?)
       @dirty_files.lock { |files| files << mfile }
     end
 
@@ -128,7 +128,8 @@ module LavinMQ
         begin
           sync_file(mfile)
         rescue IO::Error
-          # Closed before fsync acquired the mapping lock. Once acquired, the
+          # Close syncs any outstanding dirty pages before marking the file
+          # closed. Once fsync acquires the
           # lock prevents unmapping during msync. A real msync failure raises an
           # errno-based RuntimeError, handled below.
         rescue ex

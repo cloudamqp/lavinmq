@@ -53,6 +53,13 @@ module ClusteringSpecHelper
 
     # Files the leader asked us to fsync via `$` records (recorded even when
     # sync is disabled).
+    getter legacy_appends_synced = 0
+
+    private def sync_legacy_append(file : File) : Nil
+      @legacy_appends_synced += 1
+      super
+    end
+
     getter fsync_requests = Array(String).new
 
     private def fsync_file(filename : String) : Nil

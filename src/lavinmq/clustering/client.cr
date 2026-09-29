@@ -44,6 +44,7 @@ module LavinMQ
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
+      @explicit_fsync_requests = false
       @acks = Channel(Int64).new
       # Tracks the ack-sending fiber: #close waits for it to drain any acks
       # still buffered in @acks after the stream ends.
@@ -429,6 +430,7 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
+        @explicit_fsync_requests = false
         acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
         # Stops the logging fiber when this stream ends, so a reconnect doesn't
@@ -450,6 +452,7 @@ module LavinMQ
           # once the deletion has been applied.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
           if filename.starts_with?('$')
+            @explicit_fsync_requests = true
             # Fsync request (len is 0 on the wire): the leader holds publish
             # confirms until this record is acked, so ack only after the
             # named file is durable.
@@ -502,7 +505,8 @@ module LavinMQ
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
         @files.delete(filename).try &.close
-        File.delete? File.join(@data_dir, filename)
+        path = File.join(@data_dir, filename)
+        fsync_parent_dir(path) if File.delete?(path)
         @checksums.delete(filename)
         @file_digests.delete(filename)
         delete_empty_dirs File.dirname(filename)
@@ -520,6 +524,7 @@ module LavinMQ
         while dir != "."
           path = File.join(@data_dir, dir)
           rmdir(path) || break
+          fsync_parent_dir(path)
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
@@ -600,10 +605,26 @@ module LavinMQ
           file.write(bytes)
           sha1.try &.update(bytes)
           remaining -= len
+          # Older leaders never emit `$` records and treat every append ack
+          # as durable. Preserve that contract until this stream proves it
+          # understands explicit fsync requests. Replacements sync at rename.
+          if !@explicit_fsync_requests && !defer_final_ack && @config.sync? && file.is_a?(File)
+            sync_legacy_append(file)
+          end
           return len.to_i64 if remaining.zero? && defer_final_ack
           ack(len)
         end
         0i64
+      end
+
+      private def sync_legacy_append(file : File) : Nil
+        file.fsync
+        path = file.path
+        loop do
+          fsync_parent_dir(path)
+          path = File.dirname(path)
+          break if path == @data_dir || path == File.dirname(path)
+        end
       end
 
       # Count streamed bytes and forward the count to the ack-sending fiber.

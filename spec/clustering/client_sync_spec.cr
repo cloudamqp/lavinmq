@@ -951,6 +951,41 @@ module ClientSyncSpec
     end
 
     describe "fsync requests" do
+      it "syncs legacy appends until an explicit request, resetting on reconnect" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          2.times do |connection|
+            client_socket, leader_io = FakeSocket.pair
+            reader = Compress::LZ4::Reader.new(client_socket)
+            writer = Compress::LZ4::Writer.new(leader_io,
+              Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+            done = Channel(Nil).new(1)
+            spawn do
+              client.stream_changes_public(client_socket, reader)
+            rescue IO::Error
+            ensure
+              done.send(nil)
+            end
+
+            filename = "legacy/msgs"
+            write_record(writer, filename, -1i64, "A".to_slice)
+            read_acks(leader_io, record_size(filename, 1))
+            client.legacy_appends_synced.should eq(connection + 1)
+            client.parent_dirs_fsynced.should contain(File.join(data_dir, "legacy"))
+            client.parent_dirs_fsynced.should contain(data_dir)
+
+            write_record(writer, "$#{filename}", 0i64, Bytes.empty)
+            read_acks(leader_io, record_size("$#{filename}", 0))
+            write_record(writer, filename, -1i64, "B".to_slice)
+            read_acks(leader_io, record_size(filename, 1))
+            client.legacy_appends_synced.should eq(connection + 1)
+            client_socket.close
+            done.receive
+          end
+          close_client(client)
+        end
+      end
+
       # A `$`-prefixed zero-length record asks us to make that file durable;
       # the leader holds publish confirms until the record is acked, so the
       # ack may only be sent after the fsync.
@@ -1027,6 +1062,7 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, payload.bytesize) + record_size("$#{filename}", 0))
 
           File.read(File.join(data_dir, filename)).should eq payload
+          client.legacy_appends_synced.should eq(0)
 
           client_socket.close
           close_client(client)

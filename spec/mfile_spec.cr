@@ -2,6 +2,13 @@ require "spec"
 require "../src/lavinmq/mfile"
 
 class MFile
+  getter synchronous_flushes = 0
+
+  private def sync_mapping(flag) : Nil
+    @synchronous_flushes += 1 if flag == LibC::MS_SYNC
+    previous_def
+  end
+
   # Pause just after the open check to exercise the former check/unmap race.
   property sync_checked : Channel(Nil)?
   property resume_sync : Channel(Nil)?
@@ -17,6 +24,32 @@ class MFile
 end
 
 describe MFile do
+  it "syncs drained dirty pages before closing their mapping" do
+    file = File.tempfile "mfile_spec"
+    mfile = MFile.new(file.path, capacity: 4096)
+    mfile.write("pending confirm".to_slice)
+    mfile.mark_needs_msync!
+    mfile.clear_needs_msync!
+    mfile.close
+    mfile.synchronous_flushes.should eq(1)
+    File.read(file.path).should eq("pending confirm")
+  ensure
+    mfile.try &.close
+    file.try &.delete
+  end
+
+  it "does not add a close barrier when syncing is disabled" do
+    file = File.tempfile "mfile_spec"
+    mfile = MFile.new(file.path, capacity: 4096)
+    mfile.write("no sync".to_slice)
+    mfile.mark_needs_msync!(sync_on_close: false)
+    mfile.close
+    mfile.synchronous_flushes.should eq(0)
+  ensure
+    mfile.try &.close
+    file.try &.delete
+  end
+
   {% for operation in [:close, :truncate] %}
     it "prevents {{ operation.id }} from unmapping during fsync" do
       file = File.tempfile "mfile_spec"

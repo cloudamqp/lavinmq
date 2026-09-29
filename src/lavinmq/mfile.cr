@@ -127,7 +127,11 @@ class MFile < IO
   end
 
   private def close_mapping(truncate_to_size)
-    return if @closed.swap(true, :acquire_release)
+    return if closed?
+    # The persister can already have drained its registration flag. Keep a
+    # separate obligation until the pages reach disk, before unmapping them.
+    sync_mapping(LibC::MS_SYNC) if @sync_on_close.get(:acquire) && !deleted?
+    @closed.set(true, :release)
     code = LibC.munmap(@buffer, @capacity)
     raise RuntimeError.from_errno("Error unmapping file") if code == -1
     @@mmap_count.sub(1, :relaxed)
@@ -202,9 +206,11 @@ class MFile < IO
   # Dirty-file bookkeeping for the Persister: set on first write after a sync,
   # so each file is registered for msync at most once per sync cycle.
   @needs_msync = Atomic(Bool).new(false)
+  @sync_on_close = Atomic(Bool).new(false)
 
   # Returns whether the flag was already set.
-  def mark_needs_msync! : Bool
+  def mark_needs_msync!(*, sync_on_close = true) : Bool
+    @sync_on_close.set(true, :release) if sync_on_close
     @needs_msync.swap(true, :acquire_release)
   end
 
@@ -217,10 +223,18 @@ class MFile < IO
       check_open
       # Read the range while locked: truncate may shrink it before we acquire
       # the lock, and neither truncate nor close may unmap it until we finish.
-      return if @size.zero?
-      code = LibC.msync(@buffer, @size, flag)
-      raise RuntimeError.from_errno("msync") if code < 0
+      sync_mapping(flag)
     end
+  end
+
+  private def sync_mapping(flag) : Nil
+    @sync_on_close.set(false, :release) if flag == LibC::MS_SYNC
+    return if @size.zero?
+    code = LibC.msync(@buffer, @size, flag)
+    raise RuntimeError.from_errno("msync") if code < 0
+  rescue ex
+    @sync_on_close.set(true, :release) if flag == LibC::MS_SYNC
+    raise ex
   end
 
   # Append only
