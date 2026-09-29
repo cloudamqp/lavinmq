@@ -44,6 +44,9 @@ module LavinMQ
       @follower_done = Channel(Nil).new
       # Buffers acks from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
+      @directory_sync_lock = Mutex.new
+      @pending_directory_syncs = Hash(String, File).new
+      @removed_directory_syncs = Array(File).new
       @explicit_fsync_requests = false
       @acks = Channel(Int64).new
       # Tracks the ack-sending fiber: #close waits for it to drain any acks
@@ -190,6 +193,7 @@ module LavinMQ
       # which would leave cached handles writing to unlinked inodes and digests
       # covering content that's no longer on disk.
       private def reset_file_state : Nil
+        sync_pending_directories
         finalize_digests
         @files.each_value &.close
         @files.clear
@@ -509,7 +513,7 @@ module LavinMQ
         if File.delete?(path)
           # The leader can reclaim a dirty acknowledgment file before sending
           # its fsync request. Its delete record must itself be durable.
-          fsync_parent_dir(path)
+          queue_directory_sync(path)
         end
         @checksums.delete(filename)
         @file_digests.delete(filename)
@@ -528,12 +532,39 @@ module LavinMQ
         while dir != "."
           path = File.join(@data_dir, dir)
           rmdir(path) || break
-          fsync_parent_dir(path)
+          queue_directory_sync(path, removed: true)
           Log.debug { "Deleted empty dir #{dir}" }
           dir = File.dirname(dir)
         end
-      rescue ex : File::Error
-        Log.error(exception: ex) { "Could not delete #{dir}: #{ex.message}" }
+      end
+
+      # Keep descriptors until the ack batch's barrier. Several deletions in
+      # one directory share a sync; removed directories keep their old inode
+      # even if the same path is recreated before the batch drains.
+      private def queue_directory_sync(path : String, *, removed = false) : Nil
+        return unless @config.sync?
+        @directory_sync_lock.synchronize do
+          if removed && (file = @pending_directory_syncs.delete(path))
+            @removed_directory_syncs << file
+          end
+          parent = File.dirname(path)
+          @pending_directory_syncs[parent] ||= File.open(parent)
+        end
+      end
+
+      private def sync_pending_directories : Nil
+        @directory_sync_lock.synchronize do
+          @pending_directory_syncs.each_value { |file| sync_deleted_directory(file) }
+          @removed_directory_syncs.each { |file| sync_deleted_directory(file) }
+          @pending_directory_syncs.each_value &.close
+          @removed_directory_syncs.each &.close
+          @pending_directory_syncs.clear
+          @removed_directory_syncs.clear
+        end
+      end
+
+      private def sync_deleted_directory(file : File) : Nil
+        file.fsync
       end
 
       # rmdir returns false if the dir isn't empty, true if it was removed, and raises on other errors (e.g. permissions).
@@ -649,6 +680,7 @@ module LavinMQ
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
           end
+          sync_pending_directories
           socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
         end
       rescue Channel::ClosedError
@@ -731,6 +763,7 @@ module LavinMQ
         # stuck.
         @acks.close
         @ack_loops.wait
+        sync_pending_directories
         # Finalize all pending checksums
         finalize_digests
         @checksums.store

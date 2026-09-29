@@ -80,6 +80,7 @@ module LavinMQ
       @publish_confirm_requested.try_send true
       waiter.wait
     rescue ::Channel::ClosedError
+      @sync_waiters.lock { |waiters| waiters.delete(waiter) } if waiter
       # Persister closed (shutdown); the loop thread is gone, so syncing
       # inline can't race it. Only the wake above raises — a waiter the final
       # drain picked up is signaled by done, not by an exception — so the
@@ -161,11 +162,13 @@ module LavinMQ
     # Once the number of live files reaches the configured threshold, one
     # syncfs is faster than issuing many serial msync calls on typical storage.
     protected def sync_files(dirty : Array(MFile)) : Nil
-      live_count = dirty.count { |mfile| !mfile.closed? && !mfile.deleted? }
-      if live_count >= Config.instance.syncfs_threshold
-        syncfs
-        return
-      end
+      {% if flag?(:linux) %}
+        live_count = dirty.count { |mfile| !mfile.closed? && !mfile.deleted? }
+        if live_count >= Config.instance.syncfs_threshold
+          syncfs
+          return
+        end
+      {% end %}
 
       dirty.each do |mfile|
         next if mfile.closed? || mfile.deleted?
@@ -192,7 +195,7 @@ module LavinMQ
         ret = LibC.syncfs(@data_dir_fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
       {% else %}
-        LibC.sync
+        raise NotImplementedError.new("syncfs is only available on Linux")
       {% end %}
     end
 

@@ -103,6 +103,7 @@ describe LavinMQ::Persister do
         persister.sync
         persister.syncfs_count.should eq 1
         persister.data_dir_fd_public.should be >= 0
+        persister.pending_sync_waiters.should eq(0)
       ensure
         file.try &.close
       end
@@ -136,8 +137,13 @@ describe LavinMQ::Persister do
 
     persister.sync_files_public(files)
 
-    persister.msynced.should be_empty
-    persister.syncfs_count.should eq 1
+    {% if flag?(:linux) %}
+      persister.msynced.should be_empty
+      persister.syncfs_count.should eq 1
+    {% else %}
+      persister.msynced.should eq files
+      persister.syncfs_count.should eq 0
+    {% end %}
   ensure
     persister.try &.close
     files.try &.each do |file|

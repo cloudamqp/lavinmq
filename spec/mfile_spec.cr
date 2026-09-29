@@ -182,14 +182,34 @@ end
 
 class MFile
   class_getter batch_delete_synced_dirs = [] of String
+  class_property batch_sync_observer : Proc(Nil)?
 
   private def self.sync_deleted_directory(path : String) : Nil
     @@batch_delete_synced_dirs << path
+    @@batch_sync_observer.try &.call
     previous_def
   end
 end
 
 describe "MFile batch deletion" do
+  it "releases earlier mappings between bounded deletion batches" do
+    with_datadir do |dir|
+      files = (1..65).map { |i| MFile.new(File.join(dir, "segment.#{i}"), 4096) }
+      remaining = [] of Int32
+      MFile.batch_sync_observer = -> do
+        remaining << files.count { |file| File.exists?(file.path) }
+        # A later mapping must remain available to the shared confirm loop.
+        files.last.fsync if File.exists?(files.last.path)
+      end
+      MFile.delete_all(files, needs_sync: true)
+      remaining.should eq([33, 1, 0])
+      files.each { |file| file.deleted?.should be_true }
+    ensure
+      MFile.batch_sync_observer = nil
+      files.try &.each &.close
+    end
+  end
+
   it "syncs each parent once for a batch of deleted files" do
     with_datadir do |dir|
       files = (1..8).map { |i| MFile.new(File.join(dir, "segment.#{i}"), 4096) }

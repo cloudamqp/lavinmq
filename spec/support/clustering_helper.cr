@@ -62,6 +62,24 @@ module ClusteringSpecHelper
 
     getter fsync_requests = Array(String).new
     getter parent_dirs_fsynced = Array(String).new
+    property directory_sync_started : Channel(Nil)?
+    property resume_directory_sync : Channel(Nil)?
+
+    def delete_public(filename : String) : Nil
+      delete(filename)
+    end
+
+    def sync_pending_directories_public : Nil
+      sync_pending_directories
+    end
+
+    private def sync_deleted_directory(file : File) : Nil
+      @directory_sync_started.try &.send(nil)
+      @resume_directory_sync.try &.receive
+      @parent_dirs_fsynced << file.path
+      super
+    end
+
     property file_sync_started : Channel(Nil)?
     property resume_file_sync : Channel(Nil)?
 

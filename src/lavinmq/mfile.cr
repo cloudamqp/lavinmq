@@ -127,14 +127,22 @@ class MFile < IO
     end
   end
 
-  # Keep every mapping locked until the shared directory barriers complete.
+  # Bound the number of mappings held across a directory barrier so a large
+  # purge does not monopolize files needed by the shared confirm loop.
   # In particular, deleted? must not let a concurrent persister skip a file
   # before its removal is durable. A stable lock order permits overlapping batches.
   def self.delete_all(files : Array(MFile), *, needs_sync = false) : Nil
-    files = files.uniq.sort_by!(&.object_id)
+    files.uniq.each_slice(32) do |batch|
+      delete_batch(batch, needs_sync: needs_sync)
+      Fiber.yield
+    end
+  end
+
+  private def self.delete_batch(files : Array(MFile), *, needs_sync : Bool) : Nil
+    lock_order = files.sort_by(&.object_id)
     locked = 0
     begin
-      files.each do |file|
+      lock_order.each do |file|
         file.@mapping_lock.lock
         locked += 1
       end
@@ -147,7 +155,7 @@ class MFile < IO
       directories.each { |dir| sync_deleted_directory(dir) }
       files.each { |file| file.@deleted.set(true, :release) }
     ensure
-      files.first(locked).reverse_each { |file| file.@mapping_lock.unlock }
+      lock_order.first(locked).reverse_each { |file| file.@mapping_lock.unlock }
     end
   end
 

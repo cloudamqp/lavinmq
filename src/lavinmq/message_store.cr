@@ -209,7 +209,9 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          # Remove messages durably before their acknowledgment history.
+          # One directory barrier covers both the messages and their ack history.
+          MFile.delete_all([@segments[sp.segment]?, @acks[sp.segment]?].compact,
+            needs_sync: @durable && Config.instance.sync?)
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
           end
@@ -715,6 +717,7 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
+          MFile.delete_all([mfile, @acks[seg]?].compact, needs_sync: @durable && Config.instance.sync?)
           delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)

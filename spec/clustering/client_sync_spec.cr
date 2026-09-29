@@ -951,6 +951,63 @@ module ClientSyncSpec
     end
 
     describe "fsync requests" do
+      it "coalesces deletion barriers including removed directories" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          dir = File.join(data_dir, "queue")
+          Dir.mkdir(dir)
+          8.times { |i| File.write(File.join(dir, "msgs.#{i}"), "data") }
+          8.times { |i| client.delete_public("queue/msgs.#{i}") }
+          client.parent_dirs_fsynced.should be_empty
+          Dir.exists?(dir).should be_false
+          client.sync_pending_directories_public
+          client.parent_dirs_fsynced.sort.should eq([data_dir, dir].sort)
+          close_client(client)
+        end
+      end
+
+      it "skips deletion barriers when sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          dir = File.join(data_dir, "queue")
+          Dir.mkdir(dir)
+          File.write(File.join(dir, "msgs"), "data")
+          client.delete_public("queue/msgs")
+          client.sync_pending_directories_public
+          client.parent_dirs_fsynced.should be_empty
+          Dir.exists?(dir).should be_false
+          close_client(client)
+        end
+      end
+
+      it "holds a deletion ack until the batched directory barrier completes" do
+        with_datadir do |data_dir|
+          File.write(File.join(data_dir, "gone"), "data")
+          client = make_client(data_dir)
+          started = Channel(Nil).new
+          resume = Channel(Nil).new
+          client.directory_sync_started = started
+          client.resume_directory_sync = resume
+          client_socket, leader_io = FakeSocket.pair
+          reader = Compress::LZ4::Reader.new(client_socket)
+          writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+          spawn do
+            client.stream_changes_public(client_socket, reader)
+          rescue IO::Error
+          end
+          write_record(writer, "gone", 0i64, Bytes.empty)
+          started.receive
+          leader_io.read_timeout = 20.milliseconds
+          expect_raises(IO::TimeoutError) { leader_io.read_bytes(Int64, IO::ByteFormat::LittleEndian) }
+          resume.send(nil)
+          leader_io.read_timeout = 2.seconds
+          read_acks(leader_io, record_size("gone", 0))
+          client_socket.close
+          close_client(client)
+        end
+      end
+
       it "syncs legacy appends until an explicit request, resetting on reconnect" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
