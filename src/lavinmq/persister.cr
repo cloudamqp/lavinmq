@@ -80,7 +80,7 @@ module LavinMQ
       @publish_confirm_requested.try_send true
       waiter.wait
     rescue ::Channel::ClosedError
-      @sync_waiters.lock { |waiters| waiters.delete(waiter) } if waiter
+      @sync_waiters.lock(&.delete(waiter)) if waiter
       # Persister closed (shutdown); the loop thread is gone, so syncing
       # inline can't race it. Only the wake above raises — a waiter the final
       # drain picked up is signaled by done, not by an exception — so the

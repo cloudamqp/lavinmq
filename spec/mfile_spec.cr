@@ -203,7 +203,7 @@ describe "MFile batch deletion" do
       end
       MFile.delete_all(files, needs_sync: true)
       remaining.should eq([33, 1, 0])
-      files.each { |file| file.deleted?.should be_true }
+      files.each(&.deleted?.should(be_true))
     ensure
       MFile.batch_sync_observer = nil
       files.try &.each &.close
