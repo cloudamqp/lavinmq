@@ -18,6 +18,22 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should sort on a boolean column" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q-durable", true, false)
+        s.vhosts["/"].declare_queue("q-transient", false, false)
+        response = http.get("/api/queues?page=1&sort=durable")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.map(&.["durable"].as_bool).should eq [false, true]
+
+        response = http.get("/api/queues?page=1&sort=durable&sort_reverse=true")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.map(&.["durable"].as_bool).should eq [true, false]
+      end
+    end
   end
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
