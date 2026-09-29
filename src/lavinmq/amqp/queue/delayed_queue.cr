@@ -1,5 +1,5 @@
 require "./queue"
-require "./delayed_exchange_queue/delayed_message_store"
+require "./delayed_queue/delayed_message_store"
 
 module LavinMQ::AMQP
   # Base class for the internal queues that hold messages until a per-message

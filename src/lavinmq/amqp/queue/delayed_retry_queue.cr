@@ -4,7 +4,7 @@ module LavinMQ::AMQP
   # Internal queue that holds messages rejected from its primary queue until
   # their backoff delay expires, then publishes them back for redelivery.
   # Created and deleted together with the primary queue.
-  class RetryQueue < DelayedQueue
+  class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
 
     MAX_NAME_LENGTH = 255
@@ -13,9 +13,9 @@ module LavinMQ::AMQP
       q_name = "amq.retry-#{primary_queue.name}"
       raise LavinMQ::Error::PreconditionFailed.new("Retry queue name too long") if q_name.bytesize > MAX_NAME_LENGTH
       if primary_queue.durable?
-        DurableRetryQueue.new(vhost, q_name, primary_queue)
+        DurableDelayedRetryQueue.new(vhost, q_name, primary_queue)
       else
-        RetryQueue.new(vhost, q_name, primary_queue)
+        DelayedRetryQueue.new(vhost, q_name, primary_queue)
       end
     end
 
@@ -81,7 +81,7 @@ module LavinMQ::AMQP
     end
   end
 
-  class DurableRetryQueue < RetryQueue
+  class DurableDelayedRetryQueue < DelayedRetryQueue
     def durable?
       true
     end

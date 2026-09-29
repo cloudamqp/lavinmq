@@ -68,7 +68,7 @@ module LavinMQ::AMQP
     @delayed_retry_min : Int64?
     @delayed_retry_max : Int64?
     @delayed_retry_multiplier : Int32?
-    @delayed_retry_queue : RetryQueue?
+    @delayed_retry_queue : DelayedRetryQueue?
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -522,13 +522,13 @@ module LavinMQ::AMQP
 
     private def init_retry_queue
       return if @delayed_retry_queue
-      queue = RetryQueue.create(@vhost, self)
+      queue = DelayedRetryQueue.create(@vhost, self)
       @delayed_retry_queue = queue
       @vhost.register_queue(queue)
     end
 
     # Recreates the retry queue if it was deleted or closed itself on a store error.
-    private def active_retry_queue : RetryQueue?
+    private def active_retry_queue : DelayedRetryQueue?
       if retry_queue = @delayed_retry_queue
         return retry_queue unless retry_queue.closed?
         @delayed_retry_queue = nil
@@ -545,7 +545,7 @@ module LavinMQ::AMQP
     # The message keeps its original timestamp while delayed, so x-message-ttl
     # keeps applying to the message's total age; the delayed store expires at
     # timestamp + x-delay, so the age since publish is folded into the delay
-    private def route_to_retry_queue(sp : SegmentPosition, msg : BytesMessage, retry_queue : RetryQueue, base_delay : Int64) : Bool
+    private def route_to_retry_queue(sp : SegmentPosition, msg : BytesMessage, retry_queue : DelayedRetryQueue, base_delay : Int64) : Bool
       delivery_count = @deliveries.fetch(sp, 1)
       delay_ms = calculate_retry_delay(base_delay, delivery_count)
       props = msg.properties
@@ -1308,4 +1308,4 @@ module LavinMQ::AMQP
   end
 end
 
-require "./retry_queue"
+require "./delayed_retry_queue"
