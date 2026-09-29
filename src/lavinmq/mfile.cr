@@ -132,9 +132,9 @@ class MFile < IO
   # In particular, deleted? must not let a concurrent persister skip a file
   # before its removal is durable. A stable lock order permits overlapping batches.
   def self.delete_all(files : Array(MFile), *, needs_sync = false) : Nil
-    files.uniq.each_slice(32) do |batch|
+    files.uniq.each_slice(32).with_index do |batch, index|
+      Fiber.yield unless index.zero?
       delete_batch(batch, needs_sync: needs_sync)
-      Fiber.yield
     end
   end
 
