@@ -137,11 +137,11 @@ module LavinMQ
         if file_name = @index.delete topic
           @index_needs_compaction = true
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          if file = @files.delete(file_name)
-            file.close
-            file.delete
-          end
-          @replicator.try &.delete_file(File.join(@dir, file_name))
+          @files.delete(file_name).try &.close
+          path = File.join(@dir, file_name)
+          File.delete?(path)
+          File.open(@dir, &.fsync) if Config.instance.sync?
+          @replicator.try &.delete_file(path)
         end
       end
 

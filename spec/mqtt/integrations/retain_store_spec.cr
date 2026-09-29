@@ -39,6 +39,21 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "removes a restored retained message before acknowledging its deletion" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true, qos: 1u8))
+        store.close
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.@files.should be_empty
+        store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true, qos: 1u8))
+        Dir.glob("tmp/retain_store/*.msg").should be_empty
+        store.close
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.@index.size.should eq 0
+      ensure
+        store.try &.close
+      end
+
       it "empty body deletes" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
