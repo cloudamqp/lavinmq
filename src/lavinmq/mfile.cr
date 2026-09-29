@@ -182,6 +182,10 @@ class MFile < IO
     msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
+  def fsync : Nil
+    msync(@buffer, @size, LibC::MS_SYNC)
+  end
+
   private def msync(addr, len, flag) : Nil
     return if len.zero?
     check_open

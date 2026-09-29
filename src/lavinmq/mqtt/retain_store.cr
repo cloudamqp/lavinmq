@@ -91,7 +91,7 @@ module LavinMQ
           # intermediate buffer and no copy
           file.write payload
           final_file_path = File.join(@dir, msg_file_name)
-          file.fsync
+          file.fsync if Config.instance.sync?
           FileSystem.durable_rename(file, final_file_path)
           @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
@@ -108,7 +108,7 @@ module LavinMQ
         @index.each do |topic|
           f.puts topic
         end
-        f.fsync
+        f.fsync if Config.instance.sync?
         FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
@@ -120,6 +120,7 @@ module LavinMQ
         offset = @index_file.size.to_i64
         @index_file.write line
         @index_file.flush
+        @index_file.fsync if Config.instance.sync?
         @replicator.try &.append_bytes(@index_file_name, line, offset)
       end
 

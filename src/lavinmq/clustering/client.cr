@@ -549,21 +549,10 @@ module LavinMQ
           # it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
           deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
-          f.fsync if @config.sync?
           f.rename final_path
-          fsync_parent_dir(final_path)
           @file_digests[filename] = sha1
           ack(deferred)
         end
-      end
-
-      # fsyncing the replacement file before rename makes its contents durable,
-      # but not the directory entry changed by rename(2). Persist the parent
-      # directory before acking the replace so promotion after a power loss
-      # cannot expose the old name-to-inode mapping.
-      private def fsync_parent_dir(path : String) : Nil
-        return unless @config.sync?
-        File.open(File.dirname(path), &.fsync)
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
