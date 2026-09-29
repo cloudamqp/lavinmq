@@ -918,6 +918,9 @@ module ClientSyncSpec
               done.send nil
             end
             if round.zero?
+              # Negotiate explicit fences before leaving an append unsynced.
+              write_record(writer, "$missing", 0i64, Bytes.empty)
+              read_acks(leader_io, record_size("$missing", 0))
               write_record(writer, filename, -content.bytesize.to_i64, content.to_slice)
               read_acks(leader_io, record_size(filename, content.bytesize))
             else
@@ -1000,6 +1003,22 @@ module ClientSyncSpec
           Dir.exists?(dir).should be_false
           client.sync_pending_directories_public
           client.parent_dirs_fsynced.sort.should eq([data_dir, dir].sort)
+          close_client(client)
+        end
+      end
+
+      it "syncs both directory inodes when a deleted path is recreated before the ack" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          dir = File.join(data_dir, "queue")
+          2.times do
+            Dir.mkdir(dir)
+            File.write(File.join(dir, "msgs"), "data")
+            client.delete_public("queue/msgs")
+          end
+          client.sync_pending_directories_public
+          client.parent_dirs_fsynced.count(dir).should eq(2)
+          client.parent_dirs_fsynced.count(data_dir).should eq(1)
           close_client(client)
         end
       end

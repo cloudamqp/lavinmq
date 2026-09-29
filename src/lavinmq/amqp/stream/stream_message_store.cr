@@ -17,23 +17,32 @@ module LavinMQ::AMQP
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
+      if @closed
+        path = File.join(@msg_dir, "consumer_offsets")
+        @replicator.try &.register_file(path) if File.exists?(path)
+        return
+      end
       directory = @directory || raise "Message store directory is not initialized"
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator, directory)
-      if @closed
-        @consumer_offsets.try &.close
-      else
-        drop_overflow
-      end
+      drop_overflow
     end
 
     def close : Nil
       super
       @consumer_offsets.try &.close
+      @consumer_offsets = nil
     end
 
     def delete
       super
-      @consumer_offsets.try &.delete
+      if offsets = @consumer_offsets
+        offsets.delete
+      else
+        # close discards the mapping, but delete must still remove the
+        # registered file from followers after the store directory is gone.
+        @replicator.try &.delete_file(File.join(@msg_dir, "consumer_offsets"))
+      end
+      @consumer_offsets = nil
     end
 
     private def get_last_offset : Int64

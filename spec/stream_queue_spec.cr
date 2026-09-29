@@ -1092,7 +1092,9 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "syncs compacted consumer offsets through its retained directory descriptor" do
+    it "syncs compacted consumer offsets even when content syncing is disabled" do
+      previous_sync = LavinMQ::Config.instance.sync?
+      LavinMQ::Config.instance.sync = false
       with_datadir do |dir|
         directory = LavinMQ::FileSystem::Directory.new(dir)
         offsets = LavinMQ::AMQP::ConsumerOffsets.new(dir, 4096, nil, directory)
@@ -1113,6 +1115,8 @@ describe LavinMQ::AMQP::Stream do
         offsets.try &.close
         directory.try &.close
       end
+    ensure
+      LavinMQ::Config.instance.sync = previous_sync unless previous_sync.nil?
     end
 
     it "cleanup_consumer_offsets does not overflow with many consumer offsets" do
@@ -1331,6 +1335,23 @@ describe LavinMQ::AMQP::Stream do
 end
 
 describe "Stream directory recovery" do
+  it "rejects offset access after close and delete" do
+    with_datadir do |dir|
+      replicator = SpyReplicator.new
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir, replicator: replicator)
+      store.store_consumer_offset("tag", 1_i64)
+      store.close
+      store.@consumer_offsets.should be_nil
+      expect_raises(LavinMQ::MessageStore::ClosedError) { store.last_offset_by_consumer_tag("tag") }
+      expect_raises(LavinMQ::MessageStore::ClosedError) { store.cleanup_consumer_offsets }
+      store.delete
+      replicator.deleted_files.should contain(File.join(dir, "consumer_offsets"))
+      expect_raises(LavinMQ::MessageStore::ClosedError) { store.last_offset_by_consumer_tag("tag") }
+    ensure
+      store.try &.close
+    end
+  end
+
   it "returns a closed store when a segment cannot be loaded" do
     with_datadir do |dir|
       store = LavinMQ::AMQP::StreamMessageStore.new(dir)
@@ -1341,7 +1362,9 @@ describe "Stream directory recovery" do
       store = LavinMQ::AMQP::StreamMessageStore.new(dir)
       store.closed.should be_true
       store.@directory.not_nil!.@file.closed?.should be_true
-      store.@consumer_offsets.not_nil!.@mfile.closed?.should be_true
+      store.@consumer_offsets.should be_nil
+      File.exists?(File.join(dir, "consumer_offsets")).should be_false
+      expect_raises(LavinMQ::MessageStore::ClosedError) { store.last_offset_by_consumer_tag("tag") }
     ensure
       store.try &.close
     end

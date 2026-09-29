@@ -40,7 +40,7 @@ module LavinMQ
       @replicator = durable ? replicator : nil
       # Non-durable queues need no msync either.
       @persister = durable ? persister : nil
-      @directory = FileSystem::Directory.new(@msg_dir)
+      @directory = FileSystem::Directory.new(@msg_dir) if durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -212,8 +212,7 @@ module LavinMQ
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
           # One directory barrier covers both the messages and their ack history.
-          MFile.delete_all([@segments[sp.segment]?, @acks[sp.segment]?].compact,
-            needs_sync: @durable && Config.instance.sync?)
+          MFile.delete_all([@segments[sp.segment]?, @acks[sp.segment]?].compact) { sync_directory }
           if seg = @segments.delete(sp.segment)
             delete_file(seg, including_meta: true)
           end
@@ -293,8 +292,8 @@ module LavinMQ
     end
 
     private def delete_purged_segments : Nil
-      # Batch unlink the wholly purged segments and their ack files. One
-      # directory barrier covers them all before deleted? becomes visible.
+      # Unlink wholly purged segments and ack files in bounded batches. Each
+      # batch gets a directory barrier before deleted? becomes visible.
       files_to_delete = Array(MFile).new
       @segments.each do |seg_id, file|
         next if seg_id == @rfile_id || seg_id == @wfile_id
@@ -736,7 +735,7 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          MFile.delete_all([mfile, @acks[seg]?].compact, needs_sync: @durable && Config.instance.sync?)
+          MFile.delete_all([mfile, @acks[seg]?].compact) { sync_directory }
           delete_file(mfile, including_meta: true)
           if ack = @acks.delete(seg)
             delete_file(ack)

@@ -46,6 +46,14 @@ describe FilesystemInfo do
 end
 
 describe LavinMQ::FileSystem do
+  it "rejects a directory barrier after close" do
+    with_datadir do |dir|
+      directory = LavinMQ::FileSystem::Directory.new(dir)
+      directory.close
+      expect_raises(IO::Error) { directory.fsync }
+    end
+  end
+
   it "syncs a directory through its retained descriptor after its path changes" do
     with_datadir do |data_dir|
       path = File.join(data_dir, "queue")

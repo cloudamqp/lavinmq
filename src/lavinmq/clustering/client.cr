@@ -667,6 +667,7 @@ module LavinMQ
 
       private def sync_legacy_append(file : File) : Nil
         file.fsync
+        return unless @unsynced_directory_files.delete(relative_path(file.path))
         path = file.path
         loop do
           fsync_parent_dir(path)

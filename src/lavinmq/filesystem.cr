@@ -10,7 +10,7 @@ module LavinMQ
       end
 
       def fsync : Nil
-        @lock.synchronize { @file.fsync unless @file.closed? }
+        @lock.synchronize { @file.fsync }
       end
 
       def close : Nil
@@ -68,7 +68,7 @@ module LavinMQ
       source_path = source.path
       source.rename(destination)
       if directory && File.dirname(source_path) == File.dirname(destination)
-        directory.fsync if Config.instance.sync?
+        directory.fsync
       else
         fsync_rename_dirs(source_path, destination)
       end
@@ -89,7 +89,7 @@ module LavinMQ
     end
 
     private def self.fsync_rename_dirs(source : String, destination : String) : Nil
-      return unless Config.instance.sync?
+      # Namespace changes remain durable even when data syncing is disabled.
       source_dir = File.dirname(source)
       destination_dir = File.dirname(destination)
       File.open(destination_dir, &.fsync)

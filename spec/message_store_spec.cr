@@ -134,6 +134,19 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "does not retain a directory descriptor for a transient store" do
+    with_datadir do |dir|
+      store = LavinMQ::MessageStore.new(dir, durable: false)
+      store.@directory.should be_nil
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      store.delete(store.shift?.not_nil!.segment_position)
+      store.close
+      store.delete
+    ensure
+      store.try &.close
+    end
+  end
+
   it "does not fsync existing acknowledgment entries on reopen" do
     mktmpdir do |dir|
       store = LavinMQ::MessageStore.new(dir)
@@ -823,6 +836,7 @@ describe LavinMQ::MessageStore do
 
         replicator = SpyReplicator.new
         store = LavinMQ::MessageStore.new(dir, replicator: replicator, durable: true)
+        store.@directory.not_nil!.sync_count.should eq(1) # rewritten ack entry
         store.close
 
         replicator.replaced_files.map { |p| File.basename(p) }.should contain("acks.0000000001")
