@@ -83,6 +83,80 @@ describe LavinMQ::HTTP::Router do
       router.call(create_request("GET", "/hello%20world"))
       routed.should be_true
     end
+
+    it "matches literal segments with percent-encoded unreserved chars" do
+      router = TestRouter.new
+      routed = false
+      router.get "/a/mqtt.default" do |c, _params|
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/a/mqtt%2Edefault"))
+      routed.should be_true
+    end
+
+    it "prefers an earlier literal route over a param route when the literal is percent-encoded" do
+      router = TestRouter.new
+      routed_to = nil
+      router.get "/a/gc_stats" do |c, _params|
+        routed_to = "literal"
+        c
+      end
+      router.get "/a/:name" do |c, _params|
+        routed_to = "param"
+        c
+      end
+      router.call(create_request("GET", "/a/gc%5fstats"))
+      routed_to.should eq "literal"
+    end
+
+    it "does not treat an encoded slash as a segment separator" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:vhost/:name" do |c, params|
+        params.should eq Hash(String, String){"vhost" => "/", "name" => "a/b"}
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/%2F/a%2Fb"))
+      routed.should be_true
+    end
+
+    it "decodes params exactly once" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:foo" do |c, params|
+        params.should eq Hash(String, String){"foo" => "100%2E."}
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/100%252E%2E"))
+      routed.should be_true
+    end
+
+    it "does not decode a bare percent sign together with the escapes after it" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:foo" do |c, params|
+        params.should eq Hash(String, String){"foo" => "%2F"}
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/%%32%46"))
+      routed.should be_true
+    end
+
+    it "routes paths with escapes that decode to invalid UTF-8" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:foo" do |c, params|
+        params["foo"].valid_encoding?.should be_false
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/%FF"))
+      routed.should be_true
+    end
   end
 
   describe "#find_route" do
