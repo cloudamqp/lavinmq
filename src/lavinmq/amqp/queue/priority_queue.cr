@@ -111,7 +111,9 @@ module LavinMQ::AMQP
       end
 
       private def store_for(sp : SegmentPosition, &)
-        store_for(sp.priority) do |store|
+        # stored sp may hold a higher priority than max_priority
+        prio = Math.min(sp.priority, @max_priority)
+        store_for(prio) do |store|
           yield store
         end
       end
