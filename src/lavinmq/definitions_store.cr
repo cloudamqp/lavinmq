@@ -395,7 +395,7 @@ module LavinMQ
             end
           end
         end
-        io.fsync if Config.instance.sync?
+
         FileSystem.durable_rename(io, @definitions_file_path)
         @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close

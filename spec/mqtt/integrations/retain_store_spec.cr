@@ -10,6 +10,20 @@ module MqttSpecs
       FileUtils.rm_rf("tmp/retain_store")
     end
 
+    it "does not rewrite an unchanged index at close or reopen" do
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+      path = "tmp/retain_store/index"
+      original = File.info(path)
+      store.close
+      File.info(path).same_file?(original).should be_true
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+      File.info(path).same_file?(original).should be_true
+      store.each("a") { |_, io, _| io.gets_to_end.should eq "body" }
+    ensure
+      store.try &.close
+    end
+
     describe "retain" do
       it "adds to index and writes msg file" do
         index = IndexTree.new

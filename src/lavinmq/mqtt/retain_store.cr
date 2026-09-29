@@ -13,6 +13,8 @@ module LavinMQ
 
       alias IndexTree = TopicTree(String)
 
+      @index_needs_compaction = false
+
       def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
@@ -51,9 +53,11 @@ module LavinMQ
         while topic = index_file.gets
           msg_file_name = make_file_name(topic)
           unless msg_file_segments.delete(msg_file_name)
+            @index_needs_compaction = true
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }
             next
           end
+          @index_needs_compaction = true if index[topic]?
           index.insert(topic, msg_file_name)
           Log.debug { "restored #{topic}" }
           msg_count += 1
@@ -91,7 +95,7 @@ module LavinMQ
           # intermediate buffer and no copy
           file.write payload
           final_file_path = File.join(@dir, msg_file_name)
-          file.fsync if Config.instance.sync?
+
           FileSystem.durable_rename(file, final_file_path)
           @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
@@ -103,15 +107,17 @@ module LavinMQ
       # renames the file back to the correct name and replaces it on followers,
       # sets @index_file to the new compacted index file
       private def write_index
+        return unless @index_needs_compaction
         @index_file.close
         f = File.new("#{@index_file_name}.tmp", "w")
         @index.each do |topic|
           f.puts topic
         end
-        f.fsync if Config.instance.sync?
+
         FileSystem.durable_rename(f, @index_file_name)
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
+        @index_needs_compaction = false
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
@@ -126,6 +132,7 @@ module LavinMQ
 
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
+          @index_needs_compaction = true
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
           if file = @files.delete(file_name)
             file.close

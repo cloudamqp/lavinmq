@@ -1,9 +1,10 @@
 module LavinMQ
   module FileSystem
-    # Atomically install an already-synced file and make the changed directory
+    # Sync and atomically install a file and make the changed directory
     # entry durable before returning. Most callers rename within one directory;
     # syncing both parents also makes cross-directory renames safe.
     def self.durable_rename(source : String, destination : String) : Nil
+      File.open(source, &.fsync) if Config.instance.sync?
       File.rename(source, destination)
       fsync_rename_dirs(source, destination)
     end
@@ -11,6 +12,8 @@ module LavinMQ
     # Preserve File#rename's path bookkeeping for callers that keep using the
     # open handle after installing it under its final name.
     def self.durable_rename(source : File | MFile, destination : String) : Nil
+      source.flush if source.is_a?(File)
+      source.fsync if Config.instance.sync?
       source_path = source.path
       source.rename(destination)
       fsync_rename_dirs(source_path, destination)
@@ -23,8 +26,6 @@ module LavinMQ
       begin
         File.open(temporary, "w") do |file|
           yield file
-          file.flush
-          file.fsync if Config.instance.sync?
           durable_rename(file, path)
         end
       ensure
