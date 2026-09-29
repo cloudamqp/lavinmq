@@ -141,4 +141,21 @@ module MqttHelpers
   rescue IO::TimeoutError
     nil
   end
+
+  # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
+  # QoS needs one and none at QoS 0 [MQTT-2.3.1-5]. Use this instead of casting
+  # `read_packet` when comparing packet ids: `packet_id` is nilable, so a pair of
+  # nils would otherwise satisfy an equality assertion.
+  def read_publish(io) : MQTT::Protocol::Publish
+    # `should be_a` rather than `as`: on a read timeout `read_packet` returns nil,
+    # and a cast would report "cast from Nil" instead of naming the PUBLISH that
+    # never arrived.
+    pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+    if pub.qos.positive?
+      pub.packet_id.should_not be_nil
+    else
+      pub.packet_id.should be_nil
+    end
+    pub
+  end
 end
