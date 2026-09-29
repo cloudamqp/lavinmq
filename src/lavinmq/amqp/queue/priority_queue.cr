@@ -102,12 +102,9 @@ module LavinMQ::AMQP
         false
       end
 
-      # returns the substore for the priority
+      # returns the substore for the priority, clamped to max_priority
       private def store_for(prio : UInt8, &)
-        unless 0 <= prio <= @max_priority
-          raise ArgumentError.new "Priority must be between 0 and #{@max_priority}, got #{prio}"
-        end
-        yield @stores[prio]
+        yield @stores[Math.min(prio, @max_priority)]
       end
 
       private def store_for(sp : SegmentPosition, &)
@@ -130,7 +127,7 @@ module LavinMQ::AMQP
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        prio = Math.min(msg.properties.priority || 0u8, @max_priority)
+        prio = msg.properties.priority || 0u8
         was_empty = size.zero?
         sp = store_for prio, &.push(msg)
         @empty.set false if was_empty

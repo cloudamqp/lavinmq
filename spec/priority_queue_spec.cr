@@ -272,6 +272,40 @@ describe LavinMQ::AMQP::PriorityQueue do
           store.@stores[-1].size.should eq 1
         end
       end
+
+      it "requeues messages with priority above max to the highest sub store" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          env.segment_position.priority.should eq 9
+          store.requeue env.segment_position
+          store.@stores[-1].size.should eq 1
+        end
+      end
+    end
+
+    describe "#delete" do
+      it "deletes messages with priority above max" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store.delete env.segment_position
+          store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#[]" do
+      it "returns messages with priority above max" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 9u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store[env.segment_position].properties.priority.should eq 9
+        end
+      end
     end
 
     describe "empty?" do
@@ -484,6 +518,54 @@ describe LavinMQ::AMQP::PriorityQueue do
         msg.reject(requeue: true)
         msg = q.get(no_ack: true).should_not be_nil
         msg.redelivered.should be_true
+      end
+    end
+  end
+
+  context "messages with priority above x-max-priority" do
+    q_args = AMQP::Client::Arguments.new({"x-max-priority" => 5})
+
+    it "can be acked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          msg = q.get(no_ack: false).should_not be_nil
+          sq = s.vhosts["/"].queue(q.name)
+          sq.unacked_count.should eq 1
+          msg.ack
+          wait_for { sq.unacked_count.zero? }
+          q.publish_confirm "m2" # channel must still be open after the ack
+          sq.message_count.should eq 1
+        end
+      end
+    end
+
+    it "can be rejected with requeue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          msg = q.get(no_ack: false).should_not be_nil
+          msg.reject(requeue: true)
+          sq = s.vhosts["/"].queue(q.name)
+          wait_for { sq.message_count == 1 }
+          msg = q.get(no_ack: true).should_not be_nil
+          msg.redelivered.should be_true
+        end
+      end
+    end
+
+    it "can be purged when there are unacked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("above-max", args: q_args)
+          4.times do
+            q.publish_confirm "m", props: AMQP::Client::Properties.new(priority: 9u8)
+          end
+          q.get(no_ack: false).should_not be_nil
+          q.purge[:message_count].should eq 3
+        end
       end
     end
   end
