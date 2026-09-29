@@ -167,6 +167,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 ### Core Protocols
 
 - [AMQP 0-9-1 protocol support](docs/amqp.md)
+- [AMQP 1.0 protocol support](docs/amqp10.md)
 - [MQTT 3.1.0 protocol support](docs/mqtt.md)
 - [MQTT 3.1.1 protocol support](docs/mqtt.md)
 - [AMQPS TLS](docs/tls.md)

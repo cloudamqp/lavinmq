@@ -1,6 +1,6 @@
 # AMQP 0-9-1
 
-LavinMQ implements the AMQP 0-9-1 protocol. This page covers LavinMQ's specific defaults, capabilities, and extensions. For the full protocol specification, see the [AMQP 0-9-1 spec](https://www.amqp.org/specification/0-9-1/amqp-org-download).
+LavinMQ implements the AMQP 0-9-1 protocol. This page covers LavinMQ's specific defaults, capabilities, and extensions. For the full protocol specification, see the [AMQP 0-9-1 spec](https://www.amqp.org/specification/0-9-1/amqp-org-download). [AMQP 1.0](amqp10.md) is served on the same port.
 
 ## Ports
 

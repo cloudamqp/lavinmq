@@ -1,0 +1,6 @@
+require "./amqp10/protocol"
+require "./amqp10/address"
+require "./amqp10/message_codec"
+require "./amqp10/client"
+require "./amqp10/session"
+require "./amqp10/connection_factory"

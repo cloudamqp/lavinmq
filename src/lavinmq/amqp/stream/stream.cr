@@ -212,7 +212,7 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
     end
 
-    def reject(sp : SegmentPosition, requeue : Bool)
+    def reject(sp : SegmentPosition, requeue : Bool, header_overrides : AMQ::Protocol::Table? = nil)
     end
 
     private def drop_overflow : Nil
