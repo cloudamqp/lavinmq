@@ -278,6 +278,9 @@ module LavinMQ
       ctx = OpenSSL::SSL::Context::Server.new
       configure_tls_context(ctx)
       ctx
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to initiate the OpenSSL context: #{e.message}" }
+      exit 1
     end
 
     private def warn_if_ktls_unavailable
@@ -301,6 +304,8 @@ module LavinMQ
         next if ctx.nil?
         configure_tls_context(ctx)
       end
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to reload the OpenSSL context, keeping previous configuration: #{e.message}" }
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
