@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
+
 ## [2.10.0] - 2026-09-25
 
 This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, a stream consumer that could starve other fibers during a fast replay, and an AMQP reply text over 255 bytes that broke the frame it travelled in.
 
 ### Added
 
-- Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) park messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
 - Negative `x-stream-offset` values to consume the last N stream messages [#1941](https://github.com/cloudamqp/lavinmq/pull/1941)
 - Tab navigation on queue detail pages in the management UI [#2006](https://github.com/cloudamqp/lavinmq/pull/2006)
 - `client_id_validation` MQTT config option to require the client ID to match the authenticated username [#2038](https://github.com/cloudamqp/lavinmq/pull/2038)
