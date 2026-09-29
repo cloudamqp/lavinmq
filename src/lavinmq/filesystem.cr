@@ -16,6 +16,22 @@ module LavinMQ
       fsync_rename_dirs(source_path, destination)
     end
 
+    # Write a complete replacement without exposing partial contents at the
+    # destination. Callers serialize writes to the same destination.
+    def self.replace(path : String, & : File ->) : Nil
+      temporary = "#{path}.tmp"
+      begin
+        File.open(temporary, "w") do |file|
+          yield file
+          file.flush
+          file.fsync if Config.instance.sync?
+          durable_rename(file, path)
+        end
+      ensure
+        File.delete?(temporary)
+      end
+    end
+
     private def self.fsync_rename_dirs(source : String, destination : String) : Nil
       return unless Config.instance.sync?
       source_dir = File.dirname(source)

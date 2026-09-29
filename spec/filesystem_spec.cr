@@ -95,3 +95,23 @@ describe LavinMQ::FileSystem do
     end
   end
 end
+
+describe "Atomic file replacement" do
+  it "keeps the old destination if writing its replacement fails" do
+    with_datadir do |dir|
+      path = File.join(dir, "state.json")
+      File.write(path, "old")
+      expect_raises(IO::Error, "write failed") do
+        LavinMQ::FileSystem.replace(path) do |file|
+          file.print "partial"
+          raise IO::Error.new("write failed")
+        end
+      end
+      File.read(path).should eq "old"
+      File.exists?("#{path}.tmp").should be_false
+      LavinMQ::FileSystem.replace(path) { |file| file.print "new" }
+      File.read(path).should eq "new"
+      File.exists?("#{path}.tmp").should be_false
+    end
+  end
+end
