@@ -1,13 +1,10 @@
-require "./queue"
-require "./delayed_exchange_queue/delayed_message_store"
+require "./delayed_queue"
 
 module LavinMQ::AMQP
   # This class is only used by delayed exchanges. It can't niehter should be
   # consumed from or published to by clients.
-  class DelayedExchangeQueue < Queue
+  class DelayedExchangeQueue < DelayedQueue
     MAX_NAME_LENGTH = 256
-
-    getter? internal = true
 
     @exchange_name : String
 
@@ -56,79 +53,6 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Overload to use our own store
-    private def init_msg_store(data_dir)
-      replicator = durable? ? @vhost.replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
-    end
-
-    # simplify the message expire loop, as this queue can't have consumers or message-ttl
-    private def message_expire_loop
-      loop do
-        if ttl = time_to_message_expiration
-          if ttl <= Time::Span::ZERO
-            expire_messages
-            next
-          end
-          select
-          when @msg_store.empty.when_true.receive # purge?
-          when @message_ttl_change.receive
-          when timeout ttl
-            expire_messages
-          end
-        else
-          select
-          when @message_ttl_change.receive
-          when @msg_store.empty.when_false.receive
-            Fiber.yield
-          end
-        end
-      end
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
-    rescue ::Channel::ClosedError
-    ensure
-      @message_expire_fiber_active.set(false, :release)
-      ensure_expire_fiber # restart if msg arrived during teardown
-      @log.debug { "message_expire_loop stopped" }
-    end
-
-    # Delayed exchange queues always need their expire fiber running
-    private def should_start_expire_fiber? : Bool
-      true
-    end
-
-    def expire_messages
-      @msg_store_lock.synchronize do
-        loop do
-          env = delayed_msg_store.first_delayed? || break
-          if has_expired?(env)
-            env = delayed_msg_store.shift_delayed? || break
-            expire_msg(env, :expired)
-          else
-            break
-          end
-        end
-      end
-    end
-
-    private def has_expired?(env : Envelope) : Bool
-      delay = env.segment_position.delay
-      timestamp = env.message.timestamp
-      expire_at = timestamp + delay
-      expire_at <= RoughTime.unix_ms
-    end
-
-    private def delayed_msg_store
-      @msg_store.as(DelayedMessageStore)
-    end
-
-    private def time_to_message_expiration : Time::Span?
-      delayed_msg_store.time_to_next_expiration?
-    end
-
     # Overload to not ruin DLX header
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
@@ -141,38 +65,6 @@ module LavinMQ::AMQP
       @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
-    end
-
-    # Disable a lot of inherited functionality (ugly)
-
-    # We don't support any policies
-    private def apply_policy_argument(key : String, value : JSON::Any) : Bool
-      false
-    end
-
-    # internal queues can't expire so make this noop
-    private def queue_expire_loop
-    end
-
-    def publish(message : Message) : PublishResult
-      PublishResult::Dropped
-    end
-
-    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      PublishResult::Dropped
-    end
-
-    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      # noop, not supported
-      false
-    end
-
-    def ack(sp : SegmentPosition) : Nil
-      # noop, not supported
-    end
-
-    def reject(sp : SegmentPosition) : Nil
-      # noop, not supported
     end
   end
 

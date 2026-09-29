@@ -2,7 +2,7 @@ require "../../../message_store"
 require "./delayed_requeued_store"
 
 module LavinMQ::AMQP
-  class DelayedExchangeQueue < Queue
+  abstract class DelayedQueue < Queue
     # A delayed exchange queue must have its messages order by "expire at"
     # so the message expire loop will look at the right message. To acheive this
     # messages are always added to a custom requeued store. This requeued store

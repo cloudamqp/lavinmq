@@ -290,16 +290,16 @@ describe "Delayed Message Exchange" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
-        # Long delay so the message stays parked in the internal delayed queue
+        # Long delay so the message stays in the internal delayed queue
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 600_000})
         x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
       end
       queue = s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue)
       queue.message_count.should eq 1
 
-      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore)
+      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore)
       seg_id = store.@segments.first_key
-      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore)
+      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore::DelayedRequeuedStore)
 
       # Insert an index entry pointing past the segment data with an already-elapsed
       # expire_at, so the expire loop reads it first and BytesMessage.from_bytes raises
