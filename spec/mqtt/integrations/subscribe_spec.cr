@@ -106,9 +106,13 @@ module MqttSpecs
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-          # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet_id = next_packet_id
+          publish(io, expect_response: false, topic: "a/b", payload: "a".to_slice, qos: 1u8, packet_id: packet_id)
+          # Routing back to this connection may finish while PUBACK waits for
+          # durability; accept either ordering and verify both packets.
+          packets = Array.new(2) { read_packet(io) }
+          packets.select(MQTT::Protocol::PubAck).map(&.packet_id).should eq [packet_id]
+          packet = packets.select(MQTT::Protocol::Publish).first
           # ... and verify it be qos0 (i.e. our subscribe is correct)
           packet.qos.should eq(0u8)
 
@@ -121,9 +125,13 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-          # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet_id = next_packet_id
+          publish(io, expect_response: false, topic: "a/b", payload: "a".to_slice, qos: 1u8, packet_id: packet_id)
+          # Routing back to this connection may finish while PUBACK waits for
+          # durability; accept either ordering and verify both packets.
+          packets = Array.new(2) { read_packet(io) }
+          packets.select(MQTT::Protocol::PubAck).map(&.packet_id).should eq [packet_id]
+          packet = packets.select(MQTT::Protocol::Publish).first
           # ... and verify it be qos1 (i.e. our second subscribe is correct)
           packet.qos.should eq(1u8)
 
@@ -147,9 +155,13 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
-          # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet_id = next_packet_id
+          publish(io, expect_response: false, topic: "a/b", payload: "a".to_slice, qos: 1u8, packet_id: packet_id)
+          # Routing back to this connection may finish while PUBACK waits for
+          # durability; accept either ordering and verify both packets.
+          packets = Array.new(2) { read_packet(io) }
+          packets.select(MQTT::Protocol::PubAck).map(&.packet_id).should eq [packet_id]
+          packet = packets.select(MQTT::Protocol::Publish).first
           # ... and verify it be qos1, i.e. the downgrade is real and not just
           # reported in the SubAck
           packet.qos.should eq(1u8)
