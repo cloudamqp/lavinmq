@@ -1308,4 +1308,4 @@ module LavinMQ::AMQP
   end
 end
 
-require "./delayed_retry_queue"
+require "./delayed_queue"

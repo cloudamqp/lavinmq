@@ -114,3 +114,6 @@ module LavinMQ::AMQP
     end
   end
 end
+
+require "./delayed_exchange_queue"
+require "./delayed_retry_queue"
