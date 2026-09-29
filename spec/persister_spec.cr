@@ -2,9 +2,12 @@ require "./spec_helper"
 
 private class WatchdogReplicator < NoOpReplicator
   getter all_followers = Array(LavinMQ::Clustering::Follower).new
+  property after_eligibility_check : Proc(Nil)?
 
   def followers : Array(LavinMQ::Clustering::Follower)
-    @all_followers.select(&.synced?)
+    eligible = @all_followers.select(&.synced?)
+    @after_eligibility_check.try &.call
+    eligible
   end
 end
 
@@ -143,6 +146,39 @@ describe LavinMQ::Persister do
   {% end %}
 
   describe "sync watchdog" do
+    it "rechecks a follower that becomes synchronized after the first timeout" do
+      with_datadir do |data_dir|
+        socket, peer = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(socket, data_dir, FakeFileIndex.new(data_dir))
+        replicator = WatchdogReplicator.new
+        replicator.all_followers << follower
+        checks = 0
+        replicator.after_eligibility_check = -> do
+          checks += 1
+          follower.mark_synced! # first eligibility snapshot still contains no follower
+        end
+        persister = ShortTimeoutPersister.new(replicator, data_dir: data_dir)
+        exited = Channel(Int32).new(1)
+        spawn do
+          persister.wait_for_sync_public
+        rescue ex : SpecExit
+          exited.send(ex.code)
+        rescue Channel::ClosedError
+        end
+        select
+        when code = exited.receive
+          code.should eq(1)
+          checks.should eq(2)
+        when timeout(1.second)
+          fail "watchdog did not recheck the newly synchronized follower"
+        end
+      ensure
+        persister.try &.close
+        follower.try &.close
+        peer.try &.close
+      end
+    end
+
     it "exits when a sync outlives the timeout with a live synchronized follower" do
       with_datadir do |data_dir|
         socket, peer = FakeSocket.pair
