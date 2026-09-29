@@ -643,7 +643,7 @@ module LavinMQ::AMQP
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
-        drop_overflow(dlx_tasks, needs_sync)
+        drop_overflow(dlx_tasks, msg.needs_sync?)
       end
       @publish_count.add(1, :relaxed)
       ensure_consumers_deliver_loops if was_empty

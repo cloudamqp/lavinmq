@@ -179,3 +179,41 @@ describe MFile do
     end
   end
 end
+
+class MFile
+  class_getter batch_delete_synced_dirs = [] of String
+
+  private def self.sync_deleted_directory(path : String) : Nil
+    @@batch_delete_synced_dirs << path
+    previous_def
+  end
+end
+
+describe "MFile batch deletion" do
+  it "syncs each parent once for a batch of deleted files" do
+    with_datadir do |dir|
+      files = (1..8).map { |i| MFile.new(File.join(dir, "segment.#{i}"), 4096) }
+      MFile.batch_delete_synced_dirs.clear
+      MFile.delete_all(files, needs_sync: true)
+      MFile.batch_delete_synced_dirs.should eq [dir]
+      files.each do |file|
+        file.deleted?.should be_true
+        File.exists?(file.path).should be_false
+      end
+    ensure
+      files.try &.each &.close
+    end
+  end
+
+  it "does not sync batch deletions when syncing is not requested" do
+    with_datadir do |dir|
+      file = MFile.new(File.join(dir, "segment"), 4096)
+      MFile.batch_delete_synced_dirs.clear
+      MFile.delete_all([file])
+      MFile.batch_delete_synced_dirs.should be_empty
+      file.deleted?.should be_true
+    ensure
+      file.try &.close
+    end
+  end
+end

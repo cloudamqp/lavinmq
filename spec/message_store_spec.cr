@@ -137,7 +137,7 @@ describe LavinMQ::MessageStore do
   it "only marks transactional acknowledgment writes as dirty" do
     mktmpdir do |dir|
       persister = DirtyRecordingPersister.new(data_dir: dir)
-      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil, persister: persister)
       msg = LavinMQ::Message.new("ex", "rk", "body")
       2.times { store.push(msg) }
       store.delete(store.shift?.not_nil!.segment_position)
@@ -171,7 +171,7 @@ describe LavinMQ::MessageStore do
 
   it "only marks segments written for confirms or transactions as dirty" do
     mktmpdir do |dir|
-      persister = DirtyRecordingPersister.new
+      persister = DirtyRecordingPersister.new(data_dir: dir)
       store = LavinMQ::MessageStore.new(dir, replicator: nil, persister: persister)
       msg = LavinMQ::Message.new("ex", "rk", "body")
 

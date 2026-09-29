@@ -72,7 +72,6 @@ module ClusteringSpecHelper
       super
     end
 
-
     private def sync_parent_dir(path : String) : Nil
       @parent_dirs_fsynced << File.dirname(path)
       super

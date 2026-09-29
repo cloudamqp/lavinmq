@@ -13,7 +13,7 @@ module LavinMQ::AMQP
       end
 
       alias MessageRoutedCallback = Proc(Nil)
-      alias Task = {AMQP::Queue, Message, Bool} | MessageRoutedCallback
+      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
       struct Tasks
         @pending_tasks = Deque(Task).new
@@ -95,13 +95,14 @@ module LavinMQ::AMQP
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
+          dead_letter_msg.needs_sync = needs_sync
 
           queues.each do |q|
             if cycle?(q.name, props, reason)
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx.enqueue({q, dead_letter_msg, needs_sync})
+              ctx.enqueue({q, dead_letter_msg})
             end
           end
           ctx.enqueue(routed)
@@ -119,11 +120,11 @@ module LavinMQ::AMQP
                 @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
             else
-              dst_q, msg, needs_sync = task
+              dst_q, msg = task
               begin
                 # Result intentionally discarded: if the destination queue is closed
                 # or rejects on overflow we drop the dead-lettered message.
-                dst_q.publish_internal(msg, needs_sync: needs_sync, dlx_tasks: @tasks)
+                dst_q.publish_internal(msg, dlx_tasks: @tasks)
               rescue ex : Exception
                 @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end

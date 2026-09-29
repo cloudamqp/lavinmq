@@ -14,7 +14,7 @@ end
 describe LavinMQ::Persister do
   it "waits for an in-flight sync even after it has drained the dirty set" do
     with_datadir do |dir|
-      persister = BlockingSyncPersister.new
+      persister = BlockingSyncPersister.new(data_dir: dir)
       file = MFile.new(File.join(dir, "msgs"), 4096)
       file.write "body".to_slice
       persister.mark_dirty(file)

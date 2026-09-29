@@ -112,7 +112,7 @@ class MFile < IO
     addr
   end
 
-  def delete(*, raise_on_missing = true, durable = false) : Nil
+  def delete(*, raise_on_missing = true, needs_sync = false) : Nil
     @mapping_lock.synchronize do
       return if deleted? # avoid double deletes
       if raise_on_missing
@@ -122,9 +122,37 @@ class MFile < IO
       end
       # Publish deleted? only once the removal is durable: the persister may
       # skip this file as soon as it observes that flag.
-      fsync_parent_dir if durable
+      fsync_parent_dir if needs_sync
       @deleted.set(true, :release)
     end
+  end
+
+  # Keep every mapping locked until the shared directory barriers complete.
+  # In particular, deleted? must not let a concurrent persister skip a file
+  # before its removal is durable. A stable lock order permits overlapping batches.
+  def self.delete_all(files : Array(MFile), *, needs_sync = false) : Nil
+    files = files.uniq.sort_by(&.object_id)
+    locked = 0
+    begin
+      files.each do |file|
+        file.@mapping_lock.lock
+        locked += 1
+      end
+      directories = Set(String).new
+      files.each do |file|
+        next if file.deleted?
+        File.delete?(file.path)
+        directories << File.dirname(file.path) if needs_sync
+      end
+      directories.each { |dir| sync_deleted_directory(dir) }
+      files.each { |file| file.@deleted.set(true, :release) }
+    ensure
+      files.first(locked).reverse_each { |file| file.@mapping_lock.unlock }
+    end
+  end
+
+  private def self.sync_deleted_directory(path : String) : Nil
+    File.open(path, &.fsync)
   end
 
   private def fsync_parent_dir : Nil

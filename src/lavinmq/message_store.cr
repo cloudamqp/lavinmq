@@ -245,6 +245,18 @@ module LavinMQ
         delete(sp) if @segments.has_key?(sp.segment)
       end
 
+      # Batch unlink the wholly purged segments and their ack files. One
+      # directory barrier covers them all before deleted? becomes visible.
+      files_to_delete = Array(MFile).new
+      @segments.each do |seg_id, file|
+        next if seg_id == @rfile_id || seg_id == @wfile_id
+        files_to_delete << file
+        if afile = @acks[seg_id]?
+          files_to_delete << afile
+        end
+      end
+      MFile.delete_all(files_to_delete, needs_sync: @durable && Config.instance.sync?)
+
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
@@ -289,13 +301,14 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
+      MFile.delete_all(@segments.values + @acks.values, needs_sync: @durable && Config.instance.sync?)
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      file.delete(raise_on_missing: false, durable: @durable && Config.instance.sync?)
+      file.delete(raise_on_missing: false, needs_sync: @durable && Config.instance.sync?)
       if replicator = @replicator
         replicator.delete_file(meta_file_name(file)) if including_meta
         replicator.delete_file(file.path)
