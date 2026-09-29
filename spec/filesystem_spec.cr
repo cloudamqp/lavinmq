@@ -109,7 +109,7 @@ describe "Atomic file replacement" do
       end
       File.read(path).should eq "old"
       File.exists?("#{path}.tmp").should be_false
-      LavinMQ::FileSystem.replace(path) { |file| file.print "new" }
+      LavinMQ::FileSystem.replace(path, &.print("new"))
       File.read(path).should eq "new"
       File.exists?("#{path}.tmp").should be_false
     end
