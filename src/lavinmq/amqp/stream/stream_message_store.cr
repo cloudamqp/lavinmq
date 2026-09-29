@@ -160,17 +160,21 @@ module LavinMQ::AMQP
       seg
     end
 
+    private def consumer_offsets : ConsumerOffsets
+      @consumer_offsets || raise ClosedError.new
+    end
+
     def last_offset_by_consumer_tag(consumer_tag)
-      @consumer_offsets.not_nil!.last_offset_by_tag(consumer_tag)
+      consumer_offsets.last_offset_by_tag(consumer_tag)
     end
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
       raise ClosedError.new if @closed
-      @consumer_offsets.not_nil!.store(consumer_tag, new_offset) { lowest_offset_in_stream }
+      consumer_offsets.store(consumer_tag, new_offset) { lowest_offset_in_stream }
     end
 
     def cleanup_consumer_offsets
-      @consumer_offsets.not_nil!.cleanup { lowest_offset_in_stream }
+      consumer_offsets.cleanup { lowest_offset_in_stream }
     end
 
     # Lowest offset still retained in the stream, used to discard consumer
