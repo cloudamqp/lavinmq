@@ -865,7 +865,7 @@ describe LavinMQ::AMQP::Stream do
           msg_store.store_consumer_offset(consumer_tag, offset)
         end
         bytesize = consumer_tag.bytesize + 1 + 8
-        msg_store.@consumer_offsets.size.should eq bytesize*5
+        msg_store.@consumer_offsets.not_nil!.size.should eq bytesize*5
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         msg_store.close
       end
@@ -888,7 +888,7 @@ describe LavinMQ::AMQP::Stream do
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         bytesize = consumer_tag.bytesize + 1 + 8
-        msg_store.@consumer_offsets.size.should eq bytesize
+        msg_store.@consumer_offsets.not_nil!.size.should eq bytesize
         msg_store.close
       end
     end
@@ -908,7 +908,7 @@ describe LavinMQ::AMQP::Stream do
           msg_store.store_consumer_offset(consumer_tag, i)
         end
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets - 1
-        msg_store.@consumer_offsets.size.should eq bytesize*2
+        msg_store.@consumer_offsets.not_nil!.size.should eq bytesize*2
         msg_store.close
       end
     end
@@ -1231,8 +1231,8 @@ describe LavinMQ::AMQP::Stream do
           msg_store.store_consumer_offset(consumer_tag, i + 1000)
           bytesize += consumer_tag.bytesize + 1 + 8
         end
-        msg_store.@consumer_offsets.size.should eq bytesize
-        msg_store.@consumer_offsets.size.should be > LavinMQ::Config.instance.segment_size
+        msg_store.@consumer_offsets.not_nil!.size.should eq bytesize
+        msg_store.@consumer_offsets.not_nil!.size.should be > LavinMQ::Config.instance.segment_size
         offsets.times do |i|
           msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i + 1000}").should eq i + 1000
         end
@@ -1326,6 +1326,35 @@ describe LavinMQ::AMQP::Stream do
         store.@segment_msg_count[last_seg_id].should eq 1
         store.close
       end
+    end
+  end
+end
+
+describe "Stream directory recovery" do
+  it "returns a closed store when a segment cannot be loaded" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      store.close
+      File.open(File.join(dir, "msgs.0000000001"), "r+") { |file| file.write("abcd".to_slice) }
+      File.delete(File.join(dir, "consumer_offsets"))
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir)
+      store.closed.should be_true
+      store.@directory.not_nil!.@file.closed?.should be_true
+      store.@consumer_offsets.not_nil!.@mfile.closed?.should be_true
+    ensure
+      store.try &.close
+    end
+  end
+
+  it "does not fsync existing consumer offset entries on reopen" do
+    with_datadir do |dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir)
+      store.close
+      store = LavinMQ::AMQP::StreamMessageStore.new(dir)
+      store.@directory.not_nil!.sync_count.should eq 0
+    ensure
+      store.try &.close
     end
   end
 end

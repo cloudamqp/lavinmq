@@ -217,7 +217,7 @@ module LavinMQ
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
-      Dir.mkdir_p File.join(@data_dir)
+      FileSystem.mkdir_p File.join(@data_dir)
       FileUtils.rm_rf File.join(@data_dir, "transient")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits

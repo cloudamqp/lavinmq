@@ -129,3 +129,26 @@ describe "Atomic file replacement" do
     end
   end
 end
+
+module LavinMQ::FileSystem
+  class_getter created_directory_parents = [] of String
+
+  private def self.sync_created_directory(path : String) : Nil
+    @@created_directory_parents << path
+    previous_def
+  end
+end
+
+describe "Durable directory creation" do
+  it "persists every new ancestor and avoids barriers for existing directories" do
+    with_datadir do |dir|
+      path = File.join(dir, "vhost", "queue", "priority")
+      LavinMQ::FileSystem.created_directory_parents.clear
+      LavinMQ::FileSystem.mkdir_p(path)
+      LavinMQ::FileSystem.created_directory_parents.should eq [dir, File.join(dir, "vhost"), File.join(dir, "vhost", "queue")]
+      LavinMQ::FileSystem.created_directory_parents.clear
+      LavinMQ::FileSystem.mkdir_p(path)
+      LavinMQ::FileSystem.created_directory_parents.should be_empty
+    end
+  end
+end

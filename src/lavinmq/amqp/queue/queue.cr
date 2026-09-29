@@ -327,10 +327,10 @@ module LavinMQ::AMQP
         # delete left over files from transient queues
         unless durable?
           FileUtils.rm_r data_dir
-          Dir.mkdir_p data_dir
+          FileSystem.mkdir_p data_dir
         end
       else
-        Dir.mkdir_p data_dir
+        FileSystem.mkdir_p data_dir
       end
       data_dir
     end

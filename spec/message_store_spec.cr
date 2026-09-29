@@ -134,9 +134,22 @@ def setup_orphaned_ack_scenario(dir)
 end
 
 describe LavinMQ::MessageStore do
+  it "does not fsync existing acknowledgment entries on reopen" do
+    mktmpdir do |dir|
+      store = LavinMQ::MessageStore.new(dir)
+      2.times { store.push(LavinMQ::Message.new("ex", "rk", "body")) }
+      store.delete(store.shift?.not_nil!.segment_position)
+      store.close
+      store = LavinMQ::MessageStore.new(dir)
+      store.@directory.not_nil!.sync_count.should eq 0
+    ensure
+      store.try &.close
+    end
+  end
+
   it "can durably delete a closed store and closes the reopened directory" do
     with_datadir do |dir|
-      store = LavinMQ::MessageStore.new(dir, nil)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil)
       store.push(LavinMQ::Message.new("ex", "rk", "body"))
       directory = store.@directory.not_nil!
       store.close
@@ -196,7 +209,7 @@ describe LavinMQ::MessageStore do
 
   it "persists segment deletion before exposing it to the persister" do
     with_datadir do |dir|
-      store = LavinMQ::MessageStore.new(dir, nil)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil)
       file = store.@segments.first_value
       directory = store.@directory.not_nil!
       observed = false

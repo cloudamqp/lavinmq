@@ -900,6 +900,44 @@ module ClientSyncSpec
     # anything held over from the previous connection can describe an inode
     # that's no longer at that path.
     describe "state carried across a re-sync" do
+      it "preserves pending directory barriers when a reconnect reuses matching files" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          filename = "queue/msgs.0000000001"
+          content = "data"
+          2.times do |round|
+            client_socket, leader_io = FakeSocket.pair
+            reader = Compress::LZ4::Reader.new(client_socket)
+            writer = Compress::LZ4::Writer.new(leader_io,
+              Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+            done = Channel(Nil).new(1)
+            spawn do
+              client.stream_changes_public(client_socket, reader)
+            rescue IO::Error
+            ensure
+              done.send nil
+            end
+            if round.zero?
+              write_record(writer, filename, -content.bytesize.to_i64, content.to_slice)
+              read_acks(leader_io, record_size(filename, content.bytesize))
+            else
+              client.parent_dirs_fsynced.clear
+              write_record(writer, "$#{filename}", 0i64, Bytes.empty)
+              read_acks(leader_io, record_size("$#{filename}", 0))
+              client.parent_dirs_fsynced.should eq [File.join(data_dir, "queue")]
+            end
+            client_socket.close
+            done.receive
+            if round.zero?
+              sync_with_leader(client, {filename => content}, resync: true)
+              client.@files.should be_empty
+              client.@unsynced_directory_files.should contain(filename)
+            end
+          end
+          close_client(client)
+        end
+      end
+
       it "appends to the file the re-sync installed, not the replaced inode" do
         with_datadir do |data_dir|
           filename = "queue1/msgs.0000000001"

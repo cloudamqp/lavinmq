@@ -62,11 +62,11 @@ module LavinMQ
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
-          Dir.mkdir_p File.dirname(path)
+          FileSystem.mkdir_p File.dirname(path)
           @unsynced_directory_files << k
           h[k] = File.open(path, "a").tap &.sync = true
         end
-        Dir.mkdir_p @data_dir
+        FileSystem.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
@@ -202,7 +202,8 @@ module LavinMQ
         finalize_digests
         @files.each_value &.close
         @files.clear
-        @unsynced_directory_files.clear
+        # Pending entry barriers survive reconnect even if matching checksums
+        # let full_sync skip downloading these files again.
         @directories.each_value &.close
         @directories.clear
       end
@@ -416,7 +417,7 @@ module LavinMQ
       private def file_from_socket(filename, lz4)
         Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
-        Dir.mkdir_p File.dirname(path)
+        FileSystem.mkdir_p File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
@@ -602,7 +603,7 @@ module LavinMQ
 
         path = File.join(@data_dir, "#{filename}.tmp")
         final_path = path[0..-5]
-        Dir.mkdir_p File.dirname(path)
+        FileSystem.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
           # The record's final ack tells the leader the replace is durable, so

@@ -10,7 +10,7 @@ module LavinMQ
       end
 
       def fsync : Nil
-        @lock.synchronize { @file.fsync }
+        @lock.synchronize { @file.fsync unless @file.closed? }
       end
 
       def close : Nil
@@ -26,6 +26,31 @@ module LavinMQ
       end
     end
 
+    @@mkdir_lock = Mutex.new
+
+    # Persist each newly created directory's entry in its parent, including
+    # ancestors created by mkdir_p. Serializing creation prevents another
+    # caller using a new directory before its parent barrier completes.
+    def self.mkdir_p(path : String) : Nil
+      @@mkdir_lock.synchronize { mkdir_p_locked(File.expand_path(path)) }
+    end
+
+    private def self.mkdir_p_locked(path : String) : Nil
+      return if Dir.exists?(path)
+      parent = File.dirname(path)
+      mkdir_p_locked(parent)
+      begin
+        Dir.mkdir(path)
+      rescue ex : File::AlreadyExistsError
+        raise ex unless Dir.exists?(path)
+      end
+      sync_created_directory(parent)
+    end
+
+    private def self.sync_created_directory(path : String) : Nil
+      File.open(path, &.fsync)
+    end
+
     # Sync and atomically install a file and make the changed directory
     # entry durable before returning. Most callers rename within one directory;
     # syncing both parents also makes cross-directory renames safe.
@@ -37,12 +62,16 @@ module LavinMQ
 
     # Preserve File#rename's path bookkeeping for callers that keep using the
     # open handle after installing it under its final name.
-    def self.durable_rename(source : File | MFile, destination : String) : Nil
+    def self.durable_rename(source : File | MFile, destination : String, *, directory : Directory? = nil) : Nil
       source.flush if source.is_a?(File)
       source.fsync if Config.instance.sync?
       source_path = source.path
       source.rename(destination)
-      fsync_rename_dirs(source_path, destination)
+      if directory && File.dirname(source_path) == File.dirname(destination)
+        directory.fsync if Config.instance.sync?
+      else
+        fsync_rename_dirs(source_path, destination)
+      end
     end
 
     # Write a complete replacement without exposing partial contents at the

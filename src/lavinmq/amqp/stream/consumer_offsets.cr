@@ -23,7 +23,7 @@ module LavinMQ::AMQP
 
     def initialize(dir : String, capacity : Int, @replicator : Clustering::Replicator?, @directory : FileSystem::Directory)
       @mfile = MFile.new(File.join(dir, "consumer_offsets"), capacity)
-      @directory.fsync
+      @directory.fsync if @mfile.created?
       @replicator.try &.register_file @mfile
       restore_positions
     end
@@ -111,8 +111,7 @@ module LavinMQ::AMQP
         @positions[consumer_tag] = @mfile.size
         @mfile.write_bytes offset
       end
-
-      FileSystem.durable_rename(@mfile, old_mfile.path)
+      FileSystem.durable_rename(@mfile, old_mfile.path, directory: @directory)
       @replicator.try &.replace_file(@mfile) # ship the compacted file whole; keeps the MFile registered
       old_mfile.close(truncate_to_size: false)
     end

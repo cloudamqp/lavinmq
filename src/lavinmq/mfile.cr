@@ -25,6 +25,7 @@ class MFile < IO
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
+  getter? created = false
   @buffer : Pointer(UInt8)
   @deleted = Atomic(Bool).new(false)
   @closed = Atomic(Bool).new(false)
@@ -79,9 +80,21 @@ class MFile < IO
   end
 
   private def open_fd
-    flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
+    flags = @readonly ? LibC::O_RDONLY : LibC::O_RDWR
     perms = 0o644
-    fd = LibC.open(@path.check_no_null_byte, flags, perms)
+    fd = if @readonly
+           LibC.open(@path.check_no_null_byte, flags, perms)
+         else
+           created_fd = LibC.open(@path.check_no_null_byte, flags | LibC::O_CREAT | LibC::O_EXCL, perms)
+           if created_fd >= 0
+             @created = true
+             created_fd
+           elsif Errno.value == Errno::EEXIST
+             LibC.open(@path.check_no_null_byte, flags, perms)
+           else
+             created_fd
+           end
+         end
     raise File::Error.from_errno("Error opening file", file: @path) if fd < 0
     fd
   end

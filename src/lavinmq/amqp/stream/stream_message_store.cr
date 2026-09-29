@@ -12,24 +12,28 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
-    @consumer_offsets : ConsumerOffsets
+    @consumer_offsets : ConsumerOffsets?
 
     def initialize(*args, **kwargs)
       super
       @last_offset = get_last_offset
       directory = @directory || raise "Message store directory is not initialized"
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator, directory)
-      drop_overflow
+      if @closed
+        @consumer_offsets.try &.close
+      else
+        drop_overflow
+      end
     end
 
     def close : Nil
       super
-      @consumer_offsets.close
+      @consumer_offsets.try &.close
     end
 
     def delete
       super
-      @consumer_offsets.delete
+      @consumer_offsets.try &.delete
     end
 
     private def get_last_offset : Int64
@@ -157,16 +161,16 @@ module LavinMQ::AMQP
     end
 
     def last_offset_by_consumer_tag(consumer_tag)
-      @consumer_offsets.last_offset_by_tag(consumer_tag)
+      @consumer_offsets.not_nil!.last_offset_by_tag(consumer_tag)
     end
 
     def store_consumer_offset(consumer_tag : String, new_offset : Int64)
       raise ClosedError.new if @closed
-      @consumer_offsets.store(consumer_tag, new_offset) { lowest_offset_in_stream }
+      @consumer_offsets.not_nil!.store(consumer_tag, new_offset) { lowest_offset_in_stream }
     end
 
     def cleanup_consumer_offsets
-      @consumer_offsets.cleanup { lowest_offset_in_stream }
+      @consumer_offsets.not_nil!.cleanup { lowest_offset_in_stream }
     end
 
     # Lowest offset still retained in the stream, used to discard consumer

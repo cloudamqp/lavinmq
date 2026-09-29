@@ -59,7 +59,7 @@ module LavinMQ::AMQP
       private def init_sub_stores(stores)
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          Dir.mkdir_p sub_msg_dir
+          FileSystem.mkdir_p sub_msg_dir
           store = MessageStore.new(sub_msg_dir, replicator: @replicator, durable: @durable, persister: @persister, metadata: @metadata.extend({prio: i.to_s}))
           stores << store
         end

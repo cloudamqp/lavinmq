@@ -310,7 +310,7 @@ module LavinMQ
       @closed = true
       @empty.close
       @directory.try &.reopen unless @segments.empty? && @acks.empty?
-      MFile.delete_all(@segments.values + @acks.values) { sync_directory }
+      MFile.delete_all(@segments.values + @acks.values) { @directory.try &.fsync if @durable }
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
@@ -447,7 +447,7 @@ module LavinMQ
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
       mfile = MFile.new(path, capacity, writeonly: true)
-      sync_directory
+      sync_directory if mfile.created?
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
@@ -456,7 +456,7 @@ module LavinMQ
     private def sync_directory : Nil
       # The sync setting can change while these segments remain open. Persist
       # their names now so later confirms need only sync the mapped contents.
-      @directory.try &.fsync if @durable
+      @directory.try &.fsync if @durable && !@closed
     end
 
     private def load_acks_from_disk : Nil

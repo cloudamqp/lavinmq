@@ -16,7 +16,7 @@ module LavinMQ
       @index_needs_compaction = false
 
       def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new)
-        Dir.mkdir_p @dir
+        FileSystem.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
           file = File.new(File.join(@dir, file_name))
           file.read_buffering = false

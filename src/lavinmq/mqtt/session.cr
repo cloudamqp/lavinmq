@@ -64,7 +64,7 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
+        FileSystem.mkdir_p(data_dir) unless Dir.exists?(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = MessageStore.new(data_dir, replicator: @replicator, durable: durable?, persister: @vhost.persister, metadata: @metadata)
         @metadata_file = File.join(data_dir, ".metadata")
