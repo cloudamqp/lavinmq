@@ -245,17 +245,7 @@ module LavinMQ
         delete(sp) if @segments.has_key?(sp.segment)
       end
 
-      # Batch unlink the wholly purged segments and their ack files. One
-      # directory barrier covers them all before deleted? becomes visible.
-      files_to_delete = Array(MFile).new
-      @segments.each do |seg_id, file|
-        next if seg_id == @rfile_id || seg_id == @wfile_id
-        files_to_delete << file
-        if afile = @acks[seg_id]?
-          files_to_delete << afile
-        end
-      end
-      MFile.delete_all(files_to_delete, needs_sync: @durable && Config.instance.sync?)
+      delete_purged_segments
 
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
@@ -296,6 +286,20 @@ module LavinMQ
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
+    end
+
+    private def delete_purged_segments : Nil
+      # Batch unlink the wholly purged segments and their ack files. One
+      # directory barrier covers them all before deleted? becomes visible.
+      files_to_delete = Array(MFile).new
+      @segments.each do |seg_id, file|
+        next if seg_id == @rfile_id || seg_id == @wfile_id
+        files_to_delete << file
+        if afile = @acks[seg_id]?
+          files_to_delete << afile
+        end
+      end
+      MFile.delete_all(files_to_delete, needs_sync: @durable && Config.instance.sync?)
     end
 
     def delete
