@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
 
+### Changed
+
+- `max_inflight_messages` must be at least `1`; `0` is now rejected at startup and on config reload instead of leaving every MQTT session accepting publishes it can never deliver [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
+
+### Fixed
+
+- Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
+
 ## [2.10.0] - 2026-09-25
 
 This release adds MQTT topic permissions, negative `x-stream-offset` values to read the last N stream messages, a `state` filter on the queue list endpoints and an API endpoint to close a single channel. It adds Prometheus metrics for per-queue deliveries and inter-node replication. Shovels get reworked HTTP destinations and error handling, with classified delivery outcomes, a `dest-timeout` setting and an `aborted` state. It also fixes purged messages that came back after a restart, a stream consumer that could starve other fibers during a fast replay, and an AMQP reply text over 255 bytes that broke the frame it travelled in.

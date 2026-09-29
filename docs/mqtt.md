@@ -38,8 +38,10 @@ When a client connects with `clean_session=false`:
 
 - The session persists across disconnections
 - Subscriptions are preserved
-- Unacknowledged QoS 1 messages are requeued and redelivered on reconnect
+- Unacknowledged QoS 1 messages are requeued and redelivered on reconnect, under the packet IDs the client already holds and with the `dup` flag set
 - The session queue is durable
+
+The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs. If a `max-length` policy or a purge discards a message the session still owes, its packet ID is forgotten along with it; the messages that remain keep theirs.
 
 ### Session Takeover
 
@@ -53,7 +55,7 @@ Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits),
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
-- Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
+- Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over, and keep their packet IDs for the redelivery. For clean sessions, unacknowledged messages are discarded.
 
 ## Connection Limits
 
@@ -97,7 +99,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `port` | `[mqtt]` | `1883` | MQTT listen port |
 | `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
 | `unix_path` | `[mqtt]` | (empty) | Unix socket path |
-| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session |
+| `max_inflight_messages` | `[mqtt]` | `65535` | Max unacknowledged messages per session, must be at least `1` |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
@@ -195,6 +197,7 @@ Example: allow every user to use only its own device subtrees under `chat/`.
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/members/%2A
 curl -u admin:pw -X PUT localhost:15672/api/mqtt/permission-groups/%2f/devices/rules/own-chat \
+  -H 'Content-Type: application/json' \
   -d '{"pattern": "chat/{client_id}/#", "read": true, "write": true}'
 ```
 

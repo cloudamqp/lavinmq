@@ -11,6 +11,7 @@ require "./amqp/exchange/exchange"
 require "./amqp/exchange/*"
 require "digest/sha1"
 require "./amqp/queue"
+require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
@@ -307,7 +308,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
+                visited = Set(AMQP::Exchange).new, found_queues = Set(AMQP::Queue).new) : AMQP::Exchange::PublishResult
       if ex = exchange?(msg.exchange_name)
         ex.publish(msg, immediate, found_queues, visited)
       else

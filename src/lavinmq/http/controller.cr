@@ -83,6 +83,8 @@ module LavinMQ
           sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
         when String
           sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
+        when Bool
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Bool) ? 1 : 0 }
         when QueueState
           sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
         when Nil
