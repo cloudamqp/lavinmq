@@ -616,6 +616,10 @@ module LavinMQ
         send_channel_close(frame, ChannelReplyCode::ACCESS_REFUSED, text)
       end
 
+      def send_internal_queue_refused(frame, name)
+        send_access_refused(frame, "Queue '#{name}' in vhost '#{@vhost.name}' is an internal queue")
+      end
+
       def send_not_found(frame, text = "")
         @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
         send_channel_close(frame, ChannelReplyCode::NOT_FOUND, text)
@@ -734,6 +738,8 @@ module LavinMQ
         q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif frame.if_unused && !q.consumer_count.zero?
@@ -782,7 +788,9 @@ module LavinMQ
       end
 
       private def redeclare_queue(frame, q)
-        if queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
+        if q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
+        elsif queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
           q.redeclare
@@ -839,13 +847,9 @@ module LavinMQ
           end
         end
         return unless valid_q_bind_unbind?(frame)
+        return unless q = bindable_queue?(frame)
 
-        q = @vhost.queue?(frame.queue_name)
-        if q.nil?
-          send_not_found frame, "Queue '#{frame.queue_name}' not found"
-        elsif !@vhost.exchange_exists?(frame.exchange_name)
-          send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
-        elsif !@user.can_read?(@vhost.name, frame.exchange_name)
+        if !@user.can_read?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
         elsif !@user.can_write?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
@@ -861,6 +865,20 @@ module LavinMQ
         end
       end
 
+      private def bindable_queue?(frame) : Queue?
+        q = @vhost.queue?(frame.queue_name)
+        if q.nil?
+          send_not_found frame, "Queue '#{frame.queue_name}' not found"
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
+        elsif !@vhost.exchange_exists?(frame.exchange_name)
+          send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
+        else
+          return q
+        end
+        nil
+      end
+
       private def unbind_queue(frame)
         if frame.queue_name.empty? && @last_queue_name
           frame.queue_name = @last_queue_name.not_nil!
@@ -871,6 +889,8 @@ module LavinMQ
         if q.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
+        elsif q.internal?
+          send_internal_queue_refused(frame, frame.queue_name)
         elsif !@vhost.exchange_exists?(frame.exchange_name)
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -952,7 +972,9 @@ module LavinMQ
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
         elsif q = @vhost.queue?(frame.queue_name)
-          if queue_exclusive_to_other_client?(q)
+          if q.internal?
+            send_internal_queue_refused(frame, frame.queue_name)
+          elsif queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else
             messages_purged = q.purge

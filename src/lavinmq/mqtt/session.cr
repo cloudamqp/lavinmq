@@ -27,6 +27,7 @@ module LavinMQ
 
       getter name : String
       getter vhost : VHost
+      getter? internal = false
       getter? auto_delete
 
       @max_length : Int64? = nil

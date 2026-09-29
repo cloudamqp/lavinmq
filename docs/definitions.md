@@ -4,7 +4,7 @@ Definitions are the complete declarative state of a LavinMQ server: vhosts, user
 
 ## Export
 
-Export all definitions as JSON:
+Export all definitions as JSON. Exclusive queues and internal queues (e.g. delayed exchange queues, which are recreated by their exchange) are not included:
 
 ```
 # Via API

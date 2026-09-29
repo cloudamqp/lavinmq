@@ -859,6 +859,19 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "does not export internal queues" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true})
+        s.vhosts["/"].declare_exchange("delayed-export-test", "topic", true, false, arguments: args)
+        s.vhosts["/"].queue?("amq.delayed-delayed-export-test").should_not be_nil
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        queue_names = body["queues"].as_a.map(&.["name"].as_s)
+        queue_names.none?(&.starts_with?("amq.delayed")).should be_true
+      end
+    end
+
     it "exports vhosts" do
       with_http_server do |http, _|
         response = http.get("/api/definitions")
