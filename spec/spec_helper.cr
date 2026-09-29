@@ -342,6 +342,12 @@ class NoOpReplicator
   def wait_for_followers : Nil
   end
 
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
+  end
+
   def close
   end
 

@@ -11,12 +11,14 @@ require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
+require "../persister"
 
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
 
       getter id, name, client
       property? running = true
@@ -283,6 +285,7 @@ module LavinMQ
           return
         end
 
+        msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?

@@ -1,3 +1,4 @@
+require "./filesystem"
 require "json"
 require "./vhost"
 require "./auth/base_user"
@@ -171,8 +172,7 @@ module LavinMQ
       # Serialize saves so concurrent create/delete don't race on the shared
       # `.tmp` file and fail the rename.
       @save_lock.synchronize do
-        File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
-        File.rename "#{path}.tmp", path
+        FileSystem.replace(path) { |f| to_pretty_json(f) }
       end
       @replicator.try &.replace_file path
     end

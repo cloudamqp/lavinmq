@@ -28,6 +28,7 @@ module LavinMQ
         body = ::IO::Memory.new(packet.payload, writable: false)
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
+        msg.needs_sync = packet.qos > 0
         count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos, _filter|
           msg.properties.delivery_mode = qos
