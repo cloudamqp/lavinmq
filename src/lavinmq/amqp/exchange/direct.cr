@@ -45,7 +45,7 @@ module LavinMQ
         true
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
         # Use []? to not allocate (and keep forever) an empty set in the
         # bindings hash for every unbound routing key published to
         if bindings = @bindings[routing_key]?
