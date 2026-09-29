@@ -162,7 +162,7 @@ module LavinMQ
               rule = MQTT::PermissionGroup::Rule.new(params["identifier"], pattern,
                 read: rule_flag(context, body, "read"),
                 write: rule_flag(context, body, "write"))
-              replaced : MQTT::PermissionGroup::Rule? = nil
+              replaced = nil
               found = vhost.mqtt_permission_service.update(params["name"]) do |group|
                 replaced = group.put_rule(rule)
                 true

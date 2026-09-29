@@ -69,6 +69,11 @@ module LavinMQ
         new(DEFAULT_NAME, vhost, ["*"], [rule])
       end
 
+      # Rule is a struct, so fresh containers make the clone independent.
+      def clone : self
+        PermissionGroup.new(@name, @vhost, @members.dup, @rules.values)
+      end
+
       def add_member(username : String) : Bool
         return false if @members.includes?(username)
         @members << username

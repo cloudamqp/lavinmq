@@ -101,10 +101,18 @@ module LavinMQ
       # false skips the commit. Returns false when no group has that name. The
       # block runs with the lock held, so it must not call back into the
       # service and it must not wait on IO.
+      #
+      # The block gets a clone that replaces the original on commit. A shared
+      # group is never mutated: a reader that suspends on socket IO while it
+      # serializes a group must not see a concurrent change.
       def update(name : String, & : PermissionGroup -> Bool) : Bool
         @save_lock.synchronize do
-          return false unless group = @groups[name]?
-          commit if yield group
+          return false unless current = @groups[name]?
+          updated = current.clone
+          if yield updated
+            @groups[name] = updated
+            commit
+          end
           true
         end
       end

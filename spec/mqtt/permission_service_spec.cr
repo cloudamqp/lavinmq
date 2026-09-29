@@ -193,6 +193,24 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
+  # A reader that streams a group to a slow socket suspends mid-iteration and
+  # must not see a concurrent update: shared groups stay immutable, the update
+  # block gets a copy that replaces the original on commit.
+  it "never mutates a group a reader already holds" do
+    with_service do |service|
+      service.put(group("g", ["c1"], [rule("a/#", read: true)]))
+      held = service["g"]?.not_nil!
+      service.update("g") do |current|
+        current.put_rule(rule("b/#", read: true))
+        current.add_member("c2")
+      end
+      held.rules.keys.should eq ["a--"]
+      held.members.should eq ["c1"]
+      service["g"]?.not_nil!.rules.keys.should eq ["a--", "b--"]
+      service["g"]?.not_nil!.members.should eq ["c1", "c2"]
+    end
+  end
+
   it "reports a missing group on update" do
     with_service do |service|
       service.update("nope") { true }.should be_false
