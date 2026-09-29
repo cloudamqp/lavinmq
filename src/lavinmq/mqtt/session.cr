@@ -66,7 +66,7 @@ module LavinMQ
         )
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, @replicator, durable?, @vhost.persister, metadata: @metadata)
+        @msg_store = MessageStore.new(data_dir, replicator: @replicator, durable: durable?, persister: @vhost.persister, metadata: @metadata)
         @metadata_file = File.join(data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)

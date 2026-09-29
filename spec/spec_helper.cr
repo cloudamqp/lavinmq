@@ -327,6 +327,9 @@ class NoOpReplicator
   def flush_isr : Nil
   end
 
+  def fsync_files(paths : Array(String))
+  end
+
   def wait_for_followers : Nil
   end
 

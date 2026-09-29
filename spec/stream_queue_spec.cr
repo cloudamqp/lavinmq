@@ -837,14 +837,14 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         offsets.each_with_index do |offset, i|
           msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         msg_store.close
         wait_for { msg_store.@closed }
 
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         offsets.each_with_index do |offset, i|
           msg_store.last_offset_by_consumer_tag(tag_prefix + i.to_s).should eq offset
         end
@@ -860,7 +860,7 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         offsets.each do |offset|
           msg_store.store_consumer_offset(consumer_tag, offset)
         end
@@ -879,13 +879,13 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         offsets.each do |offset|
           msg_store.store_consumer_offset(consumer_tag, offset)
         end
         msg_store.close
 
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         bytesize = consumer_tag.bytesize + 1 + 8
         msg_store.@consumer_offsets.size.should eq bytesize
@@ -900,7 +900,7 @@ describe LavinMQ::AMQP::Stream do
       with_amqp_server do |s|
         StreamSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         bytesize = consumer_tag.bytesize + 1 + 8
 
         offsets = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
@@ -993,7 +993,7 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.store_consumer_offset("ctag", 1_i64)
         msg_store.delete
         msg_store.drop_overflow
@@ -1006,7 +1006,7 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.close
         # A late ack must surface ClosedError (like find_offset/shift?/push),
         # not a raw "Closed mfile" IO::Error that escapes the read_loop.
@@ -1076,7 +1076,7 @@ describe LavinMQ::AMQP::Stream do
         StreamSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         offsets.each_with_index do |offset, i|
           msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
@@ -1085,7 +1085,7 @@ describe LavinMQ::AMQP::Stream do
         msg_store.close
         sleep 0.1.seconds
 
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should be_nil
         msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
         msg_store.close
@@ -1097,7 +1097,7 @@ describe LavinMQ::AMQP::Stream do
       with_amqp_server do |s|
         StreamSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
 
         # Enough fixed-width entries that the summed size exceeds
         # Int32::MAX // 1000 (~2.1 MB), which overflowed the old `capacity * 1000`.
@@ -1155,7 +1155,7 @@ describe LavinMQ::AMQP::Stream do
           msgs.receive
         end
 
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq 2
 
         with_channel(s) do |ch|
@@ -1163,7 +1163,7 @@ describe LavinMQ::AMQP::Stream do
           2.times { q.publish_confirm msg_body }
         end
 
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should be_nil
       end
     end
@@ -1188,7 +1188,7 @@ describe LavinMQ::AMQP::Stream do
 
         sleep 0.1.seconds
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_store.last_offset_by_consumer_tag(c_tag).should be_nil
       end
     end
@@ -1199,7 +1199,7 @@ describe LavinMQ::AMQP::Stream do
       with_amqp_server do |s|
         StreamSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         one_offset_bytesize = "#{consumer_tag_prefix}1000".bytesize + 1 + 8
         offsets = (LavinMQ::Config.instance.segment_size / one_offset_bytesize).to_i32 + 1
         bytesize = 0
@@ -1279,7 +1279,7 @@ describe LavinMQ::AMQP::Stream do
     it "loads when trailing segment has only the 4-byte schema header" do
       with_datadir do |data_dir|
         # Push 2 large msgs so segment 1 fills and segment 2 is opened.
-        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
           AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
@@ -1296,7 +1296,7 @@ describe LavinMQ::AMQP::Stream do
         File.delete(meta_path) if File.exists?(meta_path)
 
         # Reload must not raise IndexError on the empty trailing segment.
-        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, replicator: nil)
         last_seg_id = store.@segments.last_key
         store.@segment_msg_count[last_seg_id].should eq 0
         store.push(msg) # the trailing segment should still be writable

@@ -100,6 +100,9 @@ module LavinMQ
           @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
+          if packet.qos > 0
+            @replicator.try &.fsync_files([@index_file_name])
+          end
         end
       end
 

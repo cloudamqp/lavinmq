@@ -152,7 +152,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
         fill_segment_with_one_extra_byte(q, queue_name, mfile)
 
-        store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
+        store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, replicator: nil)
         mfile = store.@segments.first_value
         mfile.pos = mfile.size - 2
         if msg = store.first?
@@ -174,7 +174,7 @@ describe LavinMQ::AMQP::DurableQueue do
         q = ch.queue(rk, durable: true)
         queue = vhost.queue(rk).as(LavinMQ::AMQP::DurableQueue)
         q.publish_confirm "a"
-        store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
+        store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, replicator: nil)
 
         if env = store.shift?
           if msg = env.message

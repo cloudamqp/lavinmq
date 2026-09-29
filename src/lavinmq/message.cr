@@ -3,6 +3,10 @@ require "amq-protocol"
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
   struct BytesMessage
+    def needs_sync? : Bool
+      false
+    end
+
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
 
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
@@ -61,6 +65,9 @@ module LavinMQ
 
   # Messages from publishers, read from socket and then written to mmap files
   struct Message
+    # Local durability requirement; never encoded in the stored or wire message.
+    property? needs_sync : Bool = false
+
     property timestamp
     getter exchange_name, routing_key, properties, bodysize, body_io
 

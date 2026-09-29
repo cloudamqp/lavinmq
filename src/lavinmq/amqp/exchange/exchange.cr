@@ -224,8 +224,7 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new,
-                  needs_sync = false) : PublishResult
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : PublishResult
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -236,7 +235,7 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.delay(msg, needs_sync)
+            q.delay(msg)
             @publish_out_count.add(1, :relaxed)
             return PublishResult::Routed
           else
@@ -244,14 +243,14 @@ module LavinMQ
             return PublishResult::None
           end
         end
-        route_msg(msg, immediate, queues, exchanges, needs_sync)
+        route_msg(msg, immediate, queues, exchanges)
       end
 
-      def route_msg(msg : Message, needs_sync = false) : PublishResult
-        route_msg(msg, false, Set(AMQP::Queue).new, Set(LavinMQ::Exchange).new, needs_sync)
+      def route_msg(msg : Message) : PublishResult
+        route_msg(msg, false, Set(AMQP::Queue).new, Set(LavinMQ::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(LavinMQ::Exchange), needs_sync : Bool) : PublishResult
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(AMQP::Queue), exchanges : Set(LavinMQ::Exchange)) : PublishResult
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
@@ -262,7 +261,7 @@ module LavinMQ
         count = 0u32
         overflow = false
         queues.each do |queue|
-          case queue.publish(msg, needs_sync)
+          case queue.publish(msg)
           in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind

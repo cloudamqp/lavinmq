@@ -424,7 +424,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
     begin
       replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id)
-      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator: replicator)
       segment_size = LavinMQ::Config.instance.segment_size
       msg_size = 1000_u64
       num_messages = (segment_size // msg_size) + 100 # ensure we create multiple segments
@@ -439,7 +439,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
       # Re-open the message store and verify the same files are registered
       replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, node_id + 1)
-      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator: replicator)
       msg_store.close
       files_after = replicator.@file_index.shared { |files, _| files.keys }.sort!
 
@@ -868,7 +868,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
       FileUtils.mkdir_p(msg_dir)
       replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
-      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator: replicator)
       populate_msg_store(msg_store)
 
       msg_store.close
@@ -888,7 +888,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
       FileUtils.mkdir_p(msg_dir)
       replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
-      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator: replicator)
       populate_msg_store(msg_store)
 
       tcp_server = TCPServer.new("localhost", 0)

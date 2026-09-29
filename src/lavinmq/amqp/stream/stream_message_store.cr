@@ -241,10 +241,10 @@ module LavinMQ::AMQP
       end
     end
 
-    def push(msg, needs_sync = false) : SegmentPosition
+    def push(msg) : SegmentPosition
       raise ClosedError.new if @closed
       @last_offset += 1
-      sp = write_to_disk(msg, needs_sync)
+      sp = write_to_disk(msg)
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp

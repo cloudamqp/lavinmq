@@ -312,6 +312,31 @@ module ClientSyncSpec
           acked.should eq framing + content.bytesize
           File.read(File.join(data_dir, filename)).should eq content
           File.exists?(File.join(data_dir, "#{filename}.tmp")).should be_false
+          client.parent_dirs_fsynced.should eq [data_dir]
+          client_socket.close
+        end
+      end
+
+      it "does not fsync the parent directory when sync is disabled" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, sync: false)
+          client_socket, leader_io = FakeSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_socket)
+          lz4_writer = Compress::LZ4::Writer.new(leader_io,
+            Compress::LZ4::CompressOptions.new(auto_flush: true, block_mode_linked: true))
+
+          filename = "replaced_file"
+          content = "new content"
+
+          spawn(name: "client stream_changes") do
+            client.stream_changes_public(client_socket, lz4_reader)
+          rescue IO::Error
+          end
+
+          write_record(lz4_writer, filename, content.bytesize.to_i64, content.to_slice)
+          read_acks(leader_io, record_size(filename, content.bytesize))
+
+          client.parent_dirs_fsynced.should be_empty
           client_socket.close
         end
       end

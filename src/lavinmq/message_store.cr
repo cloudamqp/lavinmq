@@ -31,7 +31,7 @@ module LavinMQ
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, persister : Persister? = nil, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, *, replicator : Clustering::Replicator? = nil, durable : Bool = true, persister : Persister? = nil, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
@@ -54,9 +54,9 @@ module LavinMQ
       @empty.set empty? unless @closed
     end
 
-    def push(msg, needs_sync = false) : SegmentPosition
+    def push(msg) : SegmentPosition
       raise ClosedError.new if @closed
-      sp = write_to_disk(msg, needs_sync)
+      sp = write_to_disk(msg)
       was_empty = @size.zero?
       @bytesize += sp.bytesize
       @size += 1
@@ -356,7 +356,7 @@ module LavinMQ
       end
     end
 
-    private def write_to_disk(msg, needs_sync : Bool) : SegmentPosition
+    private def write_to_disk(msg) : SegmentPosition
       wfile = @wfile
       if wfile.capacity < wfile.size + msg.bytesize
         wfile = open_new_segment(msg.bytesize)
@@ -370,7 +370,7 @@ module LavinMQ
       # marked write is already on the wire ahead of the `$` fsync request that
       # must cover it (see Persister#mark_dirty). Ordinary publishes deliberately
       # stay out of the set because no durability response depends on them.
-      @persister.try &.mark_dirty(wfile) if needs_sync
+      @persister.try &.mark_dirty(wfile) if msg.needs_sync?
       @segment_msg_count[wfile_id] += 1
       sp
     end

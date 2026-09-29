@@ -103,7 +103,7 @@ end
 
 def with_store(*, replicator = nil, durable = true, &)
   mktmpdir do |dir|
-    store = LavinMQ::MessageStore.new(dir, replicator, durable: durable)
+    store = LavinMQ::MessageStore.new(dir, replicator: replicator, durable: durable)
     begin
       yield store, dir
     ensure
@@ -117,7 +117,7 @@ end
 # the matching msg writes didn't.
 def setup_orphaned_ack_scenario(dir)
   body = "a" * 1000
-  store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+  store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
   5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
   while env = store.shift?
     store.delete(env.segment_position)
@@ -137,13 +137,14 @@ describe LavinMQ::MessageStore do
   it "only marks segments written for confirms or transactions as dirty" do
     mktmpdir do |dir|
       persister = DirtyRecordingPersister.new
-      store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil, persister: persister)
       msg = LavinMQ::Message.new("ex", "rk", "body")
 
       store.push(msg)
       persister.recorded_dirty_files.should be_empty
 
-      store.push(msg, needs_sync: true)
+      msg.needs_sync = true
+      store.push(msg)
       persister.recorded_dirty_files.map(&.path).should eq [File.join(dir, "msgs.0000000001")]
     ensure
       store.try &.close
@@ -162,7 +163,7 @@ describe LavinMQ::MessageStore do
         body = "dead letter me"
         headers = LavinMQ::AMQP::Table.new({"x-dead-letter-exchange" => "dlx"})
         props = LavinMQ::AMQP::Properties.new(headers: headers)
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "ex", "rk", props,
           body.bytesize.to_u64, IO::Memory.new(body))
         sp = store.push(msg)
@@ -193,7 +194,7 @@ describe LavinMQ::MessageStore do
       # Create an orphaned acks file
       File.write(File.join(dir, "acks.0000000002"), "")
 
-      store = LavinMQ::MessageStore.new(dir, nil)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil)
       store.close
 
       File.exists?(File.join(dir, "acks.0000000001")).should be_true
@@ -221,7 +222,7 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
       segment_files = Dir.glob(File.join(dir, "msgs.*")).count &.match(/msgs.\d{10}$/)
       store.@segments.size.should eq 1
       segment_files.should eq 1
@@ -235,7 +236,7 @@ describe LavinMQ::MessageStore do
         AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
 
       # Leave one segment on disk with all messages acked.
-      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
       store.push(msg)
       env = store.shift?.should_not be_nil
       store.delete(env.segment_position)
@@ -243,7 +244,7 @@ describe LavinMQ::MessageStore do
 
       # Reopen. The leftover segment is kept at startup because it is
       # current_seg, so @rfile = @wfile points at it.
-      store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+      store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
 
       # Pushing a message that needs to roll the segment runs
       # delete_unused_segments. The fix must advance @rfile before
@@ -265,7 +266,7 @@ describe LavinMQ::MessageStore do
         it "should return nil from empty segment" do
           mktmpdir do |dir|
             File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
-            store = LavinMQ::MessageStore.new(dir, nil, durable)
+            store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: durable)
             store.@segments.first_value.truncate(1000)
             store.first?.should be_nil
             store.close
@@ -277,7 +278,7 @@ describe LavinMQ::MessageStore do
         it "should return nil from empty segment" do
           mktmpdir do |dir|
             File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
-            store = LavinMQ::MessageStore.new(dir, nil, durable)
+            store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: durable)
             store.@segments.first_value.truncate(1000)
             store.shift?.should be_nil
             store.close
@@ -289,7 +290,7 @@ describe LavinMQ::MessageStore do
         mktmpdir do |dir|
           File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
           File.write(File.join(dir, "acks.0000000001"), "")
-          store = LavinMQ::MessageStore.new(dir, nil, durable)
+          store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: durable)
           body_io = IO::Memory.new("hello")
           message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
           store.push(message)
@@ -422,7 +423,7 @@ describe LavinMQ::MessageStore do
   describe "#purge_all" do
     it "acks requeued messages on disk so they don't come back after restart" do
       mktmpdir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         3.times { |i| store.push LavinMQ::Message.new("ex", "rk", "body#{i}") }
         env = store.shift?.should_not be_nil
         store.requeue env.segment_position
@@ -431,7 +432,7 @@ describe LavinMQ::MessageStore do
         store.size.should eq 0
         store.close
 
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         begin
           store.size.should eq 0
           store.shift?.should be_nil
@@ -447,7 +448,7 @@ describe LavinMQ::MessageStore do
         big = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
           AMQ::Protocol::Properties.new, third_seg, IO::Memory.new("a" * third_seg))
 
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         6.times { store.push(big) } # seg 1 = [m1, m2], seg 2 = [m3, m4], seg 3 = [m5, m6]
         envs = Array(LavinMQ::Envelope).new
         4.times { envs << store.shift?.not_nil! }
@@ -458,13 +459,13 @@ describe LavinMQ::MessageStore do
         # unread, but @segment_msg_count still counts the acked m3 while @size
         # doesn't. purge_all must not subtract that ack from @size, or its
         # shift loop underflows and leaves the rest of the msgs on disk.
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         store.size.should eq 5
         store.purge_all
         store.size.should eq 0
         store.close
 
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         store.size.should eq 0
         store.close
       end
@@ -475,7 +476,7 @@ describe LavinMQ::MessageStore do
     with_etcd do
       mktmpdir do |dir|
         # Create a valid store with a message, then close it
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         store.push(LavinMQ::Message.new("ex", "rk", "body"))
         store.close
 
@@ -487,7 +488,7 @@ describe LavinMQ::MessageStore do
         # with the constructor — this should close gracefully, not crash
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
-          store = LavinMQ::MessageStore.new(dir, replicator)
+          store = LavinMQ::MessageStore.new(dir, replicator: replicator)
           store.closed.should be_true
         ensure
           replicator.close
@@ -500,7 +501,7 @@ describe LavinMQ::MessageStore do
     with_etcd do
       mktmpdir do |dir|
         # Create a store with multiple segments (one message per segment)
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
         3.times { store.push(msg) }
@@ -515,7 +516,7 @@ describe LavinMQ::MessageStore do
         # even though valid segments before the corrupt one were already loaded
         replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
         begin
-          store = LavinMQ::MessageStore.new(dir, replicator)
+          store = LavinMQ::MessageStore.new(dir, replicator: replicator)
           store.closed.should be_true
         ensure
           replicator.close
@@ -528,7 +529,7 @@ describe LavinMQ::MessageStore do
     it "registers the initial segment file" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         replicator.registered_files.keys.map { |p| File.basename(p) }.should contain("msgs.0000000001")
       end
@@ -538,7 +539,7 @@ describe LavinMQ::MessageStore do
       mktmpdir do |dir|
         File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         replicator.registered_files.keys.map { |p| File.basename(p) }.should contain("msgs.0000000001")
       end
@@ -549,7 +550,7 @@ describe LavinMQ::MessageStore do
         File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
         File.write(File.join(dir, "acks.0000000001"), "")
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         replicator.registered_files.keys.map { |p| File.basename(p) }.should contain("acks.0000000001")
       end
@@ -560,7 +561,7 @@ describe LavinMQ::MessageStore do
         File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
         File.write(File.join(dir, "acks.0000000002"), "")
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         replicator.registered_files.keys.map { |p| File.basename(p) }.should_not contain("acks.0000000002")
       end
@@ -572,7 +573,7 @@ describe LavinMQ::MessageStore do
         orphan_path = File.join(dir, "acks.0000000002")
         File.write(orphan_path, "")
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         replicator.deleted_files.should contain(orphan_path)
       end
@@ -583,7 +584,7 @@ describe LavinMQ::MessageStore do
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
 
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         2.times { store.push(msg) }
         store.close
         wait_for { store.closed }
@@ -593,7 +594,7 @@ describe LavinMQ::MessageStore do
         end
 
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator, durable: true)
         store.close
 
         replicator.deleted_files.map { |p| File.basename(p) }.should contain("msgs.0000000001")
@@ -603,7 +604,7 @@ describe LavinMQ::MessageStore do
     it "re-registers files without an MFile reference when closed" do
       mktmpdir do |dir|
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         sleep 1.millisecond
         file_registrations = replicator.registered_files.select { |_, t| t == :path }
@@ -613,7 +614,7 @@ describe LavinMQ::MessageStore do
 
     it "registers ack files from all segments on normal startup" do
       mktmpdir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
         3.times { store.push(msg) }
@@ -625,7 +626,7 @@ describe LavinMQ::MessageStore do
         ack_files.each { |f| File.open(File.join(dir, f), "w", &.write_bytes(4_u32)) }
 
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         store.close
         registered = replicator.registered_files.keys.map { |p| File.basename(p) }
         ack_files.each { |f| registered.should contain(f) }
@@ -634,7 +635,7 @@ describe LavinMQ::MessageStore do
 
     it "deletes orphaned ack file and registers valid ack files when a segment is corrupt" do
       mktmpdir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
         3.times { store.push(msg) }
@@ -649,7 +650,7 @@ describe LavinMQ::MessageStore do
         File.open(File.join(dir, seg_files[0]), "r+") { |f| f.write("abcd".to_slice) }
 
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator)
         sleep 1.millisecond
         store.closed.should be_true
         registered = replicator.registered_files.keys.map { |p| File.basename(p) }
@@ -666,7 +667,7 @@ describe LavinMQ::MessageStore do
     ].each do |desc, n_segments, corrupt_idx|
       it "registers all files when the #{desc} is corrupt" do
         mktmpdir do |dir|
-          store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+          store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
           msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
           msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
           n_segments.times { store.push(msg) }
@@ -679,7 +680,7 @@ describe LavinMQ::MessageStore do
           File.open(File.join(dir, seg_files[corrupt_idx]), "r+") { |f| f.write("abcd".to_slice) }
 
           replicator = SpyReplicator.new
-          store = LavinMQ::MessageStore.new(dir, replicator)
+          store = LavinMQ::MessageStore.new(dir, replicator: replicator)
           sleep 1.millisecond
           store.closed.should be_true
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
@@ -693,7 +694,7 @@ describe LavinMQ::MessageStore do
         setup_orphaned_ack_scenario(dir)
 
         replicator = SpyReplicator.new
-        store = LavinMQ::MessageStore.new(dir, replicator, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: replicator, durable: true)
         store.close
 
         replicator.replaced_files.map { |p| File.basename(p) }.should contain("acks.0000000001")
@@ -720,7 +721,7 @@ describe LavinMQ::MessageStore do
           end
         end
 
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         store.@deleted.empty?.should be_true
         store.close
       end
@@ -731,7 +732,7 @@ describe LavinMQ::MessageStore do
         setup_orphaned_ack_scenario(dir)
 
         # Reopen — prune_orphaned_acks should drop the 2 orphaned positions.
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         store.@size.should eq 0
         store.@deleted[1]?.try(&.size).should eq 5
         store.@acks[1].size.should eq 5 * sizeof(UInt32)
@@ -752,7 +753,7 @@ describe LavinMQ::MessageStore do
       mktmpdir do |dir|
         setup_orphaned_ack_scenario(dir)
         Log.capture("lmq.*", :warn) do |log|
-          store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+          store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
           store.close
           log.check(:warn, /Msgs\/acks files for segment 1 are out of sync.*Removing 2 orphaned ack position\(s\)/)
         end
@@ -766,7 +767,7 @@ describe LavinMQ::MessageStore do
         # Non-durable reopens unlink the msg/ack files as they load, so the
         # ack file is detected as orphaned and @deleted never gets populated.
         # The important thing is that opening doesn't crash.
-        store = LavinMQ::MessageStore.new(dir, nil, durable: false)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: false)
         (store.@deleted[1]?.nil? || store.@deleted[1].empty?).should be_true
         store.close
       end
@@ -779,7 +780,7 @@ describe LavinMQ::MessageStore do
         orphan_tmp = File.join(dir, "tmp.acks.0000000001")
         File.write(orphan_tmp, "garbage-bytes")
 
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         store.@acks.has_key?(1u32).should be_true
         File.exists?(orphan_tmp).should be_false
         store.close
@@ -789,7 +790,7 @@ describe LavinMQ::MessageStore do
     it "does not raise EOF when rfile.pos is at end when open_new_segment fires" do
       mktmpdir do |dir|
         body = "a" * 1000
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
         while env = store.shift?
           store.delete(env.segment_position)
@@ -797,7 +798,7 @@ describe LavinMQ::MessageStore do
         store.close
         wait_for { store.closed }
 
-        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil, durable: true)
         store.@size.should eq 0
 
         # Push-shift-ack one small msg; rfile.pos is now at end of segment 1.

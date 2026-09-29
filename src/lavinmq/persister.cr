@@ -87,7 +87,13 @@ module LavinMQ
       drain_pending_acks
     end
 
+    @sync_lock = Mutex.new
+
     private def sync_dirty_files : Nil
+      @sync_lock.synchronize { sync_dirty_files_locked }
+    end
+
+    private def sync_dirty_files_locked : Nil
       dirty : Array(MFile)? = nil
       @dirty_files.replace do |current|
         if current.empty?
@@ -113,14 +119,14 @@ module LavinMQ
       # this may run on an isolated thread that must never write the follower
       # sockets itself (see Follower#request_fsync).
       if replicator = @replicator
-        paths = dirty.reject(&.deleted?).map(&.path)
+        paths = dirty.compact_map { |file| file.path unless file.deleted? }
         replicator.fsync_files(paths) unless paths.empty?
       end
       return unless Config.instance.sync?
       dirty.each do |mfile|
         next if mfile.closed? || mfile.deleted?
         begin
-          mfile.fsync
+          sync_file(mfile)
         rescue IO::Error
           # Closed before fsync acquired the mapping lock. Once acquired, the
           # lock prevents unmapping during msync. A real msync failure raises an
@@ -130,6 +136,10 @@ module LavinMQ
           exit 1
         end
       end
+    end
+
+    protected def sync_file(mfile : MFile) : Nil
+      mfile.fsync
     end
 
     private def drain_pending_acks
@@ -145,12 +155,6 @@ module LavinMQ
       return unless acks
 
       sync_dirty_files
-      # Ask each follower's flush fiber to push the pending replicated bytes,
-      # so they persist and ack them while our own msync runs. Only a
-      # request: this loop runs on an isolated thread and must never write
-      # the follower sockets itself — their fds belong to the default
-      # execution context's event loop (see Follower#flush_loop).
-      @replicator.try &.followers.each &.request_flush
       # Block until every in-sync follower has acked the replicated bytes
       # (including the fsync requests dispatched above) and any ISR shrink is
       # committed to the coordinator, so a confirm means the data is durable

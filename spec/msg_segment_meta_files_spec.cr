@@ -4,7 +4,7 @@ describe "Message segment metadata files" do
   describe "Metadata file creation" do
     it "creates meta file when segment becomes full" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Create a large message to fill segments faster
         segment_size = LavinMQ::Config.instance.segment_size
@@ -38,7 +38,7 @@ describe "Message segment metadata files" do
 
     it "writes correct metadata for stream queues" do
       with_datadir do |dir|
-        store = LavinMQ::AMQP::StreamMessageStore.new(dir, nil)
+        store = LavinMQ::AMQP::StreamMessageStore.new(dir, replicator: nil)
 
         # Publish enough messages to trigger new segment creation
         segment_size = LavinMQ::Config.instance.segment_size
@@ -78,7 +78,7 @@ describe "Message segment metadata files" do
   describe "Metadata file reading on startup" do
     it "produces metadata files when missing on load" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size
         5.times { store.push(LavinMQ::Message.new("", "rk", large_message)) }
@@ -88,7 +88,7 @@ describe "Message segment metadata files" do
         Dir.glob(File.join(dir, "meta.*")).should be_empty
 
         # Manually create a new message store to simulate restart behavior
-        new_store = LavinMQ::MessageStore.new(dir, nil)
+        new_store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Should have loaded messages correctly
         new_store.size.should eq 5
@@ -107,7 +107,7 @@ describe "Message segment metadata files" do
 
     it "falls back to message scanning when meta file missing" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         25.times { |i| store.push(LavinMQ::Message.new("", "rk", "message #{i}")) }
 
@@ -115,7 +115,7 @@ describe "Message segment metadata files" do
         Dir.glob(File.join(dir, "meta.*")).each { |path| File.delete(path) }
 
         # Create new store - should fall back to message scanning
-        new_store = LavinMQ::MessageStore.new(dir, nil)
+        new_store = LavinMQ::MessageStore.new(dir, replicator: nil)
         new_store.size.should eq 25
         new_store.close
         store.close
@@ -126,7 +126,7 @@ describe "Message segment metadata files" do
   describe "Segment deletion with metadata cleanup" do
     it "deletes meta file when segment is deleted" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Fill multiple segments
         segment_size = LavinMQ::Config.instance.segment_size
@@ -160,7 +160,7 @@ describe "Message segment metadata files" do
 
     it "deletes meta file when purging queue" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Fill segments enough to create multiple segments
         segment_size = LavinMQ::Config.instance.segment_size
@@ -191,7 +191,7 @@ describe "Message segment metadata files" do
 
     it "only completed segments have meta files" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Create enough messages to span multiple segments
         segment_size = LavinMQ::Config.instance.segment_size
@@ -232,7 +232,7 @@ describe "Message segment metadata files" do
   describe "Count file functionality" do
     it "stores message count in metadata files" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Create enough messages to fill multiple segments
         segment_size = LavinMQ::Config.instance.segment_size
@@ -261,7 +261,7 @@ describe "Message segment metadata files" do
 
     it "uses metadata for faster message store initialization" do
       with_datadir do |dir|
-        store = LavinMQ::MessageStore.new(dir, nil)
+        store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Publish messages
         large_message = "x" * (LavinMQ::Config.instance.segment_size // 4) # message is 1/4 of segment size
@@ -270,7 +270,7 @@ describe "Message segment metadata files" do
         store.@segments.size.should be > 1
         Dir.glob(File.join(dir, "meta.*")).should_not be_empty
 
-        new_store = LavinMQ::MessageStore.new(dir, nil)
+        new_store = LavinMQ::MessageStore.new(dir, replicator: nil)
 
         # Should have correct message count
         new_store.size.should eq message_count

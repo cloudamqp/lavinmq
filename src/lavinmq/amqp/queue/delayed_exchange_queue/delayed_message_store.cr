@@ -95,10 +95,10 @@ module LavinMQ::AMQP
       end
 
       # Overload to add the segment position to our "index"
-      def push(msg, needs_sync = false) : SegmentPosition
+      def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         was_empty = @size.zero?
-        sp = write_to_disk(msg, needs_sync)
+        sp = write_to_disk(msg)
         requeued.insert(sp, msg.timestamp)
         @bytesize += sp.bytesize
         @size += 1

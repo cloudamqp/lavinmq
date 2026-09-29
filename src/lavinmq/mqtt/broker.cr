@@ -102,7 +102,9 @@ module LavinMQ
 
       def publish(packet : Protocol::Publish)
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet)
+        result = @exchange.publish(packet)
+        @vhost.persister.sync if packet.qos > 0
+        result
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
