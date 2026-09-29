@@ -495,7 +495,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should not park peeked messages in the retry queue" do
+    it "should not move peeked messages to the retry queue" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({

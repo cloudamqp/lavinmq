@@ -110,32 +110,30 @@ describe "Retry Queue" do
       end
     end
 
-    it "should not trust a client-supplied x-original-timestamp" do
+    it "should count time spent in the retry queue against x-message-ttl" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          dlq = ch.queue("retry-forged-ts-dlq")
+          dlq = ch.queue("retry-ttl-dlq")
           args = AMQP::Client::Arguments.new({
             "x-delivery-limit"          => 10,
             "x-delayed-retry-min"       => 500,
             "x-message-ttl"             => 300,
             "x-dead-letter-exchange"    => "",
-            "x-dead-letter-routing-key" => "retry-forged-ts-dlq",
+            "x-dead-letter-routing-key" => "retry-ttl-dlq",
           })
-          q = ch.queue("retry-forged-ts", args: args)
-          far_future = Time.utc.to_unix_ms + 3_600_000
-          headers = AMQP::Client::Arguments.new({"x-original-timestamp" => far_future})
-          q.publish_confirm "forged ts", props: AMQP::Client::Properties.new(headers: headers)
+          q = ch.queue("retry-ttl", args: args)
+          q.publish_confirm "expire me"
 
           msg = wait_for { q.get(no_ack: false) }
           msg.reject(requeue: true)
 
           dlq_msg = wait_for(timeout: 5.seconds) { dlq.get(no_ack: true) }
-          dlq_msg.body_io.to_s.should eq "forged ts"
+          dlq_msg.body_io.to_s.should eq "expire me"
         end
       end
     end
 
-    it "should re-park a retried message when the primary queue is full" do
+    it "should delay a retried message again when the primary queue is full" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
@@ -144,7 +142,7 @@ describe "Retry Queue" do
             "x-max-length"        => 1,
             "x-overflow"          => "reject-publish",
           })
-          q = ch.queue("retry-overflow-repark", args: args)
+          q = ch.queue("retry-overflow-redelay", args: args)
           q.publish_confirm "retry me"
 
           msg = wait_for { q.get(no_ack: false) }
@@ -152,7 +150,7 @@ describe "Retry Queue" do
           q.publish_confirm "block"
 
           sleep 350.milliseconds
-          s.vhosts["/"].queue("amq.retry-retry-overflow-repark").message_count.should eq 1
+          s.vhosts["/"].queue("amq.retry-retry-overflow-redelay").message_count.should eq 1
 
           wait_for { q.get(no_ack: true) }.body_io.to_s.should eq "block"
           msg2 = wait_for(timeout: 5.seconds) { q.get(no_ack: true) }
@@ -188,7 +186,7 @@ describe "Retry Queue" do
       end
     end
 
-    it "should purge parked messages with the queue" do
+    it "should purge delayed messages with the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
@@ -196,7 +194,7 @@ describe "Retry Queue" do
             "x-delayed-retry-min" => 60_000,
           })
           q = ch.queue("retry-purge", args: args)
-          q.publish_confirm "parked"
+          q.publish_confirm "delayed"
           msg = wait_for { q.get(no_ack: false) }
           msg.reject(requeue: true)
           wait_for { s.vhosts["/"].queue("amq.retry-retry-purge").message_count == 1 }

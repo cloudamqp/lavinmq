@@ -542,20 +542,32 @@ module LavinMQ::AMQP
       nil
     end
 
+    # The message keeps its original timestamp while delayed, so x-message-ttl
+    # keeps applying to the message's total age; the delayed store expires at
+    # timestamp + x-delay, so the age since publish is folded into the delay
     private def route_to_retry_queue(sp : SegmentPosition, msg : BytesMessage, retry_queue : RetryQueue, base_delay : Int64) : Bool
       delivery_count = @deliveries.fetch(sp, 1)
       delay_ms = calculate_retry_delay(base_delay, delivery_count)
       props = msg.properties
       h = props.headers || AMQP::Table.new
-      h["x-delay"] = delay_ms.to_u32
+      h["x-delay"] = delay_from(msg.timestamp, delay_ms)
       h["x-delivery-count"] = delivery_count
-      h["x-original-timestamp"] = msg.timestamp
       props.headers = h
-      retry_msg = Message.new(RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
+      retry_msg = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         props, msg.bodysize, IO::Memory.new(msg.body))
       return false unless retry_queue.delay(retry_msg)
       delete_message(sp)
       true
+    end
+
+    protected def delay_from(timestamp : Int64, backoff : Int64) : UInt32
+      age = RoughTime.unix_ms - timestamp
+      age = 0_i64 if age < 0
+      Math.min(backoff + age, DELAYED_RETRY_MAX_DELAY_MS).to_u32
+    end
+
+    protected def retry_delay_for(delivery_count : Int32) : Int64
+      calculate_retry_delay(@delayed_retry_min || 1_i64, delivery_count)
     end
 
     # Linear when no multiplier.
@@ -1208,7 +1220,7 @@ module LavinMQ::AMQP
         @message_ttl_change.try_send? nil
         ensure_expire_fiber
       end
-      delete_count += purge_parked(max_count - delete_count)
+      delete_count += purge_delayed(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -1216,9 +1228,9 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Parked messages would otherwise be republished after their delay,
+    # Delayed messages would otherwise be republished after their backoff,
     # resurrecting messages the user just purged
-    private def purge_parked(max_count) : UInt32
+    private def purge_delayed(max_count) : UInt32
       retry_queue = @delayed_retry_queue
       return 0_u32 unless retry_queue && max_count > 0
       retry_queue.purge(max_count)

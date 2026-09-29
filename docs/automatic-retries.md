@@ -5,7 +5,7 @@ Automatic retries let the broker redeliver rejected messages after a growing bac
 ## How It Works
 
 1. Declare a queue with the `x-delayed-retry-min` argument to enable the feature
-2. When a consumer rejects a message with `requeue=true` (via `basic.reject` or `basic.nack`), the broker parks it in an internal retry queue (`amq.retry-<queue>`) instead of requeuing it immediately
+2. When a consumer rejects a message with `requeue=true` (via `basic.reject` or `basic.nack`), the broker delays it in an internal retry queue (`amq.retry-<queue>`) instead of requeuing it immediately
 3. When the backoff delay expires, the message is redelivered to the queue
 4. When the delivery count exceeds `x-delivery-limit`, the message is dead-lettered (or dropped without a dead letter exchange)
 
@@ -38,7 +38,7 @@ Retry delays are 500 ms, 1 s, 2 s, 4 s, 8 s. When the 6th delivery is also rejec
 
 | Consumer action | Behavior |
 |-----------------|----------|
-| `basic.reject(requeue=true)` / `basic.nack(requeue=true)` | Parked in the retry queue, redelivered after the backoff. |
+| `basic.reject(requeue=true)` / `basic.nack(requeue=true)` | Delayed in the retry queue, redelivered after the backoff. |
 | `basic.reject(requeue=false)` / `basic.nack(requeue=false)` | Straight to the dead letter exchange, or dropped. |
 | Channel/connection close, `basic.recover` | Instant requeue with no backoff, but the redelivery still counts towards `x-delivery-limit`. |
 
@@ -46,7 +46,7 @@ The `x-delivery-count` header on a delivery tells the consumer how many deliveri
 
 ## Retry Queue
 
-Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding parked messages ordered by redelivery time. It is created with the queue, deleted with it, and recreated automatically if it disappears. Like all internal queues it cannot be operated on by AMQP clients, but it is visible in the management UI and HTTP API, where the number of parked messages can be monitored.
+Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created with the queue, deleted with it, and recreated automatically if it disappears. Like all internal queues it cannot be operated on by AMQP clients, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
 
 ## Notes and Limitations
 
@@ -54,7 +54,7 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - The message's original timestamp is preserved through retries, so `x-message-ttl` applies to the message's total age and can expire a message mid-retry
 - Retry cannot be combined with `x-message-deduplication`: the declaration is refused, since a retried message would always be dropped as a duplicate
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
-- If the queue is full with `overflow=reject-publish` when a retry is due, the message stays parked and is retried again after the same delay
+- If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period
 - The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
 - If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff and the retry queue is recreated on the next reject
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit
