@@ -45,8 +45,7 @@ end
 
 describe LavinMQ::HTTP::PermissionGroupsController do
   describe "groups" do
-    # A failed save answers 500 and the change stays active in memory, like in
-    # the other stores. The next successful save writes the full group list.
+    # A failed save answers 500; the change stays in memory until the next save.
     it "reports failed saves and keeps the change active in memory" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]

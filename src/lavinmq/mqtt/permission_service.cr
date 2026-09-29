@@ -95,16 +95,9 @@ module LavinMQ
         end
       end
 
-      # Look the group up and mutate it under one lock, so an edit that commits
-      # while the caller prepares its own change is not overwritten. The block
-      # mutates the group it is given and returns whether anything changed;
-      # false skips the commit. Returns false when no group has that name. The
-      # block runs with the lock held, so it must not call back into the
-      # service and it must not wait on IO.
-      #
-      # The block gets a clone that replaces the original on commit. A shared
-      # group is never mutated: a reader that suspends on socket IO while it
-      # serializes a group must not see a concurrent change.
+      # The block runs under the lock (no IO, no calls back into the service),
+      # mutates the clone it is given and returns whether to commit. The clone
+      # replaces the original, so a shared group never mutates under a reader.
       def update(name : String, & : PermissionGroup -> Bool) : Bool
         @save_lock.synchronize do
           return false unless current = @groups[name]?
@@ -232,10 +225,8 @@ module LavinMQ
         rebuild
       end
 
-      # Called with @save_lock held, after @groups was mutated. Rebuild before
-      # the save, so memory is self-consistent even when the save fails and
-      # only disk lags behind, like in the other stores. The replicator call
-      # can suspend this fiber while the lock is still held.
+      # Called with @save_lock held. Rebuild before the save: on a failed save
+      # memory stays self-consistent and only disk lags, like the other stores.
       private def commit : Nil
         rebuild
         path = save!(@groups)

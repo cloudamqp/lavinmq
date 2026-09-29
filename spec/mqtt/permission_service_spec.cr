@@ -84,8 +84,7 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  # Like the other stores, memory changes first and a failed save leaves disk
-  # behind. The raised error tells the caller the change is not confirmed.
+  # Memory changes first, like in the other stores; a failed save leaves disk behind.
   it "keeps a new grant in memory when saving fails" do
     with_data_dir do |data_dir|
       service = lock_down(LavinMQ::MQTT::PermissionService.new("/", data_dir, nil))
@@ -193,9 +192,7 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  # A reader that streams a group to a slow socket suspends mid-iteration and
-  # must not see a concurrent update: shared groups stay immutable, the update
-  # block gets a copy that replaces the original on commit.
+  # A reader streaming a group to a slow socket must not see a concurrent update.
   it "never mutates a group a reader already holds" do
     with_service do |service|
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))

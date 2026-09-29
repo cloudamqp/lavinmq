@@ -23,8 +23,7 @@ module LavinMQ
         end
       end
 
-      # On disk the rules are an array of objects; in memory they are keyed on
-      # the identifier, so identifiers are unique by construction.
+      # An array of objects on disk, keyed on the identifier in memory.
       module RulesConverter
         def self.from_json(pull : JSON::PullParser) : Hash(String, Rule)
           PermissionGroup.index_rules(Array(Rule).new(pull))
