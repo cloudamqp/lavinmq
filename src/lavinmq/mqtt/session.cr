@@ -10,6 +10,7 @@ require "../queue_stats"
 require "../vhost"
 require "./consts"
 require "./permission_service"
+require "./session_message_store"
 
 module LavinMQ
   module MQTT
@@ -31,7 +32,7 @@ module LavinMQ
       @max_length : Int64? = nil
       @max_length_bytes : Int64? = nil
       @msg_store_lock = Mutex.new(:reentrant)
-      @msg_store : MessageStore
+      @msg_store : SessionMessageStore
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
       @deleted = false
@@ -66,7 +67,7 @@ module LavinMQ
         )
         Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = MessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
+        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
         @metadata_file = File.join(data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)
@@ -149,6 +150,27 @@ module LavinMQ
         end
       end
 
+      # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
+      # unless that id is still in flight - reissuing it would overwrite the
+      # `@unacked` entry holding it - or is `0`, which may not go on the wire
+      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      private def delivery_id(sp : SegmentPosition) : UInt16?
+        if id = @msg_store.packet_id?(sp)
+          return id unless id.zero? || @unacked.has_key?(id)
+        end
+        next_id
+      end
+
+      # `@has_capacity` mirrors "the in-flight window has room". Recomputed from
+      # `@unacked` rather than written as a literal, since it is updated from both
+      # the deliver_loop and the client's fiber and a stale `false` parks the
+      # deliver_loop with no ack left to reopen the gate. `swap` rather than `set`
+      # because this runs per delivery and per ack, and `set` takes both channel
+      # locks even when the value is unchanged.
+      private def refresh_capacity : Nil
+        @has_capacity.swap(@unacked.size < Config.instance.max_inflight_messages)
+      end
+
       def client : MQTT::Client?
         @client
       end
@@ -157,9 +179,13 @@ module LavinMQ
         return if closed?
         @last_get_time = RoughTime.instant
 
+        # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
+        # persistent one requeues what it owes and remembers the packet ids, to
+        # resend under the ids the client already knows [MQTT-4.4.0-1].
         unless clean_session?
           @msg_store_lock.synchronize do
-            @unacked.values.each do |sp|
+            @unacked.each do |packet_id, sp|
+              @msg_store.remember_packet_id(sp, packet_id)
               @msg_store.requeue(sp)
             end
           end
@@ -168,7 +194,7 @@ module LavinMQ
         @unacked.clear
         @unacked_count.set(0, :release)
         @unacked_bytesize.set(0, :release)
-        @has_capacity.set(true)
+        refresh_capacity
 
         @client = client
         @has_client.set(!client.nil?)
@@ -274,9 +300,14 @@ module LavinMQ
             delete_message(sp)
           else
             begin
-              id = next_id
+              id = delivery_id(sp)
               unless id
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                # Without this the deliver_loop spins: the store is non-empty and
+                # capacity still reads true. Recomputed rather than closed
+                # outright, since an ack can free a slot while the requeue above
+                # waits on a contended @msg_store_lock.
+                refresh_capacity
                 return false
               end
               packet = build_packet(env, id)
@@ -290,7 +321,8 @@ module LavinMQ
                 @deliver_get_count.add(1, :relaxed)
               end
               @unacked[id] = sp
-              @has_capacity.set(false) if @unacked.size >= Config.instance.max_inflight_messages
+              @msg_store.forget_packet_id(sp)
+              refresh_capacity
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               @unacked_count.sub(1, :relaxed)
@@ -355,7 +387,7 @@ module LavinMQ
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
           ensure
-            @has_capacity.set(true)
+            refresh_capacity
           end
         else
           raise ::IO::Error.new("No message inflight for id '#{id}'")
