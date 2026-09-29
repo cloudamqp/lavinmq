@@ -99,6 +99,14 @@
       channel close frame, but is free to open a new channel.
     summary: Close channel
     operationId: DeleteChannel
+    parameters:
+    - in: header
+      name: X-Reason
+      required: false
+      schema:
+        type: string
+        default: Closed via management plugin
+      description: Reason sent to the client.
     responses:
       '204':
         description: The channel was closed successfully.
