@@ -116,8 +116,15 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
 | `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
-| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated) |
-| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix |
+| `peers` | `--clustering-peers` | `LAVINMQ_CLUSTERING_PEERS` | String | (this node) | Raft `host:port` of every node, including this one (comma-separated) |
+| `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Port for leader election traffic, bound on `bind` |
+| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | `hostname:raft_port` | This node's entry in `peers` |
+| `password` | — | `LAVINMQ_CLUSTERING_PASSWORD` | String | (none, required) | Shared secret authenticating nodes to each other, at most 255 bytes |
+| `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts |
+| `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats |
+| `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when migrating from etcd |
+| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | (empty) | **Deprecated:** still accepted but has no effect, leader election is built in |
+| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | (empty) | **Deprecated:** still accepted but has no effect |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

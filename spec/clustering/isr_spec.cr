@@ -4,7 +4,7 @@ require "../../src/lavinmq/clustering/client"
 require "lz4"
 
 # Records the ISR sets the Server writes, so specs can assert ISR membership
-# changes without a real etcd. Can be made to fail (coordinator unreachable)
+# changes without a real raft cluster. Can be made to fail (coordinator unreachable)
 # to assert that publish confirms stall until the ISR write succeeds.
 class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
