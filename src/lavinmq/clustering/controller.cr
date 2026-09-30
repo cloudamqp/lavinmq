@@ -22,7 +22,7 @@ class LavinMQ::Clustering::Controller
       @id, @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
       bootstrap: may_bootstrap?)
-    @coordinator = RaftCoordinator.new(@node, @config.clustering_password)
+    @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
   # This method is called by the Launcher#run.
@@ -97,7 +97,7 @@ class LavinMQ::Clustering::Controller
   private def start_node : Nil
     server = TCPServer.new(@config.clustering_bind, @config.clustering_raft_port)
     peers = @config.clustering_peer_addresses.reject(@config.clustering_raft_address)
-    transport = @transport = Raft::TCPTransport.new(@config.clustering_password, peers, ->@node.deliver(Raft::Message))
+    transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, peers, ->@node.deliver(Raft::Message))
     spawn(transport.listen(server), name: "Raft listener")
     @node.run(transport)
   rescue ex : Socket::BindError
