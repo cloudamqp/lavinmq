@@ -119,7 +119,8 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `peers` | `--clustering-peers` | `LAVINMQ_CLUSTERING_PEERS` | String | (this node) | Raft `host:port` of every node, including this one (comma-separated) |
 | `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Port for leader election traffic, bound on `bind` |
 | `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | `hostname:raft_port` | This node's entry in `peers` |
-| `password` | — | `LAVINMQ_CLUSTERING_PASSWORD` | String | (none, required) | Shared secret authenticating nodes to each other, at most 255 bytes |
+| `password_file` | `--clustering-password-file` | `LAVINMQ_CLUSTERING_PASSWORD_FILE` | String | (empty) | File with the shared secret authenticating nodes to each other, at most 255 bytes. Must not be accessible by group or others |
+| `password` | — | `LAVINMQ_CLUSTERING_PASSWORD` | String | (empty) | The shared secret inline, instead of `password_file`. One of the two is required |
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats |
 | `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when migrating from etcd |
