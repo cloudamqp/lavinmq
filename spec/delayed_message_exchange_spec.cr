@@ -290,7 +290,7 @@ describe "Delayed Message Exchange" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
-        # Long delay so the message stays in the internal delayed queue
+        # Long delay so the message stays parked in the internal delayed queue
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 600_000})
         x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
       end
