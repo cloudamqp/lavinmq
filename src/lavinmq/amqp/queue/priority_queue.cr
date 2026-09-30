@@ -58,12 +58,14 @@ module LavinMQ::AMQP
       end
 
       private def init_sub_stores(stores)
+        Dir.mkdir_p @msg_dir
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          @durable ? FileSystem.mkdir_p(sub_msg_dir) : Dir.mkdir_p(sub_msg_dir)
+          Dir.mkdir(sub_msg_dir) unless Dir.exists?(sub_msg_dir)
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}), persister: @persister)
           stores << store
         end
+        FileSystem.fsync_dir(@msg_dir) if @durable
       end
 
       private def migrate_from_single_store
