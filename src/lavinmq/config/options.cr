@@ -457,6 +457,14 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD")]
       property clustering_password = ""
 
+      # File holding the clustering password, must not be readable by group or
+      # others. Preferred over `password`, which lives in the often world
+      # readable config file.
+      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600)", section: "clustering")]
+      @[IniOpt(ini_name: password_file, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD_FILE")]
+      property clustering_password_file = ""
+
       @[CliOpt("", "--clustering-etcd-endpoints=URIs", "(Deprecated) No longer used",
         section: "clustering", deprecated: "--clustering-etcd-endpoints is deprecated and no longer used, leader election is built in")]
       @[IniOpt(ini_name: etcd_endpoints, section: "clustering",

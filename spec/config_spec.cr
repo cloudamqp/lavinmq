@@ -375,6 +375,68 @@ describe LavinMQ::Config do
   end
 
   describe "clustering validation" do
+    it "reads the password from password_file" do
+      with_datadir do |dir|
+        path = File.join(dir, "clustering_password")
+        File.write(path, "file-secret\n")
+        File.chmod(path, 0o600)
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+        config.clustering_secret.should eq "file-secret"
+      end
+    end
+
+    it "rejects a password_file readable by group or others" do
+      with_datadir do |dir|
+        path = File.join(dir, "clustering_password")
+        File.write(path, "file-secret")
+        File.chmod(path, 0o640)
+        config = LavinMQ::Config.new(IO::Memory.new)
+        expect_raises(LavinMQ::Config::Error, /chmod 600/) do
+          config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+        end
+      end
+    end
+
+    it "rejects a missing password_file" do
+      config = LavinMQ::Config.new(IO::Memory.new)
+      expect_raises(LavinMQ::Config::Error, /password_file/) do
+        config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=/nonexistent/pw"])
+      end
+    end
+
+    it "rejects both password and password_file" do
+      with_datadir do |dir|
+        path = File.join(dir, "clustering_password")
+        File.write(path, "file-secret")
+        File.chmod(path, 0o600)
+        ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "inline"
+        config = LavinMQ::Config.new(IO::Memory.new)
+        expect_raises(LavinMQ::Config::Error, /not both/) do
+          config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+        end
+      ensure
+        ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+      end
+    end
+
+    it "warns about a password in a world readable config file" do
+      with_datadir do |dir|
+        path = File.join(dir, "lavinmq.ini")
+        File.write(path, "[clustering]\nenabled = true\nraft_advertised_address = a:1\npassword = inline\n")
+        File.chmod(path, 0o644)
+        io = IO::Memory.new
+        config = LavinMQ::Config.new(io)
+        config.parse(["-c", path])
+        io.to_s.should contain "readable by all users"
+        File.chmod(path, 0o600)
+        io = IO::Memory.new
+        config = LavinMQ::Config.new(io)
+        config.parse(["-c", path])
+        io.to_s.should_not contain "readable by all users"
+      end
+    end
+
     it "requires a clustering password" do
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /password/) do
