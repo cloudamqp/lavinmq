@@ -214,6 +214,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_TLS_CIPHERS")]
       property tls_ciphers = ""
 
+      @[CliOpt("", "--ciphersuites CIPHERSUITES", "List of TLS 1.3 ciphersuites to allow", section: "tls")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_TLS_CIPHERSUITES")]
+      property tls_ciphersuites = ""
+
       @[CliOpt("", "--tls-prefer-server-ciphers=BOOL", "Let the server's cipher order decide which cipher is used (default: false)", section: "tls")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")]
