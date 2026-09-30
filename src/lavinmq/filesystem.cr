@@ -13,8 +13,10 @@ module LavinMQ
 
     def self.syncfs(fd : Int32) : Nil
       {% if flag?(:linux) %}
-        ret = LibC.syncfs(fd)
-        raise IO::Error.from_errno("syncfs") if ret != 0
+        ret, errno = Fiber.syscall do
+          {LibC.syncfs(fd), Errno.value}
+        end
+        raise IO::Error.from_os_error("syncfs", errno) if ret != 0
       {% else %}
         LibC.sync
       {% end %}
