@@ -67,9 +67,10 @@ describe LavinMQ::Persister do
 
   it "syncs the whole filesystem when a confirm depends on more files than the threshold" do
     with_amqp_server do |s|
+      LavinMQ::Config.instance.syncfs_threshold = 4
       with_channel(s) do |ch|
         x = ch.exchange("many", "fanout")
-        (LavinMQ::FileSystem::SYNCFS_THRESHOLD + 1).times do |i|
+        (LavinMQ::Config.instance.syncfs_threshold + 1).times do |i|
           ch.queue("many#{i}").bind(x.name, "")
         end
         ch.confirm_select

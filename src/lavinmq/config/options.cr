@@ -304,6 +304,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_SYNC")]
       property? sync : Bool = true
 
+      # Syncing each file costs a device flush, while syncfs also writes out
+      # every other dirty page on the filesystem (e.g. ack files)
+      @[IniOpt(section: "main")]
+      property syncfs_threshold : Int32 = 64 # files
+
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 

@@ -643,7 +643,7 @@ module LavinMQ
             end
             item = acks.try_receive? || break
           end
-          if syncfs || fsync_paths.size > FileSystem::SYNCFS_THRESHOLD
+          if syncfs || fsync_paths.size > @config.syncfs_threshold
             sync_to_disk
           else
             fsync_to_disk(fsync_paths)

@@ -142,7 +142,7 @@ module LavinMQ
       dirs = Set(String).new
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       syncfs = !batch.waiters.empty? ||
-               batch.files.size + batch.paths.size + dirs.size > FileSystem::SYNCFS_THRESHOLD
+               batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = nil
       begin
         if syncfs

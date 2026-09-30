@@ -8,9 +8,6 @@ module LavinMQ
   # renames and newly created directories fsync the directory they changed.
   # The fsyncs are skipped when `sync` is disabled.
   module FileSystem
-    # Syncing more files than this one by one is slower than a single syncfs
-    SYNCFS_THRESHOLD = 16
-
     def self.syncfs(fd : Int32) : Nil
       {% if flag?(:linux) %}
         ret, errno = Fiber.syscall do

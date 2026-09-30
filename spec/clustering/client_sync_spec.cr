@@ -1048,12 +1048,13 @@ module ClientSyncSpec
 
       it "syncs the data dir instead when more files than the threshold are requested" do
         with_datadir do |data_dir|
+          LavinMQ::Config.instance.syncfs_threshold = 4
           client = make_client(data_dir)
           client_socket, leader_io = FakeSocket.pair
           lz4_reader = Compress::LZ4::Reader.new(client_socket)
           lz4_writer = Compress::LZ4::Writer.new(leader_io,
             Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
-          filenames = (0..LavinMQ::FileSystem::SYNCFS_THRESHOLD).map { |i| "file#{i}" }
+          filenames = (0..LavinMQ::Config.instance.syncfs_threshold).map { |i| "file#{i}" }
           filenames.each { |f| File.write(File.join(data_dir, f), "") }
           # All requests in one LZ4 block, so the ack loop gets them in one batch
           filenames.each { |f| write_fsync_request(lz4_writer, f) }
@@ -1066,7 +1067,7 @@ module ClientSyncSpec
           expected = filenames.sum { |f| record_size("$#{f}") }
           read_acks(leader_io, expected).should eq expected
           client.syncs_started.should be > 0
-          client.fsynced_paths.size.should be <= LavinMQ::FileSystem::SYNCFS_THRESHOLD
+          client.fsynced_paths.size.should be <= LavinMQ::Config.instance.syncfs_threshold
           client_socket.close
         end
       end
