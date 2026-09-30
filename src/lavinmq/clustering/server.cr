@@ -33,6 +33,8 @@ module LavinMQ
       @followers = Array(Follower).new(4)
       @password : String
       @dirty_isr = true
+      # Followers committed to the ISR and still connected
+      @in_sync_followers = Atomic(Int32).new(0)
       @id : Int32
       @config : Config
       # Maps relative paths to their MFile (for sparse, mmap-backed files) or
@@ -289,6 +291,10 @@ module LavinMQ
         end
       end
 
+      def in_sync_followers? : Bool
+        @in_sync_followers.get(:acquire) > 0
+      end
+
       def syncing_followers : Array(Follower)
         @lock.synchronize do
           @followers.select(&.syncing?) # select returns new array => thread safe
@@ -352,6 +358,7 @@ module LavinMQ
       # Full-sync an already-registered follower into the Synced state, then
       # serve its ack loop until it disconnects or is closed.
       private def sync_and_serve(follower : Follower) : Nil
+        counted = false
         # Only allow one follower to do full sync at a time
         # The bandwidth between nodes should be very high, so
         # better with one fully synced than 2 partially synced followers
@@ -370,11 +377,14 @@ module LavinMQ
             follower.capture_synced_baseline(cut)
             follower.mark_synced! # Change state to Synced
             update_isr
+            @in_sync_followers.add(1, :release)
+            counted = true
           end
         end
         # Wait for follower to disconnect or be closed
         follower.ack_loop
       ensure
+        @in_sync_followers.sub(1, :release) if counted
         # Covers everything after registration, including a full_sync that
         # raised or an update_isr that failed right after mark_synced! — a
         # follower left in @followers as Synced with no ack_loop running

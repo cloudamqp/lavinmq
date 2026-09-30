@@ -1,5 +1,54 @@
 require "./spec_helper"
 
+private class StallReplicator < NoOpReplicator
+  @in_sync = Atomic(Bool).new(false)
+
+  def initialize(in_sync = false)
+    @in_sync.set(in_sync)
+  end
+
+  def in_sync_followers? : Bool
+    @in_sync.get(:acquire)
+  end
+
+  def in_sync_followers=(value : Bool)
+    @in_sync.set(value, :release)
+  end
+end
+
+private class StallTarget
+  include LavinMQ::Persister::ConfirmTarget
+
+  def enqueue_confirm_ack(msgid : UInt64) : Nil
+  end
+end
+
+# Every sync blocks until released, and each watchdog verdict is reported:
+# the exit code, or nil when it only logged
+class LavinMQ::SpecStallingPersister < LavinMQ::Persister
+  getter verdicts = Channel(Int32?).new(100)
+  getter release = Channel(Nil).new
+
+  protected def sync_timeout : Time::Span
+    10.milliseconds
+  end
+
+  protected def sync_stalled(elapsed : Time::Span) : Nil
+    super
+    @verdicts.send nil
+  rescue ex : SpecExit
+    @verdicts.send ex.code
+  end
+
+  private def syncfs_data_dir : Nil
+    @release.receive
+  end
+
+  private def fsync_paths(files, paths, dirs) : Nil
+    @release.receive
+  end
+end
+
 private def queue_dir(s : LavinMQ::Server, queue_name : String) : String
   File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(queue_name))
 end
@@ -76,6 +125,73 @@ describe LavinMQ::Persister do
         ch.confirm_select
         x.publish_confirm "to all", ""
         last_sync(s).syncfs.should be_true
+      end
+    end
+  end
+
+  describe "sync watchdog" do
+    it "exits when a syncfs stalls and an in-sync follower can take over" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecStallingPersister.new(data_dir, StallReplicator.new(in_sync: true))
+        spawn { persister.sync }
+        persister.verdicts.receive.should eq 1
+      ensure
+        persister.try &.release.send nil
+        persister.try &.close
+      end
+    end
+
+    it "exits when a per-file fsync stalls and an in-sync follower can take over" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecStallingPersister.new(data_dir, StallReplicator.new(in_sync: true))
+        persister.mark_dirty(File.join(data_dir, "file"))
+        persister.enqueue_ack(StallTarget.new, 1u64)
+        persister.verdicts.receive.should eq 1
+      ensure
+        persister.try &.release.send nil
+        persister.try &.close
+      end
+    end
+
+    it "only logs a stall when standalone" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecStallingPersister.new(data_dir)
+        done = Channel(Nil).new
+        spawn { persister.sync; done.send nil }
+        persister.verdicts.receive.should be_nil
+        persister.verdicts.receive.should be_nil
+        persister.release.send nil
+        done.receive
+      ensure
+        persister.try &.close
+      end
+    end
+
+    it "only logs a stall when no follower is in-sync" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecStallingPersister.new(data_dir, StallReplicator.new)
+        done = Channel(Nil).new
+        spawn { persister.sync; done.send nil }
+        persister.verdicts.receive.should be_nil
+        persister.verdicts.receive.should be_nil
+        persister.release.send nil
+        done.receive
+      ensure
+        persister.try &.close
+      end
+    end
+
+    it "exits once a follower becomes in-sync during the stall" do
+      with_datadir do |data_dir|
+        replicator = StallReplicator.new
+        persister = LavinMQ::SpecStallingPersister.new(data_dir, replicator)
+        spawn { persister.sync }
+        persister.verdicts.receive.should be_nil
+        replicator.in_sync_followers = true
+        loop { break if persister.verdicts.receive == 1 }
+      ensure
+        persister.try &.release.send nil
+        persister.try &.close
       end
     end
   end

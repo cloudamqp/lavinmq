@@ -10,8 +10,16 @@ class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
   getter isr_updates = Array(Set(Int32)).new
+  # When set, update_isr signals `entered` and then blocks on `gate`, like a
+  # caller of it stuck on I/O
+  property gate : Channel(Nil)?
+  getter entered = Channel(Nil).new(1)
 
   def update_isr(synced_node_ids : Set(Int32)) : Nil
+    if gate = @gate
+      @entered.send nil
+      gate.receive?
+    end
     @lock.synchronize do
       raise Error.new("coordinator unavailable (spec)") if @failing
       @isr_updates << synced_node_ids.dup
@@ -154,6 +162,85 @@ describe LavinMQ::Clustering::Server do
       coordinator.last_isr.try(&.includes?(follower_id)).should be_false
     ensure
       client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+  end
+
+  describe "in_sync_followers?" do
+    it "is true only while a follower in the ISR is connected" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "in_sync_followers spec")
+      server.in_sync_followers?.should be_false
+
+      client_io = sync_follower(server, tcp_server.local_address.port, 5)
+      wait_for { server.in_sync_followers? }
+      coordinator.last_isr.not_nil!.includes?(5).should be_true
+
+      client_io.close
+      wait_for { !server.in_sync_followers? }
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    it "stays false for a follower whose join failed at the ISR commit" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      coordinator.failing = true
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "in_sync_followers join failure spec")
+
+      client_io = sync_follower(server, tcp_server.local_address.port, 6)
+      wait_for { server.all_followers.empty? }
+      server.in_sync_followers?.should be_false
+    ensure
+      client_io.try &.close
+      server.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
+    end
+
+    # The sync watchdog asks while the disk is stalled, when a follower's
+    # final full sync may be blocked on disk I/O while holding the lock
+    it "answers while the server lock is held" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(server.listen(tcp_server), name: "in_sync_followers lock spec")
+      first_io = sync_follower(server, tcp_server.local_address.port, 7)
+      wait_for { server.in_sync_followers? }
+
+      gate = Channel(Nil).new
+      coordinator.gate = gate
+      second_io = sync_follower(server, tcp_server.local_address.port, 8) # its join blocks in update_isr, under the lock
+      coordinator.entered.receive
+      answered = Channel(Bool).new(1)
+      spawn { answered.send server.in_sync_followers? }
+      select
+      when value = answered.receive
+        value.should be_true
+      when timeout(1.second)
+        fail "in_sync_followers? blocked on the server lock"
+      end
+    ensure
+      if gate
+        coordinator.try &.gate = nil
+        gate.close
+      end
+      first_io.try &.close
+      second_io.try &.close
       server.try &.close
       tcp_server.try &.close
       FileUtils.rm_rf LavinMQ::Config.instance.data_dir

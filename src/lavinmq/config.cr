@@ -87,6 +87,9 @@ module LavinMQ
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
       end
+      unless @clustering_sync_timeout.positive?
+        raise Error.new("clustering_sync_timeout must be positive (got #{@clustering_sync_timeout})")
+      end
       # 0 is not "unlimited": the capacity gate would never open, so every MQTT
       # session would accept publishes and deliver none of them.
       unless @max_inflight_messages.positive?

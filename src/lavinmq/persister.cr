@@ -52,6 +52,9 @@ module LavinMQ
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
     @pending = Sync::Exclusive(Batch).new(Batch.new, :unchecked)
+    # Start and end of each sync, buffered so the syncing thread never waits
+    # on the watchdog
+    @sync_signals = ::Channel(Nil).new(2)
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -59,6 +62,7 @@ module LavinMQ
       # Run on a dedicated thread so the blocking syscalls only stall this
       # thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
+      spawn(sync_watchdog_loop, name: "Sync watchdog")
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
@@ -121,7 +125,51 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
+      @sync_signals.close
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
+    end
+
+    private def sync_watchdog_loop : Nil
+      loop do
+        @sync_signals.receive
+        watch_sync
+      end
+    rescue ::Channel::ClosedError
+    end
+
+    private def watch_sync : Nil
+      started_at = Time.instant
+      loop do
+        select
+        when @sync_signals.receive
+          return
+        when timeout(sync_timeout)
+          sync_stalled(Time.instant - started_at)
+        end
+      end
+    end
+
+    # Called on every timeout, as a follower may finish its full sync while
+    # the disk is still stalled
+    protected def sync_stalled(elapsed : Time::Span) : Nil
+      if @replicator.try &.in_sync_followers?
+        Log.fatal { "Disk sync blocked for #{elapsed.total_seconds.to_i}s, exiting so a follower can take over" }
+        exit 1
+      end
+      Log.error { "Disk sync blocked for #{elapsed.total_seconds.to_i}s, no in-sync follower to fail over to" }
+    end
+
+    protected def sync_timeout : Time::Span
+      Config.instance.clustering_sync_timeout
+    end
+
+    private def watched(&) : Nil
+      @sync_signals.send nil
+      begin
+        yield
+      ensure
+        @sync_signals.send nil
+      end
     end
 
     private def drain : Nil
@@ -160,7 +208,7 @@ module LavinMQ
       end
       begin
         if Config.instance.sync?
-          paths ? fsync_paths(batch.files, batch.paths, dirs) : syncfs_data_dir
+          watched { paths ? fsync_paths(batch.files, batch.paths, dirs) : syncfs_data_dir }
         end
       rescue ex
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }

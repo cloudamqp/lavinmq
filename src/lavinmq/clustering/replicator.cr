@@ -18,6 +18,8 @@ module LavinMQ
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
+      # Lock-free, so it answers even while a lock holder is blocked on a stalled disk
+      abstract def in_sync_followers? : Bool
       # ISR bookkeeping for the publish-confirm path: a confirm may only be
       # sent against an ISR that is committed to the coordinator (see
       # Persister#wait_for_followers).

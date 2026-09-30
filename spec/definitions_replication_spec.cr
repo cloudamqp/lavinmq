@@ -62,6 +62,10 @@ class DiskVisibilitySpyReplicator
     Array(LavinMQ::Clustering::Follower).new
   end
 
+  def in_sync_followers? : Bool
+    false
+  end
+
   def all_followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end

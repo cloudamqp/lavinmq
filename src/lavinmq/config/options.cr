@@ -445,6 +445,13 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      # A sync blocked on a stalled device (e.g. a throttled EBS volume) would
+      # stall confirms forever, exit so an in-sync follower can take over
+      @[CliOpt("", "--clustering-sync-timeout=SECONDS", "Exit if a disk sync blocks longer than this, when an in-sync follower can take over (default: 60)", section: "clustering")]
+      @[IniOpt(ini_name: sync_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SYNC_TIMEOUT")]
+      property clustering_sync_timeout : Time::Span = 60.seconds
+
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 

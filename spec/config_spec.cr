@@ -182,6 +182,7 @@ describe LavinMQ::Config do
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
           on_leader_lost = echo "Leader lost"
+          sync_timeout = 20
         CONFIG
     end
     config = LavinMQ::Config.new
@@ -264,6 +265,7 @@ describe LavinMQ::Config do
     config.clustering?.should be_true
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_port.should eq 5680
+    config.clustering_sync_timeout.should eq 20.seconds
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
     config.clustering_etcd_prefix.should eq "test-lavinmq"
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
@@ -656,6 +658,20 @@ describe LavinMQ::Config do
         config.parse(["-c", config_file.path])
       end
     end
+  end
+
+  it "rejects a non-positive clustering sync_timeout" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [clustering]
+        sync_timeout = 0
+        CONFIG
+    end
+    expect_raises(LavinMQ::Config::Error, /clustering_sync_timeout/) do
+      LavinMQ::Config.new.parse(["-c", config_file.path])
+    end
+  ensure
+    config_file.try &.delete
   end
 
   describe "reload" do
