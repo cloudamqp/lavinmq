@@ -507,9 +507,9 @@ module LavinMQ::AMQP
         @delivery_limit ||= DEFAULT_DELAYED_RETRY_DELIVERY_LIMIT
         @effective_args << "x-delayed-retry-min"
         @delayed_retry_multiplier = parse_header("x-delayed-retry-multiplier", Int).try(&.to_i32)
-        @effective_args << "x-delayed-retry-multiplier" if @arguments["x-delayed-retry-multiplier"]?
+        @effective_args << "x-delayed-retry-multiplier" if @delayed_retry_multiplier
         @delayed_retry_max = parse_header("x-delayed-retry-max", Int).try(&.to_i64)
-        @effective_args << "x-delayed-retry-max" if @arguments["x-delayed-retry-max"]?
+        @effective_args << "x-delayed-retry-max" if @delayed_retry_max
         init_retry_queue
       end
     end
