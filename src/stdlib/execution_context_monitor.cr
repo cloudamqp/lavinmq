@@ -1,141 +1,190 @@
-# Adaptive wake-up interval for the execution context monitor (the "SYSMON"
-# thread).
+# Lets the execution context monitor (the "SYSMON" thread) sleep while the
+# process is idle.
 #
 # The stdlib monitor wakes every 10ms for the life of the process, 100 wakeups
 # per second, even when the process has nothing to do. That is most of an idle
-# LavinMQ's CPU usage (~0.25-0.5% of a core per process), which adds up when
-# many brokers share a host.
+# LavinMQ's CPU usage, which adds up when many brokers share a host.
 #
-# This patch backs the interval off exponentially, up to MAX_EVERY, while the
-# monitor has nothing to do: no scheduler is in a blocking syscall and no
-# parallel context has queued fibers. It returns to 10ms as soon as it has. A
-# thread that enters a blocking syscall (`Fiber.syscall`: `open(2)`,
-# `getaddrinfo`) wakes a backed-off monitor right away, so a scheduler blocked
-# in a syscall is still handed off to another thread within ~10ms.
+# The monitor only has work while a Parallel scheduler is busy (running or
+# looking for fibers): detaching it from a thread blocked in a syscall, waking
+# more schedulers for its queued fibers. So each Parallel scheduler counts
+# itself in an atomic while it's busy, and uncounts itself while it waits on
+# the event loop or is parked. The monitor keeps its 10ms ticks while there's
+# activity, and parks after a whole tick without any busy scheduler. The
+# scheduler that raises the count from zero wakes it, so a scheduler that then
+# blocks in a syscall is still handed off within ~10ms.
 #
-# It reimplements private parts of the stdlib monitor, so it is only applied on
-# the Crystal versions it has been verified against. Other versions get the
-# stock monitor. Re-verify against `src/fiber/execution_context/monitor.cr`
-# before extending the version range.
+# A scheduler under steady load can alternate between busy and idle thousands
+# of times per second. The atomic also counts how many times a scheduler became
+# busy, and a tick that sees it change doesn't park, so under load the monitor
+# ticks like the stock one and nothing signals it.
+#
+# Isolated contexts aren't counted, the monitor never detaches their thread.
+#
+# It hooks into private parts of the stdlib and the epoll/kqueue event loop, so
+# it is only applied on the Crystal versions it has been verified against.
+# Other versions and event loops get the stock monitor. Re-verify against
+# `src/fiber/execution_context/{monitor,parallel,parallel/scheduler}.cr` and
+# `src/crystal/event_loop/polling.cr` before extending the version range.
 {% if (!flag?(:without_mt) && !flag?(:preview_mt) || flag?(:execution_context)) &&
         compare_versions(Crystal::VERSION, "1.21.0") >= 0 &&
-        compare_versions(Crystal::VERSION, "1.22.0-dev") < 0 %}
+        compare_versions(Crystal::VERSION, "1.22.0-dev") < 0 &&
+        Crystal::EventLoop.has_constant?(:Polling) %}
   module Fiber::ExecutionContext
     # :nodoc:
-    def self.wake_monitor : Nil
-      @@monitor.try &.wake
-    end
-
-    # :nodoc:
-    def self.monitor_interval : Time::Span?
-      @@monitor.try &.interval
-    end
-
-    module Scheduler
-      protected def enter_syscall : UInt32
-        value = previous_def
-        ExecutionContext.wake_monitor
-        value
-      end
+    def self.monitor? : Monitor?
+      @@monitor
     end
 
     class Monitor
-      MAX_EVERY = 1.second
+      # Low 32 bits: number of busy Parallel schedulers. High 32 bits: how many
+      # times a scheduler became busy (wrapping).
+      @@busy_schedulers = Atomic(UInt64).new(0_u64)
+      BUSY_COUNT_MASK = 0xffff_ffff_u64
+      BECAME_BUSY     = (1_u64 << 32) | 1_u64
 
-      @wake_mutex = Thread::Mutex.new
-      @wake_cond = Thread::ConditionVariable.new
-      @backed_off = Atomic(Bool).new(false)
-      @interval = Atomic(Int64).new(DEFAULT_EVERY.total_nanoseconds.to_i64)
+      @park_mutex = Thread::Mutex.new
+      @park_condition = Thread::ConditionVariable.new
+      @parked = Atomic(Bool).new(false)
 
-      # Current sleep interval, exposed for specs.
-      def interval : Time::Span
-        @interval.get(:relaxed).nanoseconds
+      # :nodoc:
+      def self.scheduler_busy : Nil
+        if (@@busy_schedulers.add(BECAME_BUSY, :sequentially_consistent) & BUSY_COUNT_MASK).zero?
+          ExecutionContext.monitor?.try &.wake
+        end
       end
 
-      # Back off exponentially while idle, reset as soon as there's work.
-      def self.next_interval(every : Time::Span, busy : Bool) : Time::Span
-        busy ? DEFAULT_EVERY : Math.min(every * 2, MAX_EVERY)
+      # :nodoc:
+      def self.scheduler_idle : Nil
+        @@busy_schedulers.sub(1_u64, :sequentially_consistent)
       end
 
-      # Called by threads entering a blocking syscall. Only takes the lock when
-      # the monitor is backed off, so the common case is one atomic load.
-      def wake : Nil
-        return unless @backed_off.get(:sequentially_consistent)
-        @wake_mutex.synchronize { @wake_cond.signal }
+      # :nodoc:
+      def parked? : Bool
+        @parked.get(:relaxed)
+      end
+
+      # Pairs with `#park`: either the monitor sees the incremented count and
+      # doesn't wait, or we see it parked and signal it.
+      protected def wake : Nil
+        return unless @parked.get(:sequentially_consistent)
+        @park_mutex.synchronize { @park_condition.signal }
       end
 
       private def run_loop : Nil
-        every = DEFAULT_EVERY
+        remaining = @every
+        previous = @@busy_schedulers.get(:relaxed)
         loop do
-          woken = wait(every)
-          now = Crystal::System::Time.instant
-          busy = transfer_schedulers_blocked_on_syscall_and_check_busy
-          increase_parallelism(now)
-          collect_stacks(now)
-          every = self.class.next_interval(every, busy || woken)
-          @interval.set(every.total_nanoseconds.to_i64, :relaxed)
+          # unchanged and zero: no scheduler was busy since the previous tick
+          if (current = @@busy_schedulers.get(:relaxed)) == previous && (current & BUSY_COUNT_MASK).zero?
+            park
+            remaining = @every
+            current = @@busy_schedulers.get(:relaxed)
+          end
+          previous = current
+          Thread.sleep(remaining)
+
+          start = Crystal::System::Time.instant
+          transfer_schedulers_blocked_on_syscall
+          increase_parallelism(start)
+          collect_stacks(start)
+          remaining = (start + @every - Crystal::System::Time.instant).clamp(Time::Span.zero..)
         rescue exception
           Crystal.print_error_buffered("BUG: %s#run_loop crashed", self.class.name, exception: exception)
         end
       end
 
-      # Sleeps for *span*. When backed off (span > DEFAULT_EVERY) the sleep can
-      # be cut short by `#wake`; returns true if it was.
-      private def wait(span : Time::Span) : Bool
-        if span <= DEFAULT_EVERY
-          Thread.sleep(span)
-          return false
-        end
-
-        woken = true
-        @wake_mutex.synchronize do
-          @backed_off.set(true, :sequentially_consistent)
-          # A thread may have entered a syscall before it could see
-          # @backed_off: check after setting it, so the wake-up can't be lost.
-          unless any_scheduler_in_syscall?
-            @wake_cond.wait(@wake_mutex, span) { woken = false }
+      # Waits until a Parallel scheduler is busy, or until the next stack
+      # collection if there are stacks to collect.
+      private def park : Nil
+        @park_mutex.synchronize do
+          @parked.set(true, :sequentially_consistent)
+          if (@@busy_schedulers.get(:sequentially_consistent) & BUSY_COUNT_MASK).zero?
+            if collectable_stacks?
+              timeout = @collect_stacks_next - Crystal::System::Time.instant
+              @park_condition.wait(@park_mutex, timeout) { } if timeout.positive?
+            else
+              @park_condition.wait(@park_mutex)
+            end
           end
-          @backed_off.set(false, :relaxed)
+          @parked.set(false, :relaxed)
         end
-        woken
       end
 
-      private def any_scheduler_in_syscall? : Bool
+      private def collectable_stacks? : Bool
         ExecutionContext.each do |execution_context|
-          execution_context.each_scheduler do |scheduler|
-            return true if scheduler.syscall_flag?
+          if pool = execution_context.stack_pool?
+            # StackPool#collect frees half of the pool, rounded down
+            return true if pool.lazy_size > 1
           end
         end
         false
       end
+    end
 
-      # Same as the stdlib `#transfer_schedulers_blocked_on_syscall`, but also
-      # reports whether there was anything for the monitor to do.
-      private def transfer_schedulers_blocked_on_syscall_and_check_busy : Bool
-        busy = false
-        ExecutionContext.each do |execution_context|
-          execution_context.each_scheduler do |scheduler|
-            next unless scheduler.detach_syscall?
-            busy = true
-
-            Crystal.trace :sched, "reassociate",
-              scheduler: scheduler,
-              syscall: scheduler.thread.current_fiber
-
-            pool = ExecutionContext.thread_pool
-            pool.detach(scheduler.thread)
-            pool.checkout(scheduler)
-          end
-
-          if execution_context.is_a?(Parallel)
-            busy = true unless execution_context.@global_queue.size.zero?
-            execution_context.each_scheduler do |scheduler|
-              busy = true unless scheduler.@runnables.empty?
-            end
-          end
+    class Parallel
+      protected def park_thread(&) : Fiber?
+        scheduler = ExecutionContext::Scheduler.current?.as?(Parallel::Scheduler)
+        fiber = previous_def do
+          found = yield
+          scheduler.try &.monitor_idle unless found
+          found
         end
-        busy
+        scheduler.try &.monitor_busy
+        fiber
       end
+
+      class Scheduler
+        # Only accessed by the thread running the scheduler.
+        @monitor_busy = false
+
+        # The default context's first scheduler is attached to the main thread,
+        # which is busy running the main fiber long before its run loop starts.
+        protected def running! : Nil
+          previous_def
+          monitor_busy
+        end
+
+        protected def run_loop : Nil
+          monitor_busy
+          previous_def
+        end
+
+        # :nodoc:
+        def monitor_busy : Nil
+          return if @monitor_busy
+          @monitor_busy = true
+          Monitor.scheduler_busy
+        end
+
+        # :nodoc:
+        def monitor_idle : Nil
+          return unless @monitor_busy
+          @monitor_busy = false
+          Monitor.scheduler_idle
+        end
+      end
+    end
+  end
+
+  abstract class Crystal::EventLoop::Polling < Crystal::EventLoop
+    def run(queue : Fiber::List*, blocking : Bool) : Nil
+      if blocking && (scheduler = Fiber::ExecutionContext::Scheduler.current?.as?(Fiber::ExecutionContext::Parallel::Scheduler))
+        scheduler.monitor_idle
+        begin
+          previous_def
+        ensure
+          scheduler.monitor_busy
+        end
+      else
+        previous_def
+      end
+    end
+
+    # Called by a scheduler's run loop right before it shuts down.
+    def unregister(scheduler : Fiber::ExecutionContext::Scheduler) : Nil
+      scheduler.as?(Fiber::ExecutionContext::Parallel::Scheduler).try &.monitor_idle
+      super
     end
   end
 {% end %}

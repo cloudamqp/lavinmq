@@ -2,60 +2,81 @@ require "./spec_helper"
 
 {% if (!flag?(:without_mt) && !flag?(:preview_mt) || flag?(:execution_context)) &&
         compare_versions(Crystal::VERSION, "1.21.0") >= 0 &&
-        compare_versions(Crystal::VERSION, "1.22.0-dev") < 0 %}
-  # The monitor only backs off when the whole process is idle. Other specs can
-  # leave background fibers running (e.g. reconnect loops), so skip the
-  # integration examples if the process never gets there.
-  private def wait_for_monitor_back_off(min : Time::Span)
-    deadline = Time.instant + 5.seconds
-    until Fiber::ExecutionContext.monitor_interval.not_nil! >= min
-      pending!("process never went idle") if Time.instant > deadline
-      sleep 10.milliseconds
+        compare_versions(Crystal::VERSION, "1.22.0-dev") < 0 &&
+        Crystal::EventLoop.has_constant?(:Polling) %}
+  private def monitor
+    Fiber::ExecutionContext.monitor?.not_nil!
+  end
+
+  # Isolated contexts aren't counted, so polling from one doesn't keep the
+  # monitor awake the way polling from the spec fiber would.
+  private def wait_until_parked : Bool
+    deadline = Time.instant + 2.seconds
+    until monitor.parked?
+      return false if Time.instant > deadline
+      sleep 1.millisecond
     end
+    true
+  end
+
+  private def monitor_parks? : Bool
+    parked = false
+    Fiber::ExecutionContext::Isolated.new("monitor-spec-observer") do
+      parked = wait_until_parked
+    end.wait
+    parked
   end
 
   describe Fiber::ExecutionContext::Monitor do
-    describe ".next_interval" do
-      it "doubles the interval while idle, up to MAX_EVERY" do
-        every = Fiber::ExecutionContext::Monitor::DEFAULT_EVERY
-        intervals = Array.new(10) { every = Fiber::ExecutionContext::Monitor.next_interval(every, busy: false) }
-        intervals.first.should eq 20.milliseconds
-        intervals.should eq intervals.sort
-        intervals.last.should eq Fiber::ExecutionContext::Monitor::MAX_EVERY
-      end
-
-      it "returns to the default interval when busy" do
-        Fiber::ExecutionContext::Monitor.next_interval(1.second, busy: true)
-          .should eq Fiber::ExecutionContext::Monitor::DEFAULT_EVERY
-      end
+    it "parks when no parallel scheduler is busy" do
+      monitor_parks?.should be_true
     end
 
-    it "backs off while idle" do
-      wait_for_monitor_back_off(Fiber::ExecutionContext::Monitor::MAX_EVERY)
-    end
-
-    it "returns to the default interval when a thread enters a blocking syscall" do
-      wait_for_monitor_back_off(100.milliseconds)
-      File.open(__FILE__) { } # open(2) goes through Fiber.syscall
-      should_eventually(be_true, 100.milliseconds) do
-        Fiber::ExecutionContext.monitor_interval.not_nil! <= 20.milliseconds
+    it "wakes up when a scheduler becomes busy" do
+      monitor_parks?.should be_true
+      # spin without yielding, which keeps this scheduler busy
+      deadline = Time.instant + 1.second
+      while monitor.parked? && Time.instant < deadline
       end
+      monitor.parked?.should be_false
     end
 
-    it "hands off a scheduler blocked in a syscall while backed off" do
+    it "hands off a scheduler that blocks in a syscall after the monitor parked" do
       ctx = Fiber::ExecutionContext::Parallel.new("monitor-spec", 1)
-      wait_for_monitor_back_off(Fiber::ExecutionContext::Monitor::MAX_EVERY)
-      done = Channel(Time::Span).new
-      ctx.spawn do
-        # blocks the context's only thread (not just the fiber)
-        Fiber.syscall { Thread.sleep(1.second) }
+      latency = nil
+      Fiber::ExecutionContext::Isolated.new("monitor-spec-driver") do
+        next unless wait_until_parked
+        done = Channel(Time::Span).new
+        # blocks the context's only thread, not just the fiber
+        ctx.spawn { Fiber.syscall { Thread.sleep(1.second) } }
+        sleep 10.milliseconds
+        start = Time.instant
+        ctx.spawn { done.send(Time.instant - start) }
+        latency = done.receive
+      end.wait
+      # a monitor that stayed parked wouldn't hand off the scheduler, so the
+      # second fiber would wait for the syscall to finish
+      latency.should_not be_nil
+      latency.not_nil!.should be < 200.milliseconds
+    end
+
+    it "stops counting schedulers that shut down" do
+      ctx = Fiber::ExecutionContext::Parallel.new("monitor-spec-resize", 2)
+      running = Atomic(Int32).new(0)
+      threads = Channel(Thread).new(2)
+      2.times do
+        ctx.spawn do
+          running.add(1)
+          # spin until both fibers run at the same time, on both schedulers
+          deadline = Time.instant + 2.seconds
+          until running.get == 2 || Time.instant > deadline
+          end
+          threads.send Thread.current
+        end
       end
-      sleep 10.milliseconds
-      start = Time.instant
-      ctx.spawn { done.send(Time.instant - start) }
-      # without the wake-up, the backed-off monitor only notices the blocked
-      # scheduler at its next tick, up to 1s later
-      done.receive.should be < 200.milliseconds
+      threads.receive.should_not eq threads.receive
+      ctx.resize(1)
+      monitor_parks?.should be_true
     end
   end
 {% end %}
