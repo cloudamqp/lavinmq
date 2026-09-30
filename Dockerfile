@@ -10,7 +10,6 @@ COPY ./src ./src
 
 # Run specs on build platform
 FROM base AS spec
-RUN apt-get install -y etcd-server
 COPY ./spec ./spec
 ARG spec_args="--order random"
 RUN crystal spec ${spec_args}

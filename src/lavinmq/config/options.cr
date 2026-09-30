@@ -420,15 +420,56 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
-      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
-      @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
-      property clustering_etcd_endpoints = "localhost:2379"
+      @[CliOpt("", "--clustering-peers=ADDRESSES", "Comma separated host:port raft addresses of all cluster nodes, including this one", section: "clustering")]
+      @[IniOpt(ini_name: peers, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PEERS")]
+      property clustering_peers = ""
 
-      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)", section: "clustering")]
-      @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
+      @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port (default: 5680)", section: "clustering")]
+      @[IniOpt(ini_name: raft_port, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
+      property clustering_raft_port = 5680
+
+      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "This node's host:port as listed in the peers (default: hostname:raft_port)", section: "clustering")]
+      @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")]
+      property clustering_raft_advertised_address : String? = nil
+
+      @[CliOpt("", "--clustering-election-timeout=MS", "Leader election timeout in milliseconds (default: 1500)", section: "clustering")]
+      @[IniOpt(ini_name: election_timeout, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_ELECTION_TIMEOUT")]
+      property clustering_election_timeout = 1500
+
+      @[CliOpt("", "--clustering-heartbeat-interval=MS", "Leader heartbeat interval in milliseconds (default: 250)", section: "clustering")]
+      @[IniOpt(ini_name: heartbeat_interval, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
+      property clustering_heartbeat_interval = 250
+
+      @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet", ->(_v : String) { true }, section: "clustering")]
+      @[IniOpt(ini_name: bootstrap, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]
+      property? clustering_bootstrap = false
+
+      # Shared by all nodes: authenticates election traffic and followers
+      # replicating from the leader. Deliberately not a CLI option, argv is
+      # visible to every user on the host.
+      @[IniOpt(ini_name: password, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD")]
+      property clustering_password = ""
+
+      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "(Deprecated) No longer used",
+        section: "clustering", deprecated: "--clustering-etcd-endpoints is deprecated and no longer used, leader election is built in")]
+      @[IniOpt(ini_name: etcd_endpoints, section: "clustering",
+        deprecated: "Ini config etcd_endpoints is deprecated and no longer used, leader election is built in")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
+      @clustering_etcd_endpoints = "" # deprecated, no longer used
+
+      @[CliOpt("", "--clustering-etcd-prefix=KEY", "(Deprecated) No longer used",
+        section: "clustering", deprecated: "--clustering-etcd-prefix is deprecated and no longer used, leader election is built in")]
+      @[IniOpt(ini_name: etcd_prefix, section: "clustering",
+        deprecated: "Ini config etcd_prefix is deprecated and no longer used, leader election is built in")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
-      property clustering_etcd_prefix = "lavinmq"
+      @clustering_etcd_prefix = "" # deprecated, no longer used
 
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far
