@@ -97,12 +97,14 @@ module LavinMQ
           # intermediate buffer and no copy
           file.write payload
           final_file_path = File.join(@dir, msg_file_name)
-          if needs_sync
-            FileSystem.durable_rename(file, final_file_path)
-          else
-            file.rename(final_file_path)
-          end
+          file.rename(final_file_path)
           @replicator.try &.replace_file(final_file_path)
+          # Synced by the persister before the PUBACK, not inline on the read
+          # loop while holding @lock
+          if needs_sync
+            @persister.try &.mark_dirty(final_file_path)
+            @persister.try &.mark_dirty(@dir)
+          end
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
         end

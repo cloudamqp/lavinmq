@@ -143,13 +143,24 @@ module LavinMQ
       batch.files.each { |f| dirs << File.dirname(f.path) if f.take_created! }
       syncfs = !batch.waiters.empty? ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
-      paths = nil
-      begin
-        if syncfs
-          syncfs_data_dir if Config.instance.sync?
+      paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
+      replicator = @replicator
+      if replicator
+        # Requested before our own sync so the followers persist and ack
+        # while it runs. Buffered for each follower's flush fiber to write:
+        # this loop runs on an isolated thread and must never write the
+        # follower sockets itself, their fds belong to the default execution
+        # context's event loop (see Follower#flush_loop).
+        if paths
+          replicator.request_fsync(paths)
         else
-          paths = batch.files.map(&.path).concat(batch.paths).concat(dirs)
-          fsync_paths(batch.files, batch.paths, dirs) if Config.instance.sync?
+          replicator.request_syncfs
+        end
+        replicator.followers.each &.request_flush
+      end
+      begin
+        if Config.instance.sync?
+          paths ? fsync_paths(batch.files, batch.paths, dirs) : syncfs_data_dir
         end
       rescue ex
         Log.fatal(exception: ex) { "Failed to sync: #{ex.message}" }
@@ -159,26 +170,14 @@ module LavinMQ
         @last_sync = SyncRecord.new(syncfs, paths || Array(String).new)
       {% end %}
 
-      if replicator = @replicator
-        # Buffered for each follower's flush fiber to write: this loop runs on
-        # an isolated thread and must never write the follower sockets itself,
-        # their fds belong to the default execution context's event loop (see
-        # Follower#flush_loop).
-        if syncfs
-          replicator.request_syncfs
-        elsif paths
-          replicator.request_fsync(paths)
-        end
-        replicator.followers.each &.request_flush
-        # Block until every in-sync follower has acked the replicated bytes
-        # (having synced what was requested) and any ISR shrink is committed
-        # to the coordinator, so a confirm means the data is durable on the
-        # leader and on every node that could be promoted on failover. While
-        # the coordinator is unreachable confirms stall (publishers time out,
-        # message state stays uncertain — never falsely confirmed), and if it
-        # stays unreachable the leader's lease expires and the process exits.
-        replicator.wait_for_followers
-      end
+      # Block until every in-sync follower has acked the replicated bytes
+      # (having synced what was requested) and any ISR shrink is committed
+      # to the coordinator, so a confirm means the data is durable on the
+      # leader and on every node that could be promoted on failover. While
+      # the coordinator is unreachable confirms stall (publishers time out,
+      # message state stays uncertain — never falsely confirmed), and if it
+      # stays unreachable the leader's lease expires and the process exits.
+      replicator.try &.wait_for_followers
 
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)

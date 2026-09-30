@@ -100,5 +100,18 @@ module MqttSpecs
         end
       end
     end
+
+    it "syncs a QoS 1 retained message's file and directory through the persister" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "r/t", payload: "retained".to_slice, qos: 1u8, retain: true)
+          dir = File.join(server.vhosts["/"].data_dir, "mqtt_retained_store")
+          paths = server.persister.last_sync.not_nil!.paths
+          paths.should contain dir
+          paths.any? { |p| File.dirname(p) == dir && p.ends_with?(LavinMQ::MQTT::RetainStore::MESSAGE_FILE_SUFFIX) }.should be_true
+        end
+      end
+    end
   end
 end
