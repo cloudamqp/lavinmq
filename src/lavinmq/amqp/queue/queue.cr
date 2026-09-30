@@ -570,11 +570,9 @@ module LavinMQ::AMQP
       calculate_retry_delay(@delayed_retry_min || 1_i64, delivery_count)
     end
 
-    # Linear when no multiplier.
-    # Exponential when multiplier is set (delay × multiplier^(n-1)).
-    # Clamped at x-delayed-retry-max if set and always at the UInt32 range
-    # of the x-delay header; the cap is a pure clamp, never a terminator,
-    # termination is governed by x-delivery-limit only.
+    # Delay for attempt n: base × n, or base × multiplier^(n-1) with a multiplier,
+    # clamped at x-delayed-retry-max and the UInt32 range of x-delay. The cap
+    # never ends retries; termination is governed by x-delivery-limit only.
     private def calculate_retry_delay(base_delay : Int64, delivery_count : Int32) : Int64
       cap = Math.min(@delayed_retry_max || DELAYED_RETRY_MAX_DELAY_MS, DELAYED_RETRY_MAX_DELAY_MS)
       delay = Math.min(base_delay, cap)
@@ -1054,10 +1052,7 @@ module LavinMQ::AMQP
       env
     end
 
-    # The count survives the retry queue round trip only via the header. On
-    # retry-enabled queues the header is stripped from every publish except
-    # the retry queue's own republish, so it cannot be set from outside;
-    # on other queues it is ignored entirely
+    # See #strip_delivery_count for why the header can be trusted here
     private def delivery_count_from_header(headers) : Int32?
       return unless @delayed_retry_min
       headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32)
@@ -1087,8 +1082,7 @@ module LavinMQ::AMQP
       end
     end
 
-    # Consumer-initiated reject path — used by basic.reject and basic.nack.
-    # Routes through the retry queue if configured.
+    # Consumer-initiated reject (basic.reject and basic.nack): delays via the retry queue if configured
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
@@ -1106,9 +1100,7 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Broker-initiated requeue path — used by channel close and basic.recover
-    # when the consumer didn't ack or explicitly reject. Always instant
-    # (never routes through the retry queue).
+    # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
     def requeue(sp : SegmentPosition)
       return if @deleted || @closed
       @log.debug { "Requeuing #{sp}" }
