@@ -695,6 +695,31 @@ module ClientSyncSpec
         end
       end
 
+      # Regression: the raft state (term + vote) is local-only. Deleting it on
+      # a full sync would let the node vote twice in the same term.
+      it "keeps the raft state across a sync" do
+        with_datadir do |data_dir|
+          File.write File.join(data_dir, ".raft_state"), "state"
+          File.write File.join(data_dir, ".raft_state.tmp"), "tmp"
+          client = make_client(data_dir)
+          server_io, client_io = UNIXSocket.pair
+          lz4_reader = Compress::LZ4::Reader.new(client_io)
+          done = Channel(Nil).new
+          spawn do
+            simulate_leader(server_io, {"definitions.amqp" => "defs"})
+            done.send nil
+          end
+          client.sync_files_public(client_io, lz4_reader)
+          select
+          when done.receive
+          when timeout(1.second)
+            fail "leader fiber timed out"
+          end
+          File.read(File.join(data_dir, ".raft_state")).should eq "state"
+          File.exists?(File.join(data_dir, ".raft_state.tmp")).should be_true
+        end
+      end
+
       # Regression: checksums.sha1 is local-only and the leader never sends it,
       # so the "delete files not on leader" sweep must not wipe it — otherwise
       # the second sync pass (sync runs sync_files twice) deletes hashes the
