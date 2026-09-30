@@ -20,12 +20,17 @@ port = 5679
 advertised_uri = tcp://node1.example.com:5679
 peers = node1.example.com:5680,node2.example.com:5680,node3.example.com:5680
 raft_advertised_address = node1.example.com:5680
-password = a-long-random-secret-shared-by-all-nodes
+password_file = /etc/lavinmq/clustering_password
 ```
 
 - `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. Without `peers` the node forms a cluster of one.
 - `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
-- `password` (or `LAVINMQ_CLUSTERING_PASSWORD`) is required. It authenticates both election traffic and followers replicating from the leader.
+- A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. It can also be given inline as `password` (or `LAVINMQ_CLUSTERING_PASSWORD`), but a config file is often world readable, so LavinMQ warns when it is.
+
+  ```sh
+  openssl rand -base64 32 > /etc/lavinmq/clustering_password  # copy the same file to every node
+  chown lavinmq: /etc/lavinmq/clustering_password && chmod 600 /etc/lavinmq/clustering_password
+  ```
 - The raft listener binds to the same address as `bind`.
 
 See [Configuration](configuration.md) for all clustering options.
@@ -83,7 +88,7 @@ A leader that can't reach a majority of the peers for `election_timeout` steps d
 Earlier versions used etcd for leader election. `etcd_endpoints` and `etcd_prefix` are still accepted but ignored. To migrate:
 
 1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `peers`, `raft_advertised_address` and `password` to every node's config and open the raft port between the nodes.
+2. Add `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
 A node that has data but no election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until it has heard from an elected one. `bootstrap` overrides that and lets it become the cluster's first leader. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need no bootstrap.
@@ -114,4 +119,4 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-Nodes authenticate each other with the configured `password`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port. Neither connection is encrypted, so keep clustering traffic on a trusted network.
+Nodes authenticate each other with the shared password (`password_file` or `password`): raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port. Neither connection is encrypted, so keep clustering traffic on a trusted network.
