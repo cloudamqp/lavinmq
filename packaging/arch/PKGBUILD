@@ -7,7 +7,6 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/cloudamqp/lavinmq'
 license=('Apache-2.0')
 depends=('lz4' 'openssl' 'gc' 'pcre2' 'zlib')
-optdepends=('etcd: clustering support')
 makedepends=('crystal' 'shards' 'help2man' 'curl')
 backup=('etc/lavinmq/lavinmq.ini')
 

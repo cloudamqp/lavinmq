@@ -92,7 +92,7 @@ jobs:
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev etcd-server
+        run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -110,8 +110,7 @@ jobs:
         run: |
           brew update
           brew unlink openssl@3 || true
-          brew install crystal etcd
-          echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
+          brew install crystal
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
@@ -511,7 +510,7 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
-          prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
+          prepare: pkg install -y crystal shards security/openssl curl gmake
           run: gmake test
         continue-on-error: true
 

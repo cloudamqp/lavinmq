@@ -92,6 +92,39 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
+      validate_clustering! if @clustering
+    end
+
+    private def validate_clustering! : Nil
+      if @clustering_password.empty?
+        raise Error.new("clustering requires a password in [clustering] (or LAVINMQ_CLUSTERING_PASSWORD), shared by all nodes")
+      end
+      if @clustering_password.bytesize > 255
+        raise Error.new("clustering password can be at most 255 bytes")
+      end
+      unless @clustering_election_timeout.positive? && @clustering_heartbeat_interval.positive?
+        raise Error.new("clustering election_timeout and heartbeat_interval must be positive")
+      end
+      if @clustering_heartbeat_interval * 2 > @clustering_election_timeout
+        raise Error.new("clustering heartbeat_interval must be at most half the election_timeout")
+      end
+      peers = clustering_peer_addresses
+      unless peers.includes?(clustering_raft_address)
+        raise Error.new("clustering peers (#{peers.join(", ")}) must include this node's raft address #{clustering_raft_address}, " \
+                        "set raft_advertised_address in [clustering] if it differs")
+      end
+    end
+
+    # This node's raft address as it appears in the peer list.
+    def clustering_raft_address : String
+      @clustering_raft_advertised_address || "#{System.hostname}:#{@clustering_raft_port}"
+    end
+
+    # Every voting member, including this node. Without a peer list the node
+    # forms a cluster of one.
+    def clustering_peer_addresses : Array(String)
+      peers = @clustering_peers.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
+      peers.empty? ? [clustering_raft_address] : peers.uniq
     end
 
     private def parse_config_from_cli(argv)
