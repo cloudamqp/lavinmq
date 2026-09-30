@@ -8,9 +8,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
-require "./etcd"
 require "./clustering/controller"
-require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -43,10 +41,8 @@ module LavinMQ
       print_data_dir_read_ahead
 
       if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
+        @runner = controller = Clustering::Controller.new(@config)
+        @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
       else
         @runner = StandaloneRunner.new
       end
@@ -85,7 +81,7 @@ module LavinMQ
       @runner.run do
         start
       end
-      @replicator.try &.close
+      @replicator.try &.close if @server # only a leader started it
       @data_dir_lock.try &.release
     end
 
@@ -94,6 +90,7 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
+      @runner.stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil

@@ -1,12 +1,12 @@
 # Clustering
 
-LavinMQ supports multi-node clustering with leader-based replication, using etcd for leader election and coordination.
+LavinMQ supports multi-node clustering with leader-based replication. Leader election and the in-sync replica set are handled by the nodes themselves, with a built-in [Raft](https://raft.github.io/) implementation; no external coordination service is needed.
 
 ## Architecture
 
 - **Leader** — accepts all client connections and writes. Replicates data to followers.
 - **Followers** — receive replicated data from the leader. Can be promoted to leader on failover.
-- **etcd** — external coordination service for leader election, ISR tracking, and shared state.
+- **Raft** — every node takes part in leader election over the raft port (`5680` by default). A majority of the configured peers must be reachable to elect a leader and to change the ISR.
 
 Only the leader handles client traffic. Followers maintain a synchronized copy of the data.
 
@@ -18,9 +18,15 @@ enabled = true
 bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
-etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
-etcd_prefix = lavinmq
+peers = node1.example.com:5680,node2.example.com:5680,node3.example.com:5680
+raft_advertised_address = node1.example.com:5680
+password = a-long-random-secret-shared-by-all-nodes
 ```
+
+- `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. Without `peers` the node forms a cluster of one.
+- `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
+- `password` (or `LAVINMQ_CLUSTERING_PASSWORD`) is required. It authenticates both election traffic and followers replicating from the leader.
+- The raft listener binds to the same address as `bind`.
 
 See [Configuration](configuration.md) for all clustering options.
 
@@ -70,7 +76,27 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 ## Failover
 
-If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
+If the leader stops sending heartbeats for `election_timeout` (1500 ms by default), the other nodes elect a new one. A node only votes for a candidate that is in the ISR and whose election log is at least as recent as its own, so a node lacking confirmed data can never become leader. If no ISR member is reachable, no leader is elected until one comes back.
+
+A new leader starts with an ISR of only itself; followers are added back as they finish syncing from it.
+
+A leader that can't reach a majority of the peers for `election_timeout` steps down and exits (code 3), like when it loses leadership in any other way. A leader shutting down gracefully hands leadership over to a caught up ISR member right away instead.
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `election_timeout` | `[clustering]` | `1500` | Milliseconds without a leader heartbeat before an election starts |
+| `heartbeat_interval` | `[clustering]` | `250` | Milliseconds between leader heartbeats, at most half the election timeout |
+| `bootstrap` | `[clustering]` | `false` | Let this node become leader before any node has election state, see below |
+
+### Migrating from etcd
+
+Earlier versions used etcd for leader election. `etcd_endpoints` and `etcd_prefix` are still accepted but ignored. To migrate:
+
+1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
+2. Add `peers`, `raft_advertised_address` and `password` to every node's config and open the raft port between the nodes.
+3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
+
+A node that has data but no election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until it has heard from an elected one. `bootstrap` overrides that and lets it become the cluster's first leader. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need no bootstrap.
 
 ### Leader Election Hooks
 
@@ -98,4 +124,4 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+Nodes authenticate each other with the configured `password`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port. Neither connection is encrypted, so keep clustering traffic on a trusted network.

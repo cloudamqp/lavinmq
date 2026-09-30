@@ -212,7 +212,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
 
-[etcd](https://etcd.io/) is used for leader election and maintaining the In-Sync-Replica (ISR) set. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
+The nodes elect a leader and maintain the In-Sync-Replica (ISR) set among themselves with a built-in Raft implementation, no external coordination service is needed. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
 
 See [Setting up Clustering with LavinMQ](https://lavinmq.com/documentation/clustering) for more information on Clustering in LavinMQ.
 
@@ -226,13 +226,17 @@ enabled = true
 bind = ::
 port = 5679
 advertised_uri = tcp://my-ip:5679
-etcd_endpoints = localhost:2379
+peers = node1:5680,node2:5680,node3:5680
+raft_advertised_address = node1:5680
+password = a-long-random-secret-shared-by-all-nodes
 ```
 
 or start LavinMQ with:
 
 ```sh
-lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-advertised-uri=tcp://my-ip:5679
+LAVINMQ_CLUSTERING_PASSWORD=a-long-random-secret lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: \
+  --clustering-advertised-uri=tcp://my-ip:5679 --clustering-peers=node1:5680,node2:5680,node3:5680 \
+  --clustering-raft-advertised-address=node1:5680
 ```
 
 ### Stream Queues
