@@ -109,6 +109,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
+          brew unlink openssl@3 || true
           brew install crystal etcd
           echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
         env:
