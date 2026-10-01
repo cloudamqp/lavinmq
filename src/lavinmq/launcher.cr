@@ -60,8 +60,10 @@ module LavinMQ
       end
       setup_sni_callbacks
       setup_signal_traps
-      SystemD::MemoryPressure.monitor(on_relief: -> { @server.try &.memory_pressure_relieved! },
-        release_below: @config.memory_pressure_release_avg10) do
+      SystemD::MemoryPressure.on_relief(@config.memory_pressure_release_avg10) do
+        @server.try &.memory_pressure_relieved!
+      end
+      SystemD::MemoryPressure.monitor do
         if server = @server
           server.memory_pressure!
         else
