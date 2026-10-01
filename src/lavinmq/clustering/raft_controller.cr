@@ -93,11 +93,18 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
   end
 
+  # Optional, so a failure to bind is logged rather than stopping the node.
   private def start_status_server : Nil
     path = @config.clustering_status_unix_path
     return if path.empty?
-    status_server = @status_server = StatusServer.new(@node.status, path)
-    status_server.bind
+    status_server = StatusServer.new(@node.status, path)
+    begin
+      status_server.bind
+    rescue ex
+      Log.warn { "Not serving the clustering status socket: #{ex.message}" }
+      return
+    end
+    @status_server = status_server
     spawn(status_server.listen, name: "Clustering status listener")
   end
 

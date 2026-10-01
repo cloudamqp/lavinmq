@@ -470,6 +470,7 @@ module LavinMQ
 
       @[CliOpt("", "--clustering-status-unix-path=PATH", "Unix socket streaming this node's leader status to local agents (default: disabled)", section: "clustering")]
       @[IniOpt(ini_name: status_unix_path, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_STATUS_UNIX_PATH")]
       property clustering_status_unix_path = ""
 
       # File holding the clustering password, must not be readable by group or
