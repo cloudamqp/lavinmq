@@ -177,7 +177,7 @@ module MqttSpecs
           connect(io, client_id: "sub")
           session = client_session(server, "sub")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1}, {"c/#", 1}))
-          session.subscriptions.should eq({"a/b" => 1u8, "c/#" => 1u8})
+          session.subscriptions.transform_values(&.qos).should eq({"a/b" => 1u8, "c/#" => 1u8})
           exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 1u8
 
           # The unbind-and-rebind path. Unreachable for 1 -> 2 until QoS 2
@@ -186,8 +186,8 @@ module MqttSpecs
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
           exchange.bindings_details.size.should eq 2
           exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 2u8
-          session.subscriptions.should eq({"a/b" => 2u8, "c/#" => 1u8})
-          session.bindings.compact_map(&.as?(LavinMQ::MQTT::SubscriptionDetails)).map { |b| {b.routing_key, LavinMQ::MQTT.qos(b.arguments)} }
+          session.subscriptions.transform_values(&.qos).should eq({"a/b" => 2u8, "c/#" => 1u8})
+          session.bindings.compact_map(&.as?(LavinMQ::MQTT::SubscriptionDetails)).map { |b| {b.routing_key, LavinMQ::MQTT.subscription_options(b.arguments).qos} }
             .sort!.should eq [{"a/b", 2u8}, {"c/#", 1u8}]
           exchange.binding_count.should eq 2
 
@@ -197,7 +197,7 @@ module MqttSpecs
           exchange.bindings_details.find!(&.binding_key.routing_key.==("a/b")).binding_key.qos.should eq 1u8
 
           unsubscribe(io, topics: ["c/#"])
-          session.subscriptions.should eq({"a/b" => 1u8})
+          session.subscriptions.transform_values(&.qos).should eq({"a/b" => 1u8})
           disconnect(io)
         end
       end
@@ -317,7 +317,7 @@ module MqttSpecs
         end
         restart_server(server)
         session = server.vhosts["/"].session("mqtt.sub")
-        session.subscriptions.should eq({"a/b" => 1u8})
+        session.subscriptions.transform_values(&.qos).should eq({"a/b" => 1u8})
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)
           unsubscribe(io, topics: ["a/b"])

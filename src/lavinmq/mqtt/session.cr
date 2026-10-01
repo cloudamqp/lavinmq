@@ -139,7 +139,7 @@ module LavinMQ
       # This session's topic filters and their QoS, kept by the MQTT exchange
       # as it binds and unbinds them, so finding a session's subscriptions
       # doesn't walk every subscription in the vhost
-      getter subscriptions = Hash(String, UInt8).new
+      getter subscriptions = Hash(String, SubscriptionOptions).new
 
       # Whether the session is a queue: in the definitions, counted towards
       # max-queues and visible in the API. A connection's session becomes one
@@ -640,19 +640,35 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      # A concurrent API deletion can make the bind fail.
-      # TODO: Check session identity under the definitions lock before binding.
-      def subscribe(tf, qos) : Bool
-        if current = @subscriptions[tf]?
-          return true if current == qos
-          unbind(tf, MQTT.qos_arguments(current))
-        end
-        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))
+      # What a SUBSCRIBE did to the subscription for one topic filter
+      enum SubscribeResult
+        New
+        # Existence is by topic filter alone: [MQTT-3.8.4-3] replaces a
+        # subscription whose filter is identical, so a re-subscribe that
+        # changes the QoS or the options is a replacement, not a new one.
+        Replaced
+        # A concurrent API deletion can make the bind fail
+        Failed
       end
 
-      def unsubscribe(tf)
-        if qos = @subscriptions[tf]?
-          unbind(tf, MQTT.qos_arguments(qos))
+      # TODO: Check session identity under the definitions lock before binding.
+      def subscribe(tf, options : SubscriptionOptions) : SubscribeResult
+        if current = @subscriptions[tf]?
+          return SubscribeResult::Replaced if current == options
+          unbind(tf, MQTT.subscription_arguments(current))
+        end
+        return SubscribeResult::Failed unless @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.subscription_arguments(options))
+        current ? SubscribeResult::Replaced : SubscribeResult::New
+      end
+
+      # Returns whether a matching subscription existed, so the v5 UNSUBACK can
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3].
+      def unsubscribe(tf) : Bool
+        if options = @subscriptions[tf]?
+          unbind(tf, MQTT.subscription_arguments(options))
+          true
+        else
+          false
         end
       end
 
@@ -665,7 +681,7 @@ module LavinMQ
       #
       # False if the store cannot be created, e.g. at `vm.max_map_count`, so the
       # bind fails: a SUBSCRIBE gets Failure and a restore skips the binding.
-      protected def subscription_bound(filter : String, qos : UInt8) : Bool
+      protected def subscription_bound(filter : String, options : SubscriptionOptions) : Bool
         unless closed?
           begin
             # Creating the store here keeps it out of the publish that first
@@ -678,7 +694,7 @@ module LavinMQ
             return false
           end
         end
-        @subscriptions[filter] = qos
+        @subscriptions[filter] = options
         true
       end
 
@@ -993,11 +1009,10 @@ module LavinMQ
       # original id is marked by `dup` [MQTT-3.3.1-1].
       def build_packet(env, packet_id, dup = false) : Protocol::Publish
         msg = env.message
-        retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
-        qos = msg.properties.delivery_mode || 0u8
+        retained = msg.properties.try &.headers.try &.[RETAIN_HEADER]? == true
         # `delivery_mode` is read off disk unvalidated and `Publish.new` raises
         # above QoS 2, which would make one bad byte a poison message.
-        qos = 2u8 if qos > 2
+        qos = MQTT.granted_qos(msg.properties.delivery_mode)
         dup = qos.zero? ? false : (dup || env.redelivered)
         # IO::V3#write_properties discards these, so a v3 subscriber should not
         # pay six Table#fetch linear scans per delivery to build them.

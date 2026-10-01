@@ -17,7 +17,7 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.session?("#{SESSION_PREFIX}#{client_id}")
+        @vhost.session?(MQTT.session_name(client_id))
       end
 
       # A connection's session. It becomes a queue only once it needs one,
@@ -29,12 +29,12 @@ module LavinMQ
           "x-queue-type"     => "mqtt",
           SESSION_EXPIRY_ARG => session_expiry_interval,
         })
-        Session.new(@vhost, "#{SESSION_PREFIX}#{client_id}", session_expiry_interval.zero?, arguments, registered: false)
+        Session.new(@vhost, MQTT.session_name(client_id), session_expiry_interval.zero?, arguments, registered: false)
       end
 
       # A queue that is not a session has the session's name
       def name_taken?(client_id : String) : Bool
-        !@vhost.queue?("#{SESSION_PREFIX}#{client_id}").nil?
+        !@vhost.queue?(MQTT.session_name(client_id)).nil?
       end
 
       # Makes `session` a queue. Raises rather than returning false, so a

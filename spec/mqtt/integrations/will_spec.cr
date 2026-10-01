@@ -167,6 +167,36 @@ module MqttSpecs
       end
     end
 
+    it "No Local suppresses a will sent to the dying client's own session" do
+      # The will's publisher is the connection that died, so [MQTT-3.8.3-3]
+      # applies to it like any other publish. Worth pinning down because the
+      # ordering is not obvious: a takeover closes the previous connection
+      # (publishing its will) while that connection's session is still
+      # attached and still holds the no_local binding, so the will is dropped.
+      with_server do |server|
+        will = MQTT::Protocol::Will.new(
+          topic: "last/words", payload: "bye".to_slice, qos: 1u8, retain: false)
+
+        props = MQTT::Protocol::ConnectProperties.new
+        props.session_expiry_interval = 3600u32
+        with_client_socket(server) do |first_socket|
+          first = MQTT::Protocol::IO::V5.new(first_socket)
+          connect(first, version: MQTT::Protocol::Version::V5, client_id: "sub",
+            clean_session: false, will: will, properties: props)
+          subscribe(first, topic_filters: [subtopic("last/words", 1u8, no_local: true)])
+
+          # A second connection with the same client id takes over, which closes
+          # the first and publishes its will.
+          with_client_socket(server) do |second_socket|
+            second = MQTT::Protocol::IO::V5.new(second_socket)
+            connect(second, version: MQTT::Protocol::Version::V5, client_id: "sub",
+              clean_session: false, properties: props)
+            second.should be_drained
+          end
+        end
+      end
+    end
+
     it "retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
       with_server do |server|
         with_client_io(server) do |io|

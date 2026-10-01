@@ -186,9 +186,24 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : Protocol::Publish, ctx : PublishContext)
+      def publish(packet : Protocol::Publish, publisher : String, ctx : PublishContext)
         @retain_store.retain(packet) if packet.retain?
-        @exchange.publish(packet, ctx)
+        @exchange.publish(packet, publisher, ctx)
+      end
+
+      # Retain Handling [MQTT-3.3.1-9/10/11], spelled as the spec words it.
+      #
+      # Careful if you check this against the local MQTT-v5.0-spec.txt: its
+      # Appendix B row for [MQTT-3.3.1-10] states the value-1 case inverted.
+      # Four body locations agree against it - §3.3.1.3's definition of that
+      # statement, §3.8.3.1's list of the three values, and §3.8.4's separate
+      # new-vs-replaced rules - so the body governs.
+      private def replay_retained?(retain_handling : UInt8, new_subscription : Bool) : Bool
+        case retain_handling
+        when 0 then true             # always send at subscribe
+        when 1 then new_subscription # only for a subscription that did not exist
+        else        false            # 2: never send at subscribe
+        end
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReasonCode)
@@ -216,28 +231,37 @@ module LavinMQ
       end
 
       def grant(session : Session, tf) : Protocol::SubAck::ReasonCode
-        # `Subscribe.from_io` has already rejected anything above 2.
-        qos = tf.qos
-        return Protocol::SubAck::ReasonCode::UnspecifiedError unless session.subscribe(tf.topic, qos)
-        ts = RoughTime.unix_ms
-        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-          # At the subscription's QoS, not capped like `Exchange#publish`
-          # [MQTT-3.8.4-6]: the retain store keeps no publish QoS, and adding
-          # it changes its file format. Listed in docs/mqtt.md Limitations.
-          props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
-          msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
-          # A durable session records a QoS 2 delivery's packet id before the
-          # send, and that record must not outlive the message on power loss
-          msg.needs_sync = qos > 0
-          session.publish(msg)
+        # We only deliver up to MAX_QOS, so grant (and store/deliver at) the
+        # clamped QoS - the SUBACK must report the granted max [MQTT-3.8.4-7].
+        options = SubscriptionOptions.new(
+          MQTT.granted_qos(tf.qos), tf.no_local?, tf.retain_as_published?)
+        result = session.subscribe(tf.topic, options)
+        return Protocol::SubAck::ReasonCode::UnspecifiedError if result.failed?
+        if replay_retained?(tf.retain_handling, result.new?)
+          ts = RoughTime.unix_ms
+          @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+            # At the subscription's QoS, not capped like `Exchange#publish`
+            # [MQTT-3.8.4-6]: the retain store keeps no publish QoS, and adding
+            # it changes its file format. Listed in docs/mqtt.md Limitations.
+            props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: options.qos)
+            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+            # A durable session records a QoS 2 delivery's packet id before the
+            # send, and that record must not outlive the message on power loss
+            msg.needs_sync = options.qos > 0
+            session.publish(msg)
+          end
         end
-        Protocol::SubAck::ReasonCode.from_value(qos)
+        Protocol::SubAck::ReasonCode.from_value(options.qos)
       end
 
-      def unsubscribe(client, topics)
+      def unsubscribe(client, topics) : Array(Protocol::UnsubAck::ReasonCode)
         session = client.session
-        topics.each do |tf|
-          session.unsubscribe(tf)
+        topics.map do |tf|
+          if session.unsubscribe(tf)
+            Protocol::UnsubAck::ReasonCode::Success
+          else
+            Protocol::UnsubAck::ReasonCode::NoSubscriptionExisted
+          end
         end
       end
 
