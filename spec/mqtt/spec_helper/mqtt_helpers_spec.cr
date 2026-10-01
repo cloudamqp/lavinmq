@@ -97,8 +97,10 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
 
-  def subtopic(topic : String, qos = 0)
-    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8)
+  def subtopic(topic : String, qos = 0, no_local = false,
+               retain_as_published = false, retain_handling = 0)
+    MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8,
+      no_local, retain_as_published, retain_handling.to_u8)
   end
 
   def publish_packet(**args) : MQTT::Protocol::Publish

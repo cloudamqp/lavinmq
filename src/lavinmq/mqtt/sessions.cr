@@ -14,7 +14,7 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.session?("#{SESSION_PREFIX}#{client_id}")
+        @vhost.session?(MQTT.session_name(client_id))
       end
 
       # Raises rather than returning nil, so a caller can tell the failures
@@ -25,7 +25,7 @@ module LavinMQ
           return session
         end
         raise LimitReached.new if @vhost.queue_limit_reached?
-        name = "#{SESSION_PREFIX}#{client_id}"
+        name = MQTT.session_name(client_id)
         # The interval is the single input: it decides durability, auto-delete
         # and - carried in the arguments - survives a restart.
         arguments = AMQP::Table.new({
