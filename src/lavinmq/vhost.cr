@@ -190,9 +190,10 @@ module LavinMQ
       @connections.add client
     end
 
+    # Ticks only when something was removed: MQTT removes a taken-over client
+    # twice, in the takeover and when its own fiber exits.
     def rm_connection(client : Client)
-      event_tick(EventType::ConnectionClosed)
-      @connections.delete client
+      event_tick(EventType::ConnectionClosed) if @connections.delete client
     end
 
     # Direct reply consumer accessors

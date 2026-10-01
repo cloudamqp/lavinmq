@@ -87,6 +87,18 @@ module MqttSpecs
       end
     end
 
+    it "writes no metadata file for a clean session" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "dev", clean_session: true)
+          pingpong(io)
+          data_dir = File.join(server.vhosts["/"].data_dir, "transient", Digest::SHA1.hexdigest("mqtt.dev"))
+          Dir.exists?(data_dir).should be_true
+          File.exists?(File.join(data_dir, ".metadata")).should be_false
+        end
+      end
+    end
+
     # An empty file is a parse error, a JSON array is valid JSON that is not
     # an object; both must degrade to an unknown user, never fail the load.
     ["", "[]"].each do |content|

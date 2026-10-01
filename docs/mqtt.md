@@ -48,6 +48,8 @@ A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated 
 
 Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 and QoS 2 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
 
+Every connection has a session, created at CONNECT whether or not the client ever subscribes [MQTT-3.1.2-4]. It holds the client's inbound QoS 2 state as well as its subscriptions and pending messages. Deleting the session queue, for example over the HTTP API, closes the client's connection; a reconnect gets a new, empty session.
+
 ### Clean Sessions
 
 When a client connects with `clean_session=true`:
@@ -74,7 +76,11 @@ If a client connects with a client ID that already has an active connection, the
 
 ### Session Limits
 
-Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. A session is created on the client's first SUBSCRIBE, so CONNECT still succeeds when the vhost is at the limit, but the SUBSCRIBE is answered with a SUBACK where every topic filter gets return code `0x80` (failure). Clients that already have a session can keep subscribing, since reusing a session consumes no new resource.
+Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits), together with AMQP queues. Since every connection has a session, a clean session counts while its client is connected and a persistent one counts until it is deleted, whether or not the client subscribes. A CONNECT that would create a session past the limit is answered with a CONNACK carrying return code 3 (server unavailable) and the socket is closed. A persistent client reconnecting to its existing session, or a client taking over its own connection, is still accepted, since that consumes no new resource.
+
+Creating the session is part of accepting the connection, so it is not subject to `permission_check_enabled`: any user allowed to connect to the vhost gets one, and `max-queues` is what bounds them.
+
+AMQP clients and the HTTP API cannot create queues with the `mqtt.` prefix, but a definitions import can. If a queue that is not an MQTT session already has the name `mqtt.<client_id>`, a CONNECT with that client ID is answered with a CONNACK carrying return code 2 (identifier rejected) and the socket is closed, until that queue is removed.
 
 ### Message Delivery
 
@@ -243,7 +249,7 @@ Definitions generated from a data directory include the groups in `mqtt_permissi
 ### Upgrading
 
 - A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
-- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
+- The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it. The session queue itself is created at CONNECT without a permission check, see [Session Limits](#session-limits)
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 
 ## Authentication
@@ -265,7 +271,7 @@ Note that connecting with a client_id already in use takes over that session, so
 ## Limitations
 
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
-- QoS 2 state is held in memory, and is neither written to disk nor replicated to followers, so it is lost on a broker restart and on a failover. Persisting it is planned as follow-up work. Outbound state, a delivery awaiting PUBREC or PUBCOMP, survives a reconnect but not a broker restart; a delivery already past PUBREC is gone with it, and since MQTT 3.1.1 §4.4 has a client re-send only PUBLISH and PUBREL, never PUBREC, that subscriber's packet ID stays outstanding for the life of the session. Inbound state, the packet IDs of QoS 2 publishes awaiting PUBREL, survives a reconnect only for a client that has a session, which means one that has subscribed at least once; for a publish-only client it is discarded on every disconnect. Whenever that state is gone, a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
+- QoS 2 state is held in memory, and is neither written to disk nor replicated to followers, so it is lost on a broker restart and on a failover. Persisting it is planned as follow-up work. Outbound state, a delivery awaiting PUBREC or PUBCOMP, survives a reconnect but not a broker restart; a delivery already past PUBREC is gone with it, and since MQTT 3.1.1 §4.4 has a client re-send only PUBLISH and PUBREL, never PUBREC, that subscriber's packet ID stays outstanding for the life of the session. Inbound state, the packet IDs of QoS 2 publishes awaiting PUBREL, survives a reconnect with `clean_session=false`. Whenever that state is gone, a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
 - A subscriber that answers PUBREC and never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
 - Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full handshake when replayed to a QoS 2 subscriber.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.

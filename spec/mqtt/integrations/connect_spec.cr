@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "log/spec"
 
 module MqttSpecs
   extend MqttHelpers
@@ -52,7 +53,6 @@ module MqttSpecs
             with_client_io(server) do |io|
               connect(io, clean_session: false)
 
-              # LavinMQ won't save sessions without subscriptions
               subscribe(io,
                 topic_filters: [subtopic("a/topic", 0u8)],
                 packet_id: 1u16
@@ -121,6 +121,64 @@ module MqttSpecs
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
               connack.session_present?.should be_true
+            end
+          end
+        end
+
+        it "session present when reconnecting a non-clean session without subscriptions [MQTT-3.1.2-4]" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              connect(io, clean_session: false)
+              disconnect(io)
+            end
+            with_client_io(server) do |io|
+              connack = connect(io, clean_session: false)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.session_present?.should be_true
+            end
+          end
+        end
+
+        it "closes the connection when its session is deleted" do
+          with_server do |server|
+            vhost = server.vhosts["/"]
+            with_client_io(server) do |io|
+              connect(io, client_id: "a", clean_session: false)
+              # A deliberate delete, so the read fiber must not log an error.
+              Log.capture("lmq.mqtt.client", :error) do |logs|
+                vhost.delete_queue("mqtt.a")
+                io.should be_closed
+                wait_for { vhost.@connections.@connections.empty? }
+                logs.empty
+              end
+            end
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "a", clean_session: false)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack.as(MQTT::Protocol::Connack).session_present?.should be_false
+            end
+          end
+        end
+
+        it "keeps a reconnect to a session closed by a store error, until the session is deleted" do
+          with_server do |server|
+            vhost = server.vhosts["/"]
+            with_client_io(server) do |io|
+              connect(io, client_id: "a", clean_session: false)
+              # Stands in for `get_packet` closing the session on a
+              # MessageStore::Error while this client is attached.
+              vhost.session("mqtt.a").close
+              disconnect(io)
+            end
+            wait_for { vhost.@connections.@connections.empty? }
+
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "a", clean_session: false)
+              connack.should be_a(MQTT::Protocol::Connack)
+              pingpong(io).should be_a(MQTT::Protocol::PingResp)
+              vhost.delete_queue("mqtt.a")
+              io.should be_closed
             end
           end
         end
@@ -211,6 +269,21 @@ module MqttSpecs
               connack = connack.as(MQTT::Protocol::Connack)
               connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
               io.should_not be_closed
+            end
+          end
+        end
+
+        it "for a client id whose session name is taken by an AMQP queue" do
+          with_server do |server|
+            # What a definitions import of a plain `mqtt.a` queue creates; AMQP
+            # and the HTTP API refuse the prefix.
+            server.vhosts["/"].declare_queue("mqtt.a", true, false)
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "a")
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::IdentifierRejected)
+              io.should be_closed
             end
           end
         end
