@@ -102,3 +102,6 @@ The following arguments are not supported on streams:
 - `x-overflow`
 - `x-single-active-consumer`
 - `x-max-priority`
+- `x-delayed-retry-min`
+- `x-delayed-retry-max`
+- `x-delayed-retry-multiplier`

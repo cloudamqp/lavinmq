@@ -5,6 +5,18 @@ describe "Delayed Message Exchange" do
   delay_q_name = "amq.delayed-#{x_name}"
   x_args = AMQP::Client::Arguments.new({"x-delayed-exchange" => true})
 
+  it "should reject an exchange name that leaves no room for the delayed queue prefix" do
+    with_amqp_server do |s|
+      name = "x" * 244
+      with_channel(s) do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, /too long/) do
+          ch.exchange(name, "topic", args: x_args)
+        end
+      end
+      s.vhosts["/"].exchange?(name).should be_nil
+    end
+  end
+
   describe "internal queue" do
     it "should use old name if dir exists" do
       with_amqp_server do |s|
@@ -297,9 +309,9 @@ describe "Delayed Message Exchange" do
       queue = s.vhosts["/"].queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue)
       queue.message_count.should eq 1
 
-      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore)
+      store = queue.@msg_store.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore)
       seg_id = store.@segments.first_key
-      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore)
+      requeued = store.@requeued.as(LavinMQ::AMQP::DelayedQueue::DelayedMessageStore::DelayedRequeuedStore)
 
       # Insert an index entry pointing past the segment data with an already-elapsed
       # expire_at, so the expire loop reads it first and BytesMessage.from_bytes raises

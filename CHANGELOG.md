@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
+
 ### Changed
 
 - `max_inflight_messages` must be at least `1`; `0` is now rejected at startup and on config reload instead of leaving every MQTT session accepting publishes it can never deliver [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
