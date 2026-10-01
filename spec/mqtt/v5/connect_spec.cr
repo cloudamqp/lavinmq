@@ -39,7 +39,8 @@ module MqttSpecs
           io = MQTT::Protocol::IO::V5.new(socket)
           connack = connect(io, version: MQTT::Protocol::Version::V5).as(MQTT::Protocol::Connack)
           props = connack.properties
-          props.maximum_qos.should eq(1u8)
+          # Absent means 2, and 2 may not be sent (3.2.2.3.4).
+          props.maximum_qos.should be_nil
           props.retain_available.should be_true
           props.wildcard_subscription_available.should be_true
           props.topic_alias_maximum.should eq(0u16)

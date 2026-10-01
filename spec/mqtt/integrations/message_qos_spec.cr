@@ -71,6 +71,28 @@ module MqttSpecs
       end
     end
 
+    it "does not store a qos0 publish for an offline qos1 subscription [MQTT-3.8.4-8]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          disconnect(io)
+        end
+
+        with_client_io(server) do |publisher_io|
+          connect(publisher_io, client_id: "publisher")
+          publish(publisher_io, topic: "a/b", qos: 0u8)
+          disconnect(publisher_io)
+        end
+
+        with_client_io(server) do |io|
+          connect(io, clean_session: false)
+          read_packet(io).should be_nil
+          disconnect(io)
+        end
+      end
+    end
+
     it "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
       with_server do |server|
         with_client_io(server) do |io|
