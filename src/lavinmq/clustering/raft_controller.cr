@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "./status_server"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
 class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
@@ -13,6 +14,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Closed by the follower monitor once this node is a serving leader, so
   # only that fiber decides between replicating and promoting.
   @promoted = Channel(Nil).new
+  @status_server : StatusServer? = nil
+  @started = false
+  @ready_lock = Mutex.new
 
   def initialize(config : Config)
     super(config)
@@ -25,6 +29,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def run(&)
     start_node
+    start_status_server
     spawn(follow_leader, name: "Follower monitor")
     select
     when @promoted.receive?
@@ -43,6 +48,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # leadership, so watch for its loss from here on, not after the yield.
     spawn(exit_on_leadership_loss, name: "Leadership monitor")
     yield
+    @started = true
+    update_ready
     @stop_signal.receive?
   rescue RaftCoordinator::StaleLeadership
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
@@ -52,9 +59,16 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
   end
 
+  def stopping : Nil
+    super
+    update_ready
+  end
+
   def stop
     return if @stopped
     @stopped = @stopping = true
+    update_ready
+    @status_server.try &.close
     @stop_signal.close
     @repli_client.try &.close
     hand_over_leadership
@@ -63,10 +77,28 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def exit_on_leadership_loss : Nil
     @node.serving.when_false.receive
+    update_ready
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
     return if @stopping
     Log.fatal { "Lost leadership" }
     exit 3
+  end
+
+  # Ready means route clients here: serving, started up and not shutting
+  # down. Recomputed under a lock so a stale caller can't overwrite a newer
+  # state.
+  private def update_ready : Nil
+    @ready_lock.synchronize do
+      @node.status.ready = @started && !@stopping && @node.serving.value
+    end
+  end
+
+  private def start_status_server : Nil
+    path = @config.clustering_status_unix_path
+    return if path.empty?
+    status_server = @status_server = StatusServer.new(@node.status, path)
+    status_server.bind
+    spawn(status_server.listen, name: "Clustering status listener")
   end
 
   # Lets an in-sync follower take over right away instead of after an

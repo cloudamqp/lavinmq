@@ -53,6 +53,7 @@ private class ControllerCluster
   getter serving = Channel(LavinMQ::Clustering::RaftController).new(8)
   getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
+  getter status_paths = Array(String).new
 
   def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil)
     ports = Array.new(size) { free_port }
@@ -76,6 +77,8 @@ private class ControllerCluster
       config.clustering_port = free_port
       config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
       config.metrics_http_port = -1
+      config.clustering_status_unix_path = File.join(dir, "status.sock")
+      @status_paths << config.clustering_status_unix_path
       # Followers proxy client ports to the leader, let each pick its own
       config.amqp_port = config.http_port = config.mqtt_port = 0
       config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
@@ -111,6 +114,14 @@ private class ControllerCluster
   def close
     @controllers.each &.stop
     @dirs.each { |d| FileUtils.rm_rf d }
+  end
+end
+
+private def read_status_until(io : IO, timeout = 5.seconds, & : String -> Bool) : String
+  io.read_timeout = timeout
+  loop do
+    line = io.gets || fail "status stream closed"
+    return line if yield line
   end
 end
 
@@ -218,6 +229,30 @@ describe LavinMQ::Clustering::RaftController do
         fail "two leaders serving: #{extra.id}"
       when timeout(500.milliseconds)
       end
+    end
+  end
+
+  it "streams the leader status to local agents", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      leader_idx = cluster.controllers.index!(leader)
+      leader_uri = "tcp://127.0.0.1:#{leader.@config.clustering_port}"
+      streams = cluster.status_paths.map { |p| UNIXSocket.new(p) }
+      leader_line = read_status_until(streams[leader_idx], &.includes?("ready=1"))
+      leader_line.should contain "leader=1"
+      term = leader_line[/term=(\d+)/, 1]
+      streams.each_with_index do |io, i|
+        next if i == leader_idx
+        line = read_status_until(io, &.includes?("leader_uri=#{leader_uri}"))
+        line.should contain "ready=0"
+        line.should contain "term=#{term}"
+      end
+      leader.stop
+      read_status_until(streams[leader_idx], &.includes?("ready=0"))
+      streams[leader_idx].gets.should be_nil
+    ensure
+      streams.try &.each &.close
     end
   end
 
