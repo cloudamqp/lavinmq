@@ -109,7 +109,8 @@ module LavinMQ
           session,
           client_id,
           packet.keepalive,
-          packet.will)
+          packet.will,
+          packet.properties.maximum_packet_size)
         @clients[client_id] = client
         @vhost.add_connection client
         {client, !existing.nil?}
@@ -158,7 +159,7 @@ module LavinMQ
         @exchange.publish(packet)
       end
 
-      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReasonCode)
         session = client.session
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|

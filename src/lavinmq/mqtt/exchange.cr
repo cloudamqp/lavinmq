@@ -1,5 +1,6 @@
 require "../amqp/exchange"
 require "./consts"
+require "./publish_headers"
 require "./subscription_tree"
 require "./session"
 require "./subscription_key"
@@ -20,17 +21,23 @@ module LavinMQ
 
       def publish(packet : Protocol::Publish) : UInt32
         @publish_in_count.add(1, :relaxed)
-        properties = AMQP::Properties.new(headers: AMQP::Table.new)
+        headers = AMQP::Table.new
+        PublishHeaders.store(packet.properties, headers)
+        properties = AMQP::Properties.new(headers: headers)
         properties.delivery_mode = packet.qos
 
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
 
-        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
+        # `Publish#topic` decodes @topic into a fresh String on every call, so
+        # hold it once: this is the publish hot path.
+        topic = packet.topic
+
+        msg = Message.new(timestamp, EXCHANGE, topic, properties, bodysize, body)
         msg.needs_sync = packet.qos > 0
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
+        @tree.each_entry(topic) do |queue, qos, _filter|
           # The lower of the publish and the subscription QoS [MQTT-3.8.4-6].
           msg.properties.delivery_mode = Math.min(packet.qos, qos)
           if queue.publish(msg)
