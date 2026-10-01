@@ -468,6 +468,10 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD")]
       property clustering_password = ""
 
+      @[CliOpt("", "--clustering-status-unix-path=PATH", "Unix socket streaming this node's leader status to local agents (default: disabled)", section: "clustering")]
+      @[IniOpt(ini_name: status_unix_path, section: "clustering")]
+      property clustering_status_unix_path = ""
+
       # File holding the clustering password, must not be readable by group or
       # others. Preferred over `password`, which lives in the often world
       # readable config file.
