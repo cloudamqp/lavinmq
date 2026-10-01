@@ -118,11 +118,13 @@ module LavinMQ
         "mqtt-client-#{@client_id}"
       end
 
+      # Exhaustive `case/in` on purpose: a new Version member must be a compile
+      # error here, not silently reported as 3.1.1 in the management UI.
       private def protocol_name : String
         case @io.version
-        when .v5?   then "MQTT 5.0"
-        when .v3_1? then "MQTT 3.1"
-        else             "MQTT 3.1.1"
+        in .v5?     then "MQTT 5.0"
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
         end
       end
 
@@ -159,6 +161,13 @@ module LavinMQ
         # error as one of those situations.
         @log.warn { "Protocol violation, disconnecting client: #{ex.message}" }
         disconnect(ex.reason)
+        publish_will
+      rescue ex : Protocol::Error::ProtocolError
+        # The shard raises this (with a reason byte) for codec-level protocol
+        # violations, e.g. an empty PUBLISH topic with no alias (0x82). Map it to
+        # a v5 server DISCONNECT; v3 just closes.
+        @log.warn { "Protocol error, disconnecting client: #{ex.message}" }
+        disconnect(disconnect_reason(ex.reason_code))
         publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
@@ -210,7 +219,12 @@ module LavinMQ
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
         when Protocol::Disconnect  then return {packet, bytesize}
-        else                            raise "received unexpected packet: #{packet}"
+        else
+          # Every remaining decodable type is either server-to-client only or
+          # illegal after CONNECT (a second CONNECT is [MQTT-3.1.0-2]), so this
+          # is the client's protocol error, not an internal one to backtrace.
+          @log.debug { "Unexpected packet: #{packet.inspect}" }
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
         end
         {packet, bytesize}
       end
@@ -246,6 +260,13 @@ module LavinMQ
         # peer may already be gone; read_loop's ensure still closes the socket
       end
 
+      # Map a shard reason byte to a DISCONNECT reason code, defaulting to a
+      # generic protocol error if it isn't a known DISCONNECT code.
+      private def disconnect_reason(reason_byte : UInt8) : Protocol::Disconnect::ReasonCode
+        Protocol::Disconnect::ReasonCode.from_value?(reason_byte) ||
+          Protocol::Disconnect::ReasonCode::ProtocolError
+      end
+
       def receive_pingreq(packet : Protocol::PingReq)
         send Protocol::PingResp.new
       end
@@ -260,10 +281,8 @@ module LavinMQ
         if packet.properties.topic_alias
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
         end
-        # An empty topic is only resolvable via a Topic Alias, which we don't allow.
-        if packet.topic_bytes.empty?
-          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
-        end
+        # (An empty topic with no alias is rejected by the shard on decode with a
+        # ProtocolError 0x82, mapped to a server DISCONNECT in read_loop.)
       end
 
       def recieve_publish(packet : Protocol::Publish)
