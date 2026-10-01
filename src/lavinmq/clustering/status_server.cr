@@ -1,6 +1,6 @@
 require "socket"
 require "./leader_status"
-require "../http/http_server"
+require "../unix_socket"
 
 module LavinMQ::Clustering
   # Streams LeaderStatus snapshots, one `key=value` line per change, to local
@@ -17,7 +17,7 @@ module LavinMQ::Clustering
     end
 
     def bind : Nil
-      HTTP::Server.prepare_control_socket(@path)
+      UnixSocket.prepare(@path)
       @server = UNIXServer.new(@path)
       File.chmod(@path, 0o660)
       Log.info { "Bound to #{@path}" }

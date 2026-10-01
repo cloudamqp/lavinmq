@@ -1,6 +1,7 @@
 require "http/server"
 require "json"
 require "./constants"
+require "../unix_socket"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
@@ -15,8 +16,6 @@ end
 module LavinMQ
   module HTTP
     Log = LavinMQ::Log.for "http"
-
-    class ControlSocketInUseError < Exception; end
 
     class Server
       Log = LavinMQ::Log.for "http.server"
@@ -88,7 +87,7 @@ module LavinMQ
       end
 
       def bind_internal_unix
-        Server.prepare_control_socket(@internal_unix_socket_path)
+        UnixSocket.prepare(@internal_unix_socket_path)
         addr = @http.bind_unix(@internal_unix_socket_path)
         File.chmod(@internal_unix_socket_path, 0o660)
         Log.info { "Bound to #{addr}" }
@@ -117,7 +116,7 @@ module LavinMQ
         end
 
         begin
-          prepare_control_socket(path)
+          UnixSocket.prepare(path)
           addr = http_server.bind_unix(path)
         rescue ex : Socket::BindError
           Log.warn { "#{ex.message}, not serving lavinmqctl socket on this node" }
@@ -138,28 +137,6 @@ module LavinMQ
           raise ex unless http_server.closed? # closed before listen started
         end
         http_server
-      end
-
-      # Verifies that the control socket path is safe to bind to.
-      # Deletes the file if it's a socket no one is listening on,
-      # raises if it's in use, not a socket, or can't be verified.
-      def self.prepare_control_socket(path)
-        return unless info = File.info?(path, follow_symlinks: false)
-
-        unless info.type.socket?
-          raise "Control socket #{path} exists and is not a socket"
-        end
-
-        begin
-          UNIXSocket.open(path) { }
-          raise ControlSocketInUseError.new("Control socket #{path} is already in use")
-        rescue Socket::ConnectError
-          # ECONNREFUSED: socket inode exists, but nobody is listening.
-          File.delete(path)
-        rescue ex : Socket::Error
-          # EACCES or anything ambiguous: fail closed, don't delete.
-          raise "Cannot verify stale control socket #{path}: #{ex.message}"
-        end
       end
     end
   end
