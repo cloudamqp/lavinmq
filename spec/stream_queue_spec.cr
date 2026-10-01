@@ -34,12 +34,12 @@ module StreamSpecHelpers
 end
 
 module LavinMQ
-  # unmap_and_remove_segments is protected, callable only from within the
-  # LavinMQ namespace (as VHost's sweep loop does) - this lets specs invoke
-  # it the same way without widening its real visibility.
+  # drop_expired_segments is protected, callable only from within the
+  # LavinMQ namespace (as VHost's max-age sweep does) - this lets specs
+  # invoke it the same way without widening its real visibility.
   module StreamSpecInternals
-    def self.unmap_and_remove_segments(stream : AMQP::Stream)
-      stream.unmap_and_remove_segments
+    def self.drop_expired_segments(stream : AMQP::Stream)
+      stream.drop_expired_segments
     end
   end
 end
@@ -1366,8 +1366,8 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "unmap_and_remove_segments (called by VHost's shared sweep)" do
-    it "unmaps segments not in use by a consumer without raising" do
+  describe "drop_expired_segments (called by VHost's max-age sweep)" do
+    it "drops segments older than max-age" do
       queue_name = Random::Secure.hex
       # Half-segment payload so 3 messages span multiple segments.
       data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
@@ -1378,14 +1378,11 @@ describe LavinMQ::AMQP::Stream do
         end
         stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
         stream.stream_msg_store.@segments.size.should be >= 2
+        stream.stream_msg_store.max_age = Time::Span.zero
 
-        LavinMQ::StreamSpecInternals.unmap_and_remove_segments(stream)
+        LavinMQ::StreamSpecInternals.drop_expired_segments(stream)
 
-        # The segments are still on disk and readable afterward - dontneed
-        # only drops the page cache, it doesn't touch the data.
-        msg = StreamSpecHelpers.consume_one(s, queue_name, Random::Secure.hex,
-          AMQP::Client::Arguments.new({"x-stream-offset": "first"}))
-        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+        stream.stream_msg_store.@segments.size.should eq 1
       end
     end
 
@@ -1394,18 +1391,17 @@ describe LavinMQ::AMQP::Stream do
       with_amqp_server do |s|
         StreamSpecHelpers.publish(s, queue_name, 1)
         stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        stream.stream_msg_store.max_age = Time::Span.zero
         stream.close
 
-        LavinMQ::StreamSpecInternals.unmap_and_remove_segments(stream)
+        LavinMQ::StreamSpecInternals.drop_expired_segments(stream)
       end
     end
 
-    it "store's unmap_segments is a no-op after the store is closed instead of raising" do
+    it "store's unmap_if_unused is a no-op after the store is closed instead of raising" do
       # Regression: MessageStore#close closes each segment's MFile but leaves
-      # them in @segments, so a sweep that reaches unmap_segments after the
-      # store closed used to hit mfile.dontneed -> IO::Error: Closed mfile.
-      # Needs >= 2 segments: unmap_segments always skips @wfile, so with a
-      # single segment it never reaches a dontneed call at all.
+      # them in @segments, so an unmap that runs after the store closed used
+      # to hit mfile.dontneed -> IO::Error: Closed mfile.
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
@@ -1415,7 +1411,53 @@ describe LavinMQ::AMQP::Stream do
         store.@segments.size.should be >= 2
         store.close
 
-        store.unmap_segments
+        store.unmap_if_unused(store.@segments.first_key)
+      end
+    end
+  end
+
+  describe "max-length retention" do
+    it "is enforced on publish, not only when a new segment is opened" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size * 3 // 4)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-length": 2}
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          # The second message opens a new segment while the stream is still
+          # within max-length, so only the push itself can trigger the drop
+          2.times { q.publish_confirm data }
+        end
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        stream.stream_msg_store.@segments.size.should eq 1
+        stream.message_count.should eq 1
+      end
+    end
+  end
+
+  describe "segment readers" do
+    it "tracks which segment each consumer is reading and releases on cancel" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          last_seg = store.@segments.last_key
+
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          tag = q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs.send msg
+          end
+          3.times { msgs.receive.ack }
+          wait_for { store.@segment_readers == {last_seg => 1u32} }
+
+          q.unsubscribe(tag)
+          wait_for { store.@segment_readers.empty? }
+        end
       end
     end
   end

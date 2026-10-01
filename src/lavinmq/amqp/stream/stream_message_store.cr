@@ -13,6 +13,7 @@ module LavinMQ::AMQP
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : ConsumerOffsets
+    @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
 
     def initialize(*args, **kwargs)
       super
@@ -73,13 +74,36 @@ module LavinMQ::AMQP
       end
     end
 
-    def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
-      return if @closed
-      @segments.each do |seg_id, mfile|
-        next if mfile == @wfile
-        next if except.includes? seg_id
-        mfile.dontneed
+    def acquire_segment(consumer : StreamConsumer) : Nil
+      return if consumer.segment_acquired?
+      consumer.segment_acquired = true
+      @segment_readers[consumer.segment] = (@segment_readers[consumer.segment]? || 0u32) + 1
+    end
+
+    def release_segment(consumer : StreamConsumer) : Nil
+      return unless consumer.segment_acquired?
+      consumer.segment_acquired = false
+      release_segment(consumer.segment)
+    end
+
+    private def release_segment(seg : UInt32) : Nil
+      count = @segment_readers[seg]? || return
+      if count > 1
+        @segment_readers[seg] = count - 1
+      else
+        @segment_readers.delete(seg)
+        unmap_if_unused(seg)
       end
+    end
+
+    # Drops a segment's pages from memory once no consumer is reading from it.
+    # The active write segment is kept mapped.
+    def unmap_if_unused(seg : UInt32) : Nil
+      return if @closed
+      return if @segment_readers.has_key?(seg)
+      mfile = @segments[seg]? || return
+      return if mfile == @wfile
+      mfile.dontneed
     end
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
@@ -117,6 +141,7 @@ module LavinMQ::AMQP
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
+          unmap_if_unused(segment)
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
             pos = 4u32
@@ -192,7 +217,7 @@ module LavinMQ::AMQP
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
 
-      if env = shift_requeued(consumer.requeued)
+      if env = shift_requeued(consumer)
         return env
       end
 
@@ -215,12 +240,13 @@ module LavinMQ::AMQP
       end
     end
 
-    private def shift_requeued(requeued) : Envelope?
-      while sp = requeued.shift?
+    private def shift_requeued(consumer) : Envelope?
+      while sp = consumer.requeued.shift?
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
+            unmap_if_unused(sp.segment) unless sp.segment == consumer.segment
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
@@ -236,8 +262,10 @@ module LavinMQ::AMQP
 
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
+        release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
+        acquire_segment(consumer)
         @segments[seg_id]
       end
     end
@@ -249,6 +277,7 @@ module LavinMQ::AMQP
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
+      cleanup_consumer_offsets if drop_overflow_by_length
       sp
     end
 
@@ -269,27 +298,40 @@ module LavinMQ::AMQP
 
     def drop_overflow
       return if @closed
-      if max_length = @max_length
-        drop_segments_while do
-          @size >= max_length
-        end
-      end
-      if max_bytes = @max_length_bytes
-        drop_segments_while do
-          @bytesize >= max_bytes
-        end
-      end
-      if max_age = @max_age
-        min_ts = RoughTime.utc - max_age
-        drop_segments_while do |seg_id|
-          last_ts = @segment_last_ts[seg_id]
-          Time.unix_ms(last_ts) < min_ts
-        end
-      end
+      drop_overflow_by_length
+      drop_overflow_by_age
       cleanup_consumer_offsets
     end
 
-    private def drop_segments_while(& : UInt32 -> Bool)
+    # Called by the vhost's periodic sweep, max-length and max-length-bytes
+    # are instead enforced on each push
+    def drop_expired : Nil
+      return if @closed
+      cleanup_consumer_offsets if drop_overflow_by_age
+    end
+
+    private def drop_overflow_by_length : Bool
+      dropped = false
+      if max_length = @max_length
+        dropped |= drop_segments_while { @size >= max_length }
+      end
+      if max_bytes = @max_length_bytes
+        dropped |= drop_segments_while { @bytesize >= max_bytes }
+      end
+      dropped
+    end
+
+    private def drop_overflow_by_age : Bool
+      max_age = @max_age || return false
+      min_ts = RoughTime.utc - max_age
+      drop_segments_while do |seg_id|
+        Time.unix_ms(@segment_last_ts[seg_id]) < min_ts
+      end
+    end
+
+    # Returns true if any segment was dropped
+    private def drop_segments_while(& : UInt32 -> Bool) : Bool
+      size_before = @segments.size
       @segments.reject! do |seg_id, mfile|
         should_drop = yield seg_id
         break unless should_drop
@@ -303,6 +345,7 @@ module LavinMQ::AMQP
         delete_file(mfile, including_meta: true)
         true
       end
+      @segments.size != size_before
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32

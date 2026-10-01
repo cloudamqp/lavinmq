@@ -11,6 +11,7 @@ module LavinMQ
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
+      property? segment_acquired = false
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true

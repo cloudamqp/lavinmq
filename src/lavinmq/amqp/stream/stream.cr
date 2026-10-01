@@ -274,23 +274,33 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Called periodically by the vhost's single shared sweep fiber
-    # (VHost#unmap_stream_segments_loop) rather than one timer per stream, so
-    # the number of wakeups doesn't grow with the number of stream queues.
-    protected def unmap_and_remove_segments
-      return if closed?
-      used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          used_segments << consumer.as(AMQP::StreamConsumer).segment
-        end
+    def add_consumer(consumer : Client::Channel::Consumer)
+      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+        @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
       end
+      super
+    end
+
+    def rm_consumer(consumer : Client::Channel::Consumer)
+      super
+      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+        @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
+      end
+    end
+
+    protected def unmap_if_unused(segment : UInt32) : Nil
+      @msg_store_lock.synchronize { stream_msg_store.unmap_if_unused(segment) }
+    end
+
+    # Called periodically by the vhost's shared sweep fiber, as max-age is the
+    # only retention limit that isn't triggered by a publish
+    protected def drop_expired_segments : Nil
+      return if closed?
       @msg_store_lock.synchronize do
         # Re-check: the queue/store can close while we were waiting for the
         # lock (Queue#close takes this same lock to close the store).
         next if closed? || stream_msg_store.closed
-        stream_msg_store.drop_overflow
-        stream_msg_store.unmap_segments(except: used_segments)
+        stream_msg_store.drop_expired
       end
     end
   end

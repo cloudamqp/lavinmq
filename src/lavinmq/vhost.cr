@@ -230,7 +230,7 @@ module LavinMQ
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
-      spawn unmap_stream_segments_loop, name: "Unmap stream segments loop"
+      spawn drop_expired_stream_segments_loop, name: "Stream max-age loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -248,29 +248,31 @@ module LavinMQ
       end
     end
 
-    # One shared sweep per vhost for all its stream queues, rather than one
-    # timer fiber per stream queue - keeps the number of wakeups independent
+    # One shared max-age sweep per vhost for all its stream queues, rather than
+    # one timer fiber per stream queue - keeps the number of wakeups independent
     # of how many stream queues exist.
-    UNMAP_STREAM_SEGMENTS_INTERVAL   = 5.seconds
-    UNMAP_STREAM_SEGMENTS_BATCH_SIZE = 64
+    STREAM_MAX_AGE_SWEEP_INTERVAL   = 5.seconds
+    STREAM_MAX_AGE_SWEEP_BATCH_SIZE = 64
 
-    private def unmap_stream_segments_loop
+    private def drop_expired_stream_segments_loop
       streams = Array(AMQP::Stream).new
       loop do
         # Snapshot so the sweep itself runs without the queues lock held
-        each_queue { |q| streams << q if q.is_a?(AMQP::Stream) }
+        each_queue do |q|
+          streams << q if q.is_a?(AMQP::Stream) && q.stream_msg_store.max_age
+        end
         if streams.empty?
-          return unless wait_or_closed(UNMAP_STREAM_SEGMENTS_INTERVAL)
+          return unless wait_or_closed(STREAM_MAX_AGE_SWEEP_INTERVAL)
           next
         end
         # Spread the batches over the interval instead of sweeping all at once
-        tick = UNMAP_STREAM_SEGMENTS_INTERVAL / ((streams.size + UNMAP_STREAM_SEGMENTS_BATCH_SIZE - 1) // UNMAP_STREAM_SEGMENTS_BATCH_SIZE)
-        streams.each_slice(UNMAP_STREAM_SEGMENTS_BATCH_SIZE, reuse: true) do |batch|
+        tick = STREAM_MAX_AGE_SWEEP_INTERVAL / ((streams.size + STREAM_MAX_AGE_SWEEP_BATCH_SIZE - 1) // STREAM_MAX_AGE_SWEEP_BATCH_SIZE)
+        streams.each_slice(STREAM_MAX_AGE_SWEEP_BATCH_SIZE, reuse: true) do |batch|
           return unless wait_or_closed(tick)
           batch.each do |q|
-            q.unmap_and_remove_segments
+            q.drop_expired_segments
           rescue ex
-            @log.error(ex) { "Unmap sweep failed for stream queue #{q.name}" }
+            @log.error(ex) { "Max-age sweep failed for stream queue #{q.name}" }
           end
         end
         streams.clear
