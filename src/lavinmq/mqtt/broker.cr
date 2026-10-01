@@ -42,6 +42,15 @@ module LavinMQ
         @vhost.mqtt_permission_service
       end
 
+      # v3 has no expiry property, so its clean-session bit carries both meanings:
+      # 1 ends the session with the connection, 0 keeps it forever, which is what
+      # LavinMQ has always done. v5 reads the property, absent meaning 0
+      # [MQTT-3.1.2-11].
+      private def session_expiry_interval(packet : Protocol::Connect) : UInt32
+        return packet.clean_session? ? 0u32 : UInt32::MAX unless packet.version.v5?
+        packet.properties.session_expiry_interval || 0u32
+      end
+
       # A reconnecting client_id displaces the existing connection in
       # `add_client`, so the connection count doesn't grow
       def connection_limit_reached?(client_id : String) : Bool
@@ -85,15 +94,19 @@ module LavinMQ
             "(username=#{packet.username}) connected as #{client_id}")
           remove_client_locked(prev_client)
         end
+        interval = session_expiry_interval(packet)
         existing = sessions[client_id]?
         # A clean session starts with no state at all [MQTT-3.1.2-6], and a
-        # clean session's state lasts only as long as its connection.
-        if existing && (packet.clean_session? || existing.clean_session?)
+        # 0-interval session ends with its connection, which a takeover is
+        # (3.1.4). Clean Start and the interval are separate inputs: the first
+        # decides whether to discard, the second how long the session this
+        # connection ends up with will outlive it.
+        if existing && (packet.clean_session? || existing.auto_delete?)
           existing.delete
           existing = nil
         end
         session = begin
-          sessions.declare(client_id, packet.clean_session?)
+          sessions.declare(client_id, interval)
         rescue Sessions::LimitReached
           raise Protocol::Error::ServerUnavailable.new(
             "queue limit (#{@vhost.max_queues}) reached in vhost \"#{@vhost.name}\"")
@@ -102,15 +115,20 @@ module LavinMQ
           raise Protocol::Error::IdentifierRejected.new(
             "queue \"#{ex.message}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
         end
+        # A resumed session adopts this connection's interval. Its expiry clock,
+        # if running, captured the old one at disconnect and stops on attach, so
+        # narrowing it here cannot expire the session about to be resumed.
+        session.session_expiry_interval = interval if existing
         client = MQTT::Client.new(io,
           connection_info,
           user,
           self,
           session,
-          client_id,
-          packet.keepalive,
-          packet.will,
-          packet.properties.maximum_packet_size)
+          client_id: client_id,
+          keepalive: packet.keepalive,
+          will: packet.will,
+          max_packet_size: packet.properties.maximum_packet_size,
+          session_expiry_interval: interval)
         @clients[client_id] = client
         @vhost.add_connection client
         {client, !existing.nil?}
@@ -147,7 +165,7 @@ module LavinMQ
         session = client.session
         if session.client.nil? || (session.client == client)
           session.client = nil
-          session.delete if session.clean_session?
+          session.delete if session.auto_delete?
         end
         client_id = client.client_id
         @clients.delete(client_id) if @clients[client_id]? == client
