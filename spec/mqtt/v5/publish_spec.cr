@@ -231,11 +231,10 @@ module MqttSpecs
           io = MQTT::Protocol::IO::V5.new(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
-          # An empty topic is only valid with an alias to resolve it; we allow none.
-          MQTT::Protocol::Publish.new(
-            topic: "", payload: "x".to_slice,
-            packet_id: 1u16, dup: false, qos: 1u8, retain: false,
-          ).to_io(io)
+          # The shard refuses to encode an empty-topic PUBLISH, so send raw bytes
+          # for a v5 QoS 0 PUBLISH with an empty topic, empty properties, payload
+          # "x": [0x30, remaining=4, topic-len=0x0000, props-len=0x00, 'x'].
+          io.write_bytes_raw(Bytes[0x30, 0x04, 0x00, 0x00, 0x00, 0x78])
           io.flush
 
           pkt = MQTT::Protocol::Packet.from_io(io)
@@ -269,6 +268,40 @@ module MqttSpecs
           second.qos.should eq(1u8)
           second.packet_id.should_not be_nil
           puback(sub, second.packet_id)
+        end
+      end
+    end
+    it "delivers a message whose mqtt.* header is out of range instead of poisoning the queue" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO::V5.new(socket)
+          connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub")
+          subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
+
+          # An AMQP client can bind mqtt.<client-id> to amq.topic and publish
+          # anything, so a header `store` would never write must not raise inside
+          # build_packet - that requeues and re-raises, force-closing the
+          # subscriber, which re-poisons on reconnect.
+          headers = LavinMQ::AMQP::Table.new({
+            "mqtt.message_expiry_interval" => -1_i32,
+            "mqtt.response_topic"          => "reply/#",
+          })
+          props = LavinMQ::AMQP::Properties.new(headers: headers, delivery_mode: 1u8)
+          body = "poison"
+          msg = LavinMQ::Message.new(RoughTime.unix_ms, LavinMQ::MQTT::EXCHANGE, "a/b",
+            props, body.bytesize.to_u64, ::IO::Memory.new(body))
+          server.vhosts["/"].session("mqtt.sub").publish(msg)
+
+          delivered = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::Publish)
+          delivered.payload.should eq("poison".to_slice)
+          delivered.properties.message_expiry_interval.should be_nil
+          delivered.properties.response_topic.should be_nil
+          puback(io, delivered.packet_id)
+          pingpong(io)
+
+          session = server.vhosts["/"].session("mqtt.sub")
+          session.unacked_count.should eq 0
+          session.message_count.should eq 0
         end
       end
     end
