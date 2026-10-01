@@ -3,18 +3,17 @@ module LavinMQ::Clustering
   # the status socket. `ready` means this node is the leader and accepting
   # client connections, it's what a router should act on.
   class LeaderStatus
-    record Snapshot, ready : Bool, leader : Bool, term : Int64, leader_uri : String?, seq : Int64 do
+    record Snapshot, ready : Bool, leader : Bool, term : Int64, leader_uri : String? do
       def to_s(io : IO) : Nil
         io << "ready=" << (ready ? 1 : 0)
         io << " leader=" << (leader ? 1 : 0)
         io << " term=" << term
-        io << " seq=" << seq
         io << " leader_uri=" << leader_uri
       end
     end
 
     @lock = Mutex.new
-    @snapshot = Snapshot.new(false, false, 0i64, nil, 0i64)
+    @snapshot = Snapshot.new(false, false, 0i64, nil)
     @subscribers = Array(Channel(Snapshot)).new
 
     def snapshot : Snapshot
@@ -61,7 +60,7 @@ module LavinMQ::Clustering
       @lock.synchronize do
         s = yield @snapshot
         next if s == @snapshot
-        @snapshot = s = s.copy_with(seq: s.seq + 1)
+        @snapshot = s
         @subscribers.each { |ch| replace(ch, s) }
       end
     end
