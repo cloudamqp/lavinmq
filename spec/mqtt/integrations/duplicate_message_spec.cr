@@ -32,7 +32,7 @@ module MqttSpecs
       end
     end
 
-    it "dup is set when a message is being redelivered [MQTT-3.3.1.-1]" do
+    it "dup is set when a message is being redelivered [MQTT-3.3.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)

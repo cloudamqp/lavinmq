@@ -120,7 +120,7 @@ module MqttSpecs
         end
       end
 
-      it "clears the retain flag when not set [MQTT-3.3.1-9]" do
+      it "clears the retain flag when not set [MQTT-3.3.1-12]" do
         with_server do |server|
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
@@ -201,7 +201,7 @@ module MqttSpecs
 
       it "still sends retained messages with retain=1 at subscribe time" do
         # Retain As Published governs forwarded messages only; a replay from the
-        # retain store always carries retain=1 [MQTT-3.3.1-8].
+        # retain store always carries retain=1 (§3.3.1.3).
         with_server do |server|
           with_client_socket(server) do |pub_socket|
             pub = v5_connect(pub_socket, client_id: "pub")

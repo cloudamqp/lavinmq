@@ -20,7 +20,7 @@ module MqttSpecs
   end
 
   describe "MQTT 5.0 PUBACK" do
-    it "answers NoMatchingSubscribers when nothing is subscribed [MQTT-3.4.2.1]" do
+    it "answers NoMatchingSubscribers when nothing is subscribed (§3.4.2.1)" do
       with_server do |server|
         with_client_socket(server) do |socket|
           io = v5_connect(socket)

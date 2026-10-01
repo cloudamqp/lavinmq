@@ -24,7 +24,7 @@ module LavinMQ
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
       #
-      # Connection lifecycle rules, which the takeover [MQTT-3.1.4-2] relies on:
+      # Connection lifecycle rules, which the takeover [MQTT-3.1.4-3] relies on:
       # 1. Registering, taking over and removing a client, and creating or
       #    deleting its session for it, happen under its client_id's lock.
       # 2. A registered client always reaches `run_client`'s `ensure`.
@@ -50,7 +50,7 @@ module LavinMQ
       # v3 has no expiry property, so its clean-session bit carries both meanings:
       # 1 ends the session with the connection, 0 keeps it forever, which is what
       # LavinMQ has always done. v5 reads the property, absent meaning 0
-      # [MQTT-3.1.2-11].
+      # (§3.1.2.11.2).
       private def session_expiry_interval(packet : Protocol::Connect) : UInt32
         return packet.clean_session? ? 0u32 : UInt32::MAX unless packet.version.v5?
         packet.properties.session_expiry_interval || 0u32
@@ -101,7 +101,7 @@ module LavinMQ
         end
         interval = session_expiry_interval(packet)
         existing = sessions[client_id]?
-        # A clean session starts with no state at all [MQTT-3.1.2-6], and a
+        # A clean session starts with no state at all [MQTT-3.1.2-4], and a
         # 0-interval session ends with its connection, which a takeover is
         # (3.1.4). Clean Start and the interval are separate inputs: the first
         # decides whether to discard, the second how long the session this
