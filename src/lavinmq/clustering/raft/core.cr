@@ -87,6 +87,23 @@ module LavinMQ::Clustering::Raft
       HardState.new(@term, @voted_for, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup, @peer_node_ids.dup)
     end
 
+    # False while migrating from etcd and the etcd leader still holds its
+    # lease: the node votes but doesn't campaign.
+    property? campaign_allowed = true
+
+    # Install the ISR an etcd-coordinated cluster ended with, read after the
+    # etcd leader's lease was gone so it can't change any more. Only applies
+    # to a node that hasn't got any raft state yet (none persisted, nothing
+    # from a leader). Lets the node campaign either way.
+    def seed(isr : Set(Int32)?) : Bool
+      @campaign_allowed = true
+      return false unless last_index == 0 && @snapshot_index == 0 && @snapshot_isr.nil?
+      @snapshot_isr = isr
+      @bootstrap = true
+      @dirty = true
+      true
+    end
+
     def persisted : Nil
       @dirty = false
     end
@@ -322,7 +339,7 @@ module LavinMQ::Clustering::Raft
     private def may_campaign? : Bool
       return false if @id_conflict
       return false unless in_isr?(latest_isr, @node_id)
-      @bootstrap || last_index > 0
+      @campaign_allowed && (@bootstrap || last_index > 0)
     end
 
     private def start_pre_vote(now : Time::Instant) : Nil
@@ -380,7 +397,10 @@ module LavinMQ::Clustering::Raft
         @match_index[p] = 0i64
         @last_ack[p] = now
       end
-      append Entry.new(@term, nil)
+      # The first entry of a term carries the current ISR rather than being a
+      # plain no-op, so a node that hasn't got the ISR yet (joined before it
+      # could be seeded) has it as soon as it has the entry.
+      append Entry.new(@term, latest_isr)
       @term_start_index = last_index
       advance_commit
       @heartbeat_due = now + @heartbeat_interval

@@ -465,19 +465,18 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD_FILE")]
       property clustering_password_file = ""
 
-      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "(Deprecated) No longer used",
-        section: "clustering", deprecated: "--clustering-etcd-endpoints is deprecated and no longer used, leader election is built in")]
-      @[IniOpt(ini_name: etcd_endpoints, section: "clustering",
-        deprecated: "Ini config etcd_endpoints is deprecated and no longer used, leader election is built in")]
+      # Only read while migrating an etcd-coordinated cluster: a node without
+      # raft state follows the etcd leader, then seeds raft with the ISR from
+      # etcd once the etcd leader is gone. Never written to.
+      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "etcd to migrate from, read once by nodes without raft state (default: none)", section: "clustering")]
+      @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
-      @clustering_etcd_endpoints = "" # deprecated, no longer used
+      property clustering_etcd_endpoints = ""
 
-      @[CliOpt("", "--clustering-etcd-prefix=KEY", "(Deprecated) No longer used",
-        section: "clustering", deprecated: "--clustering-etcd-prefix is deprecated and no longer used, leader election is built in")]
-      @[IniOpt(ini_name: etcd_prefix, section: "clustering",
-        deprecated: "Ini config etcd_prefix is deprecated and no longer used, leader election is built in")]
+      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix of the etcd to migrate from (default: lavinmq)", section: "clustering")]
+      @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
-      @clustering_etcd_prefix = "" # deprecated, no longer used
+      property clustering_etcd_prefix = "lavinmq"
 
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far

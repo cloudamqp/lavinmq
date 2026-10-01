@@ -13,8 +13,9 @@ module LavinMQ::Clustering::Raft
 
     private record Propose, isr : Set(Int32), reply : Channel(Bool)
     private record Transfer, reply : Channel(Bool)
+    private record Seed, isr : Set(Int32)?, reply : Channel(Bool)
     private record Pending, index : Int64, term : Int64, reply : Channel(Bool)
-    private alias Event = Message | Propose | Transfer
+    private alias Event = Message | Propose | Transfer | Seed
 
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
@@ -34,9 +35,12 @@ module LavinMQ::Clustering::Raft
 
     def initialize(id : String, peers : Enumerable(String), node_id : Int32, uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
-                   @tick = 20.milliseconds, bootstrap = false)
+                   @tick = 20.milliseconds, bootstrap = false, campaign : Bool = true)
+      state = @storage.load
+      @fresh = state.nil?
       @core = Core.new(id, peers, node_id, uri, election_timeout, heartbeat_interval,
-        Time.instant, @storage.load, bootstrap: bootstrap)
+        Time.instant, state, bootstrap: bootstrap)
+      @core.campaign_allowed = campaign
       @committed_isr = @core.committed_isr
     end
 
@@ -53,6 +57,19 @@ module LavinMQ::Clustering::Raft
 
     def leader_uri : String?
       @state_lock.synchronize { @leader_uri }
+    end
+
+    # True when no raft state was persisted when the node started.
+    getter? fresh : Bool
+
+    # Seed the ISR and let the node campaign, see Core#seed. Returns whether
+    # the ISR was installed (false when the node already had raft state).
+    def seed(isr : Set(Int32)?) : Bool
+      reply = Channel(Bool).new(1)
+      @events.send Seed.new(isr, reply)
+      await reply
+    rescue Channel::ClosedError
+      false
     end
 
     def leader? : Bool
@@ -133,6 +150,8 @@ module LavinMQ::Clustering::Raft
         end
       in Transfer
         event.reply.send @core.transfer_leadership
+      in Seed
+        event.reply.send @core.seed(event.isr)
       end
     end
 

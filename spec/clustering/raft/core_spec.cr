@@ -118,6 +118,56 @@ describe Raft::Core do
     sim.run_until { sim.leader.try &.serving_leader? }
   end
 
+  describe "seeding from etcd" do
+    it "doesn't campaign until seeded" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      sim.advance(2.seconds)
+      sim.leader.should be_nil
+    end
+
+    it "only elects a node in the seeded ISR" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      # The etcd leader was n1 and the ISR {n1, n3} when its lease went away
+      sim.crash("n1")
+      sim.cores.each_value(&.seed(Set{1, 3}).should(be_true))
+      sim.run_until { sim.leader.try &.serving_leader? }
+      sim.leader.not_nil!.id.should eq "n3"
+      sim.advance(1.second)
+      sim["n2"].role.leader?.should be_false
+    end
+
+    it "doesn't elect anyone while the only ISR member is down" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      sim.crash("n1")
+      sim.cores.each_value(&.seed(Set{1}))
+      sim.advance(3.seconds)
+      sim.leader.should be_nil
+    end
+
+    it "doesn't seed a node that already has raft state" do
+      sim = SimCluster.new(3, bootstrap: ["n1"])
+      sim.run_until { sim.leader.try &.serving_leader? }
+      sim.propose(sim.leader.not_nil!, Set{1, 2, 3})
+      sim.advance(100.milliseconds)
+      sim["n2"].seed(Set{2}).should be_false
+      sim["n2"].latest_isr.should eq Set{1, 2, 3}
+    end
+
+    it "gives a not yet seeded node the ISR with a new leader's first entry" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      sim["n1"].seed(Set{1, 2})
+      sim["n2"].seed(Set{1, 2})
+      sim.run_until { sim.leader.try &.serving_leader? }
+      sim.advance(100.milliseconds)
+      sim["n3"].latest_isr.should eq Set{1, 2}
+      sim["n3"].seed(Set{1, 2, 3}).should be_false
+    end
+  end
+
   it "only lets a bootstrap node campaign while no node has raft state" do
     sim = SimCluster.new(3, bootstrap: ["n2"])
     sim.crash("n2")

@@ -473,10 +473,15 @@ describe LavinMQ::Config do
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
     end
 
-    it "still accepts the deprecated etcd options" do
+    it "parses the etcd options used to migrate from etcd" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-etcd-endpoints=e:2379"])
+      config.clustering_etcd_endpoints.should eq ""
+      config.clustering_etcd_prefix.should eq "lavinmq"
+      config.parse(["--clustering", "--clustering-raft-advertised-address=a:1", "--clustering-etcd-endpoints=e:2379",
+                    "--clustering-etcd-prefix=p"])
+      config.clustering_etcd_endpoints.should eq "e:2379"
+      config.clustering_etcd_prefix.should eq "p"
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
     end

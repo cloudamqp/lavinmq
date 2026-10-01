@@ -124,8 +124,8 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats |
 | `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when migrating from etcd |
-| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | (empty) | **Deprecated:** still accepted but has no effect, leader election is built in |
-| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | (empty) | **Deprecated:** still accepted but has no effect |
+| `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | (empty) | Only for migrating from etcd: read, never written, by nodes without election state (see [Clustering](clustering.md#migrating-from-etcd)) |
+| `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | Key prefix of the etcd to migrate from |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

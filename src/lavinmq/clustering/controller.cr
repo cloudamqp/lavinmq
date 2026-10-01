@@ -3,6 +3,7 @@ require "./client"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "./etcd_seed"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
@@ -12,17 +13,35 @@ class LavinMQ::Clustering::Controller
   getter node : Raft::Node
 
   @repli_client : Client? = nil
+  @repli_password : String? = nil
   @transport : Raft::TCPTransport? = nil
+  @etcd_seed : EtcdSeed? = nil
+  @etcd_leader_uri : String? = nil
+  @etcd_secret : String? = nil
+  @etcd_changed = Channel(Nil).new(1)
 
   def initialize(@config : Config)
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
+    storage = Raft::Storage.new(@config.data_dir)
+    if migrating_from_etcd?(storage)
+      @etcd_seed = EtcdSeed.new(@config.clustering_etcd_endpoints, @config.clustering_etcd_prefix)
+    end
     @node = Raft::Node.new(@config.clustering_raft_address, @config.clustering_peer_addresses,
-      @id, @advertised_uri, Raft::Storage.new(@config.data_dir),
+      @id, @advertised_uri, storage,
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?)
+      bootstrap: may_bootstrap?, campaign: @etcd_seed.nil?)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
+  end
+
+  # A node without raft state in a cluster that ran on etcd: until the etcd
+  # leader is gone it can't know whether its data is current. `bootstrap`
+  # overrides that, like it does without etcd.
+  private def migrating_from_etcd?(storage : Raft::Storage) : Bool
+    return false if @config.clustering_etcd_endpoints.empty?
+    return false if @config.clustering_bootstrap?
+    !File.exists?(storage.path)
   end
 
   # This method is called by the Launcher#run.
@@ -31,6 +50,9 @@ class LavinMQ::Clustering::Controller
   # The method is blocking.
   def run(&)
     start_node
+    if seed = @etcd_seed
+      spawn(migrate_from_etcd(seed), name: "etcd migration")
+    end
     spawn(follow_leader, name: "Follower monitor")
     select
     when @node.serving.when_true.receive
@@ -113,6 +135,56 @@ class LavinMQ::Clustering::Controller
     Dir.children(@config.data_dir).all? { |f| f.in?(".clustering_id", ".raft_state", ".lock") }
   end
 
+  # Rolling migration from an etcd-coordinated cluster. While the etcd leader
+  # holds its lease, follow it like an etcd-era follower would and don't
+  # campaign. Once the lease is gone the etcd ISR can no longer change (only
+  # the lease holder writes it), so every node seeds raft with the same,
+  # final ISR, and only a node in it can win: the cluster picks up where etcd
+  # left off. A node that hears from a raft leader first has its state from
+  # it instead.
+  private def migrate_from_etcd(seed : EtcdSeed) : Nil
+    Log.info { "No raft state, migrating from etcd at #{@config.clustering_etcd_endpoints}" }
+    until @stopped
+      if @node.leader_uri
+        @node.seed(nil) # has state from the raft leader, nothing is seeded
+        Log.info { "Joined the raft cluster, etcd is no longer used" }
+        set_etcd_leader nil
+        return
+      end
+      begin
+        if holder = seed.leader_uri
+          @etcd_secret ||= seed.clustering_secret
+          # Our own previous incarnation's lease: nothing to follow, wait for
+          # it to expire
+          set_etcd_leader(holder == @advertised_uri ? nil : holder)
+        else
+          isr = seed.isr
+          @node.seed(isr)
+          Log.info { "etcd leader gone, seeded raft with the etcd ISR #{isr.try(&.to_a) || "(none)"}" }
+          set_etcd_leader nil
+          return
+        end
+      rescue ex : EtcdSeed::Error | IO::Error | Socket::Error
+        Log.warn { "Can't read etcd, retrying: #{ex.message}" }
+      end
+      select
+      when @node.leader_changed.receive
+      when @stop_signal.receive?
+        return
+      when timeout(1.second)
+      end
+    end
+  end
+
+  private def set_etcd_leader(uri : String?) : Nil
+    return if uri == @etcd_leader_uri
+    @etcd_leader_uri = uri
+    select
+    when @etcd_changed.send(nil)
+    else
+    end
+  end
+
   # Each node in a cluster has an unique id, for tracking ISR
   private def clustering_id : Int32
     id_file_path = File.join(@config.data_dir, ".clustering_id")
@@ -137,6 +209,7 @@ class LavinMQ::Clustering::Controller
       end
       select
       when @node.leader_changed.receive
+      when @etcd_changed.receive
       when @stop_signal.receive?
         return
       end
@@ -153,8 +226,15 @@ class LavinMQ::Clustering::Controller
   end
 
   private def follow(uri : String?) : Symbol?
+    # The etcd-era leader authenticates followers with the secret it keeps in
+    # etcd, a raft leader with the configured password.
+    password = if uri && uri == @etcd_leader_uri && @node.leader_uri.nil?
+                 @etcd_secret || @coordinator.password
+               else
+                 @coordinator.password
+               end
     if repli_client = @repli_client # is currently following a leader
-      return if repli_client.follows? uri
+      return if repli_client.follows?(uri) && password == @repli_password
       repli_client.close
       @repli_client = nil
     end
@@ -167,14 +247,15 @@ class LavinMQ::Clustering::Controller
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
-    @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
+    @repli_password = password
+    @repli_client = r = Clustering::Client.new(@config, @id, password)
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil
   end
 
   private def current_leader_uri : String?
-    @node.leader_uri
+    @node.leader_uri || @etcd_leader_uri
   end
 
   private def leader? : Bool

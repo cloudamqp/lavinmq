@@ -85,13 +85,16 @@ A leader that can't reach a majority of the peers for `election_timeout` steps d
 
 ### Migrating from etcd
 
-Earlier versions used etcd for leader election. `etcd_endpoints` and `etcd_prefix` are still accepted but ignored. To migrate:
+Earlier versions used etcd for leader election. A cluster migrates with a rolling upgrade, one node at a time, without downtime beyond one failover:
 
-1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes.
-3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
+1. Add `peers`, `raft_advertised_address` and `password_file` to every node's config, keep `etcd_endpoints` and `etcd_prefix` as they are, and open the raft port between the nodes.
+2. Upgrade the followers one at a time. An upgraded node without election state (`.raft_state` in the data dir) asks etcd who the leader is and replicates from it like before, and doesn't take part in elections yet. Wait for each node to be back in sync before the next.
+3. Upgrade the leader last. Once its etcd lease is gone (released on a graceful stop, or expired after the lease TTL if it crashed), the ISR in etcd can't change any more. Every upgraded node then reads that final ISR and seeds its election state with it, and only a node in it can become the new leader, exactly as with etcd. The former leader rejoins as a follower when it starts on the new version.
+4. When all nodes have election state, etcd is no longer read. Remove `etcd_endpoints` and decommission etcd.
 
-A node that has data but no election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until it has heard from an elected one. `bootstrap` overrides that and lets it become the cluster's first leader. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need no bootstrap.
+Nodes only ever read from etcd, never write to it. **All other nodes must be upgraded before the leader:** a node still on the old version would campaign in etcd when the leader's lease goes away, while the upgraded nodes elect a leader of their own.
+
+Without etcd to read from, a node that has data but no election state doesn't know whether its data is current, so it won't try to become leader until it has heard from an elected one. `bootstrap` (`--clustering-bootstrap`, `LAVINMQ_CLUSTERING_BOOTSTRAP=true`) overrides that on one node and lets it become the cluster's first leader, e.g. when etcd is already gone: stop all nodes, then start the former leader with `bootstrap` and the others normally. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need neither etcd nor bootstrap.
 
 ### Leader Election Hooks
 

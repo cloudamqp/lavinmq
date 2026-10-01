@@ -34,7 +34,7 @@ private class ControllerCluster
   getter exits = Channel(Tuple(LavinMQ::Clustering::Controller, Int32)).new(8)
   getter dirs = Array(String).new
 
-  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil)
+  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil)
     ports = Array.new(size) { free_port }
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
@@ -44,6 +44,7 @@ private class ControllerCluster
       @dirs << dir
       config = LavinMQ::Config.new
       config.clustering_bootstrap = bootstrap == @dirs.size - 1
+      etcd.try { |e| config.clustering_etcd_endpoints = e }
       config.data_dir = dir
       config.clustering = true
       config.clustering_bind = "127.0.0.1"
@@ -90,14 +91,138 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, &)
-  cluster = ControllerCluster.new(size, with_data, bootstrap)
+private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil, &)
+  cluster = ControllerCluster.new(size, with_data, bootstrap, etcd)
   yield cluster
 ensure
   cluster.try &.close
 end
 
+# Answers the etcd v3 JSON gateway calls EtcdSeed makes, for the keys an
+# etcd-coordinated cluster kept under the default "lavinmq" prefix.
+private class FakeEtcd
+  property leader : String? = nil
+  property isr : Set(Int32)? = nil
+  getter address : String
+
+  def initialize
+    @server = ::HTTP::Server.new do |ctx|
+      body = JSON.parse(ctx.request.body.try(&.gets_to_end) || "{}")
+      ctx.response.content_type = "application/json"
+      ctx.response.print(respond(ctx.request.path, body))
+    end
+    addr = @server.bind_tcp("127.0.0.1", 0)
+    @address = "127.0.0.1:#{addr.port}"
+    spawn @server.listen
+  end
+
+  private def respond(path, body) : String
+    case path
+    when "/v3/election/leader"
+      if l = @leader
+        {kv: {value: Base64.strict_encode(l)}}.to_json
+      else
+        {error: "election: no leader", code: 2, message: "election: no leader"}.to_json
+      end
+    when "/v3/kv/range"
+      value = case Base64.decode_string(body["key"].as_s)
+              when "lavinmq/isr"               then @isr.try &.map(&.to_s(36)).join(',')
+              when "lavinmq/clustering_secret" then "etcd-secret"
+              end
+      value ? {kvs: [{value: Base64.strict_encode(value)}]}.to_json : {count: "0"}.to_json
+    else
+      {error: "unknown path #{path}"}.to_json
+    end
+  end
+
+  def close
+    @server.close
+  end
+end
+
+describe LavinMQ::Clustering::EtcdSeed do
+  it "reads the election leader, the ISR and the replication secret" do
+    etcd = FakeEtcd.new
+    seed = LavinMQ::Clustering::EtcdSeed.new(etcd.address, "lavinmq")
+    seed.leader_uri.should be_nil
+    seed.isr.should be_nil
+    etcd.leader = "tcp://n1:5679"
+    etcd.isr = Set{42, 4711}
+    seed.leader_uri.should eq "tcp://n1:5679"
+    seed.isr.should eq Set{42, 4711}
+    seed.clustering_secret.should eq "etcd-secret"
+  ensure
+    etcd.try &.close
+  end
+
+  it "tries the next endpoint when one is unreachable" do
+    etcd = FakeEtcd.new
+    etcd.leader = "tcp://n1:5679"
+    seed = LavinMQ::Clustering::EtcdSeed.new("127.0.0.1:#{free_port},#{etcd.address}", "lavinmq")
+    seed.leader_uri.should eq "tcp://n1:5679"
+  ensure
+    etcd.try &.close
+  end
+
+  it "raises when no endpoint is reachable" do
+    seed = LavinMQ::Clustering::EtcdSeed.new("127.0.0.1:#{free_port}", "lavinmq")
+    expect_raises(LavinMQ::Clustering::EtcdSeed::Error) { seed.isr }
+  end
+end
+
 describe LavinMQ::Clustering::Controller do
+  describe "migrating from etcd", tags: "slow" do
+    it "follows the etcd leader, then elects an ISR member once its lease is gone" do
+      etcd = FakeEtcd.new
+      etcd_leader = "tcp://127.0.0.1:#{free_port}"
+      etcd.leader = etcd_leader # the etcd-era leader, still serving
+      with_controllers(with_data: true, etcd: etcd.address) do |cluster|
+        cluster.start_all
+        # Replicating from it like etcd-era followers, with its etcd secret
+        wait_for do
+          cluster.controllers.all? do |c|
+            c.@repli_client.try(&.follows?(etcd_leader)) && c.@repli_password == "etcd-secret"
+          end
+        end
+        select
+        when c = cluster.serving.receive
+          fail "#{c.id} was elected while the etcd leader held its lease"
+        when timeout(1.second)
+        end
+        in_sync = cluster.controllers[1, 2]
+        etcd.isr = in_sync.map(&.id).to_set
+        etcd.leader = nil # the etcd leader stopped, its lease is gone
+        leader = cluster.next_leader
+        in_sync.should contain leader
+        # The rest now replicate from the raft leader, with the raft password
+        others = cluster.controllers.reject(leader)
+        wait_for do
+          others.all? { |o| o.@repli_client.try(&.follows?(leader.@advertised_uri)) && o.@repli_password == "controller-spec" }
+        end
+      end
+    ensure
+      etcd.try &.close
+    end
+
+    it "waits for the only ISR member to come back" do
+      etcd = FakeEtcd.new
+      with_controllers(with_data: true, etcd: etcd.address) do |cluster|
+        only = cluster.controllers[0]
+        etcd.isr = Set{only.id}
+        cluster.controllers[1, 2].each { |c| cluster.start(c) }
+        select
+        when c = cluster.serving.receive
+          fail "#{c.id} was elected without being in the etcd ISR"
+        when timeout(2.seconds)
+        end
+        cluster.start(only)
+        cluster.next_leader.should eq only
+      end
+    ensure
+      etcd.try &.close
+    end
+  end
+
   it "reports follower proxy bind failures without the generic unhandled exception log" do
     blocker = TCPServer.new("127.0.0.1", 0)
     with_datadir do |data_dir|
