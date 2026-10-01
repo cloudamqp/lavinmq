@@ -255,6 +255,24 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  it "still elects a leader when the status socket can't be bound" do
+    with_controllers(size: 1) do |cluster|
+      cluster.controllers.first.@config.clustering_status_unix_path = "/nonexistent-dir/status.sock"
+      cluster.start_all
+      cluster.next_leader
+    end
+  end
+
+  it "still elects a leader when the status socket path isn't a socket" do
+    with_controllers(size: 1) do |cluster|
+      path = File.join(cluster.dirs.first, "not-a-socket")
+      File.write(path, "")
+      cluster.controllers.first.@config.clustering_status_unix_path = path
+      cluster.start_all
+      cluster.next_leader
+    end
+  end
+
   it "hands over leadership on shutdown faster than an election timeout", tags: "slow" do
     with_controllers do |cluster|
       cluster.start_all
