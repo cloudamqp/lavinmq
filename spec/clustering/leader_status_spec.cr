@@ -45,8 +45,8 @@ describe LavinMQ::Clustering::LeaderStatus do
 
   it "formats snapshots as key=value" do
     s = LavinMQ::Clustering::LeaderStatus::Snapshot.new(true, true, 4i64, "tcp://a:5679", 7i64)
-    s.to_s.should eq "ready=1 leader=1 term=4 leader_uri=tcp://a:5679 seq=7"
-    s.copy_with(ready: false, leader: false, leader_uri: nil).to_s.should eq "ready=0 leader=0 term=4 leader_uri= seq=7"
+    s.to_s.should eq "ready=1 leader=1 term=4 seq=7 leader_uri=tcp://a:5679"
+    s.copy_with(ready: false, leader: false, leader_uri: nil).to_s.should eq "ready=0 leader=0 term=4 seq=7 leader_uri="
   end
 end
 
@@ -55,11 +55,11 @@ describe LavinMQ::Clustering::StatusServer do
     with_status_server do |status, path|
       status.raft_state(false, 3i64, "tcp://a:5679")
       UNIXSocket.open(path) do |io|
-        read_line(io).should eq "ready=0 leader=0 term=3 leader_uri=tcp://a:5679 seq=1"
+        read_line(io).should eq "ready=0 leader=0 term=3 seq=1 leader_uri=tcp://a:5679"
         status.raft_state(true, 4i64, "tcp://b:5679")
-        read_line(io).should eq "ready=0 leader=1 term=4 leader_uri=tcp://b:5679 seq=2"
+        read_line(io).should eq "ready=0 leader=1 term=4 seq=2 leader_uri=tcp://b:5679"
         status.ready = true
-        read_line(io).should eq "ready=1 leader=1 term=4 leader_uri=tcp://b:5679 seq=3"
+        read_line(io).should eq "ready=1 leader=1 term=4 seq=3 leader_uri=tcp://b:5679"
       end
     end
   end

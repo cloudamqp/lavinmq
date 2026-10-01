@@ -8,8 +8,8 @@ module LavinMQ::Clustering
         io << "ready=" << (ready ? 1 : 0)
         io << " leader=" << (leader ? 1 : 0)
         io << " term=" << term
-        io << " leader_uri=" << leader_uri
         io << " seq=" << seq
+        io << " leader_uri=" << leader_uri
       end
     end
 
