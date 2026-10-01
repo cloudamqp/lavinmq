@@ -1,6 +1,7 @@
 require "../filesystem"
 require "digest/sha1"
 require "./protocol"
+require "./publish_headers"
 require "../mqtt"
 require "../amqp/queue/queue"
 require "../error"
@@ -696,11 +697,18 @@ module LavinMQ
           return
         end
         loop do
-          # Booked before the record and the send, see `deliver_acked`
-          book(id, sp, Inflight::Awaiting::PubRec)
-          batch << {env, id, original}
-          log_packet_id &.publish_sent(id, sp)
-          return if batch.size >= MAX_QOS2_BATCH
+          # Gated, so a client without a limit builds no extra packet
+          if @client.try(&.max_packet_size) && exceeds_max_packet_size?(build_packet(env, id, original))
+            # Never booked, so not redelivered [MQTT-3.1.2-25]
+            delete_message(sp)
+            env.release
+          else
+            # Booked before the record and the send, see `deliver_acked`
+            book(id, sp, Inflight::Awaiting::PubRec)
+            batch << {env, id, original}
+            log_packet_id &.publish_sent(id, sp)
+            return if batch.size >= MAX_QOS2_BATCH
+          end
           # A re-send keeps its remembered id without asking `next_packet_id`,
           # so the window is checked here too
           return if @inflight.size >= Config.instance.max_inflight_messages
@@ -741,7 +749,12 @@ module LavinMQ
 
       private def deliver_no_ack(env, sp : SegmentPosition, & : Protocol::Publish, UInt32 -> Nil) : Nil
         begin
-          yield build_packet(env, nil), sp.bytesize
+          packet = build_packet(env, nil)
+          if exceeds_max_packet_size?(packet)
+            delete_message(sp)
+            return
+          end
+          yield packet, sp.bytesize
           if env.redelivered
             @redeliver_count.add(1, :relaxed)
           else
@@ -769,6 +782,12 @@ module LavinMQ
           @msg_store_lock.synchronize { msg_store.requeue(sp) }
           raise ex
         end
+        if exceeds_max_packet_size?(packet)
+          # Discard without sending and complete the delivery: the id is never
+          # booked, so it is not redelivered [MQTT-3.1.2-25].
+          delete_message(sp)
+          return
+        end
         begin
           # Booked before the send, which yields: the client can acknowledge
           # before we return, and an acknowledgement finding no entry is either
@@ -786,6 +805,15 @@ module LavinMQ
           unsend(id, sp) if booked?(id, sp)
           raise ex
         end
+      end
+
+      # A v5 client's Maximum Packet Size caps the packets we may send it
+      # [MQTT-3.1.2-24]. Only v5 clients set it, so size against v5 framing.
+      private def exceeds_max_packet_size?(packet : Protocol::Publish) : Bool
+        max = @client.try(&.max_packet_size) || return false
+        return false unless packet.bytesize(Protocol::Version::V5) > max
+        @log.debug { "Dropping PUBLISH exceeding client Maximum Packet Size (#{max} bytes)" }
+        true
       end
 
       private def requeue_without_packet_id(sp : SegmentPosition) : Nil
@@ -854,13 +882,21 @@ module LavinMQ
         # above QoS 2, which would make one bad byte a poison message.
         qos = 2u8 if qos > 2
         dup = qos.zero? ? false : (dup || env.redelivered)
+        # IO::V3#write_properties discards these, so a v3 subscriber should not
+        # pay six Table#fetch linear scans per delivery to build them.
+        properties = if @client.try(&.version.v5?)
+                       PublishHeaders.restore(msg.properties.headers)
+                     else
+                       Protocol::PublishProperties.new
+                     end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
           dup: dup,
           qos: qos,
           retain: retained,
-          topic: msg.routing_key
+          topic: msg.routing_key,
+          properties: properties
         )
       end
 

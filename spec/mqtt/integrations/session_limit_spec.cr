@@ -81,7 +81,7 @@ module MqttSpecs
           connack.session_present?.should be_true
           ack = subscribe(io, topic_filters: mk_topic_filters({"e/f", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0]
         end
       end
     end

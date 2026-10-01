@@ -115,7 +115,8 @@ module LavinMQ
           session,
           client_id,
           packet.keepalive,
-          packet.will)
+          packet.will,
+          packet.properties.maximum_packet_size)
         @clients[client_id] = client
         @vhost.add_connection client
         {client, !existing.nil?}

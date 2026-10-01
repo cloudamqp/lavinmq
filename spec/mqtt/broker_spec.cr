@@ -32,7 +32,7 @@ module MqttSpecs
         spawn do
           # Stands in for an API delete of the session while this client is
           # still writing its CONNACK.
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO::V3.new(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a", clean_session: false)) { vhost.delete_queue("mqtt.a") }
           done.send nil
         end
@@ -58,11 +58,11 @@ module MqttSpecs
         a_done = Channel(Nil).new
         b_client = nil
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(a_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO::V3.new(a_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a", clean_session: false)) do
             # B connects in full while A is still writing its CONNACK.
             spawn do
-              broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
+              broker.run_client(MQTT::Protocol::IO::V3.new(b_reader), LavinMQ::ConnectionInfo.local,
                 user, connect_packet("a", clean_session: false)) { }
             end
             wait_for { b_client = broker.@clients["a"]?.try { |c| c if c.session.client == c } }
@@ -151,7 +151,7 @@ module MqttSpecs
         closed_before = vhost.connection_closed_count
         reader, writer = IO.pipe
         expect_raises(IO::Error) do
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO::V3.new(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a")) { raise IO::Error.new("CONNACK write failed") }
         end
         server.update_stats_rates
