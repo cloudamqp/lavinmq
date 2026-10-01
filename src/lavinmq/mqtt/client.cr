@@ -62,6 +62,9 @@ module LavinMQ
         @io.version
       end
 
+      # The interval named on CONNECT. Kept because [MQTT-3.14.2] makes a
+      # non-zero interval on DISCONNECT a Protocol Error when this one was 0.
+      getter session_expiry_interval : UInt32
       @connected_at = RoughTime.unix_ms
       @started = false
       getter? closed = false
@@ -104,7 +107,8 @@ module LavinMQ
                      @client_id : String,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil,
-                     @max_packet_size : UInt32? = nil)
+                     @max_packet_size : UInt32? = nil,
+                     @session_expiry_interval : UInt32 = 0u32)
         @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
@@ -166,6 +170,9 @@ module LavinMQ
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(Protocol::Disconnect)
             @log.debug { "Received disconnect: #{packet.reason_code}" }
+            # Before the will decision: on a protocol error the rescue publishes
+            # the will itself, so doing it here first would publish it twice.
+            apply_disconnect_expiry(packet)
             # Only reason 0x00 discards the will [MQTT-3.14.4-3]. 0x04
             # (DisconnectWithWillMessage) and every error code publish it.
             publish_will unless packet.reason_code.normal_disconnection?
@@ -214,6 +221,24 @@ module LavinMQ
       # A deleted session closes only the socket, not the client, and logs why.
       private def closed_by_server? : Bool
         @closed || @session.deleted?
+      end
+
+      # A DISCONNECT may name a new Session Expiry Interval [MQTT-3.14.2.2.2].
+      # Absent means keep the CONNECT value, not 0.
+      #
+      # A non-zero interval when CONNECT sent 0 is a Protocol Error, and the spec
+      # is explicit that the server does not treat it as a valid DISCONNECT but
+      # answers 0x82 as in section 4.13 [MQTT-3.14.2] - which is exactly what the
+      # ProtocolViolation handler already does, will included.
+      private def apply_disconnect_expiry(packet : Protocol::Disconnect) : Nil
+        interval = packet.properties.session_expiry_interval || return
+        if @session_expiry_interval.zero? && !interval.zero?
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+        @session_expiry_interval = interval
+        # The session picks it up before read_loop's ensure runs remove_client, so
+        # narrowing to 0 deletes the session on this disconnect.
+        @session.session_expiry_interval = interval
       end
 
       private def duration

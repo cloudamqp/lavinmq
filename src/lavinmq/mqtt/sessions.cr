@@ -20,13 +20,19 @@ module LavinMQ
       # Raises rather than returning nil, so a caller can tell the failures
       # apart. An existing session is always returned, reusing one consumes no
       # new resource.
-      def declare(client_id : String, clean_session : Bool) : Session
+      def declare(client_id : String, session_expiry_interval : UInt32) : Session
         if session = self[client_id]?
           return session
         end
         raise LimitReached.new if @vhost.queue_limit_reached?
         name = "#{SESSION_PREFIX}#{client_id}"
-        @vhost.declare_queue(name, !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
+        # The interval is the single input: it decides durability, auto-delete
+        # and - carried in the arguments - survives a restart.
+        arguments = AMQP::Table.new({
+          "x-queue-type"     => "mqtt",
+          SESSION_EXPIRY_ARG => session_expiry_interval,
+        })
+        @vhost.declare_queue(name, !session_expiry_interval.zero?, session_expiry_interval.zero?, arguments)
         self[client_id]? || raise NameTaken.new(name)
       end
     end

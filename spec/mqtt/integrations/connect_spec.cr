@@ -182,6 +182,35 @@ module MqttSpecs
             end
           end
         end
+
+        it "no session present when taking over a session that ends with its connection" do
+          # The previous connection's 0-interval session is still there when the
+          # takeover starts, but the takeover ends it, so the new connection must
+          # not be told it resumed one, and must not inherit the subscription.
+          with_server do |server|
+            with_client_io(server) do |first|
+              connect(first, clean_session: true)
+              subscribe(first,
+                topic_filters: [subtopic("a/topic", 0u8)],
+                packet_id: 1u16
+              )
+
+              with_client_io(server) do |second|
+                connack = connect(second, clean_session: false).as(MQTT::Protocol::Connack)
+                connack.session_present?.should be_false
+                # The CONNACK is written before add_client runs; a PINGREQ
+                # round-trip proves the takeover has been applied.
+                pingpong(second)
+                # Every connection gets a session, so this one has a fresh durable
+                # session, without the subscription the old one held.
+                vhost = server.vhosts["/"]
+                vhost.session("mqtt.client_id").durable?.should be_true
+                vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange).bindings_details.should be_empty
+                disconnect(second)
+              end
+            end
+          end
+        end
       end
 
       describe "with expected return code" do
