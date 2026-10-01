@@ -157,10 +157,9 @@ module MqttSpecs
           connect(sub_io, client_id: "subscriber")
           subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}))
 
-          # Subscribes, so the session survives the disconnect below.
+          # Publish-only: the session comes from CONNECT, not from a SUBSCRIBE.
           with_client_io(server) do |io|
             connect(io, client_id: "publisher", clean_session: false)
-            subscribe(io, topic_filters: mk_topic_filters({"unused", 0u8}))
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
             # Gone without releasing the id.
           end
@@ -190,11 +189,8 @@ module MqttSpecs
           # Keeps the stats loop from starting flow again
           LavinMQ::Config.instance.free_disk_min = Int64::MAX
           server.flow(false)
-          # A persistent session that subscribes, so it survives the disconnect
-          # below and can still be resumed.
           with_client_io(server) do |io|
             connect(io, client_id: "publisher", clean_session: false)
-            subscribe(io, topic_filters: mk_topic_filters({"unused", 0u8}))
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
             io.should be_closed
           end
@@ -228,7 +224,6 @@ module MqttSpecs
 
           with_client_io(server) do |io|
             connect(io, client_id: "publisher", clean_session: false)
-            subscribe(io, topic_filters: mk_topic_filters({"unused", 0u8}))
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 2u8, packet_id: 7u16)
           end
 
