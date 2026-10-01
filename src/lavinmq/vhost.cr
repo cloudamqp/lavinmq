@@ -251,21 +251,38 @@ module LavinMQ
     # One shared sweep per vhost for all its stream queues, rather than one
     # timer fiber per stream queue - keeps the number of wakeups independent
     # of how many stream queues exist.
-    UNMAP_STREAM_SEGMENTS_INTERVAL = 5.seconds
+    UNMAP_STREAM_SEGMENTS_INTERVAL   = 5.seconds
+    UNMAP_STREAM_SEGMENTS_BATCH_SIZE = 64
 
     private def unmap_stream_segments_loop
+      streams = Array(AMQP::Stream).new
       loop do
-        select
-        when timeout UNMAP_STREAM_SEGMENTS_INTERVAL
-        when closed.when_true.receive?
-          return
+        # Snapshot so the sweep itself runs without the queues lock held
+        each_queue { |q| streams << q if q.is_a?(AMQP::Stream) }
+        if streams.empty?
+          return unless wait_or_closed(UNMAP_STREAM_SEGMENTS_INTERVAL)
+          next
         end
-        each_queue do |q|
-          next unless q.is_a?(AMQP::Stream)
-          q.unmap_and_remove_segments
-        rescue ex
-          @log.error(ex) { "Unmap sweep failed for stream queue #{q.name}" }
+        # Spread the batches over the interval instead of sweeping all at once
+        tick = UNMAP_STREAM_SEGMENTS_INTERVAL / ((streams.size + UNMAP_STREAM_SEGMENTS_BATCH_SIZE - 1) // UNMAP_STREAM_SEGMENTS_BATCH_SIZE)
+        streams.each_slice(UNMAP_STREAM_SEGMENTS_BATCH_SIZE, reuse: true) do |batch|
+          return unless wait_or_closed(tick)
+          batch.each do |q|
+            q.unmap_and_remove_segments
+          rescue ex
+            @log.error(ex) { "Unmap sweep failed for stream queue #{q.name}" }
+          end
         end
+        streams.clear
+      end
+    end
+
+    private def wait_or_closed(duration : Time::Span) : Bool
+      select
+      when timeout duration
+        true
+      when closed.when_true.receive?
+        false
       end
     end
 
