@@ -100,36 +100,75 @@ end
 
 # Answers the etcd v3 JSON gateway calls EtcdSeed makes, for the keys an
 # etcd-coordinated cluster kept under the default "lavinmq" prefix.
+# Answers the etcd v3 JSON gateway calls EtcdSeed makes, for the keys an
+# etcd-coordinated cluster kept under the default "lavinmq" prefix. The
+# election leader is modelled as a single candidate key, and changing it bumps
+# the revision and wakes watches.
 private class FakeEtcd
-  property leader : String? = nil
   property isr : Set(Int32)? = nil
   getter address : String
+  getter leader : String? = nil
+  getter watches_started = Atomic(Int32).new(0)
+  @revision = 1i64
+  @lock = Mutex.new
+  @watchers = Array(Channel(Nil)).new
 
   def initialize
     @server = ::HTTP::Server.new do |ctx|
       body = JSON.parse(ctx.request.body.try(&.gets_to_end) || "{}")
       ctx.response.content_type = "application/json"
-      ctx.response.print(respond(ctx.request.path, body))
+      if ctx.request.path == "/v3/watch"
+        watch(ctx.response, body)
+      else
+        ctx.response.print(respond(ctx.request.path, body))
+      end
     end
     addr = @server.bind_tcp("127.0.0.1", 0)
     @address = "127.0.0.1:#{addr.port}"
     spawn @server.listen
   end
 
+  def leader=(uri : String?)
+    watchers = @lock.synchronize do
+      @leader = uri
+      @revision += 1
+      @watchers.dup.tap { @watchers.clear }
+    end
+    watchers.each { |w| w.send(nil) rescue nil }
+  end
+
+  private def watch(response, body)
+    @watches_started.add(1)
+    start = body.dig("create_request", "start_revision").as_s.to_i64
+    wake = Channel(Nil).new(1)
+    changed = @lock.synchronize do
+      @watchers << wake unless @revision >= start
+      @revision >= start
+    end
+    response.print({result: {header: {revision: @revision.to_s}, created: true}}.to_json)
+    response.print('\n')
+    response.flush
+    wake.receive unless changed
+    response.print({result: {events: [{type: "DELETE"}]}}.to_json)
+    response.print('\n')
+    response.flush
+  end
+
   private def respond(path, body) : String
     case path
-    when "/v3/election/leader"
-      if l = @leader
-        {kv: {value: Base64.strict_encode(l)}}.to_json
-      else
-        {error: "election: no leader", code: 2, message: "election: no leader"}.to_json
-      end
     when "/v3/kv/range"
-      value = case Base64.decode_string(body["key"].as_s)
+      key = Base64.decode_string(body["key"].as_s)
+      header = {revision: @lock.synchronize { @revision }.to_s}
+      value = case key
+              when "lavinmq/leader/"           then @leader
               when "lavinmq/isr"               then @isr.try &.map(&.to_s(36)).join(',')
               when "lavinmq/clustering_secret" then "etcd-secret"
               end
-      value ? {kvs: [{value: Base64.strict_encode(value)}]}.to_json : {count: "0"}.to_json
+      if value
+        {header: header, kvs: [{value: Base64.strict_encode(value)}]}.to_json
+      else
+        {header: header, count: "0"}.to_json
+      end
     else
       {error: "unknown path #{path}"}.to_json
     end
@@ -144,13 +183,74 @@ describe LavinMQ::Clustering::EtcdSeed do
   it "reads the election leader, the ISR and the replication secret" do
     etcd = FakeEtcd.new
     seed = LavinMQ::Clustering::EtcdSeed.new(etcd.address, "lavinmq")
-    seed.leader_uri.should be_nil
+    seed.election.leader_uri.should be_nil
     seed.isr.should be_nil
     etcd.leader = "tcp://n1:5679"
     etcd.isr = Set{42, 4711}
-    seed.leader_uri.should eq "tcp://n1:5679"
+    seed.election.leader_uri.should eq "tcp://n1:5679"
     seed.isr.should eq Set{42, 4711}
     seed.clustering_secret.should eq "etcd-secret"
+  ensure
+    etcd.try &.close
+  end
+
+  it "waits on a watch for the election to change" do
+    etcd = FakeEtcd.new
+    etcd.leader = "tcp://n1:5679"
+    seed = LavinMQ::Clustering::EtcdSeed.new(etcd.address, "lavinmq")
+    election = seed.election
+    done = Channel(Nil).new(1)
+    spawn do
+      seed.wait_for_election_change(election.revision)
+      done.send nil
+    end
+    wait_for { etcd.watches_started.get == 1 }
+    select
+    when done.receive
+      fail "returned before the election changed"
+    when timeout(200.milliseconds)
+    end
+    etcd.leader = nil # lease expired
+    select
+    when done.receive
+    when timeout(1.second)
+      fail "watch didn't return on the change"
+    end
+  ensure
+    etcd.try &.close
+  end
+
+  it "doesn't miss a change between the read and the watch" do
+    etcd = FakeEtcd.new
+    etcd.leader = "tcp://n1:5679"
+    seed = LavinMQ::Clustering::EtcdSeed.new(etcd.address, "lavinmq")
+    election = seed.election
+    etcd.leader = nil                                # changes before the watch is set up
+    seed.wait_for_election_change(election.revision) # returns at once
+  ensure
+    etcd.try &.close
+  end
+
+  it "is interrupted by close" do
+    etcd = FakeEtcd.new
+    etcd.leader = "tcp://n1:5679"
+    seed = LavinMQ::Clustering::EtcdSeed.new(etcd.address, "lavinmq")
+    election = seed.election
+    raised = Channel(Exception?).new(1)
+    spawn do
+      seed.wait_for_election_change(election.revision)
+      raised.send nil
+    rescue ex
+      raised.send ex
+    end
+    wait_for { etcd.watches_started.get == 1 }
+    seed.close
+    select
+    when ex = raised.receive
+      ex.should be_a(LavinMQ::Clustering::EtcdSeed::Error)
+    when timeout(1.second)
+      fail "close didn't interrupt the watch"
+    end
   ensure
     etcd.try &.close
   end
@@ -159,7 +259,7 @@ describe LavinMQ::Clustering::EtcdSeed do
     etcd = FakeEtcd.new
     etcd.leader = "tcp://n1:5679"
     seed = LavinMQ::Clustering::EtcdSeed.new("127.0.0.1:#{free_port},#{etcd.address}", "lavinmq")
-    seed.leader_uri.should eq "tcp://n1:5679"
+    seed.election.leader_uri.should eq "tcp://n1:5679"
   ensure
     etcd.try &.close
   end

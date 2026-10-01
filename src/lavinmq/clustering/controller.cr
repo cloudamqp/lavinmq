@@ -145,35 +145,67 @@ class LavinMQ::Clustering::Controller
   private def migrate_from_etcd(seed : EtcdSeed) : Nil
     Log.info { "No raft state, migrating from etcd at #{@config.clustering_etcd_endpoints}" }
     until @stopped
-      if @node.leader_uri
-        @node.seed(nil) # has state from the raft leader, nothing is seeded
-        Log.info { "Joined the raft cluster, etcd is no longer used" }
-        set_etcd_leader nil
-        return
-      end
+      return joined_raft if @node.leader_uri
       begin
-        if holder = seed.leader_uri
-          @etcd_secret ||= seed.clustering_secret
-          # Our own previous incarnation's lease: nothing to follow, wait for
-          # it to expire
-          set_etcd_leader(holder == @advertised_uri ? nil : holder)
-        else
+        election = seed.election
+        unless holder = election.leader_uri
           isr = seed.isr
           @node.seed(isr)
           Log.info { "etcd leader gone, seeded raft with the etcd ISR #{isr.try(&.to_a) || "(none)"}" }
           set_etcd_leader nil
           return
         end
+        @etcd_secret ||= seed.clustering_secret
+        # Our own previous incarnation's lease: nothing to follow, wait for it
+        # to expire
+        set_etcd_leader(holder == @advertised_uri ? nil : holder)
+        return unless wait_for_election_change(seed, election.revision)
       rescue ex : EtcdSeed::Error | IO::Error | Socket::Error
+        return if @stopped
         Log.warn { "Can't read etcd, retrying: #{ex.message}" }
-      end
-      select
-      when @node.leader_changed.receive
-      when @stop_signal.receive?
-        return
-      when timeout(1.second)
+        select
+        when @node.leader_changed.receive
+        when @stop_signal.receive?
+          return
+        when timeout(1.second)
+        end
       end
     end
+  ensure
+    seed.close
+  end
+
+  # Waits on an etcd watch, so a takeover or the lease going away is acted on
+  # at once. Returns false when there's nothing more to do here: stopping, or
+  # a raft leader turned up (this node has its state from it then).
+  private def wait_for_election_change(seed : EtcdSeed, revision : Int64) : Bool
+    changed = Channel(Exception?).new(1)
+    spawn(name: "etcd election watch") do
+      seed.wait_for_election_change(revision)
+      changed.send nil
+    rescue ex
+      changed.send ex
+    end
+    loop do
+      select
+      when ex = changed.receive
+        raise ex if ex
+        return true
+      when @node.leader_changed.receive
+        if @node.leader_uri
+          joined_raft
+          return false
+        end
+      when @stop_signal.receive?
+        return false
+      end
+    end
+  end
+
+  private def joined_raft : Nil
+    @node.seed(nil) # has state from the raft leader, nothing is seeded
+    Log.info { "Joined the raft cluster, etcd is no longer used" }
+    set_etcd_leader nil
   end
 
   private def set_etcd_leader(uri : String?) : Nil
