@@ -149,8 +149,8 @@ On connect the current state is written as one line, then one line on every
 change. The connection stays open, clients don't send anything:
 
 ```
-ready=0 leader=0 term=3 leader_uri=tcp://node1:5679 seq=4
-ready=1 leader=1 term=4 leader_uri=tcp://node2:5679 seq=7
+ready=0 leader=0 term=3 seq=4 leader_uri=tcp://node1:5679
+ready=1 leader=1 term=4 seq=7 leader_uri=tcp://node2:5679
 ```
 
 - `ready=1`: this node is the leader and accepts client connections, route
@@ -163,8 +163,9 @@ ready=1 leader=1 term=4 leader_uri=tcp://node2:5679 seq=7
 - `seq`: increases on every line from this process.
 
 EOF (e.g. LavinMQ stopped or crashed) means the node isn't the leader.
-Reconnect with a backoff. Values never contain whitespace, and new keys may
-be added, so ignore keys you don't know.
+Reconnect with a backoff. `leader_uri` is always last, so it can be read as
+the rest of the line. New keys may be added before it, ignore keys you
+don't know.
 
 ```sh
 socat -u UNIX-CONNECT:/run/lavinmq/clustering-status.sock - |
