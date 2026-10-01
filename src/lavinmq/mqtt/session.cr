@@ -45,6 +45,7 @@ module LavinMQ
       getter name : String
       getter vhost : VHost
       getter? internal = false
+      getter? deleted = false
       getter? auto_delete
 
       @max_length : Int64? = nil
@@ -53,7 +54,6 @@ module LavinMQ
       @msg_store : SessionMessageStore
       @metadata : ::Log::Metadata
       @closed = Atomic(Bool).new(false)
-      @deleted = false
       @client : MQTT::Client? = nil
       @permission_service : PermissionService
       # Derived from the queue name, so a restored session with no client
@@ -67,6 +67,10 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
+      # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
+      # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
+      # one is answered again and not routed twice [MQTT-4.3.3-1].
+      @qos2_received = Set(UInt16).new
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -91,8 +95,6 @@ module LavinMQ
         if File.exists?(@metadata_file)
           @replicator.try &.register_file(@metadata_file)
           username = read_metadata_file
-        else
-          write_metadata_file(nil)
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
 
@@ -132,6 +134,14 @@ module LavinMQ
       def delete : Bool
         return false if @deleted
         @deleted = true
+        # Every connection has a session, so one left without it has nowhere to
+        # hold its state. Only the socket is closed: this can run under the
+        # definitions lock, which the read fiber may be waiting on, and leaving
+        # `@closed` unset keeps a takeover waiting for that fiber to exit.
+        if client = @client
+          @log.info { "Session deleted, disconnecting client '#{client.name}'" }
+          client.force_close
+        end
         close
         @msg_store_lock.synchronize do
           @msg_store.delete
@@ -204,11 +214,13 @@ module LavinMQ
         @client
       end
 
-      # `Client#close` usually joins the read fiber before `Broker#add_client`
-      # reaches this, so an `ack`/`pubrec` is rarely in flight while `@unacked`
+      # A takeover's `Client#close` usually joins the old read fiber before the
+      # new `Client#run` reaches this, so an `ack`/`pubrec` is rarely in flight while `@unacked`
       # is walked - but a second `close` returns without waiting, so it can be.
       def client=(client : MQTT::Client?)
-        return if closed?
+        # A closed store can't be touched, but `delete` still has to know which
+        # connection to close.
+        return @client = client if closed?
         @last_get_time = RoughTime.instant
 
         # Ids past PUBREC, which owe a PUBREL rather than a message.
@@ -251,7 +263,7 @@ module LavinMQ
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
-          write_metadata_file(username)
+          write_metadata_file(username) if durable?
         end
 
         @log.debug { "client set to '#{client.try &.name}'" }
@@ -261,9 +273,9 @@ module LavinMQ
         !clean_session?
       end
 
-      # The .metadata file is to a session what .queue is to a queue: it names
-      # the owner of a data directory. It also holds the last attached username.
-      # Anything that is not a JSON object with a string username is treated
+      # The .metadata file holds the last attached username, so a restored
+      # session keeps its member rules. It only exists for a durable session a
+      # client has attached to; nothing else has a username to restore. Anything that is not a JSON object with a string username is treated
       # as an unknown user; a bad file must never stop the session from loading.
       private def read_metadata_file : String?
         JSON.parse(File.read(@metadata_file)).as_h?.try(&.["username"]?).try(&.as_s?)
@@ -273,8 +285,10 @@ module LavinMQ
       end
 
       # Written to a temporary file and renamed into place, so a crash
-      # mid-write leaves the previous file rather than a truncated one.
-      private def write_metadata_file(username : String?) : Nil
+      # mid-write leaves the previous file rather than a truncated one. Only for
+      # a durable session: a lost username refuses the offline messages its
+      # member rules allow.
+      private def write_metadata_file(username : String) : Nil
         FileSystem.replace(@metadata_file) do |f|
           {name: @name, client_id: @client_id, username: username}.to_json(f)
         end
@@ -530,6 +544,20 @@ module LavinMQ
         # only event that can reopen the capacity gate.
         refresh_capacity
         true
+      end
+
+      # Records `packet_id`, returning false if it was already held, i.e. this
+      # PUBLISH is a re-send of one already routed.
+      #
+      # Uncapped on purpose: ids are `UInt16` so a session holds at most 65535,
+      # and rejecting past a cap would have to raise, which publishes the will.
+      def qos2_publish_received?(packet_id : UInt16) : Bool
+        @qos2_received.add?(packet_id)
+      end
+
+      # Releases `packet_id` on PUBREL. False if we were not holding it.
+      def qos2_release(packet_id : UInt16) : Bool
+        @qos2_received.delete(packet_id)
       end
 
       # Errors are swallowed: the id stays booked either way, so the next

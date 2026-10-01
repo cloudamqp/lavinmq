@@ -37,11 +37,11 @@ module LavinMQ
       # the persister's cumulative confirm releases every PUBACK up to it.
       record PendingPubAck, seq : UInt64, packet_id : UInt16
 
-      getter log, name, user, client_id, socket, connection_info
-      getter? clean_session
+      getter log, name, user, client_id, socket, connection_info, session
       @connected_at = RoughTime.unix_ms
+      @started = false
+      getter? closed = false
       @channels = Hash(UInt16, Client::Channel).new
-      @session : MQTT::Session?
       @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
@@ -75,9 +75,9 @@ module LavinMQ
                      @connection_info : ConnectionInfo,
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
+                     @session : MQTT::Session,
                      @client_id : String,
                      protocol_version : ProtocolVersion,
-                     @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
         @protocol = protocol_version.name
@@ -89,7 +89,11 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
       end
 
+      # Attaching can yield on a PUBREL resend, so it comes after `@started`,
+      # which makes a takeover's `close` wait for this fiber to finish.
       def run : Nil
+        @started = true
+        @session.client = self
         @log.info { "Connection established for user=#{@user.name}" }
         case user = @user
         when Auth::OAuthUser
@@ -98,6 +102,8 @@ module LavinMQ
           end
         end
         read_loop
+      ensure
+        @waitgroup.done
       end
 
       def client_name
@@ -138,7 +144,7 @@ module LavinMQ
         @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
         publish_will
       rescue ex : ::IO::Error
-        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
+        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless closed_by_server?
         publish_will
       rescue ex
         @log.error(exception: ex) { "Read Loop error" }
@@ -149,9 +155,13 @@ module LavinMQ
           user.cleanup
         end
         @puback_mailbox.try &.close
-        @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
+      end
+
+      # A deleted session closes only the socket, not the client, and logs why.
+      private def closed_by_server? : Bool
+        @closed || @session.deleted?
       end
 
       private def duration
@@ -279,13 +289,13 @@ module LavinMQ
       # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
       # alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
-        if @broker.qos2_publish_received?(@client_id, packet_id)
+        if @session.qos2_publish_received?(packet_id)
           begin
             @broker.publish(packet)
           rescue ex
             # An id left behind by a routing failure would dedupe away the
             # client's re-send, turning a duplicate into silent loss.
-            @broker.qos2_release(@client_id, packet_id)
+            @session.qos2_release(packet_id)
             raise ex
           end
           vhost.event_tick(EventType::ClientPublish)
@@ -294,28 +304,17 @@ module LavinMQ
         send(Protocol::PubRec.new(packet_id))
       end
 
-      # Without a session there is nothing these can refer to. Dropped rather
-      # than closed, unlike `recieve_puback` below, whose `close_socket` also
-      # publishes the will - see `Session#pubrec`.
       def recieve_pubrec(packet : Protocol::PubRec)
-        unless session = @broker.sessions[@client_id]?
-          @log.warn { "Received PubRec from client without a session" }
-          return
-        end
-        vhost.event_tick(EventType::ClientAck) if session.pubrec(packet)
+        vhost.event_tick(EventType::ClientAck) if @session.pubrec(packet)
       end
 
       def recieve_pubcomp(packet : Protocol::PubComp)
-        unless session = @broker.sessions[@client_id]?
-          @log.warn { "Received PubComp from client without a session" }
-          return
-        end
-        session.pubcomp(packet)
+        @session.pubcomp(packet)
       end
 
       def recieve_pubrel(packet : Protocol::PubRel)
         id = packet.packet_id
-        unless @broker.qos2_release(@client_id, id)
+        unless @session.qos2_release(id)
           # PUBCOMP is the only answer that lets the client release the id, and
           # an unknown id is ordinary: the held ids do not survive a restart, so
           # raising would publish the will of every resuming QoS 2 publisher.
@@ -325,13 +324,7 @@ module LavinMQ
       end
 
       def recieve_puback(packet : Protocol::PubAck)
-        # No session means we never delivered anything to ack
-        unless session = @broker.sessions[@client_id]?
-          @log.warn { "Received PubAck from client without a session" }
-          close_socket
-          return
-        end
-        session.ack(packet)
+        @session.ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
@@ -351,7 +344,7 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        @broker.unsubscribe(client_id, packet.topics)
+        @broker.unsubscribe(self, packet.topics)
         send(Protocol::UnsubAck.new(packet.packet_id))
       end
 
@@ -414,12 +407,15 @@ module LavinMQ
       end
 
       # should only be used when server needs to froce close client
+      #
+      # A client that never started has no read fiber to wait for:
+      # `Broker#run_client` sees `closed?` and does not start it.
       def close(reason = "")
         return if @closed
         @log.info { "Closing connection: #{reason}" }
         @closed = true
         close_socket
-        @waitgroup.wait
+        @waitgroup.wait if @started
       end
 
       def state

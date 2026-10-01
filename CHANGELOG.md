@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, instead of always the subscription's. A QoS 0 publish to a QoS 1 or QoS 2 subscriber is no longer acknowledged and is no longer stored while that session is offline
 - `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP
 - MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1
+- Every MQTT connection now gets a session at CONNECT, not at its first SUBSCRIBE, so a publish-only client also has an `mqtt.<client_id>` queue. A persistent client that reconnects is answered `session_present=1` whether or not it subscribed [MQTT-3.1.2-4], and keeps its inbound QoS 2 state across the reconnect. Sessions still count towards `max-queues`, so a vhost at its limit now refuses a CONNECT that needs a new session with return code 3 (server unavailable) instead of failing its SUBSCRIBE. The session is created without a `permission_check_enabled` check. Deleting a session queue now closes its client's connection. A CONNECT whose `mqtt.<client_id>` name is already taken by a queue that is not a session, which only a definitions import can create, is refused with return code 2 (identifier rejected)
 
 ### Fixed
 
