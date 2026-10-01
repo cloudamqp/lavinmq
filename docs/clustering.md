@@ -161,9 +161,7 @@ ready=1 leader=1 term=4 leader_uri=tcp://node2:5679
 - `leader_uri`: the current leader's clustering URI, empty when unknown.
 
 EOF (e.g. LavinMQ stopped or crashed) means the node isn't the leader.
-Reconnect with a backoff. `leader_uri` is always last, so it can be read as
-the rest of the line. New keys may be added before it, ignore keys you
-don't know.
+Reconnect with a backoff. New keys may be added, ignore keys you don't know.
 
 ```sh
 socat -u UNIX-CONNECT:/run/lavinmq/clustering-status.sock - |
