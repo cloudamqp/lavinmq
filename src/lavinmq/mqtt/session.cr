@@ -70,7 +70,7 @@ module LavinMQ
       getter? internal = false
       getter? deleted = false
 
-      # Seconds the session outlives its connection [MQTT-3.1.2.11.2]. 0 means it
+      # Seconds the session outlives its connection (§3.1.2.11.2). 0 means it
       # ends when the connection closes, UInt32::MAX means it never expires.
       # Single source for auto_delete? and the expiry clock.
       getter session_expiry_interval : UInt32
@@ -101,7 +101,7 @@ module LavinMQ
       @has_capacity = BoolChannel.new(true)
       # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
-      # one is answered again and not routed twice [MQTT-4.3.3-2].
+      # one is answered again and not routed twice [MQTT-4.3.3-10].
       @awaiting_pubrel = Set(UInt16).new
       # Durable sessions only: a clean session's state ends with its
       # connection [MQTT-3.1.2-6].
@@ -263,7 +263,7 @@ module LavinMQ
       end
 
       # A reconnecting client may name a different interval, and so may its
-      # DISCONNECT [MQTT-3.14.2.2.2]. @arguments carries it, but the definitions
+      # DISCONNECT (§3.14.2.2.2). @arguments carries it, but the definitions
       # log has no update frame for an existing queue, so it only reaches disk at
       # the next compaction.
       #
@@ -315,7 +315,7 @@ module LavinMQ
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@inflight` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-1]. Both fall back to a fresh id. The flag tells whether
+      # [MQTT-2.2.1-4]. Both fall back to a fresh id. The flag tells whether
       # the id is the original one.
       private def packet_id_for(sp : SegmentPosition) : {UInt16, Bool}?
         if id = @msg_store.original_packet_id?(sp)
@@ -352,7 +352,7 @@ module LavinMQ
 
       # Parks until a client attaches, or until the session expires. This is the
       # only place the expiry clock runs - exactly the window in which the session
-      # has no connection [MQTT-3.1.2.11.2]. Reattaching cancels the timer, and
+      # has no connection (§3.1.2.11.2). Reattaching cancels the timer, and
       # the next disconnect enters a fresh select, so the interval is measured
       # from each disconnect rather than accumulated.
       private def wait_for_client : Nil
@@ -396,8 +396,8 @@ module LavinMQ
         # Ids past PUBREC, which owe a PUBREL rather than a message.
         awaiting_pubcomp = Array(UInt16).new
 
-        # A clean session carries nothing between connections [MQTT-3.1.2-6]. A
-        # persistent one requeues what it owes and remembers the packet ids, to
+        # Only a session with a non-zero expiry outlives its connection
+        # [MQTT-3.1.2-23]. It requeues what it owes and remembers the packet ids, to
         # resend under the ids the client already knows [MQTT-4.4.0-1].
         if durable?
           @msg_store_lock.synchronize do
@@ -484,7 +484,7 @@ module LavinMQ
       end
 
       # Returns whether a matching subscription existed, so the v5 UNSUBACK can
-      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3].
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3-2].
       def unsubscribe(tf) : Bool
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
@@ -765,7 +765,7 @@ module LavinMQ
         inflight = @inflight[id]?
         raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
         sp = inflight.sp
-        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for
+        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-3], so a PUBACK for
         # one is a protocol violation. Checked before the delete, so it cannot
         # drop an obligation the session still owes.
         unless inflight.awaiting.pub_ack? && sp
@@ -784,7 +784,7 @@ module LavinMQ
         end
       end
 
-      # The receiver owns the message from PUBREC on [MQTT-4.3.3-2], so it is
+      # The receiver owns the message from PUBREC on [MQTT-4.3.3-8], so it is
       # deleted here, not at PUBCOMP; the id stays booked until then.
       #
       # Returns rather than raises for an unknown id: a clean session's window
@@ -934,7 +934,7 @@ module LavinMQ
         next_id : UInt16 = start_id &+ 1_u16
         # `@last_packet_id` at 65535 wraps this to 0, which the loop below never
         # corrects because 0 is never booked. Packet id 0 is illegal
-        # [MQTT-2.3.1-1].
+        # [MQTT-2.2.1-4].
         next_id = 1u16 if next_id == 0
         # Skips ids owed to requeued messages too: taking one makes its
         # message fall back to a fresh id, while the client still holds the

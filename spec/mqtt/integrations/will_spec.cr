@@ -111,7 +111,7 @@ module MqttSpecs
       end
     end
 
-    it "can be retained [MQTT-3.1.2-17]" do
+    it "can be retained [MQTT-3.1.2-15]" do
       with_server do |server|
         with_client_io(server) do |io2|
           will = MQTT::Protocol::Will.new(
@@ -159,7 +159,7 @@ module MqttSpecs
       end
     end
 
-    it "qos can't be set of will flag is unset [MQTT-3.1.2-13]" do
+    it "qos can't be set of will flag is unset [MQTT-3.1.2-11]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -176,7 +176,7 @@ module MqttSpecs
       end
     end
 
-    it "qos must not be 3 [MQTT-3.1.2-14]" do
+    it "qos must not be 3 [MQTT-3.1.2-12]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -237,7 +237,7 @@ module MqttSpecs
       end
     end
 
-    it "keeps Will user property order and duplicate keys [MQTT-3.3.2-18]" do
+    it "keeps Will user property order and duplicate keys [MQTT-3.1.3-10]" do
       # The reason they are an array of {key, value} tables rather than a flat
       # table: a Hash would lose both.
       with_server do |server|
@@ -358,7 +358,7 @@ module MqttSpecs
       end
     end
 
-    it "retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
+    it "retain can't be set of will flag is unset [MQTT-3.1.2-13]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new

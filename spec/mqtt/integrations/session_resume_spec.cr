@@ -172,7 +172,7 @@ module MqttSpecs
       end
     end
 
-    it "drops a clean session on disconnect, leaving nothing to resend [MQTT-3.1.2-6]" do
+    it "drops a clean session on disconnect, leaving nothing to resend [MQTT-3.1.2-4]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
@@ -259,7 +259,7 @@ module MqttSpecs
       end
     end
 
-    it "does not resend under packet id 0 [MQTT-2.3.1-1]" do
+    it "does not resend under packet id 0 [MQTT-2.2.1-4]" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 

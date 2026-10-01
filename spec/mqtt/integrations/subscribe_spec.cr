@@ -55,7 +55,7 @@ module MqttSpecs
       end
     end
 
-    it "must contain at least one topic filter [MQTT-3.8.3-3]" do
+    it "must contain at least one topic filter [MQTT-3.8.3-2]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -74,7 +74,7 @@ module MqttSpecs
       end
     end
 
-    it "should not allow any payload reserved bits to be set [MQTT-3-8.3-4]" do
+    it "should not allow any payload reserved bits to be set [MQTT-3.8.3-4 v3.1.1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -132,7 +132,7 @@ module MqttSpecs
       end
     end
 
-    it "grants qos2 for a qos2 subscription" do
+    it "grants qos2 for a qos2 subscription [MQTT-3.8.4-7]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -146,7 +146,7 @@ module MqttSpecs
 
           # Published at qos 2 from a second connection, so that the grant is
           # what decides the delivery qos rather than the publish capping it
-          # [MQTT-3.8.4-6], and so the publisher's PUBREC does not interleave
+          # [MQTT-3.8.4-8], and so the publisher's PUBREC does not interleave
           # with the delivery on this socket.
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
