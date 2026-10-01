@@ -9,6 +9,10 @@ module LavinMQ
     # the v5 CONNACK omits Maximum QoS, which may only be sent as 0 or 1
     # (3.2.2.3.4).
     MAX_QOS = 2u8
+    # Queue argument carrying a session's Session Expiry Interval, in seconds.
+    # It lives in the arguments because that is the only part of the
+    # Queue::Declare frame definitions_store persists that can hold a UInt32.
+    SESSION_EXPIRY_ARG = "x-mqtt-session-expiry"
 
     SESSION_PREFIX = "mqtt."
 

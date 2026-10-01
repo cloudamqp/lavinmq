@@ -152,7 +152,7 @@ module LavinMQ
         # Before the insert, so a failed write leaves no session behind
         if session.durable?
           store_definition(AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, true, false,
-            session.auto_delete?, false, MQTT::Session::ARGUMENTS), fsync: fsync)
+            session.auto_delete?, false, session.arguments), fsync: fsync)
         end
         @sessions[name] = session
         @vhost.apply_policies([session] of Queue)
