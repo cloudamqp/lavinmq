@@ -37,7 +37,6 @@ module LavinMQ::Clustering::Raft
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
                    @tick = 20.milliseconds, bootstrap = false, campaign : Bool = true)
       state = @storage.load
-      @fresh = state.nil?
       @core = Core.new(id, peers, node_id, uri, election_timeout, heartbeat_interval,
         Time.instant, state, bootstrap: bootstrap)
       @core.campaign_allowed = campaign
@@ -58,9 +57,6 @@ module LavinMQ::Clustering::Raft
     def leader_uri : String?
       @state_lock.synchronize { @leader_uri }
     end
-
-    # True when no raft state was persisted when the node started.
-    getter? fresh : Bool
 
     # Seed the ISR and let the node campaign, see Core#seed. Returns whether
     # the ISR was installed (false when the node already had raft state).

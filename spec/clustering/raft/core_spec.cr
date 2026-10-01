@@ -147,6 +147,27 @@ describe Raft::Core do
       sim.leader.should be_nil
     end
 
+    it "doesn't let nodes seeded without an ISR campaign" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      sim.cores.each_value(&.seed(nil).should(be_false))
+      sim.advance(2.seconds)
+      sim.leader.should be_nil
+    end
+
+    it "lets a seeded node campaign after restarting before its first entry" do
+      sim = SimCluster.new(3, bootstrap: [] of String)
+      sim.cores.each_value(&.campaign_allowed = false)
+      sim.crash("n2")
+      sim.crash("n3")
+      sim["n1"].seed(Set{1}).should be_true
+      sim.advance(500.milliseconds) # no quorum, so no entry
+      sim.crash("n1")
+      %w[n1 n2 n3].each { |n| sim.restart(n) }
+      sim.run_until { sim.leader.try &.serving_leader? }
+      sim.leader.not_nil!.id.should eq "n1"
+    end
+
     it "doesn't seed a node that already has raft state" do
       sim = SimCluster.new(3, bootstrap: ["n1"])
       sim.run_until { sim.leader.try &.serving_leader? }

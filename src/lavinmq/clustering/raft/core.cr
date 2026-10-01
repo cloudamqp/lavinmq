@@ -78,6 +78,8 @@ module LavinMQ::Clustering::Raft
         @entries = state.entries.dup
         @peer_node_ids = state.peer_node_ids.dup
         @commit_index = @snapshot_index
+        # Seeded from etcd but restarted before the first entry
+        @bootstrap ||= seeded?
       end
       @election_deadline = now + randomized_election_timeout
       @heartbeat_due = now
@@ -94,14 +96,23 @@ module LavinMQ::Clustering::Raft
     # Install the ISR an etcd-coordinated cluster ended with, read after the
     # etcd leader's lease was gone so it can't change any more. Only applies
     # to a node that hasn't got any raft state yet (none persisted, nothing
-    # from a leader). Lets the node campaign either way.
+    # from a leader). Lifts `campaign_allowed` either way, but without an ISR
+    # nothing is seeded: an unknown ISR doesn't mean any node may lead, so
+    # such a node still needs entries from a leader, or `bootstrap`.
     def seed(isr : Set(Int32)?) : Bool
       @campaign_allowed = true
+      return false if isr.nil?
       return false unless last_index == 0 && @snapshot_index == 0 && @snapshot_isr.nil?
       @snapshot_isr = isr
       @bootstrap = true
       @dirty = true
       true
+    end
+
+    # Only seeding sets an ISR without any entry, compaction moves
+    # snapshot_index past 0.
+    private def seeded? : Bool
+      !@snapshot_isr.nil? && @snapshot_index == 0 && @entries.empty?
     end
 
     def persisted : Nil

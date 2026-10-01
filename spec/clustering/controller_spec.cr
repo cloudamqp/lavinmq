@@ -19,6 +19,20 @@ private class SpecController < LavinMQ::Clustering::Controller
   end
 end
 
+# Not yet waiting on leader changes when the first one comes in, so the etcd
+# migration fiber is the one that receives it.
+private class SlowFollowController < LavinMQ::Clustering::Controller
+  @delayed = false
+
+  private def follow(uri : String?) : Symbol?
+    unless @delayed
+      @delayed = true
+      sleep 2.seconds
+    end
+    super
+  end
+end
+
 private def free_port : Int32
   s = TCPServer.new("127.0.0.1", 0)
   s.local_address.port
@@ -34,7 +48,8 @@ private class ControllerCluster
   getter exits = Channel(Tuple(LavinMQ::Clustering::Controller, Int32)).new(8)
   getter dirs = Array(String).new
 
-  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil)
+  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil, etcds : Array(String)? = nil,
+                 slow_follow : Int32? = nil)
     ports = Array.new(size) { free_port }
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
@@ -44,7 +59,7 @@ private class ControllerCluster
       @dirs << dir
       config = LavinMQ::Config.new
       config.clustering_bootstrap = bootstrap == @dirs.size - 1
-      etcd.try { |e| config.clustering_etcd_endpoints = e }
+      (etcds.try(&.[@dirs.size - 1]) || etcd).try { |e| config.clustering_etcd_endpoints = e }
       config.data_dir = dir
       config.clustering = true
       config.clustering_bind = "127.0.0.1"
@@ -60,7 +75,7 @@ private class ControllerCluster
       # Followers proxy client ports to the leader, let each pick its own
       config.amqp_port = config.http_port = config.mqtt_port = 0
       config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-      @controllers << LavinMQ::Clustering::Controller.new(config)
+      @controllers << (slow_follow == @dirs.size - 1 ? SlowFollowController.new(config) : LavinMQ::Clustering::Controller.new(config))
     end
   end
 
@@ -91,15 +106,14 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil, &)
-  cluster = ControllerCluster.new(size, with_data, bootstrap, etcd)
+private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, etcd : String? = nil, etcds : Array(String)? = nil,
+                             slow_follow : Int32? = nil, &)
+  cluster = ControllerCluster.new(size, with_data, bootstrap, etcd, etcds, slow_follow)
   yield cluster
 ensure
   cluster.try &.close
 end
 
-# Answers the etcd v3 JSON gateway calls EtcdSeed makes, for the keys an
-# etcd-coordinated cluster kept under the default "lavinmq" prefix.
 # Answers the etcd v3 JSON gateway calls EtcdSeed makes, for the keys an
 # etcd-coordinated cluster kept under the default "lavinmq" prefix. The
 # election leader is modelled as a single candidate key, and changing it bumps
@@ -302,6 +316,24 @@ describe LavinMQ::Clustering::Controller do
       end
     ensure
       etcd.try &.close
+    end
+
+    it "follows a raft leader elected while waiting out its own etcd lease" do
+      # n0 still sees its previous incarnation's lease, n1 and n2 see it gone
+      own_lease = FakeEtcd.new
+      lease_gone = FakeEtcd.new
+      with_controllers(with_data: true, etcds: [own_lease.address, lease_gone.address, lease_gone.address], slow_follow: 0) do |cluster|
+        waiting = cluster.controllers[0]
+        own_lease.leader = waiting.@advertised_uri
+        lease_gone.isr = cluster.controllers[1, 2].map(&.id).to_set
+        cluster.controllers[1, 2].each { |c| cluster.start(c) }
+        leader = cluster.next_leader
+        cluster.start(waiting)
+        wait_for(5.seconds) { waiting.@repli_client.try(&.follows?(leader.@advertised_uri)) }
+      end
+    ensure
+      own_lease.try &.close
+      lease_gone.try &.close
     end
 
     it "waits for the only ISR member to come back" do

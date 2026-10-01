@@ -18,7 +18,10 @@ class LavinMQ::Clustering::Controller
   @etcd_seed : EtcdSeed? = nil
   @etcd_leader_uri : String? = nil
   @etcd_secret : String? = nil
-  @etcd_changed = Channel(Nil).new(1)
+  # Wakes follow_leader to re-read the leader. The migration fiber also
+  # receives from the single-slot `@node.leader_changed`, so it forwards
+  # what it takes from there.
+  @follower_wakeup = Channel(Nil).new(1)
 
   def initialize(@config : Config)
     @id = clustering_id
@@ -149,9 +152,13 @@ class LavinMQ::Clustering::Controller
       begin
         election = seed.election
         unless holder = election.leader_uri
-          isr = seed.isr
-          @node.seed(isr)
-          Log.info { "etcd leader gone, seeded raft with the etcd ISR #{isr.try(&.to_a) || "(none)"}" }
+          if isr = seed.isr
+            @node.seed(isr)
+            Log.info { "etcd leader gone, seeded raft with the etcd ISR #{isr.to_a}" }
+          else
+            @node.seed(nil)
+            Log.warn { "etcd leader gone but etcd has no ISR (check etcd_prefix), this node won't lead until it has joined a raft leader, or bootstrap is set" }
+          end
           set_etcd_leader nil
           return
         end
@@ -165,6 +172,7 @@ class LavinMQ::Clustering::Controller
         Log.warn { "Can't read etcd, retrying: #{ex.message}" }
         select
         when @node.leader_changed.receive
+          wake_follower
         when @stop_signal.receive?
           return
         when timeout(1.second)
@@ -173,6 +181,7 @@ class LavinMQ::Clustering::Controller
     end
   ensure
     seed.close
+    wake_follower
   end
 
   # Waits on an etcd watch, so a takeover or the lease going away is acted on
@@ -192,6 +201,7 @@ class LavinMQ::Clustering::Controller
         raise ex if ex
         return true
       when @node.leader_changed.receive
+        wake_follower
         if @node.leader_uri
           joined_raft
           return false
@@ -203,7 +213,7 @@ class LavinMQ::Clustering::Controller
   end
 
   private def joined_raft : Nil
-    @node.seed(nil) # has state from the raft leader, nothing is seeded
+    @node.seed(nil) # may campaign once it has the leader's entries
     Log.info { "Joined the raft cluster, etcd is no longer used" }
     set_etcd_leader nil
   end
@@ -211,8 +221,12 @@ class LavinMQ::Clustering::Controller
   private def set_etcd_leader(uri : String?) : Nil
     return if uri == @etcd_leader_uri
     @etcd_leader_uri = uri
+    wake_follower
+  end
+
+  private def wake_follower : Nil
     select
-    when @etcd_changed.send(nil)
+    when @follower_wakeup.send(nil)
     else
     end
   end
@@ -241,7 +255,7 @@ class LavinMQ::Clustering::Controller
       end
       select
       when @node.leader_changed.receive
-      when @etcd_changed.receive
+      when @follower_wakeup.receive
       when @stop_signal.receive?
         return
       end
