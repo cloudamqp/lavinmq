@@ -11,7 +11,7 @@ module MqttSpecs
           connect(io)
 
           temp_io = IO::Memory.new
-          unsubscribe(MQTT::Protocol::IO.new(temp_io), topics: ["a/b"], expect_response: false)
+          unsubscribe(MQTT::Protocol::IO::V3.new(temp_io), topics: ["a/b"], expect_response: false)
           temp_io.rewind
           unsubscribe_pkt = temp_io.to_slice
           # This will overwrite the protocol level byte
@@ -29,7 +29,7 @@ module MqttSpecs
           connect(io)
 
           temp_io = IO::Memory.new
-          unsubscribe(MQTT::Protocol::IO.new(temp_io), topics: ["a/b"], expect_response: false)
+          unsubscribe(MQTT::Protocol::IO::V3.new(temp_io), topics: ["a/b"], expect_response: false)
           temp_io.rewind
           unsubscribe_pkt = temp_io.to_slice
           # Overwrite remaining length

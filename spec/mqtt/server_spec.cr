@@ -2,7 +2,7 @@ require "./spec_helper"
 
 private def connect_mqtt(port : Int32, client_id = "mqtt-server-spec")
   socket = TCPSocket.new("127.0.0.1", port, connect_timeout: 5)
-  mqtt_io = MQTT::Protocol::IO.new(socket)
+  mqtt_io = MQTT::Protocol::IO::V3.new(socket)
   MQTT::Protocol::Connect.new(
     client_id: client_id,
     clean_session: true,

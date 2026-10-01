@@ -108,7 +108,6 @@ module LavinMQ
           self,
           session,
           client_id,
-          ProtocolVersion.from_value(packet.version),
           packet.keepalive,
           packet.will)
         @clients[client_id] = client
@@ -172,7 +171,7 @@ module LavinMQ
             msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
-          Protocol::SubAck::ReturnCode.from_int(qos)
+          Protocol::SubAck::ReasonCode.from_value(tf.qos)
         end
       end
 
