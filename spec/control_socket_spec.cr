@@ -57,10 +57,10 @@ describe "control socket" do
     end
   end
 
-  describe "prepare_control_socket" do
+  describe "UnixSocket.prepare" do
     it "does nothing if the path does not exist" do
       path = File.tempname("ctl", ".sock")
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::UnixSocket.prepare(path)
       File.exists?(path).should be_false
     end
 
@@ -68,7 +68,7 @@ describe "control socket" do
       path = File.tempname("ctl", ".sock")
       File.touch(path)
       expect_raises(Exception, /not a socket/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+        LavinMQ::UnixSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -81,7 +81,7 @@ describe "control socket" do
       sock.bind(Socket::UNIXAddress.new(path))
       sock.close
       File.info(path, follow_symlinks: false).type.socket?.should be_true
-      LavinMQ::HTTP::Server.prepare_control_socket(path)
+      LavinMQ::UnixSocket.prepare(path)
       File.exists?(path).should be_false
     ensure
       File.delete?(path) if path
@@ -90,8 +90,8 @@ describe "control socket" do
     it "raises if the socket is in use" do
       path = File.tempname("ctl", ".sock")
       server = UNIXServer.new(path)
-      expect_raises(LavinMQ::HTTP::ControlSocketInUseError, /already in use/) do
-        LavinMQ::HTTP::Server.prepare_control_socket(path)
+      expect_raises(LavinMQ::UnixSocket::InUseError, /already in use/) do
+        LavinMQ::UnixSocket.prepare(path)
       end
       File.exists?(path).should be_true
     ensure
@@ -119,7 +119,7 @@ describe "control socket" do
       original_path = config.control_unix_path
       socket_path = File.tempname("lavinmqctl-spec", ".sock")
       config.control_unix_path = socket_path
-      File.touch(socket_path) # not a socket: prepare_control_socket raises a plain Exception
+      File.touch(socket_path) # not a socket: UnixSocket.prepare raises a plain Exception
       LavinMQ::HTTP::Server.follower_internal_socket_http_server.should be_nil
     ensure
       config.control_unix_path = original_path if config && original_path
