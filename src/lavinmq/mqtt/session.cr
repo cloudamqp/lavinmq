@@ -466,18 +466,31 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
+      # Returns whether this filter had no subscription before, so Retain
+      # Handling 1 replays the retain store only for a genuinely new
+      # subscription. Existence is by topic filter alone: [MQTT-3.8.4-3]
+      # replaces a subscription whose filter is identical, so a re-subscribe
+      # that changes the QoS or the options is a replacement, not a new one.
+      def subscribe(tf, options : SubscriptionOptions) : Bool
+        existing = find_binding(tf)
+        if existing
+          # Compare the options, not the rendered tables: two tables per
+          # re-subscribe is pure waste, and this does not lean on Table#==.
+          return false if existing.binding_key.options == options
+          unbind(tf, existing.binding_key.arguments)
         end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.subscription_arguments(options))
+        existing.nil?
       end
 
-      def unsubscribe(tf)
+      # Returns whether a matching subscription existed, so the v5 UNSUBACK can
+      # report Success vs NoSubscriptionExisted per topic filter [MQTT-3.11.3].
+      def unsubscribe(tf) : Bool
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
+          true
+        else
+          false
         end
       end
 
@@ -502,8 +515,18 @@ module LavinMQ
         @vhost.queue_bindings(self)
       end
 
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
+      # The type check is load-bearing: `queue_bindings` prepends a synthetic
+      # default-exchange binding whose routing key is the queue's own name, so
+      # matching on routing key alone makes a subscription to the literal filter
+      # `mqtt.<own client id>` find that instead of its own binding. Only
+      # `MQTT::Exchange` produces `SubscriptionDetails`, and there is one of
+      # those, so this is exact - and it narrows the union enough for `options`.
+      private def find_binding(rk) : SubscriptionDetails?
+        bindings.each do |b|
+          next unless b.is_a?(SubscriptionDetails)
+          return b if b.binding_key.routing_key == rk
+        end
+        nil
       end
 
       private def unbind(rk, arguments)
@@ -693,11 +716,10 @@ module LavinMQ
       # original id is marked by `dup` [MQTT-3.3.1-1].
       def build_packet(env, packet_id, dup = false) : Protocol::Publish
         msg = env.message
-        retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
-        qos = msg.properties.delivery_mode || 0u8
+        retained = msg.properties.try &.headers.try &.[RETAIN_HEADER]? == true
         # `delivery_mode` is read off disk unvalidated and `Publish.new` raises
         # above QoS 2, which would make one bad byte a poison message.
-        qos = 2u8 if qos > 2
+        qos = MQTT.granted_qos(msg.properties.delivery_mode)
         dup = qos.zero? ? false : (dup || env.redelivered)
         # IO::V3#write_properties discards these, so a v3 subscriber should not
         # pay six Table#fetch linear scans per delivery to build them.

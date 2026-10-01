@@ -351,7 +351,7 @@ module LavinMQ
           recieve_qos2_publish(packet, packet_id)
           return
         end
-        matched = @broker.publish(packet)
+        matched = @broker.publish(packet, @session.name)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
@@ -485,7 +485,7 @@ module LavinMQ
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
         if @session.publish_received(packet_id)
           begin
-            matched = @broker.publish(packet)
+            matched = @broker.publish(packet, @session.name)
           rescue ex
             # An id left behind by a routing failure would dedupe away the
             # client's re-send, turning a duplicate into silent loss.
@@ -560,9 +560,25 @@ module LavinMQ
         vhost.event_tick(EventType::ClientAck)
       end
 
+      # Enforce the v5 SUBSCRIBE limits we advertised in CONNACK. Both are
+      # packet-level protocol errors -> server DISCONNECT (spec 3.2.2.3.12 /
+      # 3.2.2.3.13), raised via ProtocolViolation and handled in read_loop.
+      private def validate_v5_subscribe!(packet : Protocol::Subscribe)
+        return unless @io.version.v5?
+        # subscription_identifier_available=0
+        if packet.properties.subscription_identifier
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SubscriptionIdentifiersNotSupported)
+        end
+        # shared_subscription_available=0: any $share/ filter fails the whole packet.
+        if packet.topic_filters.any?(&.topic.starts_with?("$share/"))
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SharedSubscriptionsNotSupported)
+        end
+      end
+
       def recieve_subscribe(packet : Protocol::Subscribe)
+        validate_v5_subscribe!(packet)
         if Config.instance.mqtt_permission_check_enabled?
-          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, @session.name)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             # A v3 SUBACK can only say 0x00-0x02 or 0x80, so v3 keeps closing
             # without an explanation.
@@ -583,8 +599,10 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        @broker.unsubscribe(self, packet.topics)
-        send(Protocol::UnsubAck.new(packet.packet_id))
+        reason_codes = @broker.unsubscribe(self, packet.topics)
+        # v5 UNSUBACK carries a reason code per topic filter; the shard drops
+        # the payload on v3, so no version branch is needed here.
+        send(Protocol::UnsubAck.new(packet.packet_id, reason_codes))
       end
 
       def details_tuple
@@ -632,6 +650,8 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
+          # The will's publisher is this client, so No Local applies to it by
+          # the same rule as any other publish [MQTT-3.8.3-3].
           @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
@@ -639,7 +659,7 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ))
+          ), @session.name)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
