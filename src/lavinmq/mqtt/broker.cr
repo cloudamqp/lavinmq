@@ -10,8 +10,8 @@ require "../vhost"
 module LavinMQ
   module MQTT
     class Broker
-      getter vhost, sessions
-      Log = LavinMQ::Log.for "mqtt.broker"
+      getter vhost
+      private getter sessions
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -23,53 +23,23 @@ module LavinMQ
       # - Handling the retain store
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
+      #
+      # Connection lifecycle rules, which the takeover [MQTT-3.1.4-2] relies on:
+      # 1. Registering, taking over and removing a client, and creating or
+      #    deleting its session for it, happen under its client_id's lock.
+      # 2. A registered client always reaches `run_client`'s `ensure`.
+      # 3. `Client#close` waits for the read fiber only once `Client#run` began.
+      # 4. A client lock is never taken while holding the definitions lock.
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
+        @client_locks = Hash(String, ClientLock).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
       end
 
       def permission_service : PermissionService
         @vhost.mqtt_permission_service
-      end
-
-      # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released,
-      # per client_id. Holding the id is the whole of the guarantee: a re-sent
-      # PUBLISH carrying one is answered again and not routed twice
-      # [MQTT-4.3.3-1].
-      #
-      # Not on `Session`, which a publish-only client never gets, and not on
-      # `Client`, which would forget it on the reconnect it exists to survive.
-      @qos2_received = Hash(String, Set(UInt16)).new
-
-      # Records `packet_id`, returning false if it was already held, i.e. this
-      # PUBLISH is a re-send of one already routed.
-      #
-      # Uncapped on purpose: ids are `UInt16` so one client holds at most 65535,
-      # and rejecting past a cap would have to raise, which publishes the will.
-      def qos2_publish_received?(client_id : String, packet_id : UInt16) : Bool
-        ids = @qos2_received[client_id] ||= Set(UInt16).new
-        ids.add?(packet_id)
-      end
-
-      # Releases `packet_id` on PUBREL. False if we were not holding it.
-      def qos2_release(client_id : String, packet_id : UInt16) : Bool
-        ids = @qos2_received[client_id]? || return false
-        released = ids.delete(packet_id)
-        @qos2_received.delete(client_id) if ids.empty?
-        released
-      end
-
-      private def forget_qos2(client_id : String) : Nil
-        @qos2_received.delete(client_id)
-      end
-
-      def session_present?(client_id : String, clean_session) : Bool
-        return false if clean_session
-        session = sessions[client_id]? || return false
-        return false if session.clean_session?
-        true
       end
 
       # A reconnecting client_id displaces the existing connection in
@@ -79,41 +49,19 @@ module LavinMQ
         @vhost.connection_limit_reached?
       end
 
-      def add_client(io, connection_info, user, packet) : Client
-        if prev_client = @clients[packet.client_id]?
-          prev_client.close(
-            "New client #{connection_info.remote_address} " \
-            "(username=#{packet.username}) connected as #{packet.client_id}")
-          remove_client(prev_client)
-        end
-        client = MQTT::Client.new(io,
-          connection_info,
-          user,
-          self,
-          packet.client_id,
-          ProtocolVersion.from_value(packet.version),
-          packet.clean_session?,
-          packet.keepalive,
-          packet.will)
-        if client.clean_session?
-          sessions[client.client_id]?.try &.delete
-          # A clean session starts with no state at all [MQTT-3.1.2-6].
-          forget_qos2(client.client_id)
-        else
-          # If an existing session exists, reuse it. If no session exists
-          # it will be created on first subscribe
-          if session = sessions[client.client_id]?
-            session.client = client
-          end
-        end
-        @clients[packet.client_id] = client
-        @vhost.add_connection client
-        client
-      end
-
-      def run_client(io, connection_info, user, packet) : Client
-        client = add_client(io, connection_info, user, packet)
+      # Yields `session_present` for the caller to send CONNACK. The client is
+      # registered before that, so a later CONNECT takes it over even
+      # mid-CONNACK; it attaches to its session only in `Client#run`.
+      def run_client(io, connection_info, user, packet, & : Bool ->) : Client
+        client, session_present = add_client(io, connection_info, user, packet)
         begin
+          yield session_present
+          # No yield between this check and `Client#run` setting `@started`.
+          if client.closed? || client.session.deleted?
+            client.log.info { "Taken over or session deleted before attaching, closing" }
+            client.force_close
+            return client
+          end
           client.run
         ensure
           remove_client(client)
@@ -121,26 +69,87 @@ module LavinMQ
         client
       end
 
-      def remove_client(client)
-        client_id = client.client_id
-        if session = sessions[client_id]?
-          if session.client.nil? || (session.client == client)
-            session.client = nil
-            if session.clean_session?
-              session.delete
-              forget_qos2(client_id)
-            end
-          end
-        else
-          # Nothing to resume into, and the next CONNECT is answered
-          # session_present=false. A client with a session keeps its ids
-          # instead, because they have to outlive the connection to dedupe a
-          # re-send; those entries are bounded by the session count, and
-          # `qos2_release` drops the set as soon as it empties. Guarded like
-          # the line below: a displaced connection's ensure runs after its
-          # replacement is installed.
-          forget_qos2(client_id) if @clients[client_id]? == client
+      # Every connection gets a session, not only one that subscribes: it holds
+      # the inbound QoS 2 state too, and it is what makes a returning persistent
+      # client's session present [MQTT-3.1.2-4]. Raises before anything is
+      # sent, so the CONNECT can still be refused.
+      private def add_client(io, connection_info, user, packet) : {Client, Bool}
+        with_client_lock(packet.client_id) { add_client_locked(io, connection_info, user, packet) }
+      end
+
+      private def add_client_locked(io, connection_info, user, packet) : {Client, Bool}
+        client_id = packet.client_id
+        if prev_client = @clients[client_id]?
+          prev_client.close(
+            "New client #{connection_info.remote_address} " \
+            "(username=#{packet.username}) connected as #{client_id}")
+          remove_client_locked(prev_client)
         end
+        existing = sessions[client_id]?
+        # A clean session starts with no state at all [MQTT-3.1.2-6], and a
+        # clean session's state lasts only as long as its connection.
+        if existing && (packet.clean_session? || existing.clean_session?)
+          existing.delete
+          existing = nil
+        end
+        session = begin
+          sessions.declare(client_id, packet.clean_session?)
+        rescue Sessions::LimitReached
+          raise Protocol::Error::ServerUnavailable.new(
+            "queue limit (#{@vhost.max_queues}) reached in vhost \"#{@vhost.name}\"")
+        rescue ex : Sessions::NameTaken
+          # Retrying cannot help until an operator removes that queue.
+          raise Protocol::Error::IdentifierRejected.new(
+            "queue \"#{ex.message}\" in vhost \"#{@vhost.name}\" is not an MQTT session")
+        end
+        client = MQTT::Client.new(io,
+          connection_info,
+          user,
+          self,
+          session,
+          client_id,
+          ProtocolVersion.from_value(packet.version),
+          packet.keepalive,
+          packet.will)
+        @clients[client_id] = client
+        @vhost.add_connection client
+        {client, !existing.nil?}
+      end
+
+      # One entry per client_id being connected or removed, so the map is empty
+      # in between. `users` counts the holder and its waiters, a
+      # record so the entry costs no allocation besides the `Mutex`. A `Hash`
+      # never shrinks, so the map keeps the capacity of its largest burst.
+      private record ClientLock, mutex : Mutex, users : Int32
+
+      private def with_client_lock(client_id : String, &)
+        lock = @client_locks[client_id]?
+        lock = lock ? lock.copy_with(users: lock.users + 1) : ClientLock.new(Mutex.new, 1)
+        @client_locks[client_id] = lock
+        begin
+          lock.mutex.synchronize { yield }
+        ensure
+          # Re-read: waiters that arrived meanwhile have raised the count.
+          current = @client_locks[client_id]
+          if current.users > 1
+            @client_locks[client_id] = current.copy_with(users: current.users - 1)
+          else
+            @client_locks.delete(client_id)
+          end
+        end
+      end
+
+      private def remove_client(client) : Nil
+        with_client_lock(client.client_id) { remove_client_locked(client) }
+      end
+
+      private def remove_client_locked(client) : Nil
+        session = client.session
+        if session.client.nil? || (session.client == client)
+          session.client = nil
+          session.delete if session.clean_session?
+        end
+        client_id = client.client_id
         @clients.delete(client_id) if @clients[client_id]? == client
         @vhost.rm_connection(client)
       end
@@ -151,11 +160,7 @@ module LavinMQ
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
-        session = sessions.declare(client)
-        unless session
-          Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
-          return topics.map { Protocol::SubAck::ReturnCode::Failure }
-        end
+        session = client.session
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           # `Subscribe.from_io` has already rejected anything above 2.
@@ -171,8 +176,8 @@ module LavinMQ
         end
       end
 
-      def unsubscribe(client_id, topics)
-        session = sessions[client_id]? || return
+      def unsubscribe(client, topics)
+        session = client.session
         topics.each do |tf|
           session.unsubscribe(tf)
         end
