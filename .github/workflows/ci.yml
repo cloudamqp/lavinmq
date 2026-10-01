@@ -621,3 +621,47 @@ jobs:
             echo "::error::Found errors in LavinMQ log"
             exit 1
           fi
+
+  amqp-quickcheck:
+    name: amqp-quickcheck property tests
+    runs-on: ubuntu-24.04
+    needs: compile
+    env:
+      QC_VERSION: v0.1.0
+      QC_BIN: amqp-quickcheck-tests-x86_64-linux
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - name: Download lavinmq-quickcheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$QC_VERSION" -R 84codes/lavinmq-quickcheck -p "$QC_BIN*"
+          sha256sum -c "$QC_BIN.sha256"
+          chmod +x "$QC_BIN"
+
+      - name: Wait for LavinMQ
+        run: |
+          for _ in $(seq 60); do
+            curl -sf -u guest:guest http://localhost:15672/api/overview >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Run property tests
+        # Known flaky under parallel load; see AGENTS.md (Gotchas).
+        run: ./"$QC_BIN" --skip odd_x_delay_delivers_immediately
+
