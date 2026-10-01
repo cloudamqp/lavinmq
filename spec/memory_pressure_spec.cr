@@ -1,0 +1,163 @@
+require "./spec_helper"
+
+describe "Memory pressure" do
+  it "stops flow and refuses new connections" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        q.publish_confirm("m1").should be_true
+        s.memory_pressure!
+        s.control_flow!
+        s.flow?.should be_false
+        s.flow_reason.should eq "Server under memory pressure"
+        expect_raises(AMQP::Client::Channel::ClosedException, /memory pressure/) do
+          q.publish_confirm("m2")
+        end
+        expect_raises(Exception) do
+          AMQP::Client.new(port: amqp_port(s)).connect
+        end
+      end
+    end
+  end
+
+  it "does not refuse connections when disabled" do
+    config = LavinMQ::Config.new
+    config.memory_pressure_refuse_connections = false
+    with_amqp_server(config: config) do |s|
+      s.memory_pressure!
+      s.control_flow!
+      with_channel(s) do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+          ch.queue("mp_queue")
+        end
+      end
+    end
+  end
+
+  it "holds until pressure is relieved" do
+    with_amqp_server do |s|
+      s.memory_pressure!
+      3.times { s.control_flow! }
+      s.flow?.should be_false
+      s.memory_pressure_relieved!
+      s.control_flow!
+      s.flow?.should be_true
+      with_channel(s) do |ch|
+        ch.queue.publish_confirm("m1").should be_true
+      end
+    end
+  end
+
+  it "keeps flow stopped while disk is full after memory pressure is relieved" do
+    LavinMQ::Config.instance.free_disk_min = Int64::MAX
+    with_amqp_server do |s|
+      s.update_system_metrics(nil)
+      s.memory_pressure!
+      s.control_flow!
+      s.memory_pressure_relieved!
+      s.control_flow!
+      s.flow?.should be_false
+      s.flow_reason.should eq "Server low on disk space"
+    end
+  ensure
+    LavinMQ::Config.instance.free_disk_min = 0
+  end
+
+  it "sends connection.blocked and unblocked" do
+    config = LavinMQ::Config.new
+    config.memory_pressure_refuse_connections = false
+    with_amqp_server(config: config) do |s|
+      conn = AMQP::Client.new(port: amqp_port(s)).connect
+      blocked = Channel(String).new(1)
+      unblocked = Channel(Nil).new(1)
+      conn.on_blocked { |reason| blocked.send reason }
+      conn.on_unblocked { unblocked.send nil }
+      s.memory_pressure!
+      s.control_flow!
+      blocked.receive.should eq "Server under memory pressure"
+      s.memory_pressure_relieved!
+      s.control_flow!
+      unblocked.receive
+    ensure
+      conn.try &.close
+    end
+  end
+
+  it "releases segment memory" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        10.times { q.publish "m" }
+        s.release_memory
+        q.get(no_ack: true).should_not be_nil
+      end
+    end
+  end
+
+  it "releases stream segment memory" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("mp_stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        10.times { q.publish_confirm "m" }
+        s.release_memory
+        msgs = Channel(String).new(10)
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+          msgs.send msg.body_io.to_s
+          msg.ack
+        end
+        10.times { msgs.receive.should eq "m" }
+      end
+    end
+  end
+
+  it "releases priority queue segment memory" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("mp_prio", args: AMQP::Client::Arguments.new({"x-max-priority" => 3}))
+        4.times { |i| q.publish_confirm "m#{i}", props: AMQP::Client::Properties.new(priority: i.to_u8) }
+        s.release_memory
+        4.times { |i| q.get(no_ack: true).try(&.body_io.to_s).should eq "m#{3 - i}" }
+      end
+    end
+  end
+
+  it "shrinks the queues hash after many queues are deleted" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        200.times { |i| ch.queue("mp_q#{i}") }
+        199.times { |i| ch.queue_delete("mp_q#{i}") }
+        definitions = s.vhosts["/"].@definitions.not_nil!
+        definitions.@queues.shrunk.should_not be definitions.@queues
+        s.release_memory
+        definitions.@queues.shrunk.should be definitions.@queues
+        s.vhosts["/"].queue?("mp_q199").should_not be_nil
+      end
+    end
+  end
+
+  it "shrinks the unacked deque and the publish buffer" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        ch.confirm_select
+        1000.times { q.publish "m" }
+        q.publish "x" * 100_000
+        ch.wait_for_confirms
+        server_ch = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
+        server_ch.@next_msg_body_tmp.@capacity.should be >= 100_000
+        msgs = Channel(AMQP::Client::DeliverMessage).new(1001)
+        q.subscribe(no_ack: false) { |msg| msgs.send msg }
+        last = nil
+        1001.times { last = msgs.receive }
+        last.not_nil!.ack(multiple: true)
+        wait_for { server_ch.unacked.empty? }
+        server_ch.unacked.capacity.should be >= 1000
+        s.release_memory
+        server_ch.unacked.capacity.should eq 0
+        q.publish_confirm("m").should be_true
+        server_ch.@next_msg_body_tmp.@capacity.should be < 100_000
+      end
+    end
+  end
+end

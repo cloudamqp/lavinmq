@@ -60,6 +60,10 @@ module LavinMQ
         @channels.values
       end
 
+      def release_memory : Nil
+        each_channel &.release_memory
+      end
+
       def channel?(id : UInt16) : Client::Channel?
         @channels[id]?
       end
@@ -100,7 +104,18 @@ module LavinMQ
             send_connection_close(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
           end
         end
+        flow_changed(false, @vhost.flow_reason) unless @vhost.flow?
         read_loop
+      end
+
+      def flow_changed(active : Bool, reason : String) : Nil
+        capabilities = @client_properties["capabilities"]?.try &.as?(AMQP::Table)
+        return unless capabilities.try &.["connection.blocked"]?.try &.as?(Bool)
+        if active
+          send AMQP::Frame::Connection::Unblocked.new
+        else
+          send AMQP::Frame::Connection::Blocked.new(reason)
+        end
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -814,7 +829,8 @@ module LavinMQ
 
       private def declare_new_queue(frame)
         unless @vhost.flow?
-          send_precondition_failed(frame, "Server low on disk space, can not create queue")
+          send_precondition_failed(frame, "#{@vhost.flow_reason}, can not create queue")
+          return
         end
         if frame.queue_name.empty?
           frame.queue_name = AMQP::Queue.generate_name

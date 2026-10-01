@@ -336,6 +336,14 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property free_disk_warn : Int64 = 0_i64 # bytes
 
+      # Memory pressure (systemd MemoryPressureWatch) is considered over when
+      # the cgroup's memory PSI "some avg10" drops below this percentage
+      @[IniOpt(section: "main")]
+      property memory_pressure_release_avg10 : Float64 = 1.0
+
+      @[IniOpt(section: "main")]
+      property? memory_pressure_refuse_connections : Bool = true
+
       @[IniOpt(section: "main")]
       property load_definitions = "" # path to a JSON definitions file to import on startup
 

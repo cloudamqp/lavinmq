@@ -65,6 +65,7 @@ module LavinMQ
       @direct_reply_consumer : String?
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
+      @release_buffers = Atomic(Bool).new(false)
 
       rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_no_ack", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
@@ -141,9 +142,22 @@ module LavinMQ
         end
       end
 
+      # The publish buffers are owned by the client's read fiber, so they are
+      # only flagged here and replaced on the next publish
+      def release_memory : Nil
+        @unack_lock.synchronize do
+          @unacked = @unacked.dup
+        end
+        @release_buffers.set(true, :relaxed)
+      end
+
       def start_publish(frame)
+        if @release_buffers.get(:relaxed)
+          @release_buffers.set(false, :relaxed)
+          @next_msg_body_tmp = IO::Memory.new
+        end
         unless server_flow?
-          @client.send_precondition_failed(frame, "Server low on disk space")
+          @client.send_precondition_failed(frame, @client.vhost.flow_reason)
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name

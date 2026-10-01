@@ -304,6 +304,27 @@ module LavinMQ
       @size.zero?
     end
 
+    # Lets the kernel reclaim the pages of segments not being read or written,
+    # they are faulted back in from page cache or disk if accessed again
+    def dontneed_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32)) : Nil
+      return if @closed
+      @segments.each do |id, segment|
+        next if id == @wfile_id || id == @rfile_id || segment.closed?
+        next if except.includes? id
+        segment.dontneed
+      end
+    end
+
+    def shrink_to_fit : Nil
+      return if @closed
+      @segments = @segments.shrunk
+      @acks = @acks.shrunk
+      @segment_msg_count = @segment_msg_count.shrunk
+      @deleted = @deleted.shrunk
+      @deleted.transform_values! &.dup
+      @requeued.shrink_to_fit
+    end
+
     def close : Nil
       return if @closed
       @closed = true

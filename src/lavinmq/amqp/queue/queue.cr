@@ -580,6 +580,17 @@ module LavinMQ::AMQP
       File.delete(File.join(@data_dir, "paused"))
     end
 
+    def release_memory : Nil
+      @msg_store_lock.synchronize do
+        @msg_store.dontneed_segments
+        @msg_store.shrink_to_fit
+        @deliveries = @deliveries.shrunk
+      end
+      @consumers_lock.synchronize do
+        @consumers = @consumers.dup
+      end
+    end
+
     def close : Bool
       return false if @closed
       @closed = true

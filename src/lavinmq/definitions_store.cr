@@ -54,6 +54,14 @@ module LavinMQ
       end
     end
 
+    def shrink_to_fit : Nil
+      @definitions_lock.synchronize do
+        @exchanges = @exchanges.shrunk
+        @queues = @queues.shrunk
+        @sessions = @sessions.shrunk
+      end
+    end
+
     # Exchange accessors
 
     def exchange?(name : String) : Exchange?
