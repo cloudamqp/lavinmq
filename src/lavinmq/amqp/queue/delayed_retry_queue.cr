@@ -7,8 +7,6 @@ module LavinMQ::AMQP
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
 
-    MAX_NAME_LENGTH = 255
-
     def self.create(vhost : VHost, primary_queue : Queue)
       q_name = "amq.retry-#{primary_queue.name}"
       raise LavinMQ::Error::PreconditionFailed.new("Retry queue name too long") if q_name.bytesize > MAX_NAME_LENGTH

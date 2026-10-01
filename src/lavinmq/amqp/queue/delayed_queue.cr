@@ -6,6 +6,8 @@ module LavinMQ::AMQP
   # delay expires: the delayed exchange queue and the retry queue. Backed by
   # DelayedMessageStore so messages expire in delivery-time order.
   abstract class DelayedQueue < Queue
+    MAX_NAME_LENGTH = 255
+
     getter? internal = true
 
     private def init_msg_store(data_dir)

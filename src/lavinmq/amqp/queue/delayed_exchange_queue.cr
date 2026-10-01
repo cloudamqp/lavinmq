@@ -4,13 +4,13 @@ module LavinMQ::AMQP
   # This class is only used by delayed exchanges. It can't niehter should be
   # consumed from or published to by clients.
   class DelayedExchangeQueue < DelayedQueue
-    MAX_NAME_LENGTH = 256
-
     @exchange_name : String
 
     def self.create(vhost : VHost, exchange_name : String, durable : Bool, auto_delete : Bool)
       q_name = "amq.delayed-#{exchange_name}"
-      raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
+      if q_name.bytesize > MAX_NAME_LENGTH
+        raise LavinMQ::Error::PreconditionFailed.new("Exchange name too long for a delayed exchange")
+      end
 
       legacy_q_name = "amq.delayed.#{exchange_name}"
       if use_legacy_name?(vhost.data_dir, legacy_q_name)
