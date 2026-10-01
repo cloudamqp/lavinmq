@@ -3,7 +3,7 @@ module MQTT
     abstract struct Packet
       def to_slice
         io = ::IO::Memory.new
-        to_io(IO.new(io))
+        to_io(IO::V3.new(io))
         io.rewind
         io.to_slice
       end

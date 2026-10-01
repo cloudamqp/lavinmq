@@ -98,7 +98,9 @@ module LavinMQPerf
         password = @uri.password || "guest"
 
         socket = connect_socket(host, port, tls)
-        io = LavinMQ::MQTT::Protocol::IO.new(socket)
+        # The version is fixed by the IO's type, and this tool always speaks
+        # 3.1.1 (the CONNECT below carries no v5 properties).
+        io = LavinMQ::MQTT::Protocol::IO::V3.new(socket)
 
         client_id = "#{role}-#{id}"
         connect_packet = LavinMQ::MQTT::Protocol::Connect.new(
