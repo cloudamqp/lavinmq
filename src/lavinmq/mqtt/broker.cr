@@ -114,7 +114,6 @@ module LavinMQ
           self,
           session,
           client_id,
-          ProtocolVersion.from_value(packet.version),
           packet.keepalive,
           packet.will)
         @clients[client_id] = client
@@ -173,13 +172,13 @@ module LavinMQ
         @exchange.publish(packet, ctx)
       end
 
-      def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
+      def subscribe(client, topics) : Array(Protocol::SubAck::ReasonCode)
         session = client.session
         begin
           register_session(session)
         rescue ex : MQTT::Error
           client.log.warn { "Rejecting SUBSCRIBE, its session cannot become a queue: #{ex.message}" }
-          return topics.map { Protocol::SubAck::ReturnCode::Failure }
+          return topics.map { Protocol::SubAck::ReasonCode::UnspecifiedError }
         end
         topics.map { |tf| grant(session, tf) }
       end
@@ -197,10 +196,10 @@ module LavinMQ
         sessions.register(session)
       end
 
-      def grant(session : Session, tf) : Protocol::SubAck::ReturnCode
+      def grant(session : Session, tf) : Protocol::SubAck::ReasonCode
         # `Subscribe.from_io` has already rejected anything above 2.
         qos = tf.qos
-        return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
+        return Protocol::SubAck::ReasonCode::UnspecifiedError unless session.subscribe(tf.topic, qos)
         ts = RoughTime.unix_ms
         @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
           # At the subscription's QoS, not capped like `Exchange#publish`
@@ -213,7 +212,7 @@ module LavinMQ
           msg.needs_sync = qos > 0
           session.publish(msg)
         end
-        Protocol::SubAck::ReturnCode.from_int(qos)
+        Protocol::SubAck::ReasonCode.from_value(qos)
       end
 
       def unsubscribe(client, topics)

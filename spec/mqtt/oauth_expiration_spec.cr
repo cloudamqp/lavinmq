@@ -10,7 +10,7 @@ module MqttSpecs
       with_server do |server|
         # Create a pipe pair to simulate the MQTT socket
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO::V3.new(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # Create OAuthUser with a very short-lived token
@@ -43,7 +43,7 @@ module MqttSpecs
     it "does not disconnect client when token is still valid" do
       with_server do |server|
         reader, writer = IO.pipe
-        mqtt_io = MQTT::Protocol::IO.new(reader)
+        mqtt_io = MQTT::Protocol::IO::V3.new(reader)
         conn_info = LavinMQ::ConnectionInfo.local
 
         # Create OAuthUser with a long-lived token

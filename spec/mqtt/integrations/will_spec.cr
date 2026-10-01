@@ -67,10 +67,10 @@ module MqttSpecs
               connect(io2, client_id: "will_client", will: will, keepalive: 20u16)
 
               broken_packet_io = IO::Memory.new
-              publish(MQTT::Protocol::IO.new(broken_packet_io), topic: "foo", qos: 1u8, expect_response: false)
+              publish(MQTT::Protocol::IO::V3.new(broken_packet_io), topic: "foo", qos: 1u8, expect_response: false)
               broken_packet = broken_packet_io.to_slice
               broken_packet[0] |= 0b0000_0110u8 # set both qos bits to 1
-              io2.write broken_packet
+              io2.io.write broken_packet
             end
 
             pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
@@ -135,11 +135,11 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
-          connect(MQTT::Protocol::IO.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO::V3.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0001_0000u8
-          io.write connect_pkt
+          io.io.write connect_pkt
 
           expect_raises(IO::Error) do
             read_packet(io)
@@ -154,11 +154,11 @@ module MqttSpecs
           temp_io = IO::Memory.new
           will = MQTT::Protocol::Will.new(
             topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
-          connect(MQTT::Protocol::IO.new(temp_io), will: will, client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO::V3.new(temp_io), will: will, client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0001_1000u8
-          io.write connect_pkt
+          io.io.write connect_pkt
 
           expect_raises(IO::Error) do
             read_packet(io)
@@ -171,11 +171,11 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
-          connect(MQTT::Protocol::IO.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO::V3.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0010_0000u8
-          io.write connect_pkt
+          io.io.write connect_pkt
 
           expect_raises(IO::Error) do
             read_packet(io)
