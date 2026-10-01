@@ -39,11 +39,14 @@ module LavinMQ::Clustering
     end
 
     private def handle(client : UNIXSocket) : Nil
+      client.sync = false
+      client.read_buffering = false
       client.write_timeout = WRITE_TIMEOUT
       ch = @status.subscribe
       spawn(detect_close(client, ch), name: "Clustering status client reader")
       while snapshot = ch.receive?
         client << snapshot << '\n'
+        client.flush
       end
     rescue IO::Error
     ensure
