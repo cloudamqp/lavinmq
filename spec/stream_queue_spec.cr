@@ -1511,6 +1511,44 @@ describe LavinMQ::AMQP::Stream do
   end
 
   {% if flag?(:linux) %}
+    describe "requeued redeliveries" do
+      it "keeps an older segment mapped until its last requeued message is redelivered" do
+        queue_name = Random::Secure.hex
+        # Two messages per segment
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 3)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            6.times { q.publish_confirm data }
+            stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+            store = stream.stream_msg_store
+            first_seg, first = store.@segments.first
+
+            ch.prefetch 10
+            msgs = Channel(AMQP::Client::DeliverMessage).new(10)
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            6.times { msgs.receive.ack }
+            consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+            wait_for { consumer.segment != first_seg }
+            # Stop the deliver loop so the spec drives the redeliveries
+            ch.flow(false)
+
+            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
+            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            consumer.requeued.push(sp1)
+            consumer.requeued.push(sp2)
+
+            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
+            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+          end
+        end
+      end
+    end
+
     describe "segment rollover" do
       it "unmaps the first segment when the stream has no consumers" do
         queue_name = Random::Secure.hex
@@ -1550,6 +1588,28 @@ describe LavinMQ::AMQP::Stream do
 
           q.unsubscribe(tag)
           wait_for { store.@segment_readers.empty? }
+        end
+      end
+    end
+
+    it "keeps the count for consumers still in a shared segment" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          q.publish_confirm "m"
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          seg = store.@segments.first_key
+
+          ch.prefetch 1
+          args = AMQP::Client::Arguments.new({"x-stream-offset": "first"})
+          tag1 = q.subscribe(no_ack: false, args: args, &.ack)
+          q.subscribe(no_ack: false, args: args, &.ack)
+          wait_for { store.@segment_readers == {seg => 2u32} }
+
+          q.unsubscribe(tag1)
+          wait_for { store.@segment_readers == {seg => 1u32} }
         end
       end
     end

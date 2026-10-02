@@ -250,7 +250,7 @@ module LavinMQ::AMQP
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
-            unmap_if_unused(sp.segment) unless sp.segment == consumer.segment
+            unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
