@@ -69,7 +69,7 @@ private class ControllerCluster
       config.clustering_raft_port = port
       config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
       config.clustering_peers = peers
-      config.clustering_password = "controller-spec"
+      config.clustering_secret = "controller-spec"
       config.clustering_election_timeout = 300
       config.clustering_heartbeat_interval = 50
       config.clustering_port = free_port
@@ -131,7 +131,7 @@ describe LavinMQ::Clustering::RaftController do
       config.http_port = 0
       config.mqtt_port = 0
       config.metrics_http_port = -1
-      config.clustering_password = "secret"
+      config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       controller = SpecController.new(config)
       controller.fake_leader_uri = "tcp://192.0.2.10:5679"
@@ -151,7 +151,7 @@ describe LavinMQ::Clustering::RaftController do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
       config.data_dir = data_dir
-      config.clustering_password = "secret"
+      config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
       controller = SpecController.new(config)
       controller.fake_leader_uri = config.clustering_advertised_uri
@@ -165,7 +165,7 @@ describe LavinMQ::Clustering::RaftController do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
       config.data_dir = data_dir
-      config.clustering_password = "secret"
+      config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
       controller = SpecController.new(config)
       controller.fake_leader_uri = config.clustering_advertised_uri
@@ -195,7 +195,7 @@ describe LavinMQ::Clustering::RaftController do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
       config.data_dir = data_dir
-      config.clustering_password = "secret"
+      config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
       controller = SpecController.new(config)
       controller.fake_leader_uri = config.clustering_advertised_uri
