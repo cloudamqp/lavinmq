@@ -9,9 +9,6 @@ module LavinMQ
       abstract def insert(sp : SegmentPosition) : Nil
       abstract def size
       abstract def clear : Nil
-
-      def shrink_to_fit : Nil
-      end
     end
 
     class PublishOrderedRequeuedStore < RequeuedStore
@@ -39,10 +36,6 @@ module LavinMQ
 
       def clear : Nil
         @segment_positions = Deque(SegmentPosition).new
-      end
-
-      def shrink_to_fit : Nil
-        @segment_positions = @segment_positions.dup
       end
     end
   end

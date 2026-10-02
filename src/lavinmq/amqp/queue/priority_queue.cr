@@ -209,12 +209,8 @@ module LavinMQ::AMQP
         @empty.close
       end
 
-      def dontneed_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32)) : Nil
-        @stores.each &.dontneed_segments(except)
-      end
-
-      def shrink_to_fit : Nil
-        @stores.each &.shrink_to_fit
+      def dontneed_segments : Nil
+        @stores.each &.dontneed_segments
       end
     end
   end

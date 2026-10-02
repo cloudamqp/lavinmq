@@ -142,12 +142,9 @@ module LavinMQ
         end
       end
 
-      # The publish buffers are owned by the client's read fiber, so they are
-      # only flagged here and replaced on the next publish
+      # The publish buffer is owned by the client's read fiber, so it's only
+      # flagged here and replaced on the next publish
       def release_memory : Nil
-        @unack_lock.synchronize do
-          @unacked = @unacked.dup
-        end
         @release_buffers.set(true, :relaxed)
       end
 

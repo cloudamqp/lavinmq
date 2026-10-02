@@ -110,16 +110,8 @@ module LavinMQ::AMQP
       mfile.dontneed
     end
 
-    def dontneed_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32)) : Nil
-      super(except.to_set.concat(@segment_readers.each_key))
-    end
-
-    def shrink_to_fit : Nil
-      super
-      @segment_last_ts = @segment_last_ts.shrunk
-      @segment_first_offset = @segment_first_offset.shrunk
-      @segment_first_ts = @segment_first_ts.shrunk
-      @segment_readers = @segment_readers.shrunk
+    protected def segment_in_use?(id : UInt32) : Bool
+      @segment_readers.has_key?(id)
     end
 
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)

@@ -132,7 +132,6 @@ module LavinMQ
     end
 
     def release_memory : Nil
-      definitions.shrink_to_fit
       each_queue do |q|
         q.release_memory if q.is_a?(AMQP::Queue)
       end

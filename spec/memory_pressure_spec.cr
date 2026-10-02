@@ -122,39 +122,14 @@ describe "Memory pressure" do
     end
   end
 
-  it "shrinks the queues hash after many queues are deleted" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        200.times { |i| ch.queue("mp_q#{i}") }
-        199.times { |i| ch.queue_delete("mp_q#{i}") }
-        definitions = s.vhosts["/"].@definitions.not_nil!
-        definitions.@queues.shrunk.should_not be definitions.@queues
-        s.release_memory
-        definitions.@queues.shrunk.should be definitions.@queues
-        s.vhosts["/"].queue?("mp_q199").should_not be_nil
-      end
-    end
-  end
-
-  it "shrinks the unacked deque and the publish buffer" do
+  it "releases the channel publish buffer" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue
-        ch.confirm_select
-        1000.times { q.publish "m" }
-        q.publish "x" * 100_000
-        ch.wait_for_confirms
+        q.publish_confirm("x" * 100_000).should be_true
         server_ch = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
         server_ch.@next_msg_body_tmp.@capacity.should be >= 100_000
-        msgs = Channel(AMQP::Client::DeliverMessage).new(1001)
-        q.subscribe(no_ack: false) { |msg| msgs.send msg }
-        last = nil
-        1001.times { last = msgs.receive }
-        last.not_nil!.ack(multiple: true)
-        wait_for { server_ch.unacked.empty? }
-        server_ch.unacked.capacity.should be >= 1000
         s.release_memory
-        server_ch.unacked.capacity.should eq 0
         q.publish_confirm("m").should be_true
         server_ch.@next_msg_body_tmp.@capacity.should be < 100_000
       end

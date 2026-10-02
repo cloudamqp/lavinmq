@@ -355,8 +355,8 @@ module LavinMQ
       end
     end
 
-    # Drops page mappings of message segments and shrinks long lived
-    # collections and buffers, so that GC and malloc can return the memory
+    # Frees memory without allocating any: drops page mappings of idle message
+    # segments and oversized publish buffers, then lets GC and malloc return it
     def release_memory : Nil
       @vhosts.each_value &.release_memory
       GC.collect
