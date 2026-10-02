@@ -16,16 +16,20 @@ Segment files are accessed via `mmap(MAP_SHARED)` rather than `read`/`write` sys
 
 This avoids the syscall and copy overhead of buffered I/O — hot data is served straight from the page cache as a memory access — and lets LavinMQ keep its memory footprint small while still benefiting from all the RAM the OS chooses to use as cache.
 
+Streams release a segment's resident pages as soon as its last reader leaves, for example when a consumer advances to another segment or is cancelled. The active write segment is excluded from this cleanup. Releasing pages does not delete the segment or its messages; a later reader can load them again from disk. This keeps memory usage during a stream replay from accumulating across all the segments already read.
+
 ## Acknowledgment Tracking
 
-Each segment has a corresponding ack file (`acks.{segment_id}`) that tracks which messages have been acknowledged (deleted):
+For standard and priority queues, each segment has a corresponding ack file (`acks.{segment_id}`) that tracks which messages have been acknowledged (deleted):
 
 - When a message is acked, its position is recorded in the ack file
 - The ack file is a compact list of deleted message positions within the segment
 
+Streams do not record individual message deletions in ack files. Acknowledgments can persist consumer offsets, while retention determines when messages are removed. Any leftover stream ack files are discarded when the stream loads. See [Streams](streams.md) for offset tracking and retention.
+
 ## Segment Garbage Collection
 
-When all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages.
+For standard and priority queues, when all messages in a segment have been acknowledged, the segment and its ack file are deleted. This happens automatically as consumers process messages. Streams instead delete whole segments according to their retention settings.
 
 ## Data Directory Layout
 

@@ -17,8 +17,14 @@ Unix domain sockets are also supported via `unix_path` in the `[mqtt]` section. 
 | QoS | Supported | Behavior |
 |-----|-----------|----------|
 | 0 (at most once) | Yes | Fire and forget. Messages are not persisted for the session. |
-| 1 (at least once) | Yes | Messages are acknowledged with PUBACK. |
+| 1 (at least once) | Yes | Incoming publishes are acknowledged with PUBACK after the affected durable data is synced, unless synchronization is disabled. |
 | 2 (exactly once) | Downgraded to QoS 1 | LavinMQ does not implement the full QoS 2 handshake. |
+
+For incoming QoS 1 publishes, PUBACKs are sent in publish order after the broker finishes handling the publish and syncing its affected durable message and retained-message files. In a cluster, the broker also waits for the in-sync followers to acknowledge the replicated writes after synchronization. This uses the same persistence mechanism as [publisher confirms](publisher-confirms.md#durability-and-synchronization).
+
+Waiting for disk synchronization makes QoS 1 throughput depend on disk latency and the number of publishes the client keeps in flight. QoS 0 does not wait for this synchronization. Setting `sync=false` in `[main]` (or using `--no-sync`) skips local disk synchronization; followers also skip synchronization if it is disabled in their own configuration. A PUBACK then provides no disk durability guarantee on those nodes.
+
+A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
 ## Sessions
 

@@ -74,9 +74,13 @@ Streams support message retention policies to limit storage:
 
 | Mechanism | Description |
 |-----------|-------------|
-| `x-max-age` | Delete segments older than this duration. Format is `<number><unit>` where unit is one of `Y` (years), `M` (months), `D` (days), `h` (hours), `m` (minutes), `s` (seconds). Units are case-sensitive (e.g., `7D`, not `7d`). Set as queue argument or `max-age` policy. |
-| `x-max-length` | Maximum number of messages. Oldest segments are dropped. |
-| `x-max-length-bytes` | Maximum total bytes. Oldest segments are dropped. |
+| `x-max-age` | Drop a segment after its last message reaches this age. Format is `<number><unit>` where unit is one of `Y` (years), `M` (months), `D` (days), `h` (hours), `m` (minutes), `s` (seconds). Units are case-sensitive (e.g., `7D`, not `7d`). Set as queue argument or `max-age` policy. |
+| `x-max-length` | Message count retention target. Drop the oldest segment only if at least this many messages remain. Set as queue argument or `max-length` policy. |
+| `x-max-length-bytes` | Byte retention target. Drop the oldest segment only if at least this many bytes remain. Set as queue argument or `max-length-bytes` policy. |
+
+Retention removes whole segments, so length limits are not hard maximums. When enough messages have been published, length retention keeps at least the configured target and can exceed it by a segment. For example, a stream with `x-max-length: 100` and 1000 messages in one segment keeps that segment until dropping it would still leave at least 100 messages. Length retention is evaluated when a new segment is opened and when its settings change. If several retention limits are configured, another limit can remove messages that one length limit would have kept.
+
+Age retention runs even when no new messages are published. A segment expires based on its last message's timestamp, so earlier messages in that segment may be kept longer than `x-max-age`. The active write segment is never removed by retention; even if all its messages have expired, it remains until publishing opens a new segment.
 
 ## Differences from Standard Queues
 
