@@ -22,6 +22,9 @@ module LavinMQ::Clustering::Raft
     MAGIC      = "LMQRAFT1".to_slice
     NONCE_SIZE =  32
     QUEUE_SIZE = 256
+    # Seconds idle before probing, between probes, and unanswered probes
+    # before a connection is dropped.
+    KEEPALIVE = {5, 1, 3}
 
     @outbound = Hash(String, Channel(Message)).new
     @server : TCPServer? = nil
@@ -67,6 +70,7 @@ module LavinMQ::Clustering::Raft
           begin
             socket.sync = false
             socket.tcp_nodelay = true
+            enable_keepalive(socket)
             socket.read_timeout = @connect_timeout
             socket.write_timeout = @write_timeout
             authenticate_client(socket)
@@ -107,6 +111,9 @@ module LavinMQ::Clustering::Raft
       socket.sync = true
       socket.read_timeout = @connect_timeout
       authenticate_server(socket)
+      # No read timeout: peers that aren't leader send each other nothing
+      # between elections. Keepalive drops half-open connections instead.
+      enable_keepalive(socket)
       socket.read_timeout = nil
       socket.read_buffering = true
       loop do
@@ -122,6 +129,11 @@ module LavinMQ::Clustering::Raft
       Log.debug { "Raft inbound connection closed: #{ex.message}" }
     ensure
       socket.close rescue nil
+    end
+
+    private def enable_keepalive(socket : TCPSocket) : Nil
+      socket.keepalive = true
+      socket.tcp_keepalive_idle, socket.tcp_keepalive_interval, socket.tcp_keepalive_count = KEEPALIVE
     end
 
     private def write_frame(io : IO, msg : Message) : Nil

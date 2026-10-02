@@ -54,7 +54,7 @@ private class ControllerCluster
   getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
 
-  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil)
+  def initialize(size : Int32, with_data = false, bootstrap : Int32? = 0)
     ports = Array.new(size) { free_port }
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
@@ -114,7 +114,7 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, &)
+private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = 0, &)
   cluster = ControllerCluster.new(size, with_data, bootstrap)
   yield cluster
 ensure
@@ -259,13 +259,16 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  it "doesn't elect nodes with data but no raft state, unless bootstrapped", tags: "slow" do
-    with_controllers(with_data: true) do |cluster|
-      cluster.start_all
-      select
-      when c = cluster.serving.receive
-        fail "#{c.id} was elected without knowing if its data is current"
-      when timeout(1.second)
+  it "doesn't elect nodes without raft state, unless bootstrapped", tags: "slow" do
+    # New nodes too: a majority of them could otherwise outvote a node with data
+    [false, true].each do |with_data|
+      with_controllers(with_data: with_data, bootstrap: nil) do |cluster|
+        cluster.start_all
+        select
+        when c = cluster.serving.receive
+          fail "#{c.id} was elected without knowing if its data is current (with_data: #{with_data})"
+        when timeout(1.second)
+        end
       end
     end
     with_controllers(with_data: true, bootstrap: 1) do |cluster|

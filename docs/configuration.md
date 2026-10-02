@@ -126,7 +126,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `password` | — | `LAVINMQ_CLUSTERING_PASSWORD` | String | (empty) | The shared secret inline, instead of `password_file`. One of the two is required, raft backend only |
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts, raft backend only |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats, raft backend only |
-| `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when migrating from etcd, raft backend only |
+| `bootstrap` | `--clustering-bootstrap` | `LAVINMQ_CLUSTERING_BOOTSTRAP` | Bool | `false` | Let this node become leader while no node has election state, needed once when starting a new cluster or migrating from etcd, raft backend only |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

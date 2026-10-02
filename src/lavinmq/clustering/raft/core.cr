@@ -7,6 +7,12 @@ module LavinMQ::Clustering::Raft
     Leader
   end
 
+  record IdConflict, addr : String, holder : String, node_id : Int32 do
+    def to_s(io : IO) : Nil
+      io << addr << " and " << holder << " both have clustering id " << node_id.to_s(36)
+    end
+  end
+
   # What must be on disk before any message produced alongside it is sent.
   record HardState, term : Int64, voted_for : String?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
@@ -43,9 +49,11 @@ module LavinMQ::Clustering::Raft
     getter outbox = Array(Tuple(String, Message)).new
     getter? dirty = false
     # Set when two raft addresses claim the same clustering id, e.g. after a
-    # data dir was copied. ISR eligibility is by id, so such a node is never
-    # followed, voted for or counted.
-    getter id_conflict : String? = nil
+    # data dir was copied. ISR eligibility is by id, so the address that
+    # claimed it last is never followed, voted for or counted, and when the id
+    # is this node's own it doesn't campaign either. Cleared once one of them
+    # reports another id.
+    getter id_conflict : IdConflict? = nil
 
     @snapshot_index = 0i64
     @snapshot_term = 0i64
@@ -346,7 +354,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def may_campaign? : Bool
-      return false if @id_conflict
+      return false if @id_conflict.try(&.holder) == @id
       return false unless in_isr?(latest_isr, @node_id)
       @bootstrap || last_index > 0
     end
@@ -438,8 +446,11 @@ module LavinMQ::Clustering::Raft
     private def claim_node_id(addr : String, node_id : Int32) : Bool
       holder = node_id == @node_id ? @id : @peer_node_ids.key_for?(node_id)
       if holder && holder != addr
-        @id_conflict = "#{addr} and #{holder} both have clustering id #{node_id.to_s(36)}"
+        @id_conflict = IdConflict.new(addr, holder, node_id)
         return false
+      end
+      if (c = @id_conflict) && addr.in?(c.addr, c.holder) && node_id != c.node_id
+        @id_conflict = nil
       end
       if @peer_node_ids[addr]? != node_id
         @peer_node_ids[addr] = node_id

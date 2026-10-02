@@ -240,6 +240,8 @@ lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-backend=raft --clu
   --clustering-raft-advertised-address=node1:5680
 ```
 
+The first time a new cluster starts, add `--clustering-bootstrap` on one of the nodes, so it may become the first leader.
+
 ### Stream Queues
 
 Stream queues provide an append-only log structure that allows multiple consumers to read the same messages independently. Unlike standard queues, messages in stream queues aren't deleted when consumed, making them ideal for event sourcing patterns and multi-consumer scenarios.
