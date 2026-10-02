@@ -7,7 +7,7 @@ module MqttSpecs
     it "disconnects with SubscriptionIdentifiersNotSupported (0xA1) on a Subscription Identifier" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # We advertised subscription_identifier_available=0, so any Subscription
@@ -29,7 +29,7 @@ module MqttSpecs
     it "disconnects with SharedSubscriptionsNotSupported (0x9E) on a $share/ filter" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # We advertised shared_subscription_available=0 (§3.2.2.3.13).
@@ -48,7 +48,7 @@ module MqttSpecs
     it "disconnects on a $share/ filter even when mixed with a normal filter" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # A Shared Subscription anywhere in the packet is a packet-level
@@ -72,7 +72,7 @@ module MqttSpecs
     it "grants a QoS 2 subscription as QoS 2" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # The SUBACK reports the granted maximum [MQTT-3.8.4-7].

@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   private def self.v5_connect(socket, **args)
-    io = MQTT::Protocol::IO::V5.new(socket)
+    io = MQTT::Protocol::IO.v5(socket)
     connect(io, **{version: MQTT::Protocol::Version::V5}.merge(args))
     io
   end
@@ -332,7 +332,7 @@ module MqttSpecs
       it "keeps the options of a durable session's subscription across a restart" do
         with_server do |server|
           with_client_socket(server) do |socket|
-            io = MQTT::Protocol::IO::V5.new(socket)
+            io = MQTT::Protocol::IO.v5(socket)
             props = MQTT::Protocol::ConnectProperties.new
             props.session_expiry_interval = 3600u32
             connect(io, version: MQTT::Protocol::Version::V5,
@@ -358,7 +358,7 @@ module MqttSpecs
 
     describe "MQTT 3.1.1" do
       it "is unaffected: a v3 client still receives its own published messages" do
-        # The v3 wire has no options byte at all - IO::V3 rejects a SUBSCRIBE
+        # The v3 wire has no options byte at all - v3 framing rejects a SUBSCRIBE
         # with any of bits 7-2 set - so the new code paths are structurally
         # unreachable from v3 rather than merely defaulted.
         with_server do |server|

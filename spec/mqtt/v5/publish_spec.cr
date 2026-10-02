@@ -7,7 +7,7 @@ module MqttSpecs
     it "passes v5 PUBLISH properties through to a v5 subscriber, preserving user-property order" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(sub, topic_filters: [subtopic("test/topic", 1)], packet_id: 1u16)
 
@@ -21,7 +21,7 @@ module MqttSpecs
           props.user_properties = [{"a", "1"}, {"b", "2"}, {"a", "3"}]
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             MQTT::Protocol::Publish.new(
               topic: "test/topic", payload: "hello".to_slice,
@@ -53,7 +53,7 @@ module MqttSpecs
           props.content_type = "application/json"
           props.user_properties = [{"a", "1"}]
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             MQTT::Protocol::Publish.new(
               topic: "test/topic", payload: "hi".to_slice,
@@ -76,14 +76,14 @@ module MqttSpecs
     it "does not deliver a PUBLISH exceeding the subscriber's Maximum Packet Size" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           props = MQTT::Protocol::ConnectProperties.new
           props.maximum_packet_size = 50u32
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub", properties: props)
           subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 50 -> dropped
             publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 50 -> delivered
@@ -101,14 +101,14 @@ module MqttSpecs
     it "does not deliver an oversized QoS 0 PUBLISH exceeding the subscriber's Maximum Packet Size" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           props = MQTT::Protocol::ConnectProperties.new
           props.maximum_packet_size = 50u32
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub", properties: props)
           subscribe(sub, topic_filters: [subtopic("t", 0)], packet_id: 1u16)
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 0u8) # over 50 -> dropped
             publish(pub, topic: "t", payload: "ok".to_slice, qos: 0u8)       # under 50 -> delivered
@@ -123,7 +123,7 @@ module MqttSpecs
     it "keeps the Maximum Packet Size of a subscriber that connected without a client id" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           props = MQTT::Protocol::ConnectProperties.new
           props.maximum_packet_size = 50u32
           # Empty client id: the server assigns one and rebuilds the CONNECT.
@@ -133,7 +133,7 @@ module MqttSpecs
           subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 50 -> dropped
             publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 50 -> delivered
@@ -149,12 +149,12 @@ module MqttSpecs
     it "delivers an oversized PUBLISH when the subscriber sets no Maximum Packet Size (v5)" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(sub, topic_filters: [subtopic("t", 1)], packet_id: 1u16)
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             publish(pub, topic: "t", payload: Bytes.new(200, 7u8), qos: 1u8)
           end
@@ -185,7 +185,7 @@ module MqttSpecs
     it "answers a QoS 2 publish with PUBREC and keeps the connection open" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # The CONNACK carries no Maximum QoS, which means 2 (3.2.2.3.4).
@@ -205,7 +205,7 @@ module MqttSpecs
     it "disconnects with TopicAliasInvalid (0x94) when a client sends a Topic Alias" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # We advertised topic_alias_maximum=0, so any Topic Alias is invalid.
@@ -228,7 +228,7 @@ module MqttSpecs
     it "disconnects with ProtocolError (0x82) on an empty topic with no alias" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
           # The shard refuses to encode an empty-topic PUBLISH, so send raw bytes
@@ -248,12 +248,12 @@ module MqttSpecs
     it "delivers at the minimum of publish and subscription qos [MQTT-3.8.4-8]" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(sub, topic_filters: [subtopic("test/topic", 1)], packet_id: 1u16)
 
           with_client_socket(server) do |pub_socket|
-            pub = MQTT::Protocol::IO::V5.new(pub_socket)
+            pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
             publish(pub, topic: "test/topic", qos: 0u8)
             publish(pub, topic: "test/topic", qos: 1u8, packet_id: 2u16)
@@ -274,7 +274,7 @@ module MqttSpecs
     it "delivers a message whose mqtt.* header is out of range instead of poisoning the queue" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
 

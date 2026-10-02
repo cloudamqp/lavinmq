@@ -23,13 +23,12 @@ module LavinMQ
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
-          # CONNECT carries the protocol version on the wire; read_connect
-          # bootstraps with a v3 IO and hands back one reframed to the negotiated
-          # version (v3.1 / v3.1.1 / v5) for every subsequent packet. It only
-          # rebinds io on success, so the v3 boot IO survives a parse error and
-          # the rescue below can still answer with a CONNACK.
-          io = Protocol::IO::V3.new(socket, @config.mqtt_max_packet_size)
-          packet, io = io.read_connect
+          # CONNECT carries the protocol version on the wire, so the IO starts
+          # unpinned and read_connect switches its framing in place (v3.1 /
+          # v3.1.1 / v5). The IO keeps its identity, so the rescue below answers
+          # a failed CONNECT with a CONNACK framed for the version it asked for.
+          io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
+          packet = io.read_connect
           logger.trace { "recv #{packet.inspect}" }
           # Enhanced authentication (the AUTH-packet flow) is not supported;
           # reject before username/password auth so the reason is accurate. v5

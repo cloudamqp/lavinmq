@@ -100,7 +100,7 @@ module LavinMQPerf
         socket = connect_socket(host, port, tls)
         # The version is fixed by the IO's type, and this tool always speaks
         # 3.1.1 (the CONNECT below carries no v5 properties).
-        io = LavinMQ::MQTT::Protocol::IO::V3.new(socket)
+        io = LavinMQ::MQTT::Protocol::IO.v3(socket)
 
         client_id = "#{role}-#{id}"
         connect_packet = LavinMQ::MQTT::Protocol::Connect.new(

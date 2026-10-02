@@ -56,12 +56,13 @@ module MqttHelpers
 
   def with_client_io(server)
     socket = with_client_socket(server)
-    MQTT::Protocol::IO::V3.new(socket)
+    MQTT::Protocol::IO.v3(socket)
   end
 
-  def with_client_io(server, &)
+  # The IO pins its version, so a 3.1 (MQIsdp) client has to ask for one.
+  def with_client_io(server, version = MQTT::Protocol::Version::V3_1_1, &)
     with_client_socket(server) do |io|
-      with MqttHelpers yield MQTT::Protocol::IO::V3.new(io)
+      with MqttHelpers yield MQTT::Protocol::IO.v3(io, version: version)
     end
   end
 
