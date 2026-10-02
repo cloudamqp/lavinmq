@@ -138,7 +138,8 @@ on_leader_lost = /usr/local/bin/drain-connections.sh
 ### Leader Status Socket
 
 For an agent on the same host that tracks which node is the leader, e.g. to
-point a router at it, LavinMQ can stream its leader status over a unix socket:
+point a router at it, LavinMQ can stream its leader status over a unix socket
+(raft backend only):
 
 ```ini
 [clustering]
