@@ -717,28 +717,43 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write(@protocol_version < 2 ? Start : StartV2)
-        socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
-        socket.write @password.to_slice
-        case byte = socket.read_byte
+        if @protocol_version < 2
+          socket.write Start
+          socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+          socket.write @password.to_slice
+        else
+          socket.write StartV2
+          answer_challenge(socket)
+        end
+        case socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
-        when Start[0]
-          # The leader rejected our header and replied with its own
-          header = Bytes.new(Start.size)
-          header[0] = byte
-          socket.read_fully(header[1..])
-          if header == Start && @protocol_version > 1
-            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
-            @protocol_version = 1
-            raise IO::Error.new("Replication protocol version mismatch")
-          end
-          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
-        else
-          raise Error.new("Unknown response from authentication")
+        else          raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
+      end
+
+      # A version 2 leader echoes the header followed by the challenge, a
+      # version 1 leader rejects it by replying with its own header.
+      private def answer_challenge(socket)
+        header = Bytes.new(StartV2.size)
+        socket.read_fully(header)
+        if header == Start
+          # Raft clusters have no version 1 nodes, so a version 1 "leader"
+          # would be someone trying to get the password in clear text
+          if @config.clustering_backend.raft?
+            Log.error { "Leader only supports replication protocol version 1, refusing to send it the password" }
+            raise IO::Error.new("Replication protocol version mismatch")
+          end
+          Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
+          @protocol_version = 1
+          raise IO::Error.new("Replication protocol version mismatch")
+        end
+        raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}") unless header == StartV2
+        challenge = Bytes.new(CHALLENGE_SIZE)
+        socket.read_fully(challenge)
+        socket.write Clustering.challenge_response(@password, challenge)
       end
 
       def close
