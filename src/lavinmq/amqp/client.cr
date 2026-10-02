@@ -104,17 +104,29 @@ module LavinMQ
             send_connection_close(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
           end
         end
-        flow_changed(false, @vhost.flow_reason) unless @vhost.flow?
+        notify_flow
         read_loop
       end
 
-      def flow_changed(active : Bool, reason : String) : Nil
+      @flow_notify_lock = Mutex.new
+      @blocked_sent = false
+
+      # Sends connection.blocked/unblocked for the vhost's current flow state,
+      # unless this client was already told that state. Notifier fibers can
+      # run out of order, so the state is read here rather than passed in,
+      # and a notifier that falls behind can't deliver a stale state.
+      def notify_flow : Nil
         capabilities = @client_properties["capabilities"]?.try &.as?(AMQP::Table)
         return unless capabilities.try &.["connection.blocked"]?.try &.as?(Bool)
-        if active
-          send AMQP::Frame::Connection::Unblocked.new
-        else
-          send AMQP::Frame::Connection::Blocked.new(reason)
+        @flow_notify_lock.synchronize do
+          blocked = !@vhost.flow?
+          return if blocked == @blocked_sent
+          @blocked_sent = blocked
+          if blocked
+            send AMQP::Frame::Connection::Blocked.new(@vhost.flow_reason)
+          else
+            send AMQP::Frame::Connection::Unblocked.new
+          end
         end
       end
 

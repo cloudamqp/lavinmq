@@ -83,6 +83,58 @@ describe "Memory pressure" do
     end
   end
 
+  it "doesn't deliver a stale blocked notification after unblocked" do
+    with_amqp_server do |s|
+      conn = AMQP::Client.new(port: amqp_port(s)).connect
+      events = Channel(Symbol).new(10)
+      conn.on_blocked { events.send :blocked }
+      conn.on_unblocked { events.send :unblocked }
+      s.flow(false, "test")
+      events.receive.should eq :blocked
+      s.flow(true)
+      events.receive.should eq :unblocked
+      # a notifier for the earlier flow(false) that fell behind, e.g. stuck
+      # writing to a slow client, reaching this client only now
+      server_client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      server_client.notify_flow
+      select
+      when event = events.receive
+        fail "unexpected #{event}"
+      when timeout(100.milliseconds)
+      end
+      conn.blocked?.should be_false
+    ensure
+      conn.try &.close
+    end
+  end
+
+  it "ends unblocked after rapid flow changes" do
+    with_amqp_server do |s|
+      conn = AMQP::Client.new(port: amqp_port(s)).connect
+      events = Channel(Symbol).new(100)
+      conn.on_blocked { events.send :blocked }
+      conn.on_unblocked { events.send :unblocked }
+      10.times do
+        s.flow(false, "test")
+        s.flow(true)
+      end
+      received = [] of Symbol
+      loop do
+        select
+        when event = events.receive
+          received << event
+        when timeout(100.milliseconds)
+          break
+        end
+      end
+      received.each_cons_pair { |a, b| a.should_not eq b }
+      received.last?.try &.should eq :unblocked
+      conn.blocked?.should be_false
+    ensure
+      conn.try &.close
+    end
+  end
+
   it "releases segment memory" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

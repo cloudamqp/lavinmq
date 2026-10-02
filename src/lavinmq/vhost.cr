@@ -66,7 +66,7 @@ module LavinMQ
       # A client with a full socket buffer must not stall the caller
       spawn(name: "VHost#notify_flow") do
         each_connection do |c|
-          c.flow_changed(active, reason) if c.is_a?(AMQP::Client)
+          c.notify_flow if c.is_a?(AMQP::Client)
         end
       end
     end
