@@ -40,7 +40,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             Review ${{ github.repository }} PR #${{ env.PR }} at head ${{ github.event.pull_request.head.sha }} (checked out).
-            Read AGNETS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
+            Read AGENTS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
 
             Report only real issues that exist in the current head, logical errors, violations of the Rules in AGENTS.md,
             and concurrency/fiber safety. Skip linter-catchable style, nitpicks, and pre-existing issues on unchanged lines.
