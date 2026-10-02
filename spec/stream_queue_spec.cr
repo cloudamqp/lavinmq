@@ -24,6 +24,19 @@ module StreamSpecHelpers
     end
   end
 
+  # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
+  def self.mapped_rss_kb(path : String) : Int32
+    in_mapping = false
+    File.each_line("/proc/self/smaps") do |line|
+      if line.ends_with?(path)
+        in_mapping = true
+      elsif in_mapping && line.starts_with?("Rss:")
+        return line.split[1].to_i
+      end
+    end
+    fail("No mapping found for #{path}")
+  end
+
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
@@ -452,7 +465,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("neg-offset-after-drop", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # The second segment is kept: dropping it would go below max-length
+          q.message_count.should eq 2
           ch.prefetch 1
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
@@ -460,7 +474,7 @@ describe LavinMQ::AMQP::Stream do
             msg.ack
           end
           msg = msgs.receive
-          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
         end
       end
     end
@@ -520,7 +534,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # Never drops below the limit, so the newest full segment is kept
+          q.message_count.should eq 2
         end
       end
     end
@@ -532,7 +547,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length-bytes", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # Never drops below the limit, so the newest full segment is kept
+          q.message_count.should eq 2
         end
       end
     end
@@ -717,7 +733,7 @@ describe LavinMQ::AMQP::Stream do
           dir = s.vhosts["/"].queue("stream-max-length").as(LavinMQ::AMQP::Stream).@data_dir
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
-          q.message_count.should eq 1
+          q.message_count.should eq 2
         end
       end
     end
@@ -909,6 +925,35 @@ describe LavinMQ::AMQP::Stream do
         end
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets - 1
         msg_store.@consumer_offsets.size.should eq bytesize*2
+        msg_store.close
+      end
+    end
+
+    it "compacts consumer tag file again when it fills a second time with an unchanged retention floor" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex(32)
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        bytesize = consumer_tag.bytesize + 1 + 8
+
+        first_fill = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
+        first_fill.times { |i| msg_store.store_consumer_offset(consumer_tag, i.to_i64) }
+        capacity_after_first_compaction = msg_store.@consumer_offsets.@mfile.capacity
+
+        # No retention policy is set, so the retention floor never advances.
+        # Filling the file a second time must still compact it - it must not
+        # short-circuit (as it would if `cleanup`'s unchanged-floor guard
+        # applied here) and raise IO::EOFError from the write that follows.
+        second_fill = (capacity_after_first_compaction / bytesize).to_i32 + 1
+        last_offset = first_fill.to_i64
+        second_fill.times do
+          msg_store.store_consumer_offset(consumer_tag, last_offset)
+          last_offset += 1
+        end
+
+        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq last_offset - 1
         msg_store.close
       end
     end
@@ -1113,6 +1158,26 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "skips rewriting the consumer offsets file when the retention floor is unchanged" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        StreamSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.store_consumer_offset("ctag-1", 1_i64)
+
+        msg_store.cleanup_consumer_offsets
+        mfile_before = msg_store.@consumer_offsets.@mfile
+
+        # Nothing dropped the stream's oldest segment in between, so the
+        # retention floor is the same and this call should be a no-op.
+        msg_store.cleanup_consumer_offsets
+        msg_store.@consumer_offsets.@mfile.should be mfile_before
+
+        msg_store.close
+      end
+    end
+
     it "ConsumerOffsets.trim_to_size drops the oldest offsets when over the cap" do
       # {consumer_tag, offset, file_position}; higher position == more recent.
       # Each entry is 6 + 1 + 8 = 15 bytes.
@@ -1160,7 +1225,9 @@ describe LavinMQ::AMQP::Stream do
 
         with_channel(s) do |ch|
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          2.times { q.publish_confirm msg_body }
+          # Retention keeps max-length messages, so offset 2 only falls out
+          # of the stream once three more segments have been written
+          3.times { q.publish_confirm msg_body }
         end
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
@@ -1355,6 +1422,248 @@ describe LavinMQ::AMQP::Stream do
         env.should_not be_nil
         String.new(env.not_nil!.message.body).should eq body
         store.close
+      end
+    end
+  end
+
+  describe "max-age loop" do
+    it "drops expired segments without any new publishes", tags: "slow" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-age": "1s"}
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          2.times { q.publish_confirm data }
+        end
+        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+        stream.message_count.should eq 2
+        wait_for(3.seconds) { stream.message_count == 1 }
+      end
+    end
+
+    it "only runs for streams with max-age" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("no-max-age", args: stream_queue_args)
+          ch.queue("with-max-age", args: AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-age": "1h"}))
+        end
+        s.vhosts["/"].queue("no-max-age").as(LavinMQ::AMQP::Stream).@max_age_loop_running.should be_false
+        s.vhosts["/"].queue("with-max-age").as(LavinMQ::AMQP::Stream).@max_age_loop_running.should be_true
+      end
+    end
+
+    it "starts with a max-age policy and stops when it is removed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("max-age-policy-loop", args: stream_queue_args)
+        end
+        stream = s.vhosts["/"].queue("max-age-policy-loop").as(LavinMQ::AMQP::Stream)
+        stream.@max_age_loop_running.should be_false
+        s.vhosts["/"].add_policy("ma", "max-age-policy-loop", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
+        wait_for { stream.@max_age_loop_running }
+        s.vhosts["/"].delete_policy("ma")
+        wait_for { !stream.@max_age_loop_running }
+      end
+    end
+
+    it "stops when the stream is closed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("max-age-close", args: AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-age": "1h"}))
+        end
+        stream = s.vhosts["/"].queue("max-age-close").as(LavinMQ::AMQP::Stream)
+        stream.@max_age_loop_running.should be_true
+        stream.close
+        wait_for { !stream.@max_age_loop_running }
+      end
+    end
+
+    it "store's unmap_if_unused is a no-op after the store is closed instead of raising" do
+      # Regression: MessageStore#close closes each segment's MFile but leaves
+      # them in @segments, so an unmap that runs after the store closed used
+      # to hit mfile.dontneed -> IO::Error: Closed mfile.
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        2.times { store.push(msg) }
+        store.@segments.size.should be >= 2
+        store.close
+
+        store.unmap_if_unused(store.@segments.first_key)
+      end
+    end
+  end
+
+  describe "length retention" do
+    {
+      {"x-max-length", 2},
+      {"x-max-length-bytes", 200},
+    }.each do |arg, limit|
+      it "#{arg} keeps a segment if dropping it would go below the limit" do
+        queue_name = Random::Secure.hex
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = {"x-queue-type" => "stream", arg => limit}
+            q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+            6.times { q.publish_confirm Bytes.new(50) }
+            # Opens a new segment, the first one holds all 6 small messages
+            q.publish_confirm Bytes.new(LavinMQ::Config.instance.segment_size)
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          stream.stream_msg_store.@segments.size.should eq 2
+          stream.message_count.should eq 7
+        end
+      end
+
+      it "#{arg} drops old segments on rollover once newer ones meet the limit" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 4)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = {"x-queue-type" => "stream", arg => limit}
+            q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+            20.times { q.publish_confirm data }
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          store.@segments.first_key.should be > 1
+          if arg == "x-max-length"
+            stream.message_count.should be >= limit
+          else
+            store.bytesize.should be >= limit
+          end
+        end
+      end
+    end
+  end
+
+  describe "ack files" do
+    it "deletes leftover ack files and counts every message on load" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, 1u64, IO::Memory.new("a"))
+        3.times { store.push(msg) }
+        store.close
+
+        ack_path = File.join(data_dir, "acks.0000000001")
+        File.open(ack_path, "w") do |f|
+          f.write_bytes 4u32
+          f.write_bytes 4u32 + LavinMQ::BytesMessage::MIN_BYTESIZE + 1
+        end
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        File.exists?(ack_path).should be_false
+        store.size.should eq 3
+        store.close
+      end
+    end
+  end
+
+  {% if flag?(:linux) %}
+    describe "requeued redeliveries" do
+      it "keeps an older segment mapped until its last requeued message is redelivered" do
+        queue_name = Random::Secure.hex
+        # Two messages per segment
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 3)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            6.times { q.publish_confirm data }
+            stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+            store = stream.stream_msg_store
+            first_seg, first = store.@segments.first
+
+            ch.prefetch 10
+            msgs = Channel(AMQP::Client::DeliverMessage).new(10)
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            6.times { msgs.receive.ack }
+            consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+            wait_for { consumer.segment != first_seg }
+            # Stop the deliver loop so the spec drives the redeliveries
+            ch.flow(false)
+
+            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
+            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            consumer.requeued.push(sp1)
+            consumer.requeued.push(sp2)
+
+            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
+            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+          end
+        end
+      end
+    end
+
+    describe "segment rollover" do
+      it "unmaps the first segment when the stream has no consumers" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size * 3 // 4)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            2.times { q.publish_confirm data }
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          first = stream.stream_msg_store.@segments.first_value
+          StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+        end
+      end
+    end
+  {% end %}
+
+  describe "segment readers" do
+    it "tracks which segment each consumer is reading and releases on cancel" do
+      queue_name = Random::Secure.hex
+      data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          3.times { q.publish_confirm data }
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          last_seg = store.@segments.last_key
+
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          tag = q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs.send msg
+          end
+          3.times { msgs.receive.ack }
+          wait_for { store.@segment_readers == {last_seg => 1u32} }
+
+          q.unsubscribe(tag)
+          wait_for { store.@segment_readers.empty? }
+        end
+      end
+    end
+
+    it "keeps the count for consumers still in a shared segment" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: stream_queue_args)
+          q.publish_confirm "m"
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          seg = store.@segments.first_key
+
+          ch.prefetch 1
+          args = AMQP::Client::Arguments.new({"x-stream-offset": "first"})
+          tag1 = q.subscribe(no_ack: false, args: args, &.ack)
+          q.subscribe(no_ack: false, args: args, &.ack)
+          wait_for { store.@segment_readers == {seg => 2u32} }
+
+          q.unsubscribe(tag1)
+          wait_for { store.@segment_readers == {seg => 1u32} }
+        end
       end
     end
   end

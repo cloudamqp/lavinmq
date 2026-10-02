@@ -365,12 +365,17 @@ module LavinMQ
       sp
     end
 
+    # Called on rollover for the segment that was just written to
+    private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
+      mfile.dontneed unless mfile == @rfile
+    end
+
     private def open_new_segment(next_msg_size = 0) : MFile
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
       end
-      @wfile.dontneed unless @wfile == @rfile
+      unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
