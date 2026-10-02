@@ -18,33 +18,29 @@ jobs:
       pull-requests: write
       id-token: write
     env:
-      GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
-      MARKER: "<!-- claude-code-review -->"
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Find previous review
         id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          comment=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-            --jq "[.[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\")))] | last | select(.) | {id, body}" | tail -n1)
-          [[ -n "$comment" ]] || comment='{}'
-          echo "id=$(jq -r '.id // empty' <<< "$comment")" >> "$GITHUB_OUTPUT"
+          comment=$(gh pr view "$PR" --json comments --jq '[.comments[] | select(.author.login == "claude")] | last | .body')
           {
             DELIM="EOF_$(openssl rand -hex 16)"
             echo "body<<$DELIM"
-            jq -r '.body // "None"' <<< "$comment"
+            echo "$comment"
             echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
-        id: claude
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             Review ${{ github.repository }} PR #${{ env.PR }} at head ${{ github.event.pull_request.head.sha }} (checked out).
-            Read AGENTS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
+            Read AGNETS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
 
             Report only real issues that exist in the current head, logical errors, violations of the Rules in AGENTS.md,
             and concurrency/fiber safety. Skip linter-catchable style, nitpicks, and pre-existing issues on unchanged lines.
@@ -57,23 +53,9 @@ jobs:
             ${{ steps.previous.outputs.body }}
             </previous_review>
 
-            Return `review` as GitHub markdown starting with "### Code review". List each issue as a numbered item with a
-            one-sentence explanation and a link https://github.com/${{ github.repository }}/blob/${{ github.event.pull_request.head.sha }}/<path>#L<start>-L<end>.
             If there are no issues, say "No issues found." Keep it brief and don't use emojis.
+
+            Post the review with `gh pr comment ${{ env.PR }} --edit-last --create-if-none`.
           claude_args: |
             --max-turns 30
-            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*)"
-            --json-schema '{"type":"object","properties":{"review":{"type":"string"}},"required":["review"]}'
-
-      - name: Post or update review comment
-        env:
-          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
-          COMMENT_ID: ${{ steps.previous.outputs.id }}
-        run: |
-          review=$(jq -er .review <<< "$STRUCTURED_OUTPUT") || { echo "::error::Review returned no output"; exit 1; }
-          body=$(printf '%s\n%s\n\n<sub>Reviewed %s</sub>' "$MARKER" "$review" "${{ github.event.pull_request.head.sha }}")
-          if [[ -n "$COMMENT_ID" ]]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -f body="$body" > /dev/null
-          else
-            gh pr comment "$PR" --body "$body"
-          fi
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
