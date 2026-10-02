@@ -4,30 +4,76 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
 
+concurrency:
+  group: claude-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
-    #if: github.event.pull_request.draft == false
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
       id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+      MARKER: "<!-- claude-code-review -->"
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Find previous review
+        id: previous
+        run: |
+          comment=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | select(.) | {id, body}" | tail -n1)
+          [[ -n "$comment" ]] || comment='{}'
+          echo "id=$(jq -r '.id // empty' <<< "$comment")" >> "$GITHUB_OUTPUT"
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "body<<$DELIM"
+            jq -r '.body // "None"' <<< "$comment"
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
+        id: claude
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          plugins: "code-review@claude-code-plugins"
           prompt: |
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            Review ${{ github.repository }} PR #${{ env.PR }} at head ${{ github.event.pull_request.head.sha }} (checked out).
+            Read AGENTS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
 
-            Review the diff plus relevant callers, implementations, and specs; don't build or run specs.
-            Focus on logical errors, violations of the Rules in AGENTS.md, and concurrency/fiber safety.
-            Skip style issues the linter catches. Don't use emojis.
+            Report only real issues that exist in the current head, logical errors, violations of the Rules in AGENTS.md,
+            and concurrency/fiber safety. Skip linter-catchable style, nitpicks, and pre-existing issues on unchanged lines.
             Flag missing specs only for risky behavior changes, and flag new specs that are trivial or duplicate existing coverage.
+
+            Your previous review of this PR is below. Re-check each issue in it, drop the ones that are fixed, keep the ones
+            that still apply, and add new ones. Don't mention fixed issues.
+
+            <previous_review>
+            ${{ steps.previous.outputs.body }}
+            </previous_review>
+
+            Return `review` as GitHub markdown starting with "### Code review". List each issue as a numbered item with a
+            one-sentence explanation and a link https://github.com/${{ github.repository }}/blob/${{ github.event.pull_request.head.sha }}/<path>#L<start>-L<end>.
+            If there are no issues, say "No issues found." Keep it brief and don't use emojis.
           claude_args: |
             --max-turns 30
-            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --json-schema '{"type":"object","properties":{"review":{"type":"string"}},"required":["review"]}'
+
+      - name: Post or update review comment
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+          COMMENT_ID: ${{ steps.previous.outputs.id }}
+        run: |
+          review=$(jq -er .review <<< "$STRUCTURED_OUTPUT") || { echo "::error::Review returned no output"; exit 1; }
+          body=$(printf '%s\n%s\n\n<sub>Reviewed %s</sub>' "$MARKER" "$review" "${{ github.event.pull_request.head.sha }}")
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" --body "$body"
+          fi
