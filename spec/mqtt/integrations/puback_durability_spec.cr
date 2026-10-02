@@ -114,4 +114,88 @@ module MqttSpecs
       end
     end
   end
+
+  describe "QoS 2 PUBREC durability" do
+    it "sends the PUBREC once the publish is durable, without blocking the read loop" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          with_drain_held do |gate|
+            publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, expect_response: false)
+            ping(io)
+            read_packet(io).should be_a(MQTT::Protocol::PingResp)
+            read_packet(io).should be_nil # no PUBREC while the drain is held
+            release_drain(gate)
+            read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 1u16
+          end
+        end
+      end
+    end
+
+    it "answers a PUBLISH re-sent before the first copy is durable only once it is" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          with_drain_held do |gate|
+            publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, expect_response: false)
+            publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16, dup: true, expect_response: false)
+            pingpong(io)
+            read_packet(io).should be_nil
+            release_drain(gate)
+            2.times { read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 1u16 }
+          end
+        end
+      end
+    end
+
+    it "sends PUBACKs and PUBRECs in receive order, also for denied topics" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        group = LavinMQ::MQTT::PermissionGroup.new(
+          "allowed", "/", ["alice"],
+          [LavinMQ::MQTT::PermissionGroup::Rule.new("allowed--", "allowed/#", read: true, write: true)]
+        )
+        server.vhosts["/"].mqtt_permission_service.delete("default")
+        server.vhosts["/"].mqtt_permission_service.put(group)
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "alice", username: "alice", password: "alice".to_slice)
+          with_drain_held do |gate|
+            publish(io, topic: "allowed/a", payload: "a".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
+            publish(io, topic: "allowed/b", payload: "b".to_slice, qos: 2u8, packet_id: 2u16, expect_response: false)
+            publish(io, topic: "denied/c", payload: "c".to_slice, qos: 2u8, packet_id: 3u16, expect_response: false)
+            publish(io, topic: "allowed/d", payload: "d".to_slice, qos: 1u8, packet_id: 4u16, expect_response: false)
+            pingpong(io)
+            release_drain(gate)
+            acks = Array.new(4) do
+              case packet = read_packet(io)
+              when MQTT::Protocol::PubAck then {:puback, packet.packet_id}
+              when MQTT::Protocol::PubRec then {:pubrec, packet.packet_id}
+              else                             fail "unexpected #{packet.inspect}"
+              end
+            end
+            acks.should eq [{:puback, 1u16}, {:pubrec, 2u16}, {:pubrec, 3u16}, {:puback, 4u16}]
+          end
+        end
+      end
+    end
+
+    # The exchange marks QoS 2 publishes for syncing, but only a queued
+    # acknowledgement makes the persister sync them
+    it "syncs the session segment a QoS 2 publish is written to" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub")
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 2}))
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16)
+            sync = server.persister.last_sync.not_nil!
+            sync.paths.any?(&.ends_with?("msgs.0000000001")).should be_true
+          end
+        end
+      end
+    end
+  end
 end
