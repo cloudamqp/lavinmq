@@ -592,8 +592,8 @@ module LavinMQ
         # above QoS 2, which would make one bad byte a poison message.
         qos = MQTT.granted_qos(msg.properties.delivery_mode)
         dup = qos.zero? ? false : env.redelivered
-        # IO::V3#write_properties discards these, so a v3 subscriber should not
-        # pay six Table#fetch linear scans per delivery to build them.
+        # IO::Framing::V3#write_properties discards these, so a v3 subscriber
+        # should not pay six Table#fetch linear scans per delivery to build them.
         properties = if @client.try(&.version.v5?)
                        PublishHeaders.restore(msg.properties.headers)
                      else

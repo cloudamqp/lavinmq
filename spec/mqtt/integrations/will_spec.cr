@@ -95,7 +95,7 @@ module MqttSpecs
               connect(io2, client_id: "will_client", will: will, keepalive: 20u16)
 
               broken_packet_io = IO::Memory.new
-              publish(MQTT::Protocol::IO::V3.new(broken_packet_io), topic: "foo", qos: 1u8, expect_response: false)
+              publish(MQTT::Protocol::IO.v3(broken_packet_io), topic: "foo", qos: 1u8, expect_response: false)
               broken_packet = broken_packet_io.to_slice
               broken_packet[0] |= 0b0000_0110u8 # set both qos bits to 1
               io2.io.write broken_packet
@@ -163,7 +163,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
-          connect(MQTT::Protocol::IO::V3.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO.v3(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0001_0000u8
@@ -182,7 +182,7 @@ module MqttSpecs
           temp_io = IO::Memory.new
           will = MQTT::Protocol::Will.new(
             topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
-          connect(MQTT::Protocol::IO::V3.new(temp_io), will: will, client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO.v3(temp_io), will: will, client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0001_1000u8
@@ -198,12 +198,12 @@ module MqttSpecs
     it "carries the Will Properties onto the published message" do
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
 
           with_client_socket(server) do |dying_socket|
-            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            dying = MQTT::Protocol::IO.v5(dying_socket)
             props = MQTT::Protocol::WillProperties.new
             props.payload_format_indicator = true
             props.message_expiry_interval = 120u32
@@ -242,12 +242,12 @@ module MqttSpecs
       # table: a Hash would lose both.
       with_server do |server|
         with_client_socket(server) do |sub_socket|
-          sub = MQTT::Protocol::IO::V5.new(sub_socket)
+          sub = MQTT::Protocol::IO.v5(sub_socket)
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "sub")
           subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
 
           with_client_socket(server) do |dying_socket|
-            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            dying = MQTT::Protocol::IO.v5(dying_socket)
             props = MQTT::Protocol::WillProperties.new
             props.user_properties = [{"k", "1"}, {"k", "2"}, {"a", "3"}]
             will = MQTT::Protocol::Will.new(topic: "will/t", payload: "x".to_slice,
@@ -272,7 +272,7 @@ module MqttSpecs
           subscribe(sub, topic_filters: [subtopic("will/t", 1u8)])
 
           with_client_socket(server) do |dying_socket|
-            dying = MQTT::Protocol::IO::V5.new(dying_socket)
+            dying = MQTT::Protocol::IO.v5(dying_socket)
             props = MQTT::Protocol::WillProperties.new
             props.content_type = "text/plain"
             props.user_properties = [{"a", "1"}]
@@ -296,7 +296,7 @@ module MqttSpecs
     it "accepts a v5 Will at QoS 2" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           will = MQTT::Protocol::Will.new(topic: "will/t", payload: "x".to_slice,
             qos: 2u8, retain: false)
           connect(io, false, version: MQTT::Protocol::Version::V5,
@@ -341,7 +341,7 @@ module MqttSpecs
         props = MQTT::Protocol::ConnectProperties.new
         props.session_expiry_interval = 3600u32
         with_client_socket(server) do |first_socket|
-          first = MQTT::Protocol::IO::V5.new(first_socket)
+          first = MQTT::Protocol::IO.v5(first_socket)
           connect(first, version: MQTT::Protocol::Version::V5, client_id: "sub",
             clean_session: false, will: will, properties: props)
           subscribe(first, topic_filters: [subtopic("last/words", 1u8, no_local: true)])
@@ -349,7 +349,7 @@ module MqttSpecs
           # A second connection with the same client id takes over, which closes
           # the first and publishes its will.
           with_client_socket(server) do |second_socket|
-            second = MQTT::Protocol::IO::V5.new(second_socket)
+            second = MQTT::Protocol::IO.v5(second_socket)
             connect(second, version: MQTT::Protocol::Version::V5, client_id: "sub",
               clean_session: false, properties: props)
             second.should be_drained
@@ -362,7 +362,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
-          connect(MQTT::Protocol::IO::V3.new(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
+          connect(MQTT::Protocol::IO.v3(temp_io), client_id: "will_client", keepalive: 1u16, expect_response: false)
           temp_io.rewind
           connect_pkt = temp_io.to_slice
           connect_pkt[9] |= 0b0010_0000u8

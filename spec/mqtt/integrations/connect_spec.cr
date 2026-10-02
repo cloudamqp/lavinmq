@@ -244,7 +244,7 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               temp_io = IO::Memory.new
-              temp_mqtt_io = MQTT::Protocol::IO::V3.new(temp_io)
+              temp_mqtt_io = MQTT::Protocol::IO.v3(temp_io)
               connect(temp_mqtt_io, expect_response: false)
               temp_io.rewind
               connect_pkt = temp_io.to_slice

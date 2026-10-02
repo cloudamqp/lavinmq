@@ -64,7 +64,7 @@ module MqttSpecs
       it "assigns the username as client_id on v5 and echoes it back" do
         with_server do |server|
           with_client_socket(server) do |socket|
-            io = MQTT::Protocol::IO::V5.new(socket)
+            io = MQTT::Protocol::IO.v5(socket)
             connack = connect(io, version: MQTT::Protocol::Version::V5,
               client_id: "", clean_session: true).as(MQTT::Protocol::Connack)
             connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted

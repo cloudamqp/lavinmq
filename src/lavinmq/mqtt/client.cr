@@ -129,6 +129,8 @@ module LavinMQ
         in .v5?     then "MQTT 5.0"
         in .v3_1?   then "MQTT 3.1"
         in .v3_1_1? then "MQTT 3.1.1"
+          # Unreachable: a Client exists only once CONNECT has set the version.
+        in .unknown? then "MQTT"
         end
       end
 
@@ -569,7 +571,8 @@ module LavinMQ
       # among them: it is server behaviour, not wire content.
       #
       # Needs no version gate - v3 CONNECT has no will properties, so these are
-      # all nil there and `IO::V3#write_properties` would discard them anyway.
+      # all nil there and `IO::Framing::V3#write_properties` would discard them
+      # anyway.
       private def will_properties(will : Protocol::WillProperties) : Protocol::PublishProperties
         properties = Protocol::PublishProperties.new
         properties.payload_format_indicator = will.payload_format_indicator
