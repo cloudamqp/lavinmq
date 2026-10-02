@@ -21,7 +21,13 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           plugins: "code-review@claude-code-plugins"
-          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          prompt: |
+            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            Review the diff plus relevant callers, implementations, and specs; don't build or run specs.
+            Focus on logical errors, violations of the Rules in AGENTS.md, and concurrency/fiber safety.
+            Skip style issues the linter catches. Don't use emojis.
+            Flag missing specs only for risky behavior changes, and flag new specs that are trivial or duplicate existing coverage.
           claude_args: |
             --max-turns 30
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
