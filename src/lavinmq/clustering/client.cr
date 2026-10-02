@@ -29,6 +29,7 @@ module LavinMQ
 
       @data_dir_lock : DataDirLock
       @closed = false
+      @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -143,10 +144,19 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
+          break if closed_while_waiting?(1.second)
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def closed_while_waiting?(span : Time::Span) : Bool
+        select
+        when @closing.receive?
+          true
+        when timeout(span)
+          false
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -729,6 +739,7 @@ module LavinMQ
       def close
         return if @closed
         @closed = true
+        @closing.close
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close

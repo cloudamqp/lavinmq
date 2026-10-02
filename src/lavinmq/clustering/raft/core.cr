@@ -177,6 +177,7 @@ module LavinMQ::Clustering::Raft
       in AppendResponse  then handle_append_response(msg, now)
       in InstallSnapshot then handle_install_snapshot(msg, now)
       in TimeoutNow      then handle_timeout_now(msg, now)
+      in CatchUp         then handle_catch_up(msg, now)
       end
     end
 
@@ -185,14 +186,18 @@ module LavinMQ::Clustering::Raft
         send msg.from, VoteResponse.new(@id, msg.pre_vote ? msg.term : @term, false, pre_vote: msg.pre_vote)
         return
       end
-      eligible = log_up_to_date?(msg.last_log_index, msg.last_log_term) &&
-                 in_isr?(latest_isr, msg.node_id)
+      up_to_date = log_up_to_date?(msg.last_log_index, msg.last_log_term)
+      candidate_in_isr = in_isr?(latest_isr, msg.node_id)
+      eligible = up_to_date && candidate_in_isr
       sticky = !msg.transfer && leader_recent?(now)
       if msg.pre_vote
         granted = msg.term > @term && !sticky && eligible
         send msg.from, VoteResponse.new(@id, msg.term, granted, pre_vote: true)
       else
         handle_vote(msg, eligible, sticky, now)
+      end
+      if candidate_in_isr && !up_to_date
+        send msg.from, CatchUp.new(@id, @term, @node_id, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup)
       end
     end
 
@@ -246,15 +251,7 @@ module LavinMQ::Clustering::Raft
         send msg.from, AppendResponse.new(@id, @term, @node_id, false, msg.prev_index - 1)
         return
       end
-      msg.entries.each_with_index do |entry, i|
-        index = msg.prev_index + 1 + i
-        next if index <= @snapshot_index
-        if index <= last_index
-          next if term_at(index) == entry.term
-          truncate_from(index)
-        end
-        append entry
-      end
+      merge_entries(msg.prev_index, msg.entries)
       match = msg.prev_index + msg.entries.size
       if msg.commit > @commit_index
         commit_to Math.min(msg.commit, match)
@@ -269,15 +266,44 @@ module LavinMQ::Clustering::Raft
         return
       end
       accept_leader(msg.term, msg.from, msg.leader_uri, now)
-      if msg.index > @commit_index
-        @entries.clear
-        @snapshot_index = msg.index
-        @snapshot_term = msg.snapshot_term
-        @snapshot_isr = msg.isr
-        @commit_index = msg.index
-        @dirty = true
-      end
+      install_snapshot(msg.index, msg.snapshot_term, msg.isr)
       send msg.from, AppendResponse.new(@id, @term, @node_id, true, msg.index)
+    end
+
+    # Adopts a voter's log when it's more up to date than ours. That never
+    # drops a committed entry: a log with a later last term holds every entry
+    # committed before that term, one with the same last term extends ours.
+    private def handle_catch_up(msg : CatchUp, now : Time::Instant) : Nil
+      return unless claim_node_id(msg.from, msg.node_id)
+      become_follower(msg.term, nil) if msg.term > @term
+      return if leader_recent?(now)
+      last = msg.snapshot_index + msg.entries.size
+      last_term = msg.entries.last?.try(&.term) || msg.snapshot_term
+      return unless last_term > self.last_term || (last_term == self.last_term && last > last_index)
+      install_snapshot(msg.snapshot_index, msg.snapshot_term, msg.snapshot_isr)
+      merge_entries(msg.snapshot_index, msg.entries)
+    end
+
+    private def install_snapshot(index : Int64, term : Int64, isr : Set(Int32)?) : Nil
+      return if index <= @commit_index
+      @entries.clear
+      @snapshot_index = index
+      @snapshot_term = term
+      @snapshot_isr = isr
+      @commit_index = index
+      @dirty = true
+    end
+
+    private def merge_entries(prev_index : Int64, entries : Array(Entry)) : Nil
+      entries.each_with_index do |entry, i|
+        index = prev_index + 1 + i
+        next if index <= @snapshot_index
+        if index <= last_index
+          next if term_at(index) == entry.term
+          truncate_from(index)
+        end
+        append entry
+      end
     end
 
     private def handle_append_response(msg : AppendResponse, now : Time::Instant) : Nil
@@ -380,7 +406,7 @@ module LavinMQ::Clustering::Raft
         @match_index[p] = 0i64
         @last_ack[p] = now
       end
-      append Entry.new(@term, nil)
+      append Entry.new(@term, latest_isr ? nil : Set{@node_id})
       @term_start_index = last_index
       advance_commit
       @heartbeat_due = now + @heartbeat_interval

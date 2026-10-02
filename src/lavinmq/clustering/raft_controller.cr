@@ -10,6 +10,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   @transport : Raft::TCPTransport? = nil
   @stop_signal = Channel(Nil).new
+  # Closed by the follower monitor once this node is a serving leader, so
+  # only that fiber decides between replicating and promoting.
+  @promoted = Channel(Nil).new
 
   def initialize(config : Config)
     super(config)
@@ -24,7 +27,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     start_node
     spawn(follow_leader, name: "Follower monitor")
     select
-    when @node.serving.when_true.receive
+    when @promoted.receive?
     when @stop_signal.receive?
       return
     end
@@ -36,13 +39,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     # finish syncing.
     @coordinator.update_isr(Set{@id})
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
+    # Startup can block on replicated writes that never complete without
+    # leadership, so watch for its loss from here on, not after the yield.
+    spawn(exit_on_leadership_loss, name: "Leadership monitor")
     yield
-    @node.serving.when_false.receive
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopping
-      Log.fatal { "Lost leadership" }
-      exit 3
-    end
+    @stop_signal.receive?
   rescue RaftCoordinator::StaleLeadership
     execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
     unless @stopping
@@ -58,6 +59,14 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @repli_client.try &.close
     hand_over_leadership
     @node.close
+  end
+
+  private def exit_on_leadership_loss : Nil
+    @node.serving.when_false.receive
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
+    return if @stopping
+    Log.fatal { "Lost leadership" }
+    exit 3
   end
 
   # Lets an in-sync follower take over right away instead of after an
@@ -93,19 +102,33 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     Dir.children(@config.data_dir).all? { |f| f.in?(".clustering_id", ".raft_state", ".lock") }
   end
 
-  # Switch leader to replicate from whenever the leader changes
+  # Switch leader to replicate from whenever the leader changes, until this
+  # node is a serving leader. A leadership lost before it could serve goes
+  # back to following whoever leads next.
   private def follow_leader_changes
     loop do
       if follow(current_leader_uri) == :elected
-        Log.debug { "Elected leader, don't replicate from self" }
-        return
-      end
-      select
-      when @node.leader_changed.receive
-      when @stop_signal.receive?
-        return
+        select
+        when serving.when_true.receive
+          Log.debug { "Elected leader, don't replicate from self" }
+          @promoted.close
+          return
+        when @node.leader_changed.receive
+        when @stop_signal.receive?
+          return
+        end
+      else
+        select
+        when @node.leader_changed.receive
+        when @stop_signal.receive?
+          return
+        end
       end
     end
+  end
+
+  private def serving : BoolChannel
+    @node.serving
   end
 
   private def follow(uri : String?) : Symbol?
