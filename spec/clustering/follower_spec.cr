@@ -10,6 +10,16 @@ private def read_data_size(io) : Int64
   io.read_bytes Int64, IO::ByteFormat::LittleEndian
 end
 
+private def negotiate(follower, client_socket, header) : Nil
+  password = "foo"
+  client_socket.write header
+  client_socket.write_bytes password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+  client_socket.write password.to_slice
+  client_socket.write_bytes 1, IO::ByteFormat::LittleEndian # id
+  follower.negotiate!(password)
+  client_socket.read_byte.should eq 0u8
+end
+
 module FollowerSpec
   # FakeFileIndex and FakeSocket live in spec/support/fake_follower.cr so the
   # clustering server spec can reuse them.
@@ -780,6 +790,123 @@ module FollowerSpec
         follower.@synced_baseline.empty?.should be_true
         # A fresh hash, not the captured one emptied in place
         follower.@synced_baseline.should_not be(baseline)
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
+  describe "protocol version" do
+    it "negotiates version 2 from a version 2 header" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
+        follower.protocol_version.should eq 2
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "accepts a version 1 header" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::Start)
+        follower.protocol_version.should eq 1
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "replies with its own header to an unknown one" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        client_socket.write Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 3, 0, 0]
+        expect_raises(LavinMQ::Clustering::InvalidStartHeaderError) do
+          follower.negotiate!("foo")
+        end
+        header = Bytes.new(8)
+        client_socket.read_fully(header)
+        header.should eq LavinMQ::Clustering::StartV2
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+  end
+
+  describe "#request_fsync" do
+    it "writes fsync request records, counted as sent bytes" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
+        spawn { follower.ack_loop }
+
+        follower.request_fsync({"vhost/queue/msgs.0000000001", "vhost/queue"})
+        follower.request_syncfs
+        follower.sent_bytes.should eq(
+          (sizeof(Int32) + 1 + "vhost/queue/msgs.0000000001".bytesize + sizeof(Int64)) +
+          (sizeof(Int32) + 1 + "vhost/queue".bytesize + sizeof(Int64)) +
+          (sizeof(Int32) + 1 + sizeof(Int64)))
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "$vhost/queue/msgs.0000000001"
+        read_data_size(client_lz4).should eq 0i64
+        read_filename(client_lz4).should eq "$vhost/queue"
+        read_data_size(client_lz4).should eq 0i64
+        read_filename(client_lz4).should eq "$"
+        read_data_size(client_lz4).should eq 0i64
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    # The follower acks cumulative byte counts, so a request counted as sent
+    # before an append must also be written before it; otherwise the append's
+    # ack could satisfy a confirm waiting for the unprocessed request.
+    it "writes a pending request ahead of records sent after it" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::StartV2)
+
+        follower.request_fsync({"file"})
+        follower.append("other", "data".to_slice)
+        spawn { follower.ack_loop }
+        follower.request_flush
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "$file"
+        read_data_size(client_lz4).should eq 0i64
+        read_filename(client_lz4).should eq "other"
+      ensure
+        follower_socket.try &.close
+        client_socket.try &.close
+      end
+    end
+
+    it "sends nothing to a version 1 follower, which syncs before every ack" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, FakeFileIndex.new(data_dir))
+        negotiate(follower, client_socket, LavinMQ::Clustering::Start)
+
+        follower.request_fsync({"file"})
+        follower.request_syncfs
+        follower.sent_bytes.should eq 0
+        follower.delete("other")
+        spawn { follower.ack_loop }
+        follower.request_flush
+
+        client_lz4 = Compress::LZ4::Reader.new(client_socket)
+        read_filename(client_lz4).should eq "other"
       ensure
         follower_socket.try &.close
         client_socket.try &.close

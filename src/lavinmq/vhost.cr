@@ -1,3 +1,4 @@
+require "./filesystem"
 require "json"
 require "../stdlib/*"
 require "./logger"
@@ -34,7 +35,7 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
-    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
     getter closed = BoolChannel.new(true)
     property max_connections : Int32?
@@ -218,7 +219,7 @@ module LavinMQ
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
-      Dir.mkdir_p File.join(@data_dir)
+      FileSystem.mkdir_p @data_dir
       FileUtils.rm_rf File.join(@data_dir, "transient")
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
@@ -248,8 +249,8 @@ module LavinMQ
       end
     end
 
-    def enqueue_ack(channel : AMQP::Channel, msgid : UInt64)
-      @persister.enqueue_ack(channel, msgid)
+    def enqueue_ack(target : Persister::ConfirmTarget, id : UInt64)
+      @persister.enqueue_ack(target, id)
     end
 
     def max_connections=(value : Int32) : Nil

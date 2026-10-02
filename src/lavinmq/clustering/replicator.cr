@@ -29,6 +29,11 @@ module LavinMQ
       # acknowledged to a client (publish confirms via the Persister,
       # definition changes via the DefinitionsStore).
       abstract def wait_for_followers : Nil
+      # Ask every in-sync follower to fsync these (absolute) paths, or to sync
+      # its whole data dir, before acking past what has been replicated so far.
+      # Callers then wait_for_followers.
+      abstract def request_fsync(paths : Enumerable(String)) : Nil
+      abstract def request_syncfs : Nil
       abstract def all_followers : Array(Follower)
       abstract def close
       abstract def listen(server : TCPServer)

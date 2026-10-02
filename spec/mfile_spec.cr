@@ -84,4 +84,58 @@ describe MFile do
       file.delete
     end
   end
+
+  describe "sync bookkeeping" do
+    it "reports whether it created the file, once" do
+      path = File.tempname("mfile_spec")
+      begin
+        mfile = MFile.new(path, 4096)
+        mfile.take_created!.should be_true
+        mfile.take_created!.should be_false
+        mfile.close
+        reopened = MFile.new(path, 4096)
+        reopened.take_created!.should be_false
+        reopened.close
+      ensure
+        File.delete?(path)
+      end
+    end
+
+    it "dedupes the needs msync mark until cleared" do
+      path = File.tempname("mfile_spec")
+      begin
+        MFile.open(path, 4096) do |mfile|
+          mfile.mark_needs_msync!.should be_false
+          mfile.mark_needs_msync!.should be_true
+          mfile.clear_needs_msync!
+          mfile.mark_needs_msync!.should be_false
+        end
+      ensure
+        File.delete?(path)
+      end
+    end
+
+    it "fsyncs written data, also after being closed" do
+      path = File.tempname("mfile_spec")
+      begin
+        mfile = MFile.new(path, 4096)
+        mfile.write "hello".to_slice
+        mfile.fsync
+        mfile.close
+        mfile.fsync
+        File.read(path).should eq "hello"
+      ensure
+        File.delete?(path)
+      end
+    end
+
+    it "skips the fsync of a deleted file" do
+      path = File.tempname("mfile_spec")
+      mfile = MFile.new(path, 4096)
+      mfile.write "hello".to_slice
+      mfile.delete
+      mfile.close
+      mfile.fsync
+    end
+  end
 end

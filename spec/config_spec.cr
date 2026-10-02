@@ -110,6 +110,7 @@ describe LavinMQ::Config do
           tcp_nodelay = true
           segment_size = 16777216
           sync = false
+          syncfs_threshold = 8
           tcp_keepalive = 120:20:5
           tcp_recv_buffer_size = 65536
           tcp_send_buffer_size = 65536
@@ -198,6 +199,7 @@ describe LavinMQ::Config do
     config.tcp_nodelay?.should be_true
     config.segment_size.should eq 16777216
     config.sync?.should be_false
+    config.syncfs_threshold.should eq 8
     config.tcp_keepalive.should eq({120, 20, 5})
     config.tcp_recv_buffer_size.should eq 65536
     config.tcp_send_buffer_size.should eq 65536

@@ -1,3 +1,4 @@
+require "../filesystem"
 require "json"
 require "./permission_group"
 require "./topic_rule_segment"
@@ -245,12 +246,7 @@ module LavinMQ
 
       private def save!(groups : Hash(String, PermissionGroup)) : String
         path = File.join(@data_dir, "mqtt_permissions.json")
-        tmpfile = "#{path}.tmp"
-        File.open(tmpfile, "w") do |f|
-          groups.values.to_pretty_json(f)
-          f.fsync
-        end
-        File.rename tmpfile, path
+        FileSystem.replace(path) { |f| groups.values.to_pretty_json(f) }
         path
       rescue ex : IO::Error
         raise SaveError.new("Failed to save MQTT permission groups for vhost #{@vhost.inspect}", cause: ex)

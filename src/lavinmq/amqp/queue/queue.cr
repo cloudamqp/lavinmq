@@ -1,3 +1,4 @@
+require "../../filesystem"
 require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
@@ -254,7 +255,7 @@ module LavinMQ::AMQP
         !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused
@@ -371,7 +372,7 @@ module LavinMQ::AMQP
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     private def make_data_dir : String
@@ -386,6 +387,8 @@ module LavinMQ::AMQP
           FileUtils.rm_r data_dir
           Dir.mkdir_p data_dir
         end
+      elsif durable?
+        FileSystem.mkdir_p data_dir
       else
         Dir.mkdir_p data_dir
       end

@@ -118,6 +118,14 @@ module MqttHelpers
     MQTT::Protocol::PubAck.from_io(io) if packet.qos.positive? && expect_response
   end
 
+  # After a QoS 1 publish to a topic the same client subscribes to: the PUBACK
+  # is sent once the publish is durable, so it can come after the delivery.
+  def read_delivery_and_puback(io) : MQTT::Protocol::Publish
+    packets = {read_packet(io), read_packet(io)}
+    packets.count(&.is_a?(MQTT::Protocol::PubAck)).should eq 1
+    packets.find(&.is_a?(MQTT::Protocol::Publish)).as(MQTT::Protocol::Publish)
+  end
+
   def puback(io, packet_id : UInt16?)
     return if packet_id.nil?
     MQTT::Protocol::PubAck.new(packet_id).to_io(io)

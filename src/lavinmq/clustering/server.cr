@@ -455,6 +455,16 @@ module LavinMQ
       # earlier and left the ISR dirty) may lack data that's about to be
       # acknowledged, so its removal must be committed to the coordinator
       # before this returns (see flush_isr).
+      def request_fsync(paths : Enumerable(String)) : Nil
+        return if paths.empty?
+        relative = paths.map { |p| strip_datadir p }
+        followers.each &.request_fsync(relative)
+      end
+
+      def request_syncfs : Nil
+        followers.each &.request_syncfs
+      end
+
       def wait_for_followers : Nil
         all_acked = true
         followers.each { |f| all_acked &= f.wait_for_confirm }

@@ -1,9 +1,11 @@
 require "./mfile"
+require "./filesystem"
 require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
+require "./persister"
 require "./bool_channel"
 require "./message_store/requeued_store"
 
@@ -29,12 +31,14 @@ module LavinMQ
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
+                   metadata : ::Log::Metadata = ::Log::Metadata.empty, persister : Persister? = nil)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
+      @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
       load_acks_from_disk
@@ -361,6 +365,9 @@ module LavinMQ
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
       wfile.write_bytes msg
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      # After the replication dispatch, so the fsync request the persister
+      # sends followers comes after this append in the stream
+      @persister.try &.mark_dirty(wfile) if msg.needs_sync?
       @segment_msg_count[wfile_id] += 1
       sp
     end
@@ -636,7 +643,6 @@ module LavinMQ
 
       File.open(tmp_path, "w") do |f|
         positions.each { |p| f.write_bytes(p, IO::ByteFormat::SystemEndian) }
-        f.fsync
       end
 
       # Unmap the old file before renaming so mmap stops pinning the old inode.
@@ -644,7 +650,7 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      File.rename(tmp_path, final_path)
+      FileSystem.durable_rename(tmp_path, final_path)
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the
