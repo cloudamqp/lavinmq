@@ -277,7 +277,6 @@ module LavinMQ::AMQP
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
-      cleanup_consumer_offsets if drop_overflow_by_length
       sp
     end
 
@@ -304,19 +303,25 @@ module LavinMQ::AMQP
     end
 
     # Called by the vhost's periodic sweep, max-length and max-length-bytes
-    # are instead enforced on each push
+    # are enforced when a new segment is opened
     def drop_expired : Nil
       return if @closed
       cleanup_consumer_offsets if drop_overflow_by_age
     end
 
+    # Only drops a segment if what remains still meets the limit, so the
+    # stream always keeps at least max-length messages/max-length-bytes bytes
     private def drop_overflow_by_length : Bool
       dropped = false
       if max_length = @max_length
-        dropped |= drop_segments_while { @size >= max_length }
+        dropped |= drop_segments_while do |seg_id|
+          @size.to_i64 - @segment_msg_count[seg_id] >= max_length
+        end
       end
       if max_bytes = @max_length_bytes
-        dropped |= drop_segments_while { @bytesize >= max_bytes }
+        dropped |= drop_segments_while do |seg_id|
+          @bytesize.to_i64 - (@segments[seg_id].size - 4) >= max_bytes
+        end
       end
       dropped
     end
@@ -417,6 +422,26 @@ module LavinMQ::AMQP
                                    else
                                      stored_offset # No previous segment info, use stored value
                                    end
+    end
+
+    # Streams never ack individual messages, so any ack files are leftovers
+    private def load_acks_from_disk : Nil
+      return if @closed
+      Dir.each_child(@msg_dir) do |f|
+        next unless f.starts_with?("acks.") || f.starts_with?("tmp.acks.")
+        path = File.join(@msg_dir, f)
+        @log.info { "Deleting ack file not used by streams: #{path}" }
+        File.delete?(path)
+        @replicator.try &.delete_file(path)
+      end
+    rescue File::NotFoundError
+      # msg_dir does not exist, nothing to load
+    end
+
+    private def prune_orphaned_acks : Nil
+    end
+
+    private def delete_unused_segments : Nil
     end
 
     private def scan_last_ts(mfile) : Int64

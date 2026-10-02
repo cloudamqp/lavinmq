@@ -463,7 +463,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("neg-offset-after-drop", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # The second segment is kept: dropping it would go below max-length
+          q.message_count.should eq 2
           ch.prefetch 1
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": -100})) do |msg|
@@ -471,7 +472,7 @@ describe LavinMQ::AMQP::Stream do
             msg.ack
           end
           msg = msgs.receive
-          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 3
+          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
         end
       end
     end
@@ -531,7 +532,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # Never drops below the limit, so the newest full segment is kept
+          q.message_count.should eq 2
         end
       end
     end
@@ -543,7 +545,8 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length-bytes", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          q.message_count.should eq 1
+          # Never drops below the limit, so the newest full segment is kept
+          q.message_count.should eq 2
         end
       end
     end
@@ -728,7 +731,7 @@ describe LavinMQ::AMQP::Stream do
           dir = s.vhosts["/"].queue("stream-max-length").as(LavinMQ::AMQP::Stream).@data_dir
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
-          q.message_count.should eq 1
+          q.message_count.should eq 2
         end
       end
     end
@@ -1220,7 +1223,9 @@ describe LavinMQ::AMQP::Stream do
 
         with_channel(s) do |ch|
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          2.times { q.publish_confirm msg_body }
+          # Retention keeps max-length messages, so offset 2 only falls out
+          # of the stream once three more segments have been written
+          3.times { q.publish_confirm msg_body }
         end
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
@@ -1416,21 +1421,68 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "max-length retention" do
-    it "is enforced on publish, not only when a new segment is opened" do
-      queue_name = Random::Secure.hex
-      data = Bytes.new(LavinMQ::Config.instance.segment_size * 3 // 4)
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = {"x-queue-type": "stream", "x-max-length": 2}
-          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          # The second message opens a new segment while the stream is still
-          # within max-length, so only the push itself can trigger the drop
-          2.times { q.publish_confirm data }
+  describe "length retention" do
+    {
+      {"x-max-length", 2},
+      {"x-max-length-bytes", 200},
+    }.each do |arg, limit|
+      it "#{arg} keeps a segment if dropping it would go below the limit" do
+        queue_name = Random::Secure.hex
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = {"x-queue-type" => "stream", arg => limit}
+            q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+            6.times { q.publish_confirm Bytes.new(50) }
+            # Opens a new segment, the first one holds all 6 small messages
+            q.publish_confirm Bytes.new(LavinMQ::Config.instance.segment_size)
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          stream.stream_msg_store.@segments.size.should eq 2
+          stream.message_count.should eq 7
         end
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.stream_msg_store.@segments.size.should eq 1
-        stream.message_count.should eq 1
+      end
+
+      it "#{arg} drops old segments on rollover once newer ones meet the limit" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 4)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            args = {"x-queue-type" => "stream", arg => limit}
+            q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+            20.times { q.publish_confirm data }
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          store = stream.stream_msg_store
+          store.@segments.first_key.should be > 1
+          if arg == "x-max-length"
+            stream.message_count.should be >= limit
+          else
+            store.bytesize.should be >= limit
+          end
+        end
+      end
+    end
+  end
+
+  describe "ack files" do
+    it "deletes leftover ack files and counts every message on load" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, 1u64, IO::Memory.new("a"))
+        3.times { store.push(msg) }
+        store.close
+
+        ack_path = File.join(data_dir, "acks.0000000001")
+        File.open(ack_path, "w") do |f|
+          f.write_bytes 4u32
+          f.write_bytes 4u32 + LavinMQ::BytesMessage::MIN_BYTESIZE + 1
+        end
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        File.exists?(ack_path).should be_false
+        store.size.should eq 3
+        store.close
       end
     end
   end
