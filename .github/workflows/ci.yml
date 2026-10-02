@@ -623,7 +623,7 @@ jobs:
     needs: compile
     env:
       QC_VERSION: v0.2.0
-      QC_BIN: amqp-quickcheck-tests-x86_64-linux
+      QC_BIN: lavinmq-quickcheck-tests-x86_64-linux
     steps:
       - name: Install LavinMQ dependencies
         run: |
@@ -658,5 +658,5 @@ jobs:
 
       - name: Run property tests
         # Known flaky under parallel load; see AGENTS.md (Gotchas).
-        run: ./"$QC_BIN" --skip odd_x_delay_delivers_immediately
+        run: ./"$QC_BIN"
 
