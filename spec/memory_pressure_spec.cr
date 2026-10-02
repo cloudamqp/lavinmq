@@ -191,8 +191,10 @@ describe "Memory pressure" do
         server_ch = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
         server_ch.@next_msg_body_tmp.@capacity.should be >= 100_000
         s.release_memory
-        q.publish_confirm("m").should be_true
         server_ch.@next_msg_body_tmp.@capacity.should be < 100_000
+        q.publish_confirm("m").should be_true
+        q.get(no_ack: true).try(&.body_io.to_s).should eq "x" * 100_000
+        q.get(no_ack: true).try(&.body_io.to_s).should eq "m"
       end
     end
   end

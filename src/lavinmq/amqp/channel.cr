@@ -65,7 +65,6 @@ module LavinMQ
       @direct_reply_consumer : String?
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
-      @release_buffers = Atomic(Bool).new(false)
 
       rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_no_ack", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
@@ -142,17 +141,13 @@ module LavinMQ
         end
       end
 
-      # The publish buffer is owned by the client's read fiber, so it's only
-      # flagged here and replaced on the next publish
+      # add_content holds on to the buffer for the message it's copying, so it
+      # can be replaced at any time
       def release_memory : Nil
-        @release_buffers.set(true, :relaxed)
+        @next_msg_body_tmp = IO::Memory.new
       end
 
       def start_publish(frame)
-        if @release_buffers.get(:relaxed)
-          @release_buffers.set(false, :relaxed)
-          @next_msg_body_tmp = IO::Memory.new
-        end
         unless server_flow? || @client.in_blocked_grace?
           @client.send_precondition_failed(frame, @client.vhost.flow_reason)
           return
@@ -219,15 +214,16 @@ module LavinMQ
             @next_msg_body_file_pos = 0
           end
         elsif frame.body_size == @next_msg_size
-          copied = IO.copy(frame.body, @next_msg_body_tmp, frame.body_size)
+          body = @next_msg_body_tmp
+          copied = IO.copy(frame.body, body, frame.body_size)
           if copied != frame.body_size
             raise IO::Error.new("Could only copy #{copied} of #{frame.body_size} bytes")
           end
-          @next_msg_body_tmp.rewind
+          body.rewind
           begin
-            finish_publish(@next_msg_body_tmp)
+            finish_publish(body)
           ensure
-            @next_msg_body_tmp.clear
+            body.clear
           end
         else
           copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)
