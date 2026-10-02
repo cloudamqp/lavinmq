@@ -1,6 +1,7 @@
 require "./core"
 require "./storage"
 require "./transport"
+require "../leader_status"
 require "../../bool_channel"
 require "../../logger"
 
@@ -21,6 +22,7 @@ module LavinMQ::Clustering::Raft
     getter serving = BoolChannel.new(false)
     # Notified (non-blocking, coalesced) whenever `leader_uri` changes.
     getter leader_changed = Channel(Nil).new(1)
+    getter status = LeaderStatus.new
 
     @events = Channel(Event).new(256)
     @pending = Array(Pending).new
@@ -188,6 +190,7 @@ module LavinMQ::Clustering::Raft
         @leader = leader
         @committed_isr = isr
       end
+      @status.raft_state(leader, @core.term, uri)
       if changed
         Log.info { uri ? "Leader: #{uri} (term #{@core.term})" : "No leader (term #{@core.term})" }
         select

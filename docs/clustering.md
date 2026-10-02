@@ -135,6 +135,41 @@ on_leader_elected = /usr/local/bin/update-dns.sh
 on_leader_lost = /usr/local/bin/drain-connections.sh
 ```
 
+### Leader Status Socket
+
+For an agent on the same host that tracks which node is the leader, e.g. to
+point a router at it, LavinMQ can stream its leader status over a unix socket
+(raft backend only):
+
+```ini
+[clustering]
+status_unix_path = /run/lavinmq/clustering-status.sock
+```
+
+On connect the current state is written as one line, then one line on every
+change. The connection stays open, clients don't send anything:
+
+```
+ready=0 leader=0 term=3 leader_uri=tcp://node1:5679
+ready=1 leader=1 term=4 leader_uri=tcp://node2:5679
+```
+
+- `ready=1`: this node is the leader and accepts client connections, route
+  traffic here. It turns `0` before connections are closed on shutdown or
+  lost leadership.
+- `leader`: this node's raft role, which turns `1` slightly before `ready`.
+- `term`: the raft term. If two nodes report `ready=1` (a paused or
+  partitioned old leader), trust the one with the highest term.
+- `leader_uri`: the current leader's clustering URI, empty when unknown.
+
+EOF (e.g. LavinMQ stopped or crashed) means the node isn't the leader.
+Reconnect with a backoff. New keys may be added, ignore keys you don't know.
+
+```sh
+socat -u UNIX-CONNECT:/run/lavinmq/clustering-status.sock - |
+  while read -r line; do echo "$line"; done
+```
+
 ## Clustering Proxy
 
 When a node is a follower, it automatically proxies client traffic to the current leader. Clients can connect to any node in the cluster on the normal protocol ports and reach the leader without needing to know which node is the leader.
