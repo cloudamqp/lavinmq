@@ -33,6 +33,10 @@ class LavinMQ::SpecStallingPersister < LavinMQ::Persister
     10.milliseconds
   end
 
+  protected def hard_exit(code : Int32) : NoReturn
+    exit code
+  end
+
   protected def sync_stalled(elapsed : Time::Span) : Nil
     super
     @verdicts.send nil
@@ -46,6 +50,15 @@ class LavinMQ::SpecStallingPersister < LavinMQ::Persister
 
   private def fsync_paths(files, paths, dirs) : Nil
     @release.receive
+  end
+end
+
+# Every log write blocks, like a log file on the stalled device
+class LavinMQ::SpecBlockedLogPersister < LavinMQ::SpecStallingPersister
+  getter log_gate = Channel(Nil).new
+
+  protected def write_log(severity : ::Log::Severity, message : String) : Nil
+    @log_gate.receive?
   end
 end
 
@@ -218,6 +231,18 @@ describe LavinMQ::Persister do
           end
         end
       ensure
+        persister.try &.close
+      end
+    end
+
+    it "exits even when the log write blocks" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecBlockedLogPersister.new(data_dir, StallReplicator.new(in_sync: true))
+        spawn { persister.sync }
+        persister.verdicts.receive.should eq 1
+      ensure
+        persister.try &.log_gate.close
+        persister.try &.release.send nil
         persister.try &.close
       end
     end

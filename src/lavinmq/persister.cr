@@ -58,6 +58,7 @@ module LavinMQ
     @sync_started = Atomic(Int64).new(0)
     @epoch = Time.instant
     @closed = Atomic(Bool).new(false)
+    @logging = Atomic(Bool).new(false)
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -164,10 +165,43 @@ module LavinMQ
     # its full sync while the disk is still stalled
     protected def sync_stalled(elapsed : Time::Span) : Nil
       if @replicator.try &.in_sync_followers?
-        Log.fatal { "Disk sync blocked for #{elapsed.total_seconds.to_i}s, exiting so a follower can take over" }
-        exit 1
+        log_bounded(:fatal, "Disk sync blocked for #{elapsed.total_seconds.to_i}s, exiting so a follower can take over")
+        hard_exit 1
       end
-      Log.error { "Disk sync blocked for #{elapsed.total_seconds.to_i}s, no in-sync follower to fail over to" }
+      log_bounded(:error, "Disk sync blocked for #{elapsed.total_seconds.to_i}s, no in-sync follower to fail over to")
+    end
+
+    # The log backend may write to the stalled device, so log from another
+    # thread and give up waiting after a second. While an earlier log write
+    # is still blocked, don't pile up threads behind it.
+    private def log_bounded(severity : ::Log::Severity, message : String) : Nil
+      return if @logging.swap(true, :acquire_release)
+      done = ::Channel(Nil).new(1)
+      Fiber::ExecutionContext::Isolated.new("Sync watchdog log") do
+        write_log(severity, message)
+      rescue
+      ensure
+        @logging.set(false, :release)
+        done.send nil
+      end
+      select
+      when done.receive
+      when timeout(1.second)
+      end
+    end
+
+    protected def write_log(severity : ::Log::Severity, message : String) : Nil
+      if severity.fatal?
+        Log.fatal { message }
+      else
+        Log.error { message }
+      end
+    end
+
+    # Skips at_exit handlers and the STDOUT/STDERR flush, which may block on
+    # the stalled device
+    protected def hard_exit(code : Int32) : NoReturn
+      LibC._exit(code)
     end
 
     protected def sync_timeout : Time::Span
