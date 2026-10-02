@@ -196,3 +196,11 @@ clean-views:
 .PHONY: optimize-assets
 optimize-assets:
 	npx svgo --multipass --pretty --indent 2 --recursive static/
+
+node_modules/@playwright/test:
+	npm install @playwright/test
+
+.PHONY: test-frontend
+test-frontend: node_modules/@playwright/test
+	npx playwright install $(PLAYWRIGHT_INSTALL_FLAGS)
+	npx playwright test --config ./spec/frontend/playwright.config.js --reporter list $(SPEC)
