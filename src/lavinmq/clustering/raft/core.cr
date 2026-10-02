@@ -30,7 +30,8 @@ module LavinMQ::Clustering::Raft
   #   votes from.
   # - A node that has never been part of the cluster (empty log) doesn't
   #   campaign unless `bootstrap` is set: nothing tells it whether its data
-  #   is current, e.g. on the first start after migrating from etcd.
+  #   is current, e.g. when starting a new cluster or after migrating from
+  #   etcd.
   # - Pre-vote, so a node rejoining after a partition doesn't inflate the
   #   term and depose a healthy leader.
   # - Leader stickiness: votes are refused while a leader was heard from
