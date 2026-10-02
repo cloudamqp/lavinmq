@@ -109,10 +109,23 @@ module LavinMQ
       @listeners.dup
     end
 
+    private def refuse? : Bool
+      closed? || @server.closed? || @server.refuse_connections?
+    end
+
+    # Reset instead of a graceful close, so refused connections don't
+    # leave a TIME_WAIT entry each on the server
+    private def reject(client : Socket) : Nil
+      client.linger = 0 if client.is_a?(TCPSocket)
+      client.close
+    rescue IO::Error
+      client.close rescue nil
+    end
+
     private def listen_tcp(s : TCPServer)
       loop do
         client = s.accept? || break
-        next client.close if closed? || @server.closed?
+        next reject(client) if refuse?
         accept_tcp(client)
       end
     rescue ex : IO::Error
@@ -123,7 +136,7 @@ module LavinMQ
     private def listen_unix(s : UNIXServer)
       loop do # do not try to use while
         client = s.accept? || break
-        next client.close if closed? || @server.closed?
+        next reject(client) if refuse?
         accept_unix(client)
       end
     rescue ex : IO::Error
@@ -134,7 +147,7 @@ module LavinMQ
     private def listen_tls(s : TCPServer, context : OpenSSL::SSL::Context::Server)
       loop do # do not try to use while
         client = s.accept? || break
-        next client.close if closed? || @server.closed?
+        next reject(client) if refuse?
         accept_tls(client, context)
       end
     rescue ex : IO::Error | OpenSSL::Error

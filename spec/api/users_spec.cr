@@ -242,7 +242,7 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should not create user if disk is full" do
       with_http_server do |http, s|
-        s.flow(false)
+        s.flow(false, "Server low on disk space")
         body = <<-JSON
           {
             "password": "test"

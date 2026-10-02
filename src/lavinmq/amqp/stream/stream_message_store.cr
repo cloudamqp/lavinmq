@@ -110,6 +110,10 @@ module LavinMQ::AMQP
       mfile.dontneed
     end
 
+    protected def segment_in_use?(id : UInt32) : Bool
+      @segment_readers.has_key?(id)
+    end
+
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]

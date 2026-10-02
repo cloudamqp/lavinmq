@@ -53,8 +53,29 @@ module LavinMQ
       @flow
     end
 
+    getter flow_reason = "Server low on resources"
+    # When flow was last stopped, see Server.nanoseconds_since_start
+    @flow_stopped_at = Atomic(Int64).new(0)
+
+    def flow_stopped_at : Int64
+      @flow_stopped_at.get(:relaxed)
+    end
+
     def flow=(active : Bool)
       @flow = active
+    end
+
+    def set_flow(active : Bool, reason : String) : Nil
+      @flow_reason = reason
+      return if @flow == active
+      @flow_stopped_at.set(Server.nanoseconds_since_start, :relaxed) unless active
+      @flow = active
+      # A client with a full socket buffer must not stall the caller
+      spawn(name: "VHost#notify_flow") do
+        each_connection do |c|
+          c.notify_flow if c.is_a?(AMQP::Client)
+        end
+      end
     end
 
     def closed? : Bool
@@ -115,6 +136,15 @@ module LavinMQ
 
     def each_queue(& : LavinMQ::Queue ->)
       definitions.each_queue { |q| yield q }
+    end
+
+    def release_memory : Nil
+      each_queue do |q|
+        q.release_memory if q.is_a?(AMQP::Queue)
+      end
+      each_connection do |c|
+        c.release_memory if c.is_a?(AMQP::Client)
+      end
     end
 
     private def each_policy_target(& : Queue | Exchange ->)
