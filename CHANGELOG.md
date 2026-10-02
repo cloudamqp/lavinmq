@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
+- `sync_timeout` config option in `[clustering]` (default `60` seconds): a clustered leader whose disk sync blocks longer than this, e.g. on a throttled EBS volume, exits so an in-sync follower can take over. Without an in-sync follower the stall is only logged [#2298](https://github.com/cloudamqp/lavinmq/pull/2298)
 
 ### Changed
 
