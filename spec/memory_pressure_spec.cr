@@ -1,5 +1,12 @@
 require "./spec_helper"
 
+# disk_free is 0 until the stats loop's first update, which control_flow!
+# would take as a full disk, so update the metrics first
+private def control_flow(s : LavinMQ::Server)
+  s.update_system_metrics(nil)
+  s.control_flow!
+end
+
 describe "Memory pressure" do
   it "stops flow and refuses new connections" do
     with_amqp_server do |s|
@@ -7,7 +14,7 @@ describe "Memory pressure" do
         q = ch.queue
         q.publish_confirm("m1").should be_true
         s.memory_pressure!
-        s.control_flow!
+        control_flow(s)
         s.flow?.should be_false
         s.flow_reason.should eq "Server under memory pressure"
         expect_raises(AMQP::Client::Channel::ClosedException, /memory pressure/) do
@@ -25,7 +32,7 @@ describe "Memory pressure" do
     config.memory_pressure_refuse_connections = false
     with_amqp_server(config: config) do |s|
       s.memory_pressure!
-      s.control_flow!
+      control_flow(s)
       with_channel(s) do |ch|
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
           ch.queue("mp_queue")
@@ -37,10 +44,10 @@ describe "Memory pressure" do
   it "holds until pressure is relieved" do
     with_amqp_server do |s|
       s.memory_pressure!
-      3.times { s.control_flow! }
+      3.times { control_flow(s) }
       s.flow?.should be_false
       s.memory_pressure_relieved!
-      s.control_flow!
+      control_flow(s)
       s.flow?.should be_true
       with_channel(s) do |ch|
         ch.queue.publish_confirm("m1").should be_true
@@ -53,9 +60,9 @@ describe "Memory pressure" do
     with_amqp_server do |s|
       s.update_system_metrics(nil)
       s.memory_pressure!
-      s.control_flow!
+      control_flow(s)
       s.memory_pressure_relieved!
-      s.control_flow!
+      control_flow(s)
       s.flow?.should be_false
       s.flow_reason.should eq "Server low on disk space"
     end
@@ -73,10 +80,10 @@ describe "Memory pressure" do
       conn.on_blocked { |reason| blocked.send reason }
       conn.on_unblocked { unblocked.send nil }
       s.memory_pressure!
-      s.control_flow!
+      control_flow(s)
       blocked.receive.should eq "Server under memory pressure"
       s.memory_pressure_relieved!
-      s.control_flow!
+      control_flow(s)
       unblocked.receive
     ensure
       conn.try &.close
