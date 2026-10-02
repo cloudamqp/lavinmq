@@ -32,7 +32,7 @@ A message is delivered at the lower of the QoS it was published with and the QoS
 
 Exactly-once rests on remembering packet IDs, not messages.
 
-When a client publishes at QoS 2, LavinMQ records the packet ID, routes the message, and answers PUBREC. A re-sent PUBLISH carrying an ID that is still recorded is answered with another PUBREC and is not routed a second time, which is what makes the delivery exactly-once. The client's PUBREL releases the ID and is answered with PUBCOMP. A PUBREL for an ID LavinMQ is not holding is answered with PUBCOMP as well, so a client whose PUBCOMP was lost can always complete the exchange.
+When a client publishes at QoS 2, LavinMQ records the packet ID, routes the message, and answers PUBREC once the message is persisted to disk, like a QoS 1 PUBACK. PUBACKs and PUBRECs are sent in the order the publishes arrived. A re-sent PUBLISH carrying an ID that is still recorded is answered with another PUBREC and is not routed a second time, which is what makes the delivery exactly-once. The client's PUBREL releases the ID and is answered with PUBCOMP. A PUBREL for an ID LavinMQ is not holding is answered with PUBCOMP as well, so a client whose PUBCOMP was lost can always complete the exchange.
 
 When LavinMQ delivers at QoS 2, the packet ID stays outstanding across both round trips. The message itself is released at PUBREC, since the subscriber owns it from that point and it must never be sent again; the ID alone is held until PUBCOMP. `max_inflight_messages` therefore bounds outstanding *packet IDs* rather than outstanding messages, and a QoS 2 subscriber reaches that bound at a lower message rate than a QoS 1 one.
 
@@ -135,7 +135,7 @@ queue.declare     name=sensor-readings  durable=true
 queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+/temp
 ```
 
-Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
+Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK or QoS 2 PUBREC is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
