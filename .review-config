@@ -1,3 +1,0 @@
-MODEL=claude-opus-5
-CRITERIA=.claude/review-criteria.md
-DOCS_CRITERIA=.claude/docs-check-criteria.md
