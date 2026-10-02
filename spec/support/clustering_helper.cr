@@ -87,10 +87,11 @@ module ClusteringSpecHelper
     end
   end
 
-  def make_client(data_dir : String, sync = true) : TestClient
+  def make_client(data_dir : String, sync = true, backend = LavinMQ::ClusteringBackend::Etcd) : TestClient
     config = LavinMQ::Config.instance.dup
     config.data_dir = data_dir
     config.sync = sync
+    config.clustering_backend = backend
     config.metrics_http_port = -1
     TestClient.new(config, 1, "password", proxy: false)
   end

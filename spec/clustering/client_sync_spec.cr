@@ -1141,6 +1141,50 @@ module ClientSyncSpec
         end
       end
 
+      it "answers the leader's challenge without sending the password" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir)
+          client_socket, leader_io = UNIXSocket.pair
+          challenge = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+          received = Bytes.new(8 + 32)
+          spawn(name: "version 2 leader") do
+            leader_io.write LavinMQ::Clustering::StartV2
+            leader_io.write challenge
+            leader_io.read_fully(received)
+            leader_io.write_byte 0u8
+          end
+          client.authenticate_public(client_socket)
+          leader_io.read_bytes(Int32, IO::ByteFormat::LittleEndian).should eq 1
+          received[0, 8].should eq LavinMQ::Clustering::StartV2
+          received[8, 32].should eq LavinMQ::Clustering.challenge_response("password", challenge)
+          client.protocol_version.should eq 2
+        ensure
+          client_socket.try &.close
+          leader_io.try &.close
+        end
+      end
+
+      it "doesn't fall back to protocol version 1 with the raft backend" do
+        with_datadir do |data_dir|
+          client = make_client(data_dir, backend: LavinMQ::ClusteringBackend::Raft)
+          client_socket, leader_io = UNIXSocket.pair
+          leader_io.write LavinMQ::Clustering::Start
+          expect_raises(IO::Error, /version mismatch/) do
+            client.authenticate_public(client_socket)
+          end
+          client.protocol_version.should eq 2
+          client_socket.close
+          leader_io.read_timeout = 1.second
+          header = Bytes.new(8)
+          leader_io.read_fully(header)
+          header.should eq LavinMQ::Clustering::StartV2
+          leader_io.gets_to_end.should be_empty
+        ensure
+          client_socket.try &.close
+          leader_io.try &.close
+        end
+      end
+
       it "syncs before every ack when following a version 1 leader" do
         with_datadir do |data_dir|
           client = make_client(data_dir)
