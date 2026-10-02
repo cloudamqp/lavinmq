@@ -156,7 +156,8 @@ describe Raft::Storage do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
       storage.load.should be_nil
-      state = Raft::HardState.new(7, "n2", 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})])
+      state = Raft::HardState.new(7, "n2", 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})],
+        {"n2" => 2, "n3" => 3})
       storage.save(state)
       storage.load.should eq state
     end
@@ -181,9 +182,9 @@ describe Raft::Codec do
     msgs = [
       Raft::RequestVote.new("a", 3, 42, 9, 2, pre_vote: true, transfer: false),
       Raft::VoteResponse.new("b", 3, true, pre_vote: false),
-      Raft::AppendEntries.new("a", 3, "tcp://a:5679", 8, 2, [Raft::Entry.new(3, nil), Raft::Entry.new(3, Set{1, 42})], 7),
+      Raft::AppendEntries.new("a", 3, 2, "tcp://a:5679", 8, 2, [Raft::Entry.new(3, nil), Raft::Entry.new(3, Set{1, 42})], 7),
       Raft::AppendResponse.new("b", 3, 7, false, 5),
-      Raft::InstallSnapshot.new("a", 3, "tcp://a:5679", 8, 2, Set{42}),
+      Raft::InstallSnapshot.new("a", 3, 2, "tcp://a:5679", 8, 2, Set{42}),
       Raft::TimeoutNow.new("a", 3),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
