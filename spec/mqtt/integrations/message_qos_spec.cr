@@ -19,7 +19,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers at the lower of the publish and the subscription qos [MQTT-3.3.5-1]" do
+    it "delivers at the lower of the publish and the subscription qos [MQTT-3.8.4-6]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -47,7 +47,7 @@ module MqttSpecs
       end
     end
 
-    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.3.5-1]" do
+    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.8.4-6]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
