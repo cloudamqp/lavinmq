@@ -22,7 +22,9 @@ module LavinMQ::Clustering::Raft
     # Notified (non-blocking, coalesced) whenever `leader_uri` changes.
     getter leader_changed = Channel(Nil).new(1)
 
-    @events = Channel(Event).new(256)
+    EVENT_QUEUE_SIZE = 256
+
+    @events = Channel(Event).new(EVENT_QUEUE_SIZE)
     @pending = Array(Pending).new
     @leader_uri : String? = nil
     @leader = false
@@ -109,6 +111,7 @@ module LavinMQ::Clustering::Raft
         when event = @events.receive?
           break unless event
           handle(event)
+          break unless handle_queued
         when timeout(@tick)
         end
         @core.tick(Time.instant)
@@ -119,6 +122,23 @@ module LavinMQ::Clustering::Raft
       @pending.clear
       @serving.set(false)
       @stopped.close
+    end
+
+    # Handles what arrived while this fiber was busy, e.g. in an fsync, before
+    # the next tick: a leader stalled past the election timeout would
+    # otherwise step down with its followers' acks still queued. Bounded so
+    # ticks keep going under a steady stream. Returns false once closed.
+    private def handle_queued : Bool
+      EVENT_QUEUE_SIZE.times do
+        select
+        when event = @events.receive?
+          return false unless event
+          handle(event)
+        else
+          return true
+        end
+      end
+      true
     end
 
     private def handle(event : Event) : Nil
