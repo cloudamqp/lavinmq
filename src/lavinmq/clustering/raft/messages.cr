@@ -1,7 +1,8 @@
 module LavinMQ::Clustering::Raft
   # A log entry. The replicated state machine is just the ISR, and every
-  # entry carries the full set (nil for the no-op a new leader appends), so
-  # the latest entry is the whole state and compaction is trivial.
+  # entry carries the full set (nil for the no-op a new leader appends,
+  # unless it's the first leader), so the latest entry is the whole state
+  # and compaction is trivial.
   record Entry, term : Int64, isr : Set(Int32)?
 
   # `from` is the sender's raft address. Messages are one-way: replies are
@@ -24,7 +25,12 @@ module LavinMQ::Clustering::Raft
   # campaigns at once instead of waiting out its election timeout.
   record TimeoutNow, from : String, term : Int64
 
-  alias Message = RequestVote | VoteResponse | AppendEntries | AppendResponse | InstallSnapshot | TimeoutNow
+  # A voter's whole log, sent to an in-ISR candidate whose log is older, see
+  # Core#handle_catch_up.
+  record CatchUp, from : String, term : Int64, node_id : Int32,
+    snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?, entries : Array(Entry)
+
+  alias Message = RequestVote | VoteResponse | AppendEntries | AppendResponse | InstallSnapshot | TimeoutNow | CatchUp
 
   module Codec
     extend self
@@ -61,11 +67,7 @@ module LavinMQ::Clustering::Raft
         io.write_bytes msg.prev_index, Format
         io.write_bytes msg.prev_term, Format
         io.write_bytes msg.commit, Format
-        io.write_bytes msg.entries.size, Format
-        msg.entries.each do |e|
-          io.write_bytes e.term, Format
-          write_isr io, e.isr
-        end
+        write_entries io, msg.entries
       in AppendResponse
         io.write_byte 4u8
         write_str io, msg.from
@@ -86,6 +88,15 @@ module LavinMQ::Clustering::Raft
         io.write_byte 6u8
         write_str io, msg.from
         io.write_bytes msg.term, Format
+      in CatchUp
+        io.write_byte 7u8
+        write_str io, msg.from
+        io.write_bytes msg.term, Format
+        io.write_bytes msg.node_id, Format
+        io.write_bytes msg.snapshot_index, Format
+        io.write_bytes msg.snapshot_term, Format
+        write_isr io, msg.snapshot_isr
+        write_entries io, msg.entries
       end
       io.to_slice
     end
@@ -107,12 +118,7 @@ module LavinMQ::Clustering::Raft
         prev_index = io.read_bytes Int64, Format
         prev_term = io.read_bytes Int64, Format
         commit = io.read_bytes Int64, Format
-        count = io.read_bytes Int32, Format
-        raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= bytes.size
-        entries = Array(Entry).new(count) do
-          Entry.new(io.read_bytes(Int64, Format), read_isr(io))
-        end
-        AppendEntries.new(from, term, node_id, leader_uri, prev_index, prev_term, entries, commit)
+        AppendEntries.new(from, term, node_id, leader_uri, prev_index, prev_term, read_entries(io, bytes.size), commit)
       when 4
         AppendResponse.new(from, term, io.read_bytes(Int32, Format), read_bool(io), io.read_bytes(Int64, Format))
       when 5
@@ -122,6 +128,9 @@ module LavinMQ::Clustering::Raft
           io.read_bytes(Int64, Format), read_isr(io))
       when 6
         TimeoutNow.new(from, term)
+      when 7
+        CatchUp.new(from, term, io.read_bytes(Int32, Format), io.read_bytes(Int64, Format),
+          io.read_bytes(Int64, Format), read_isr(io), read_entries(io, bytes.size))
       else
         raise IO::Error.new("Unknown raft message type #{type}")
       end
@@ -143,6 +152,22 @@ module LavinMQ::Clustering::Raft
       set = Set(Int32).new(size)
       size.times { set << io.read_bytes(Int32, Format) }
       set
+    end
+
+    private def write_entries(io, entries : Array(Entry)) : Nil
+      io.write_bytes entries.size, Format
+      entries.each do |e|
+        io.write_bytes e.term, Format
+        write_isr io, e.isr
+      end
+    end
+
+    private def read_entries(io, max : Int32) : Array(Entry)
+      count = io.read_bytes Int32, Format
+      raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= max
+      Array(Entry).new(count) do
+        Entry.new(io.read_bytes(Int64, Format), read_isr(io))
+      end
     end
 
     private def write_str(io, str : String) : Nil

@@ -5,9 +5,14 @@ require "../../src/lavinmq/clustering/controller"
 private class SpecController < LavinMQ::Clustering::RaftController
   property fake_leader_uri : String? = nil
   property? fake_leader = false
+  getter fake_serving = BoolChannel.new(false)
 
   def follow_leader_public
     follow_leader
+  end
+
+  private def serving : BoolChannel
+    @fake_serving
   end
 
   private def current_leader_uri : String?
@@ -26,12 +31,27 @@ ensure
   s.try &.close
 end
 
+private alias ControllerExit = Tuple(LavinMQ::Clustering::RaftController, Int32)
+
+# Records the exit on leadership loss, which happens in its own fiber.
+private class ExitRecordingController < LavinMQ::Clustering::RaftController
+  def initialize(config : LavinMQ::Config, @exits : Channel(ControllerExit))
+    super(config)
+  end
+
+  private def exit_on_leadership_loss : Nil
+    super
+  rescue ex : SpecExit
+    @exits.send({self, ex.code})
+  end
+end
+
 # Controllers of a cluster, each with its own data dir and raft port. The
 # block given to run is recorded so specs can see who's serving.
 private class ControllerCluster
   getter controllers = Array(LavinMQ::Clustering::RaftController).new
   getter serving = Channel(LavinMQ::Clustering::RaftController).new(8)
-  getter exits = Channel(Tuple(LavinMQ::Clustering::RaftController, Int32)).new(8)
+  getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
 
   def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil)
@@ -59,20 +79,24 @@ private class ControllerCluster
       # Followers proxy client ports to the leader, let each pick its own
       config.amqp_port = config.http_port = config.mqtt_port = 0
       config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-      @controllers << LavinMQ::Clustering::RaftController.new(config)
+      @controllers << ExitRecordingController.new(config, @exits)
     end
   end
 
-  def start(controller)
+  # *startup* runs as the leader's startup, after it's reported as serving.
+  def start(controller, startup : Proc(Nil) = -> { })
     spawn(name: "controller spec #{controller.id}") do
-      controller.run { @serving.send controller }
+      controller.run do
+        @serving.send controller
+        startup.call
+      end
     rescue ex : SpecExit
       @exits.send({controller, ex.code})
     end
   end
 
-  def start_all
-    @controllers.each { |c| start(c) }
+  def start_all(startup : Proc(Nil) = -> { })
+    @controllers.each { |c| start(c, startup) }
   end
 
   def next_leader(timeout = 5.seconds) : LavinMQ::Clustering::RaftController
@@ -133,7 +157,38 @@ describe LavinMQ::Clustering::RaftController do
       controller = SpecController.new(config)
       controller.fake_leader_uri = config.clustering_advertised_uri
       controller.fake_leader = true
+      controller.fake_serving.set(true)
       controller.follow_leader_public # returns instead of blocking or exiting
+    end
+  end
+
+  it "keeps following when leadership is lost before serving" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_password = "secret"
+      config.clustering_advertised_uri = "tcp://localhost:5685"
+      controller = SpecController.new(config)
+      controller.fake_leader_uri = config.clustering_advertised_uri
+      controller.fake_leader = true
+      returned = Channel(Nil).new
+      Log.capture("lmq.clustering.controller", :warn) do |logs|
+        spawn do
+          controller.follow_leader_public
+          returned.close
+        end
+        select
+        when returned.receive?
+          fail "stopped following while not serving"
+        when timeout(100.milliseconds)
+        end
+        controller.fake_leader = false
+        controller.fake_leader_uri = nil
+        controller.node.leader_changed.send nil
+        wait_for { logs.check(:warn, "No leader available") rescue nil }
+      end
+      controller.stop
+      returned.receive?
     end
   end
 
@@ -230,6 +285,22 @@ describe LavinMQ::Clustering::RaftController do
       when exit = cluster.exits.receive
         fail "exited with #{exit[1]} during a graceful shutdown"
       when timeout(2.seconds)
+      end
+    end
+  end
+
+  it "exits when it loses leadership during startup", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.start_all(-> { sleep }) # e.g. stuck in a replicated write
+      first = cluster.next_leader
+      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      cluster.controllers.reject(first).each(&.stop)
+      select
+      when exit = cluster.exits.receive
+        exit[0].should eq first
+        exit[1].should eq 3
+      when timeout(5.seconds)
+        fail "leader cut off from the majority during startup kept running"
       end
     end
   end

@@ -186,6 +186,7 @@ describe Raft::Codec do
       Raft::AppendResponse.new("b", 3, 7, false, 5),
       Raft::InstallSnapshot.new("a", 3, 2, "tcp://a:5679", 8, 2, Set{42}),
       Raft::TimeoutNow.new("a", 3),
+      Raft::CatchUp.new("b", 3, 7, 8, 2, Set{42}, [Raft::Entry.new(3, Set{7})]),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
   end

@@ -138,6 +138,33 @@ describe Raft::Core do
     sim.leader.not_nil!.id.should_not eq "n1"
   end
 
+  it "doesn't let unbootstrapped nodes elect each other after hearing from the first leader" do
+    sim = SimCluster.new(3, bootstrap: ["n1"])
+    sim.run_until { sim["n2"].last_index > 0 && sim["n3"].last_index > 0 }
+    sim["n2"].latest_isr.should eq Set{1}
+    sim.crash("n1")
+    sim.advance(2.seconds)
+    sim.leader.should be_nil
+  end
+
+  it "fails over to an ISR member that missed an entry committed through a non-ISR node" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    a = sim.leader.not_nil!
+    b, c = sim.cores.keys.reject(a.id)
+    isr = Set{sim.node_id(a.id), sim.node_id(b)}
+    sim.propose(a, isr)
+    sim.advance(100.milliseconds)
+    sim.isolated << b
+    index = sim.propose(a, isr).not_nil!
+    a.commit_index.should be >= index
+    sim[c].last_index.should be > sim[b].last_index
+    sim.crash(a.id)
+    sim.isolated.delete(b)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.leader.not_nil!.id.should eq b
+  end
+
   it "commits an ISR change on a majority" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
@@ -162,6 +189,8 @@ describe Raft::Core do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
     old = sim.leader.not_nil!
+    sim.propose(old, Set{1, 2, 3})
+    sim.advance(100.milliseconds)
     sim.crash(old.id)
     sim.run_until { (l = sim.leader) && l.id != old.id && l.serving_leader? }
     sim.leader.not_nil!.term.should be > old.term
