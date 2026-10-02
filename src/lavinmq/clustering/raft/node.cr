@@ -30,6 +30,7 @@ module LavinMQ::Clustering::Raft
     @state_lock = Mutex.new
     @stopped = Channel(Nil).new
     @transport : Transport? = nil
+    @logged_conflict : String? = nil
 
     def initialize(id : String, peers : Enumerable(String), node_id : Int32, uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
@@ -168,6 +169,10 @@ module LavinMQ::Clustering::Raft
     end
 
     private def publish_state : Nil
+      if (conflict = @core.id_conflict) && conflict != @logged_conflict
+        @logged_conflict = conflict
+        Log.error { "Refusing to follow or campaign: #{conflict}, delete .clustering_id on the copied node" }
+      end
       uri = @core.leader_uri
       isr = @core.committed_isr
       leader = @core.role.leader?

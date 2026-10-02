@@ -11,13 +11,13 @@ module LavinMQ::Clustering::Raft
 
   record VoteResponse, from : String, term : Int64, granted : Bool, pre_vote : Bool
 
-  record AppendEntries, from : String, term : Int64, leader_uri : String,
+  record AppendEntries, from : String, term : Int64, node_id : Int32, leader_uri : String,
     prev_index : Int64, prev_term : Int64, entries : Array(Entry), commit : Int64
 
   # On failure match_index is a hint of the follower's last index.
   record AppendResponse, from : String, term : Int64, node_id : Int32, success : Bool, match_index : Int64
 
-  record InstallSnapshot, from : String, term : Int64, leader_uri : String,
+  record InstallSnapshot, from : String, term : Int64, node_id : Int32, leader_uri : String,
     index : Int64, snapshot_term : Int64, isr : Set(Int32)?
 
   # Sent by a leader shutting down gracefully, so an up-to-date follower
@@ -56,6 +56,7 @@ module LavinMQ::Clustering::Raft
         io.write_byte 3u8
         write_str io, msg.from
         io.write_bytes msg.term, Format
+        io.write_bytes msg.node_id, Format
         write_str io, msg.leader_uri
         io.write_bytes msg.prev_index, Format
         io.write_bytes msg.prev_term, Format
@@ -76,6 +77,7 @@ module LavinMQ::Clustering::Raft
         io.write_byte 5u8
         write_str io, msg.from
         io.write_bytes msg.term, Format
+        io.write_bytes msg.node_id, Format
         write_str io, msg.leader_uri
         io.write_bytes msg.index, Format
         io.write_bytes msg.snapshot_term, Format
@@ -100,6 +102,7 @@ module LavinMQ::Clustering::Raft
       when 2
         VoteResponse.new(from, term, read_bool(io), read_bool(io))
       when 3
+        node_id = io.read_bytes Int32, Format
         leader_uri = read_str(io)
         prev_index = io.read_bytes Int64, Format
         prev_term = io.read_bytes Int64, Format
@@ -109,12 +112,13 @@ module LavinMQ::Clustering::Raft
         entries = Array(Entry).new(count) do
           Entry.new(io.read_bytes(Int64, Format), read_isr(io))
         end
-        AppendEntries.new(from, term, leader_uri, prev_index, prev_term, entries, commit)
+        AppendEntries.new(from, term, node_id, leader_uri, prev_index, prev_term, entries, commit)
       when 4
         AppendResponse.new(from, term, io.read_bytes(Int32, Format), read_bool(io), io.read_bytes(Int64, Format))
       when 5
+        node_id = io.read_bytes Int32, Format
         leader_uri = read_str(io)
-        InstallSnapshot.new(from, term, leader_uri, io.read_bytes(Int64, Format),
+        InstallSnapshot.new(from, term, node_id, leader_uri, io.read_bytes(Int64, Format),
           io.read_bytes(Int64, Format), read_isr(io))
       when 6
         TimeoutNow.new(from, term)

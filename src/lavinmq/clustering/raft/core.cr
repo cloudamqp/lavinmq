@@ -10,7 +10,7 @@ module LavinMQ::Clustering::Raft
   # What must be on disk before any message produced alongside it is sent.
   record HardState, term : Int64, voted_for : String?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry)
+    entries : Array(Entry), peer_node_ids = Hash(String, Int32).new
 
   # Raft (leader election + log replication) over a state machine holding
   # only the ISR. Pure: no IO, fibers or clocks, time is passed in. The
@@ -42,6 +42,10 @@ module LavinMQ::Clustering::Raft
     getter commit_index = 0i64
     getter outbox = Array(Tuple(String, Message)).new
     getter? dirty = false
+    # Set when two raft addresses claim the same clustering id, e.g. after a
+    # data dir was copied. ISR eligibility is by id, so such a node is never
+    # followed, voted for or counted.
+    getter id_conflict : String? = nil
 
     @snapshot_index = 0i64
     @snapshot_term = 0i64
@@ -72,6 +76,7 @@ module LavinMQ::Clustering::Raft
         @snapshot_term = state.snapshot_term
         @snapshot_isr = state.snapshot_isr
         @entries = state.entries.dup
+        @peer_node_ids = state.peer_node_ids.dup
         @commit_index = @snapshot_index
       end
       @election_deadline = now + randomized_election_timeout
@@ -79,7 +84,7 @@ module LavinMQ::Clustering::Raft
     end
 
     def hard_state : HardState
-      HardState.new(@term, @voted_for, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup)
+      HardState.new(@term, @voted_for, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup, @peer_node_ids.dup)
     end
 
     def persisted : Nil
@@ -176,6 +181,10 @@ module LavinMQ::Clustering::Raft
     end
 
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
+      unless claim_node_id(msg.from, msg.node_id)
+        send msg.from, VoteResponse.new(@id, msg.pre_vote ? msg.term : @term, false, pre_vote: msg.pre_vote)
+        return
+      end
       eligible = log_up_to_date?(msg.last_log_index, msg.last_log_term) &&
                  in_isr?(latest_isr, msg.node_id)
       sticky = !msg.transfer && leader_recent?(now)
@@ -221,6 +230,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def handle_append_entries(msg : AppendEntries, now : Time::Instant) : Nil
+      return unless claim_node_id(msg.from, msg.node_id)
       if msg.term < @term
         send msg.from, AppendResponse.new(@id, @term, @node_id, false, last_index)
         return
@@ -253,6 +263,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def handle_install_snapshot(msg : InstallSnapshot, now : Time::Instant) : Nil
+      return unless claim_node_id(msg.from, msg.node_id)
       if msg.term < @term
         send msg.from, AppendResponse.new(@id, @term, @node_id, false, last_index)
         return
@@ -275,8 +286,8 @@ module LavinMQ::Clustering::Raft
         return
       end
       return unless @role.leader? && msg.term == @term
+      return unless claim_node_id(msg.from, msg.node_id)
       @last_ack[msg.from] = now
-      @peer_node_ids[msg.from] = msg.node_id
       if msg.success
         if msg.match_index > (@match_index[msg.from]? || 0i64)
           @match_index[msg.from] = msg.match_index
@@ -309,6 +320,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def may_campaign? : Bool
+      return false if @id_conflict
       return false unless in_isr?(latest_isr, @node_id)
       @bootstrap || last_index > 0
     end
@@ -395,6 +407,21 @@ module LavinMQ::Clustering::Raft
       end
     end
 
+    # Remembers the clustering id a peer reported. Returns false, and the
+    # message must be ignored, when another address already holds that id.
+    private def claim_node_id(addr : String, node_id : Int32) : Bool
+      holder = node_id == @node_id ? @id : @peer_node_ids.key_for?(node_id)
+      if holder && holder != addr
+        @id_conflict = "#{addr} and #{holder} both have clustering id #{node_id.to_s(36)}"
+        return false
+      end
+      if @peer_node_ids[addr]? != node_id
+        @peer_node_ids[addr] = node_id
+        @dirty = true
+      end
+      true
+    end
+
     private def in_isr?(isr : Set(Int32)?, node_id : Int32) : Bool
       isr.nil? || isr.includes?(node_id)
     end
@@ -410,12 +437,12 @@ module LavinMQ::Clustering::Raft
     private def send_append(peer : String) : Nil
       next_index = @next_index[peer]? || last_index + 1
       if next_index <= @snapshot_index
-        send peer, InstallSnapshot.new(@id, @term, @uri, @snapshot_index, @snapshot_term, @snapshot_isr)
+        send peer, InstallSnapshot.new(@id, @term, @node_id, @uri, @snapshot_index, @snapshot_term, @snapshot_isr)
         return
       end
       prev = next_index - 1
       entries = @entries[(next_index - @snapshot_index - 1).to_i..]? || Array(Entry).new
-      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @commit_index)
+      send peer, AppendEntries.new(@id, @term, @node_id, @uri, prev, term_at(prev), entries, @commit_index)
     end
 
     private def advance_commit : Nil

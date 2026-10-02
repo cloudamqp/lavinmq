@@ -225,7 +225,7 @@ describe Raft::Core do
   it "rejects stale-term append entries" do
     core = Raft::Core.new("n1", ["n1", "n2"], 1, "u1", 100.milliseconds, 20.milliseconds, Time.instant,
       Raft::HardState.new(5, nil, 0, 0, nil, [] of Raft::Entry))
-    core.step(Raft::AppendEntries.new("n2", 4, "u2", 0, 0, [Raft::Entry.new(4, Set{2})], 1), Time.instant)
+    core.step(Raft::AppendEntries.new("n2", 4, 2, "u2", 0, 0, [Raft::Entry.new(4, Set{2})], 1), Time.instant)
     core.latest_isr.should be_nil
     _, reply = core.take_outbox.first
     reply.as(Raft::AppendResponse).success.should be_false
@@ -238,6 +238,51 @@ describe Raft::Core do
     core.step(Raft::RequestVote.new("n2", 4, 2, 5, 2, pre_vote: false, transfer: false), Time.instant)
     _, reply = core.take_outbox.first
     reply.as(Raft::VoteResponse).granted.should be_false
+  end
+
+  it "refuses votes to a candidate claiming another node's clustering id" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now)
+    core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core.take_outbox
+    now += 1.second
+    core.step(Raft::RequestVote.new("n3", 2, 2, 0, 0, pre_vote: false, transfer: true), now)
+    _, reply = core.take_outbox.first
+    reply.as(Raft::VoteResponse).granted.should be_false
+    core.id_conflict.should_not be_nil
+  end
+
+  it "remembers peer clustering ids across restarts" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now)
+    core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, core.hard_state)
+    core.step(Raft::RequestVote.new("n3", 2, 2, 0, 0, pre_vote: false, transfer: true), now)
+    _, reply = core.take_outbox.first
+    reply.as(Raft::VoteResponse).granted.should be_false
+  end
+
+  it "refuses to follow or campaign when a peer has its clustering id" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, bootstrap: true)
+    core.step(Raft::AppendEntries.new("n2", 1, 1, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core.leader.should be_nil
+    core.take_outbox.should be_empty
+    core.id_conflict.should_not be_nil
+    core.tick(now + 1.second)
+    core.take_outbox.should be_empty
+  end
+
+  it "doesn't count a peer with a duplicate clustering id towards commit" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    leader = sim.leader.not_nil!
+    others = sim.cores.keys.reject(leader.id)
+    sim.isolated << others[0]
+    index = leader.propose(Set{sim.node_id(leader.id)}, sim.now).not_nil!
+    leader.step(Raft::AppendResponse.new(others[1], leader.term, sim.node_id(others[0]), true, index), sim.now)
+    leader.step(Raft::AppendResponse.new("n9", leader.term, sim.node_id(leader.id), true, index), sim.now)
+    leader.commit_index.should be < index
   end
 
   it "hands leadership over to a caught up in-sync peer" do
