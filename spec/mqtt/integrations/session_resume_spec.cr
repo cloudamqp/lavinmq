@@ -259,7 +259,7 @@ module MqttSpecs
       end
     end
 
-    it "does not resend under packet id 0 [MQTT-2.3.1-5]" do
+    it "does not resend under packet id 0 [MQTT-2.3.1-1]" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 
