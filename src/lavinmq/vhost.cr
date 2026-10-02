@@ -230,7 +230,6 @@ module LavinMQ
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
-      spawn drop_expired_stream_segments_loop, name: "Stream max-age loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -245,46 +244,6 @@ module LavinMQ
             ch.check_consumer_timeout
           end
         end
-      end
-    end
-
-    # One shared max-age sweep per vhost for all its stream queues, rather than
-    # one timer fiber per stream queue - keeps the number of wakeups independent
-    # of how many stream queues exist.
-    STREAM_MAX_AGE_SWEEP_INTERVAL   = 5.seconds
-    STREAM_MAX_AGE_SWEEP_BATCH_SIZE = 64
-
-    private def drop_expired_stream_segments_loop
-      streams = Array(AMQP::Stream).new
-      loop do
-        # Snapshot so the sweep itself runs without the queues lock held
-        each_queue do |q|
-          streams << q if q.is_a?(AMQP::Stream) && q.stream_msg_store.max_age
-        end
-        if streams.empty?
-          return unless wait_or_closed(STREAM_MAX_AGE_SWEEP_INTERVAL)
-          next
-        end
-        # Spread the batches over the interval instead of sweeping all at once
-        tick = STREAM_MAX_AGE_SWEEP_INTERVAL / ((streams.size + STREAM_MAX_AGE_SWEEP_BATCH_SIZE - 1) // STREAM_MAX_AGE_SWEEP_BATCH_SIZE)
-        streams.each_slice(STREAM_MAX_AGE_SWEEP_BATCH_SIZE, reuse: true) do |batch|
-          return unless wait_or_closed(tick)
-          batch.each do |q|
-            q.drop_expired_segments
-          rescue ex
-            @log.error(ex) { "Max-age sweep failed for stream queue #{q.name}" }
-          end
-        end
-        streams.clear
-      end
-    end
-
-    private def wait_or_closed(duration : Time::Span) : Bool
-      select
-      when timeout duration
-        true
-      when closed.when_true.receive?
-        false
       end
     end
 

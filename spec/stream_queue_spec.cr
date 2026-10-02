@@ -33,17 +33,6 @@ module StreamSpecHelpers
   end
 end
 
-module LavinMQ
-  # drop_expired_segments is protected, callable only from within the
-  # LavinMQ namespace (as VHost's max-age sweep does) - this lets specs
-  # invoke it the same way without widening its real visibility.
-  module StreamSpecInternals
-    def self.drop_expired_segments(stream : AMQP::Stream)
-      stream.drop_expired_segments
-    end
-  end
-end
-
 describe LavinMQ::AMQP::Stream do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
@@ -1371,35 +1360,56 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "drop_expired_segments (called by VHost's max-age sweep)" do
-    it "drops segments older than max-age" do
+  describe "max-age loop" do
+    it "drops expired segments without any new publishes", tags: "slow" do
       queue_name = Random::Secure.hex
-      # Half-segment payload so 3 messages span multiple segments.
-      data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue(queue_name, args: stream_queue_args)
-          3.times { q.publish_confirm data }
+          args = {"x-queue-type": "stream", "x-max-age": "1s"}
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          2.times { q.publish_confirm data }
         end
         stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.stream_msg_store.@segments.size.should be >= 2
-        stream.stream_msg_store.max_age = Time::Span.zero
-
-        LavinMQ::StreamSpecInternals.drop_expired_segments(stream)
-
-        stream.stream_msg_store.@segments.size.should eq 1
+        stream.message_count.should eq 2
+        wait_for(3.seconds) { stream.message_count == 1 }
       end
     end
 
-    it "is a no-op on a closed queue instead of raising" do
-      queue_name = Random::Secure.hex
+    it "only runs for streams with max-age" do
       with_amqp_server do |s|
-        StreamSpecHelpers.publish(s, queue_name, 1)
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.stream_msg_store.max_age = Time::Span.zero
-        stream.close
+        with_channel(s) do |ch|
+          ch.queue("no-max-age", args: stream_queue_args)
+          ch.queue("with-max-age", args: AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-age": "1h"}))
+        end
+        s.vhosts["/"].queue("no-max-age").as(LavinMQ::AMQP::Stream).@max_age_loop_running.should be_false
+        s.vhosts["/"].queue("with-max-age").as(LavinMQ::AMQP::Stream).@max_age_loop_running.should be_true
+      end
+    end
 
-        LavinMQ::StreamSpecInternals.drop_expired_segments(stream)
+    it "starts with a max-age policy and stops when it is removed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("max-age-policy-loop", args: stream_queue_args)
+        end
+        stream = s.vhosts["/"].queue("max-age-policy-loop").as(LavinMQ::AMQP::Stream)
+        stream.@max_age_loop_running.should be_false
+        s.vhosts["/"].add_policy("ma", "max-age-policy-loop", "queues", {"max-age" => JSON::Any.new("1h")}, 0i8)
+        wait_for { stream.@max_age_loop_running }
+        s.vhosts["/"].delete_policy("ma")
+        wait_for { !stream.@max_age_loop_running }
+      end
+    end
+
+    it "stops when the stream is closed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("max-age-close", args: AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-age": "1h"}))
+        end
+        stream = s.vhosts["/"].queue("max-age-close").as(LavinMQ::AMQP::Stream)
+        stream.@max_age_loop_running.should be_true
+        stream.close
+        wait_for { !stream.@max_age_loop_running }
       end
     end
 

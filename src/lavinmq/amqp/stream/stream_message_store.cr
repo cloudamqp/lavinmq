@@ -5,6 +5,9 @@ require "./consumer_offsets"
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
     getter new_messages = ::Channel(Bool).new
+    # Signalled when the next max-age expiry may have moved: a new segment was
+    # opened or max-age changed. Closed with the store.
+    getter expiry_changed = ::Channel(Nil).new(1)
     property max_length : Int64?
     property max_length_bytes : Int64?
     property max_age : (Time::Span | Time::MonthSpan)?
@@ -24,6 +27,7 @@ module LavinMQ::AMQP
 
     def close : Nil
       super
+      @expiry_changed.close
       @consumer_offsets.close
     end
 
@@ -282,6 +286,7 @@ module LavinMQ::AMQP
 
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
+        @expiry_changed.try_send?(nil)
         drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
         @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
@@ -302,11 +307,19 @@ module LavinMQ::AMQP
       cleanup_consumer_offsets
     end
 
-    # Called by the vhost's periodic sweep, max-length and max-length-bytes
-    # are enforced when a new segment is opened
     def drop_expired : Nil
       return if @closed
       cleanup_consumer_offsets if drop_overflow_by_age
+    end
+
+    # When the oldest segment expires, nil if no segment can be dropped
+    # (no max-age, or only the write segment is left)
+    def next_expiry : Time?
+      max_age = @max_age || return
+      @segments.each do |seg_id, mfile|
+        return if mfile == @wfile
+        return Time.unix_ms(@segment_last_ts[seg_id]) + max_age
+      end
     end
 
     # Only drops a segment if what remains still meets the limit, so the

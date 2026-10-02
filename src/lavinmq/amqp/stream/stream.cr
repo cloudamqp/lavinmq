@@ -69,6 +69,7 @@ module LavinMQ::AMQP
             stream_msg_store.max_age = max_age_policy
             @effective_args.delete("x-max-age")
             stream_msg_store.drop_overflow
+            ensure_max_age_loop
           end
           return true
         end
@@ -239,7 +240,48 @@ module LavinMQ::AMQP
         stream_msg_store.max_length = @max_length
         stream_msg_store.max_length_bytes = @max_length_bytes
         stream_msg_store.drop_overflow
+        ensure_max_age_loop
       end
+    end
+
+    @max_age_loop_running = false
+
+    # Must be called with @msg_store_lock held
+    private def ensure_max_age_loop : Nil
+      if @max_age_loop_running
+        stream_msg_store.expiry_changed.try_send?(nil)
+      elsif stream_msg_store.max_age
+        @max_age_loop_running = true
+        spawn max_age_loop, name: "Stream#max_age_loop"
+      end
+    end
+
+    # Sleeps until the oldest segment expires, so it only wakes when there's
+    # something to drop. Exits when the stream closes or max-age is removed.
+    private def max_age_loop
+      loop do
+        expiry = @msg_store_lock.synchronize do
+          store = stream_msg_store
+          if closed? || store.closed || store.max_age.nil?
+            @max_age_loop_running = false
+            return
+          end
+          store.drop_expired
+          store.next_expiry
+        end
+        expiry_changed = stream_msg_store.expiry_changed
+        if expiry
+          select
+          when expiry_changed.receive?
+          when timeout(Math.max(expiry - RoughTime.utc, 100.milliseconds))
+          end
+        else
+          expiry_changed.receive?
+        end
+      end
+    rescue ex
+      @log.error(ex) { "max-age loop failed" }
+      @msg_store_lock.synchronize { @max_age_loop_running = false }
     end
 
     private def parse_max_age(value) : (Time::Span | Time::MonthSpan)?
@@ -290,18 +332,6 @@ module LavinMQ::AMQP
 
     protected def unmap_if_unused(segment : UInt32) : Nil
       @msg_store_lock.synchronize { stream_msg_store.unmap_if_unused(segment) }
-    end
-
-    # Called periodically by the vhost's shared sweep fiber, as max-age is the
-    # only retention limit that isn't triggered by a publish
-    protected def drop_expired_segments : Nil
-      return if closed?
-      @msg_store_lock.synchronize do
-        # Re-check: the queue/store can close while we were waiting for the
-        # lock (Queue#close takes this same lock to close the store).
-        next if closed? || stream_msg_store.closed
-        stream_msg_store.drop_expired
-      end
     end
   end
 end
