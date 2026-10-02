@@ -81,7 +81,6 @@ behaviour changes for existing users.
 Each is rejected with the reason code in the compliance table, and each is
 standalone follow-up work (`MQTT5-FUTURE.md`).
 
-- **QoS 2** (advertised as Maximum QoS 1)
 - **Topic aliases**, in both directions
 - **Shared subscriptions**
 - **Subscription identifiers**

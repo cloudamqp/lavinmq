@@ -12,7 +12,7 @@ landed, but have **not** been confirmed by a re-run yet.
 
 ## What it exercises that our own specs cannot
 
-`spec/mqtt` drives the broker through `MQTT::Protocol::IO::V5` - the same codec
+`spec/mqtt` drives the broker through `MQTT::Protocol::IO.v5` - the same codec
 the broker encodes with - so a self-consistent wire-format mistake is invisible to
 it. These tools bring their own codecs:
 
@@ -61,12 +61,13 @@ export NODE_PATH="$W/node/node_modules"
 
 ### The QoS-clamped copy of the suite
 
-The unmodified v5 suite cannot grade this broker: 22 of its 27 tests use QoS 2
-somewhere, and its client ignores our advertised `maximum_qos = 1` (a
-[MQTT-3.2.2-11] violation on the client's side). We correctly answer DISCONNECT
-`0x9B` and close, after which several tests spin forever on
-`while len(callback.messages) < 3`. Run the unmodified suite once to confirm that
-rejection path, then run this copy for everything else.
+Written before QoS 2. Then, the unmodified v5 suite could not grade this
+broker: 22 of its 27 tests use QoS 2 somewhere, and its client ignored our
+advertised `maximum_qos = 1` (a [MQTT-3.2.2-11] violation on the client's side).
+We correctly answered DISCONNECT `0x9B` and closed, after which several tests
+spun forever on `while len(callback.messages) < 3`. With QoS 2 (#2236) the
+unmodified suite is the one to run; this copy is kept for comparison with the
+2026-08-19 results.
 
 ```sh
 cp -a paho.mqtt.testing paho.qos1
@@ -201,8 +202,8 @@ one, and a hang costs 180s instead of the whole run. Usage:
 
 Each test leaves `results/<dir>/<test>.out` (client side) next to
 `<test>.broker.log` (server side, `--debug`). Read them as a pair: "client hung"
-plus `WARN Protocol violation ... QoSNotSupported` is a correct rejection, not a
-bug.
+plus `WARN Protocol violation` is a correct rejection, not a bug. (Before QoS 2
+that line read `QoSNotSupported`; it should no longer appear.)
 
 </details>
 
@@ -583,7 +584,7 @@ comes back. `mos` below is
 
 | check | command | expected |
 |---|---|---|
-| QoS 2 publish | `mos mosquitto_pub ... -V 5 -d -q 2 -t x -m x` | mosquitto refuses client-side off our `maximum_qos`; force it past that and you get DISCONNECT 155 (`0x9B`) |
+| QoS 2 publish | `mos mosquitto_pub ... -V 5 -d -q 2 -t x -m x` | PUBREC, PUBREL, PUBCOMP (#2236). Before QoS 2: refused client-side off our `maximum_qos`, DISCONNECT 155 (`0x9B`) if forced |
 | Topic Alias | `... mosquitto_pub -V 5 -d -q 1 -t x -m x -D publish topic-alias 1` | DISCONNECT 148 (`0x94`) |
 | Shared subscription | `... mosquitto_sub -V 5 -d -W 5 -t '$share/g1/x'` | DISCONNECT 158 (`0x9E`) |
 | Subscription Identifier | `... mosquitto_sub -V 5 -d -W 5 -t x -D subscribe subscription-identifier 1` | DISCONNECT 161 (`0xA1`) |
@@ -591,7 +592,7 @@ comes back. `mos` below is
 | No credentials | `... mosquitto_pub -V 5 -d -t x -m x` (drop `-u`/`-P`) | CONNACK 135 (`0x87`) |
 | Maximum Packet Size on delivery | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x -D connect maximum-packet-size 40`, then publish 200 bytes | no PUBLISH arrives, connection stays up |
 | Delivery QoS | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x`, then `mosquitto_pub -V 5 -q 0 -t x -m x` | the delivered PUBLISH is QoS **0**, not 1 [MQTT-3.8.4-8]. Repeat with `-V 311` |
-| Will QoS 2 | `interop.py` with `will_set(..., qos=2)` | CONNACK 155 (`0x9B`), spec 3.1.2.6. Was Success at the 2026-08-19 run; fixed since, unconfirmed by a re-run |
+| Will QoS 2 | `interop.py` with `will_set(..., qos=2)` | CONNACK Success, now that QoS 2 is supported. Was Success at the 2026-08-19 run too, then `0x9B` until QoS 2 |
 | Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | **nothing arrives**: expiry 0 ends the session with the connection [MQTT-3.1.2-11] |
 | Session Expiry non-zero | same with `-x 60` | the message arrives, and `mqtt.c1` is still there between connections |
 | Clean Start 1 + expiry | `... mosquitto_sub -V 5 -C 1 -x 60 -i c2 -q 1 -t x` | old session discarded, new one persists - the case the Paho suite used to fail |

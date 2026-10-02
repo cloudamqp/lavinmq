@@ -9,7 +9,8 @@ Ordered roughly easiest-first. Everything here is on
 
 Will *properties* are done. What remains is
 `WillProperties#will_delay_interval`, still unread. Like the subscription
-options and unlike QoS 2, it has **no capability flag**, so it cannot be
+options and unlike the features in the compliance table, it has **no capability
+flag**, so it cannot be
 advertised as unavailable: shipping without it is a real gap.
 
 Not a tweak:
@@ -77,7 +78,15 @@ subscription tree.
 - Consider moving `build_server_capabilities` into `consts.cr` or making it a
   constant, to make it obvious it is static.
 - Consider a v5 mode for the `lavinmqperf mqtt` throughput tool. It is pinned to
-  `IO::V3`, so there is no load-testing path for v5 at all. Optional.
+  `IO.v3`, so there is no load-testing path for v5 at all. Optional.
+
+## K. PUBREC with a failure reason code
+
+`Session#pubrec` sends PUBREL whatever the reason code. [MQTT-4.3.3-4] sends one
+only for a reason code below `0x80`: a v5 subscriber answering PUBREC `0x80` or
+greater has refused the message, which ends that delivery like a PUBACK does,
+so the id should be freed without a PUBREL. v3 PUBREC has no reason code, so only
+v5 is affected.
 
 ## I. Open review finding
 

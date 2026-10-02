@@ -25,12 +25,14 @@ is where the remaining work is.
 
 ---
 
-## 2. Shard: the version is the IO's *type*
+## 2. Shard: one IO, a framing strategy per version
 
 The single most important design decision. All v3-vs-v5 wire differences are
-isolated into ~9 framing hooks on an abstract `IO`, with concrete `IO::V3` and
-`IO::V5` subclasses. Packet structs are version-agnostic and never branch on the
-version.
+isolated into ~9 framing hooks on a `Framing` strategy that the `IO` holds:
+`Framing::V3`, `Framing::V5`, and `Framing::Bootstrap` for an IO that has not
+seen CONNECT yet. Packet structs are version-agnostic and never branch on the
+version. The strategies are stateless, one shared instance per version, so
+switching framing allocates nothing.
 
 ```mermaid
 classDiagram
@@ -54,30 +56,32 @@ classDiagram
     Packet <|-- PingReq_PingResp
 
     class IO {
-        <<abstract class>>
-        +version() Version*
+        +new(socket, max)$ IO  // unpinned, Bootstrap
+        +v3(socket, max)$ / v5(socket, max)$ IO  // pinned
+        +version() Version
+        +negotiated?() Bool
+        +read_connect() Connect
         +read_byte() / read_int() / read_string()
-        +variable_byte_int(max)
-        +consume(remaining, n)  // checked
-        ~read_properties(klass, remaining)*
-        ~write_properties(props)*
+        -framing : Framing::Base
+    }
+    class Base {
+        <<Framing, abstract>>
+        ~read_properties() / write_properties()*
         ~read_ack_tail() / write_ack()*
         ~read_reason_tail() / write_reason_tail()*
         ~validate_subscription_options()*
-        ~read_connack_reason() / write_connack_body()*
         ~allow_empty_topic?()*
-        +for(version, socket)$ IO
-        +read_connect(socket)$ {Connect, IO}
     }
-    IO <|-- V3
-    IO <|-- V5
+    IO o-- Base
+    Base <|-- V3
+    Base <|-- V5
+    V3 <|-- Bootstrap
 
     class V3 {
         version = V3_1 / V3_1_1
-        read_properties -> {empty, 0}
+        read_properties -> empty
         write_properties -> no-op
         read_ack_tail -> {nil, empty}
-        write_connack_body -> session+return_code byte
         allow_empty_topic? -> false
     }
     class V5 {
@@ -85,20 +89,36 @@ classDiagram
         read_properties -> parse property section
         write_properties -> length-prefixed section
         read_ack_tail -> {reason_byte?, props}
-        write_connack_body -> session+reason+props
         allow_empty_topic? -> true
     }
+    class Bootstrap {
+        version = Unknown
+        reads only CONNECT
+        writes only CONNECT or a v3 CONNACK
+    }
 
-    Packet ..> IO : from_io / to_io call hooks
+    Packet ..> IO : from_io / to_io call the framing hooks
     note for Packet "Packets are VERSION-AGNOSTIC.\nNo `if version.v5?` on the wire path\n(except UnsubAck: genuine structural diff)."
 ```
 
-**Why it replaced the original mutable `io.version` field:** the field defaulted
-to `V3_1_1`, so decoding a CONNACK on a fresh IO silently took the v3 path, and
-every packet had to remember an `if io.version.v5?` branch. That is exactly how
-the PUBREL/PUBCOMP gate bug crept in. Type dispatch makes the branch impossible
-to forget, and a future protocol version becomes a third subclass rather than a
-third branch in twelve places.
+**Why a strategy rather than a mutable `io.version` field:** the original field
+defaulted to `V3_1_1`, so decoding a CONNACK on a fresh IO silently took the v3
+path, and every packet had to remember an `if io.version.v5?` branch. That is
+exactly how the PUBREL/PUBCOMP gate bug crept in. Dispatching through the framing
+makes the branch impossible to forget, and a future protocol version becomes a
+third strategy rather than a third branch in twelve places.
+
+**Why not a subclass per version**, which the shard used until `84codes/mqtt-protocol.cr#16`: CONNECT is
+the packet that reveals the version, so a server had to read it on a v3 IO and
+then swap in a new IO object. A CONNECT that failed after the level byte was
+then answered on the old v3 IO, with v3 framing, whatever version the client
+asked for. Holding the framing as a field keeps one IO per connection.
+
+The version is **write-once**: pinned at construction (`IO.v3` / `IO.v5`, what a
+client does) or negotiated by the first CONNECT (`IO.new`, what a server does).
+A later CONNECT for another version raises `ProtocolError` when read and
+`PacketEncode` when written. A repeat CONNECT for the same version is let
+through, and LavinMQ answers it with DISCONNECT `0x82` [MQTT-3.1.0-2].
 
 Two acknowledged exceptions:
 
@@ -110,23 +130,17 @@ Two acknowledged exceptions:
 
 ### Version negotiation
 
-CONNECT is the only packet that *reveals* the version, via its protocol-level
-byte:
-
 ```
 socket
-  -> IO::V3.new(socket, max)          # bootstrap reader
-  -> io.read_connect                  # reads CONNECT, reframes to the negotiated version
-  -> {Connect, IO::V3 | IO::V5}       # every subsequent packet uses this IO
+  -> IO.new(socket, max)   # unpinned: Framing::Bootstrap, reads only CONNECT
+  -> io.read_connect       # switches framing in place from the level byte
+  -> Connect               # io now frames every later packet for that version
 ```
 
-The **instance** method `io.read_connect` is what a *rejecting* server needs: it
-only rebinds `io` on success, so if the CONNECT is malformed the v3 bootstrap IO
-survives and can still frame a rejection CONNACK. LavinMQ uses this in
-`connection_factory.cr`. The class method `IO.read_connect(socket, max)` builds
-its IO internally and raises before returning, leaving a rejecting server with
-nothing to answer on. The instance method was added to the shard specifically
-because a LavinMQ test caught the trap.
+The IO keeps its identity, so `connection_factory.cr`'s rescue answers a failed
+CONNECT on the same object, with the framing the CONNECT got as far as
+revealing. A client whose version was never learned gets a v3 CONNACK, which is
+what `Bootstrap` writes ([MQTT-3.1.2-2]).
 
 ---
 
@@ -207,10 +221,11 @@ because a LavinMQ test caught the trap.
   Properties are stored as an **array of `{key, value}` tables**, not a flat
   table, because [MQTT-3.3.2-18] requires order and duplicate keys to survive and
   a Hash would lose both.
-- **`MAX_QOS = 1u8` in `consts.cr`** is the single source for "QoS 2 is not
-  implemented": advertised in CONNACK, enforced on inbound v5 PUBLISH, and used
-  to clamp granted and delivered QoS. `MQTT.granted_qos` replaced three different
-  spellings of that clamp, one of which bypassed `MAX_QOS` entirely.
+- **`MAX_QOS = 2u8` in `consts.cr`** clamps granted and delivered QoS through
+  `MQTT.granted_qos`, which replaced three different spellings of that clamp. At
+  2 the clamp only guards against a bad value read off disk or out of a binding
+  table, and the CONNACK omits `maximum_qos`, which may only be sent as 0 or 1
+  (§3.2.2.3.4).
 - **Granted QoS is clamped at subscribe time, not delivery time.** SUBACK reports
   the clamped value per [MQTT-3.8.4-7], and the session stores and delivers at
   that same value, so the granted QoS and the actual QoS cannot drift apart.
@@ -242,8 +257,8 @@ because a LavinMQ test caught the trap.
 ### Subscription options
 
 - All three per-filter options are honoured. They are **not** advertisable
-  features: v5 CONNACK has no flag for any of them, so unlike QoS 2 or shared
-  subscriptions this was a real compliance gap rather than a legal deferral.
+  features: v5 CONNACK has no flag for any of them, so unlike shared subscriptions
+  this was a real compliance gap rather than a legal deferral.
 - **No Local** - `Exchange#publish` takes the publishing client's session name
   and skips a matching subscription that set the bit [MQTT-3.8.3-3]. Identity is
   the ClientID, and a session's name is `mqtt.<client_id>`, so a name compare is
@@ -290,7 +305,7 @@ because a LavinMQ test caught the trap.
   value, so no extra allocation. Retain Handling is deliberately not in it: it is
   consulted only during the SUBSCRIBE.
 - **v3.1.1 is unaffected by construction, not by convention.**
-  `IO::V3#validate_subscription_options` rejects a v3 SUBSCRIBE with any of bits
+  `IO::Framing::V3#validate_subscription_options` rejects a v3 SUBSCRIBE with any of bits
   7-2 set, so these paths are unreachable from v3 and need no version gating.
 - A prerequisite fixed on the way: `Session#find_binding` matched a **synthetic
   default-exchange binding** whose routing key is the queue's own name, so a
@@ -305,12 +320,10 @@ because a LavinMQ test caught the trap.
   `will_delay_interval` is deliberately not mapped: it is server behaviour, not
   wire content.
 - No version gate: v3 CONNECT has no will properties, so they are all nil there
-  and `IO::V3#write_properties` discards them regardless.
-- A will at QoS 2 is refused with CONNACK `0x9B` rather than quietly clamped
-  (3.1.2.6). **v5 only, deliberately**: v3 has no return code meaning "QoS not
-  supported", so refusing there would mean a misleading code or a bare close. A v3
-  will at QoS 2 stays accepted and clamped at delivery, and there is a spec
-  pinning that asymmetry down.
+  and `IO::Framing::V3#write_properties` discards them regardless.
+- A will at QoS 2 is accepted on both versions. Before QoS 2 a v5 will above
+  `maximum_qos` was refused with CONNACK `0x9B` (§3.1.2.6); with nothing to
+  exceed, that check went.
 - A **retained** will inherits item F: its properties reach live subscribers but
   not later ones, because the retain store keeps only the payload.
 
@@ -382,9 +395,11 @@ because a LavinMQ test caught the trap.
 - `Exchange#publish` holds the decoded topic in a local instead of calling
   `packet.topic` two or three times: the getter allocates per call.
 - `Session#build_packet` skips the property restore for a v3 subscriber, whose
-  `IO::V3#write_properties` discards them anyway.
+  `IO::Framing::V3#write_properties` discards them anyway.
 - `Client#protocol_name` is an exhaustive `case/in`, so a new `Version` member is
-  a compile error rather than a silent "MQTT 3.1.1".
+  a compile error rather than a silent "MQTT 3.1.1". `Version::Unknown`, the
+  state of an IO before CONNECT, gets an arm that is unreachable in practice: a
+  `Client` exists only once CONNECT has set the version.
 
 ---
 
@@ -393,9 +408,10 @@ because a LavinMQ test caught the trap.
 These are why the shard needs a major-ish release, and what any other consumer
 would have to fix. **All of this belongs in the release notes.**
 
-- `Protocol::IO` is now **abstract**. `IO.new(socket)` and the
-  `Packet.from_io(io : ::IO)` raw-IO overload are gone. Construct `IO::V3` /
-  `IO::V5`, or use `read_connect`.
+- `Protocol::IO.new(socket)` now starts **unpinned**, reading only CONNECT, and
+  `read_connect` sets its version. A client pins one with `IO.v3` / `IO.v5`. The
+  `Packet.from_io(io : ::IO)` raw-IO overload is gone, and `Version` gained an
+  `Unknown` member, which breaks an exhaustive `case/in` over it.
 - `Packet#bytesize` / `#remaining_length` lost their no-arg form and now take a
   `Version`.
 - `SubAck` uses `ReasonCode` / `reason_codes` (was `ReturnCode` /
@@ -413,6 +429,6 @@ would have to fix. **All of this belongs in the release notes.**
   calling it three times on the hot path; renaming it to `topic_string` before
   the 1.0 tag would make the cost visible at the call site.
 - `PubComp` fixed-header flags corrected `0b0010` -> `0b0000`; the old value was a
-  pre-existing v3 wire bug ([MQTT-2.2.2-1]). Strict rejection kept by decision
-  (2026-07-02): nothing in use involves PUBCOMP, since LavinMQ is QoS 0/1, and a
-  leniency shim would tolerate a wire form nobody emits.
+  pre-existing v3 wire bug ([MQTT-2.1.3-1]). Decode accepts `0b0010` too, ported
+  from shard `main` (`84codes/mqtt-protocol.cr#15`): the library wrote it up to and including v0.3.1, and
+  with QoS 2 in LavinMQ, PUBCOMP is now on the wire.

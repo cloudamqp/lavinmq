@@ -27,8 +27,8 @@ clean. Exact-byte vectors are the backbone, with round-trip tests focused on
 properties and a version matrix for the genuinely ambiguous cases (PUBREL /
 PUBCOMP remaining-length 2 versus a reason tail; CONNACK return code versus
 reason code). A blanket version matrix was dropped as redundant: the
-`IO::V3`/`IO::V5` split makes "a v5 packet parsed with v3 framing" structurally
-hard to even express.
+per-version `Framing` split makes "a v5 packet parsed with v3 framing"
+structurally hard to even express.
 
 **LavinMQ**, measured 2026-09-08 on `main` `02e97d70`:
 
@@ -72,14 +72,15 @@ self-confirming round-trip, never checked against a real v5 client.
 - No crashes, hangs or memory errors in ~75 broker starts.
 - The CONNACK capability bytes decode identically in three independent codecs,
   and every rejection in the compliance table produced its promised reason code
-  on the wire (`0x9B`, `0x94`, `0x9E`, `0xA1`, `0x8C`, `0x87`, `0x82`).
+  on the wire (`0x9B`, `0x94`, `0x9E`, `0xA1`, `0x8C`, `0x87`, `0x82`). `0x9B`
+  was the QoS 2 rejection, gone since QoS 2 (#2236).
 - All six v5 PUBLISH properties survive paho -> paho, paho -> mqtt.js,
   mqtt.js -> paho and mosquitto -> paho. A v5 publisher to a v3.1.1 subscriber
   drops them cleanly, and the reverse works.
 - Both then-`[~]` rows were confirmed from outside: a Will at QoS 2 was accepted
   with CONNACK Success, and `maximum-packet-size 5` still got a 23-byte CONNACK
-  (`maximum-packet-size 12` a 15-byte SUBACK). The Will QoS one has since been
-  fixed, so a re-run should now see CONNACK `0x9B`.
+  (`maximum-packet-size 12` a 15-byte SUBACK). With QoS 2 supported, a Will at
+  QoS 2 is correct as accepted.
 - Items B, D, E, F, the Receive Maximum limitation and shard items N3/O2 each
   reproduced under a third-party client, so all were real and correctly
   described. B, D and E's will properties are fixed; E's Will Delay half and F
@@ -92,10 +93,11 @@ confirm on the next run, which should happen once E and F land.
 
 ### Why the stock Paho v5 suite cannot grade this broker
 
-22 of its 27 tests use QoS 2 somewhere, and its client ignores our advertised
-`maximum_qos = 1`, itself a [MQTT-3.2.2-11] violation on the client's side. We
-correctly kill those connections, after which several tests spin forever on
-`while len(messages) < 3`. A mechanically QoS-clamped copy of the suite is the
-run worth reading; with QoS 2 out of the picture the v3.1.1 suite goes 7/9,
+At the 2026-08-19 run, 22 of its 27 tests used QoS 2 somewhere, and its client
+ignored our then-advertised `maximum_qos = 1`, itself a [MQTT-3.2.2-11] violation
+on the client's side. We correctly killed those connections, after which several
+tests spun forever on `while len(messages) < 3`. QoS 2 (#2236) removes that
+obstacle, so the unmodified suite should now grade the broker; it has not been
+re-run. In the QoS-clamped copy used then, the v3.1.1 suite went 7/9,
 failing only on `$`-prefixed topics matching wildcards (4.7.2 is a SHOULD NOT)
 and on a test that needs an ACL denying a topic.
