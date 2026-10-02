@@ -7,7 +7,7 @@ module LavinMQ::Clustering::Raft
   # file, fsync it, rename over the old one and fsync the directory.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 1u8
+    VERSION = 2u8
     Format  = IO::ByteFormat::LittleEndian
 
     class CorruptError < Exception; end
@@ -60,6 +60,12 @@ module LavinMQ::Clustering::Raft
         io.write_bytes e.term, Format
         Codec.write_isr(io, e.isr)
       end
+      io.write_bytes state.peer_node_ids.size, Format
+      state.peer_node_ids.each do |addr, node_id|
+        io.write_bytes addr.bytesize, Format
+        io.write addr.to_slice
+        io.write_bytes node_id, Format
+      end
     end
 
     private def decode(io) : HardState
@@ -74,7 +80,12 @@ module LavinMQ::Clustering::Raft
       entries = Array(Entry).new(io.read_bytes(Int32, Format)) do
         Entry.new(io.read_bytes(Int64, Format), Codec.read_isr(io))
       end
-      HardState.new(term, voted_for.presence, snapshot_index, snapshot_term, snapshot_isr, entries)
+      peer_node_ids = Hash(String, Int32).new
+      io.read_bytes(Int32, Format).times do
+        addr = io.read_string(io.read_bytes(Int32, Format))
+        peer_node_ids[addr] = io.read_bytes(Int32, Format)
+      end
+      HardState.new(term, voted_for.presence, snapshot_index, snapshot_term, snapshot_isr, entries, peer_node_ids)
     end
   end
 end
