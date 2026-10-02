@@ -23,15 +23,42 @@ module LavinMQ
         end
       end
 
+      # An array of objects on disk, keyed on the identifier in memory.
+      module RulesConverter
+        def self.from_json(pull : JSON::PullParser) : Hash(String, Rule)
+          PermissionGroup.index_rules(Array(Rule).new(pull))
+        end
+
+        def self.to_json(rules : Hash(String, Rule), json : JSON::Builder)
+          json.array do
+            rules.each_value(&.to_json(json))
+          end
+        end
+      end
+
       getter name : String
       getter vhost : String
       getter members = Array(String).new
-      getter rules = Array(Rule).new
+      @[JSON::Field(converter: LavinMQ::MQTT::PermissionGroup::RulesConverter)]
+      getter rules = Hash(String, Rule).new
 
       def initialize(@name : String,
                      @vhost : String,
                      @members = Array(String).new,
-                     @rules = Array(Rule).new)
+                     rules = Array(Rule).new)
+        @rules = PermissionGroup.index_rules(rules)
+      end
+
+      def self.index_rules(rules : Array(Rule)) : Hash(String, Rule)
+        indexed = Hash(String, Rule).new(initial_capacity: rules.size)
+        rules.each do |rule|
+          unless indexed.has_key?(rule.identifier)
+            indexed[rule.identifier] = rule
+            next
+          end
+          raise ArgumentError.new("Duplicate rule identifier #{rule.identifier.inspect}")
+        end
+        indexed
       end
 
       # The group every vhost gets until somebody configures it: every user may
@@ -41,23 +68,47 @@ module LavinMQ
         new(DEFAULT_NAME, vhost, ["*"], [rule])
       end
 
+      # Rule is a struct, so fresh containers make the clone independent.
+      def clone : self
+        PermissionGroup.new(@name, @vhost, @members.dup, @rules.values)
+      end
+
+      def add_member(username : String) : Bool
+        return false if @members.includes?(username)
+        @members << username
+        true
+      end
+
+      def remove_member(username : String) : Bool
+        !@members.delete(username).nil?
+      end
+
+      def put_rule(rule : Rule) : Rule?
+        validate_rule!(rule)
+        replaced = @rules[rule.identifier]?
+        @rules[rule.identifier] = rule
+        replaced
+      end
+
+      def delete_rule(identifier : String) : Rule?
+        @rules.delete(identifier)
+      end
+
       def validate! : self
         unless @name.matches?(NAME_PATTERN)
           raise ArgumentError.new("Invalid group name #{@name.inspect}, only alphanumerics, hyphens and underscores are allowed, max 255 characters")
         end
-        identifiers = Set(String).new
-        @rules.each do |rule|
-          unless rule.identifier.matches?(IDENTIFIER_PATTERN)
-            raise ArgumentError.new("Invalid rule identifier #{rule.identifier.inspect} in permission group #{@name.inspect}, only alphanumerics and hyphens are allowed")
-          end
-          unless identifiers.add?(rule.identifier)
-            raise ArgumentError.new("Duplicate rule identifier #{rule.identifier.inspect} in permission group #{@name.inspect}")
-          end
-          unless TopicFilter.valid_filter?(rule.pattern)
-            raise ArgumentError.new("Invalid MQTT topic filter #{rule.pattern.inspect} in permission group #{@name.inspect}")
-          end
-        end
+        @rules.each_value { |rule| validate_rule!(rule) }
         self
+      end
+
+      private def validate_rule!(rule : Rule) : Nil
+        unless rule.identifier.matches?(IDENTIFIER_PATTERN)
+          raise ArgumentError.new("Invalid rule identifier #{rule.identifier.inspect} in permission group #{@name.inspect}, only alphanumerics and hyphens are allowed")
+        end
+        unless TopicFilter.valid_filter?(rule.pattern)
+          raise ArgumentError.new("Invalid MQTT topic filter #{rule.pattern.inspect} in permission group #{@name.inspect}")
+        end
       end
     end
   end

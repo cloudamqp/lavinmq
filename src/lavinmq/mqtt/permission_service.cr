@@ -78,9 +78,8 @@ module LavinMQ
       def put(group : PermissionGroup) : PermissionGroup
         group.validate!
         @save_lock.synchronize do
-          groups = @groups.dup
-          groups[group.name] = group
-          commit(groups)
+          @groups[group.name] = group
+          commit
         end
         group
       end
@@ -91,36 +90,31 @@ module LavinMQ
         group.validate!
         @save_lock.synchronize do
           return false if @groups[group.name]?
-          groups = @groups.dup
-          groups[group.name] = group
-          commit(groups)
+          @groups[group.name] = group
+          commit
           true
         end
       end
 
-      # Read the group and commit the change under one lock, so an edit that
-      # commits while the caller prepares its own change is not overwritten.
-      # The block returns nil to leave the group as it is. Returns false when
-      # no group has that name. The block runs with the lock held, so it must
-      # not call back into the service and it must not wait on IO.
-      def update(name : String, & : PermissionGroup -> PermissionGroup?) : Bool
+      # The block runs under the lock (no IO, no calls back into the service),
+      # mutates the clone it is given and returns whether to commit. The clone
+      # replaces the original, so a shared group never mutates under a reader.
+      def update(name : String, & : PermissionGroup -> Bool) : Bool
         @save_lock.synchronize do
           return false unless current = @groups[name]?
-          return true unless updated = yield current
-          updated.validate!
-          groups = @groups.dup
-          groups[name] = updated
-          commit(groups)
+          updated = current.clone
+          if yield updated
+            @groups[name] = updated
+            commit
+          end
           true
         end
       end
 
       def delete(name : String) : PermissionGroup?
         @save_lock.synchronize do
-          if group = @groups[name]?
-            groups = @groups.dup
-            groups.delete(name)
-            commit(groups)
+          if group = @groups.delete(name)
+            commit
             group
           end
         end
@@ -133,13 +127,14 @@ module LavinMQ
         imported.each(&.validate!)
         @save_lock.synchronize do
           persisted = File.exists?(File.join(@data_dir, "mqtt_permissions.json"))
-          groups = @groups.dup
-          groups.delete(DEFAULT_GROUP) unless persisted
+          changed = false
+          changed = true if !persisted && @groups.delete(DEFAULT_GROUP)
           imported.each do |group|
             next if skip_existing && persisted && @groups[group.name]?
-            groups[group.name] = group
+            @groups[group.name] = group
+            changed = true
           end
-          commit(groups) unless groups == @groups
+          commit if changed
         end
       end
 
@@ -180,7 +175,7 @@ module LavinMQ
         global_rules = Array(CompiledRule).new
         @groups.each_value do |group|
           compiled_rules = Array(CompiledRule).new(group.rules.size)
-          group.rules.each do |rule|
+          group.rules.each_value do |rule|
             chain = TopicRuleSegment.compile(rule.pattern)
             if chain.nil?
               Log.warn { "Ignoring invalid topic filter #{rule.pattern.inspect} in permission group #{group.name.inspect}" }
@@ -231,16 +226,11 @@ module LavinMQ
         rebuild
       end
 
-      # Called with @save_lock held. Build and save a separate collection so
-      # permission checks keep using the old state until the rename succeeds.
-      #
-      # Assign @groups before the replicator call. That call writes to the
-      # follower sockets and can suspend this fiber while the lock is still
-      # held, and a reader that runs then must see the committed groups.
-      private def commit(groups : Hash(String, PermissionGroup)) : Nil
-        path = save!(groups)
-        @groups = groups
+      # Called with @save_lock held. Rebuild before the save: on a failed save
+      # memory stays self-consistent and only disk lags, like the other stores.
+      private def commit : Nil
         rebuild
+        path = save!(@groups)
         @replicator.try &.replace_file path
       end
 

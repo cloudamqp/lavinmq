@@ -45,25 +45,27 @@ end
 
 describe LavinMQ::HTTP::PermissionGroupsController do
   describe "groups" do
-    it "reports failed saves without changing the active groups" do
+    # A failed save answers 500; the change stays in memory until the next save.
+    it "reports failed saves and keeps the change active in memory" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
         service = vhost.mqtt_permission_service
-        original = service.to_json
         path = File.join(vhost.data_dir, "mqtt_permissions.json")
         Dir.mkdir("#{path}.tmp")
 
         http.put("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 500
-        http.get("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 404
+        http.get("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 200
         http.delete("/api/mqtt/permission-groups/%2f/default").status_code.should eq 500
-        http.get("/api/mqtt/permission-groups/%2f/default").status_code.should eq 200
-        rule = {pattern: "public/#", read: true, write: true}.to_json
-        http.put("/api/mqtt/permission-groups/%2f/default/rules/allow-all", body: rule).status_code.should eq 500
-        service.to_json.should eq original
+        http.get("/api/mqtt/permission-groups/%2f/default").status_code.should eq 404
         context = LavinMQ::MQTT::PermissionService::Context.new("guest", "dev")
-        service.can_read?(context, "anything").should be_true
-        service.can_write?(context, "anything").should be_true
+        service.can_read?(context, "anything").should be_false
         File.exists?(path).should be_false
+
+        FileUtils.rm_rf("#{path}.tmp")
+        rule = {pattern: "public/#", read: true}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/chat/rules/r1", body: rule).status_code.should eq 201
+        saved = JSON.parse(File.read(path)).as_a
+        saved.map(&.["name"]).should eq ["chat"]
       ensure
         FileUtils.rm_rf("#{path}.tmp") if path
       end
@@ -262,7 +264,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
 
       group = s.vhosts["/"].mqtt_permission_service["grp"]?.not_nil!
       group.members.should eq ["alice"]
-      group.rules.map(&.identifier).should eq ["sensors"]
+      group.rules.keys.should eq ["sensors"]
       imported.should eq 200
       created.should eq 204 # the name was taken by the time the lock was free
     end

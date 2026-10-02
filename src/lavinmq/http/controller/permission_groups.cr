@@ -117,9 +117,7 @@ module LavinMQ
             member = params["username"]
             added = false
             found = vhost.mqtt_permission_service.update(params["name"]) do |group|
-              next if group.members.includes?(member)
-              added = true
-              MQTT::PermissionGroup.new(group.name, group.vhost, group.members + [member], group.rules)
+              added = group.add_member(member)
             end
             not_found(context) unless found
             context.response.status = added ? ::HTTP::Status::CREATED : ::HTTP::Status::NO_CONTENT
@@ -132,9 +130,7 @@ module LavinMQ
             member = params["username"]
             removed = false
             vhost.mqtt_permission_service.update(params["name"]) do |group|
-              next unless group.members.includes?(member)
-              removed = true
-              MQTT::PermissionGroup.new(group.name, group.vhost, group.members - [member], group.rules)
+              removed = group.remove_member(member)
             end
             not_found(context) unless removed
             context.response.status = ::HTTP::Status::NO_CONTENT
@@ -146,7 +142,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             group = vhost.mqtt_permission_service[params["name"]]?
             not_found(context) unless group
-            group.rules.to_json(context.response)
+            group.rules.values.to_json(context.response)
           end
         end
 
@@ -166,14 +162,13 @@ module LavinMQ
               rule = MQTT::PermissionGroup::Rule.new(params["identifier"], pattern,
                 read: rule_flag(context, body, "read"),
                 write: rule_flag(context, body, "write"))
-              existing = false
+              replaced = nil
               found = vhost.mqtt_permission_service.update(params["name"]) do |group|
-                existing = group.rules.any?(&.identifier.== rule.identifier)
-                rules = group.rules.reject(&.identifier.== rule.identifier) << rule
-                MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules)
+                replaced = group.put_rule(rule)
+                true
               end
               not_found(context) unless found
-              context.response.status = existing ? ::HTTP::Status::NO_CONTENT : ::HTTP::Status::CREATED
+              context.response.status = replaced ? ::HTTP::Status::NO_CONTENT : ::HTTP::Status::CREATED
             rescue ex : ArgumentError
               bad_request(context, "Invalid rule: #{ex.message}")
             end
@@ -186,10 +181,8 @@ module LavinMQ
             identifier = params["identifier"]
             removed = false
             vhost.mqtt_permission_service.update(params["name"]) do |group|
-              next unless group.rules.any?(&.identifier.== identifier)
-              removed = true
-              rules = group.rules.reject(&.identifier.== identifier)
-              MQTT::PermissionGroup.new(group.name, group.vhost, group.members, rules)
+              removed = !group.delete_rule(identifier).nil?
+              removed
             end
             not_found(context) unless removed
             context.response.status = ::HTTP::Status::NO_CONTENT
