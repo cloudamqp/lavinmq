@@ -54,8 +54,11 @@ private class ControllerCluster
   getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
 
-  def initialize(size : Int32, bootstrap : Int32? = 0)
+  def initialize(size : Int32, bootstrap : Int32? = 0, election_timeout = 300)
     ports = Array.new(size) { free_port }
+    # A port picked by free_port can be taken by another process before it's
+    # bound, so don't let a node join someone else's cluster
+    password = Random::Secure.hex(16)
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
       dir = File.tempname("lavinmq", "controller-spec")
@@ -69,9 +72,9 @@ private class ControllerCluster
       config.clustering_raft_port = port
       config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
       config.clustering_peers = peers
-      config.clustering_secret = "controller-spec"
-      config.clustering_election_timeout = 300
-      config.clustering_heartbeat_interval = 50
+      config.clustering_secret = password
+      config.clustering_election_timeout = election_timeout
+      config.clustering_heartbeat_interval = election_timeout // 6
       config.clustering_port = free_port
       config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
       config.metrics_http_port = -1
@@ -113,8 +116,8 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, bootstrap : Int32? = 0, &)
-  cluster = ControllerCluster.new(size, bootstrap)
+private def with_controllers(size = 3, bootstrap : Int32? = 0, election_timeout = 300, &)
+  cluster = ControllerCluster.new(size, bootstrap, election_timeout)
   yield cluster
 ensure
   cluster.try &.close
@@ -221,14 +224,15 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "hands over leadership on shutdown faster than an election timeout", tags: "slow" do
-    with_controllers do |cluster|
+    # Generous, the handover takes several fsyncs that can be slow on CI
+    with_controllers(election_timeout: 1000) do |cluster|
       cluster.start_all
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
       started = Time.instant
       spawn { first.stop }
       cluster.next_leader(timeout: 2.seconds)
-      (Time.instant - started).should be < 300.milliseconds
+      (Time.instant - started).should be < 1.second
     end
   end
 

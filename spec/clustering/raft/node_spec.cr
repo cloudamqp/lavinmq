@@ -54,6 +54,39 @@ private class TCPRaftCluster
   end
 end
 
+# Answers for every peer as an up to date follower that grants all votes.
+# When stalling, the next replicated entries make the node's fiber block past
+# the election timeout, with a stale message queued ahead of the acks.
+private class StallingTransport < Raft::Transport
+  property node : Raft::Node? = nil
+  property stall : Time::Span? = nil
+
+  def initialize(@node_ids : Hash(String, Int32))
+  end
+
+  def send(to : String, msg : Raft::Message) : Nil
+    node = @node.not_nil!
+    case msg
+    when Raft::RequestVote
+      node.deliver Raft::VoteResponse.new(to, msg.term, true, pre_vote: msg.pre_vote)
+    when Raft::AppendEntries
+      ack = Raft::AppendResponse.new(to, msg.term, @node_ids[to], true, msg.prev_index + msg.entries.size)
+      if (stall = @stall) && !msg.entries.empty?
+        @stall = nil
+        node.deliver Raft::AppendResponse.new(to, 0, @node_ids[to], false, 0)
+        node.deliver ack
+        ts = LibC::Timespec.new(tv_sec: 0, tv_nsec: stall.total_nanoseconds.to_i64)
+        LibC.nanosleep(pointerof(ts), nil) # blocks like a slow fsync
+      else
+        node.deliver ack
+      end
+    end
+  end
+
+  def close : Nil
+  end
+end
+
 private def with_raft_cluster(size = 3, &)
   cluster = TCPRaftCluster.new(size)
   yield cluster
@@ -118,6 +151,23 @@ describe Raft::Node do
       fail "close hung"
     end
   ensure
+    FileUtils.rm_rf dir if dir
+  end
+
+  it "handles acks that queued up while stalled before checking the quorum" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    transport = StallingTransport.new({"b" => 2, "c" => 3})
+    node = Raft::Node.new("a", ["a", "b", "c"], 1, "tcp://a", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+    transport.node = node
+    node.run(transport)
+    wait_for { node.serving.value }
+    transport.stall = 250.milliseconds
+    node.propose_isr(Set{1, 2, 3}).should be_true
+    node.serving.value.should be_true
+  ensure
+    node.try &.close
     FileUtils.rm_rf dir if dir
   end
 
