@@ -12,6 +12,13 @@ class LavinMQ::Launcher
   end
 end
 
+# Returns the path of a 0600 password file, delete it when done.
+private def clustering_password_file(secret = "secret") : String
+  path = File.tempfile("clustering_password", &.print(secret)).path
+  File.chmod(path, 0o600)
+  path
+end
+
 describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
@@ -97,6 +104,7 @@ describe LavinMQ::Config do
   end
 
   it "Can parse all INI arguments" do
+    password_file = clustering_password_file("ini-secret")
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
           [main]
@@ -184,7 +192,7 @@ describe LavinMQ::Config do
           raft_advertised_address = node1:5690
           election_timeout = 2000
           heartbeat_interval = 400
-          password = ini-secret
+          password_file = #{password_file}
           max_unsynced_actions = 16384
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
@@ -279,17 +287,18 @@ describe LavinMQ::Config do
     config.clustering_raft_address.should eq "node1:5690"
     config.clustering_election_timeout.should eq 2000
     config.clustering_heartbeat_interval.should eq 400
-    config.clustering_password.should eq "ini-secret"
+    config.clustering_secret.should eq "ini-secret"
     config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
     config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
     config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
   ensure
+    File.delete?(password_file) if password_file
     # Reset log level to default for other specs
     Log.setup(:fatal)
   end
 
   it "can parse all CLI argumetns" do
-    ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "cli-spec-secret"
+    password_file = clustering_password_file
     config = LavinMQ::Config.new
     argv = [
       "-D", "/tmp/lavinmq-cli",
@@ -336,6 +345,7 @@ describe LavinMQ::Config do
       "--clustering-heartbeat-interval=300",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
+      "--clustering-password-file=#{password_file}",
     ]
     config.parse(argv)
 
@@ -382,8 +392,9 @@ describe LavinMQ::Config do
     config.clustering_election_timeout.should eq 3000
     config.clustering_heartbeat_interval.should eq 300
     config.clustering_port.should eq 5680
+    config.clustering_password_file.should eq password_file
   ensure
-    ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+    File.delete?(password_file) if password_file
   end
 
   describe "clustering validation" do
@@ -417,72 +428,43 @@ describe LavinMQ::Config do
       end
     end
 
-    it "rejects both password and password_file" do
-      with_datadir do |dir|
-        path = File.join(dir, "clustering_password")
-        File.write(path, "file-secret")
-        File.chmod(path, 0o600)
-        ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "inline"
-        config = LavinMQ::Config.new(IO::Memory.new)
-        expect_raises(LavinMQ::Config::Error, /not both/) do
-          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
-        end
-      ensure
-        ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
-      end
-    end
-
-    it "warns about a password in a world readable config file" do
-      with_datadir do |dir|
-        path = File.join(dir, "lavinmq.ini")
-        File.write(path, "[clustering]\nenabled = true\nbackend = raft\nraft_advertised_address = a:1\npassword = inline\n")
-        File.chmod(path, 0o644)
-        io = IO::Memory.new
-        config = LavinMQ::Config.new(io)
-        config.parse(["-c", path])
-        io.to_s.should contain "readable by all users"
-        File.chmod(path, 0o600)
-        io = IO::Memory.new
-        config = LavinMQ::Config.new(io)
-        config.parse(["-c", path])
-        io.to_s.should_not contain "readable by all users"
-      end
-    end
-
     it "requires a clustering password" do
       config = LavinMQ::Config.new
-      expect_raises(LavinMQ::Config::Error, /password/) do
+      expect_raises(LavinMQ::Config::Error, /password_file/) do
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
       end
     end
 
     it "requires the peers to include this node" do
-      ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
+      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /must include this node/) do
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
       end
     ensure
-      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+      File.delete?(password_file) if password_file
     end
 
     it "rejects a peer without a port" do
-      ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
+      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /must be host:port/) do
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1,b", "--clustering-raft-advertised-address=a:1"])
       end
     ensure
-      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+      File.delete?(password_file) if password_file
     end
 
     it "defaults to a single node cluster" do
-      ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
+      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
       config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
       config.clustering_peer_addresses.should eq ["a:1"]
     ensure
-      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+      File.delete?(password_file) if password_file
     end
 
     it "defaults to the etcd backend" do
@@ -500,12 +482,13 @@ describe LavinMQ::Config do
     end
 
     it "parses the backend case insensitively" do
-      ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
+      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
       config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-raft-advertised-address=a:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     ensure
-      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+      File.delete?(password_file) if password_file
     end
 
     it "rejects an unknown backend" do
@@ -551,7 +534,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
     ENV["LAVINMQ_CLUSTERING_PEERS"] = "env1:5680"
     ENV["LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS"] = "env1:5680"
-    ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "env-secret"
+    ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file("env-secret")
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
     ENV["LAVINMQ_CLUSTERING_PORT"] = "5681"
     ENV["LAVINMQ_SYNC"] = "false"
@@ -581,7 +564,7 @@ describe LavinMQ::Config do
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
     config.clustering_peer_addresses.should eq ["env1:5680"]
-    config.clustering_password.should eq "env-secret"
+    config.clustering_secret.should eq "env-secret"
     config.clustering_port.should eq 5681
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
   ensure
@@ -609,7 +592,8 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
     ENV.delete("LAVINMQ_CLUSTERING_PEERS")
     ENV.delete("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")
-    ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+    ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+    File.delete?(password_file) if password_file
     ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
     ENV.delete("LAVINMQ_CLUSTERING_PORT")
     ENV.delete("LAVINMQ_CONTROL_UNIX_PATH")

@@ -95,24 +95,17 @@ module LavinMQ
       validate_raft_clustering! if @clustering && @clustering_backend.raft?
     end
 
-    @clustering_password_from_file : String? = nil
-
-    # The password nodes authenticate each other with, from `password_file`
-    # when set, otherwise `password`.
-    def clustering_secret : String
-      @clustering_password_from_file || @clustering_password
-    end
+    # The password nodes authenticate each other with, read from `password_file`.
+    property clustering_secret = ""
 
     private def validate_raft_clustering! : Nil
       load_clustering_password_file
-      secret = clustering_secret
-      if secret.empty?
-        raise Error.new("clustering requires a password shared by all nodes, set password_file (or password) in [clustering]")
+      if @clustering_secret.empty?
+        raise Error.new("clustering requires a password shared by all nodes, set password_file in [clustering]")
       end
-      if secret.bytesize > 255
+      if @clustering_secret.bytesize > 255
         raise Error.new("clustering password can be at most 255 bytes")
       end
-      warn_if_password_world_readable
       unless @clustering_election_timeout.positive? && @clustering_heartbeat_interval.positive?
         raise Error.new("clustering election_timeout and heartbeat_interval must be positive")
       end
@@ -134,31 +127,15 @@ module LavinMQ
 
     private def load_clustering_password_file : Nil
       path = @clustering_password_file
-      if path.empty?
-        @clustering_password_from_file = nil
-        return
-      end
-      unless @clustering_password.empty?
-        raise Error.new("set either password or password_file in [clustering], not both")
-      end
+      return if path.empty?
       info = File.info(path)
       unless info.permissions.value & 0o077 == 0
         raise Error.new("clustering password_file #{path} is accessible by group or others " \
                         "(mode #{info.permissions.value.to_s(8)}), chmod 600 it")
       end
-      @clustering_password_from_file = File.read(path).strip
+      @clustering_secret = File.read(path).strip
     rescue ex : File::Error
       raise Error.new("Cannot read clustering password_file: #{ex.message}")
-    end
-
-    private def warn_if_password_world_readable : Nil
-      return if @clustering_password.empty? || @config_file.empty? || ENV.has_key?("LAVINMQ_CLUSTERING_PASSWORD")
-      mode = File.info(@config_file).permissions.value
-      if mode & 0o004 != 0
-        @io.puts "WARNING: clustering password is set in #{@config_file}, which is readable by all users. " \
-                 "Use password_file in [clustering] instead"
-      end
-    rescue File::Error
     end
 
     # This node's raft address as it appears in the peer list.

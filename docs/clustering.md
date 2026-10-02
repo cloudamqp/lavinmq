@@ -34,7 +34,7 @@ password_file = /etc/lavinmq/clustering_password
 
 - `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. Without `peers` the node forms a cluster of one.
 - `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
-- A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. It can also be given inline as `password` (or `LAVINMQ_CLUSTERING_PASSWORD`), but a config file is often world readable, so LavinMQ warns when it is.
+- A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
 
   ```sh
   openssl rand -base64 32 > /etc/lavinmq/clustering_password  # copy the same file to every node
@@ -161,7 +161,7 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-With the raft backend, nodes authenticate each other with the shared password (`password_file` or `password`): raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
+With the raft backend, nodes authenticate each other with the shared password from `password_file`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
 
 With the etcd backend, followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
 

@@ -18,7 +18,7 @@ private def clustering_config(data_dir : String) : LavinMQ::Config
   config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
   config.clustering_raft_port = free_port
   config.clustering_raft_advertised_address = "127.0.0.1:#{config.clustering_raft_port}"
-  config.clustering_password = "controller-spec"
+  config.clustering_secret = "controller-spec"
   config
 end
 
