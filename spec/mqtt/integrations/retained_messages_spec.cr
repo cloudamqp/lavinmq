@@ -23,7 +23,7 @@ module MqttSpecs
       end
     end
 
-    it "retain flag is 0 if there is an established subscription [MQTT-3.3.1-9]" do
+    it "retain flag is 0 if there is an established subscription [MQTT-3.3.1-12]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "sub")

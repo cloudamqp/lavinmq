@@ -19,7 +19,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers at the lower of the publish and the subscription qos [MQTT-3.8.4-6]" do
+    it "delivers at the lower of the publish and the subscription qos [MQTT-3.8.4-8]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -47,7 +47,7 @@ module MqttSpecs
       end
     end
 
-    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.8.4-6]" do
+    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.8.4-8]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -93,7 +93,7 @@ module MqttSpecs
       end
     end
 
-    it "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
+    it "qos1 messages are stored for offline sessions [MQTT-4.5.0-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -242,7 +242,7 @@ module MqttSpecs
       end
     end
 
-    it "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-1]" do
+    it "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-6]" do
       max_inflight_messages = 10
       # We'll only ACK odd packet ids, and the first id is 1, so if we don't
       # do -1 the last packet (id=20) won't be sent because we've reached max

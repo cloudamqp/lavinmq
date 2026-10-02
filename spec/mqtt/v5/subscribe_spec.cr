@@ -32,7 +32,7 @@ module MqttSpecs
           io = MQTT::Protocol::IO::V5.new(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
 
-          # We advertised shared_subscription_available=0 [MQTT-3.2.2.3.13].
+          # We advertised shared_subscription_available=0 (§3.2.2.3.13).
           tf = MQTT::Protocol::Subscribe::TopicFilter.new("$share/group/test/topic", 0u8)
           MQTT::Protocol::Subscribe.new([tf], 1u16).to_io(io)
           io.flush

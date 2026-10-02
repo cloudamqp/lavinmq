@@ -13,7 +13,7 @@ module MqttSpecs
   end
 
   describe "MQTT 5.0 Session Expiry Interval" do
-    it "ends the session with the connection when the interval is 0 [MQTT-3.1.2-11]" do
+    it "ends the session with the connection when the interval is 0 (§3.1.2.11.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
           io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
@@ -36,7 +36,7 @@ module MqttSpecs
       end
     end
 
-    it "ends the session with the connection when the interval is absent [MQTT-3.1.2-11]" do
+    it "ends the session with the connection when the interval is absent (§3.1.2.11.2)" do
       # Absent means 0, so Clean Start = 0 alone is not enough to persist.
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -187,7 +187,7 @@ module MqttSpecs
       end
     end
 
-    it "adopts a new interval from DISCONNECT [MQTT-3.14.2.2.2]" do
+    it "adopts a new interval from DISCONNECT (§3.14.2.2.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
           io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
@@ -206,7 +206,7 @@ module MqttSpecs
       end
     end
 
-    it "keeps the CONNECT interval when DISCONNECT omits it [MQTT-3.14.2.2.2]" do
+    it "keeps the CONNECT interval when DISCONNECT omits it (§3.14.2.2.2)" do
       # Absent on DISCONNECT means "keep the CONNECT value", not 0.
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -220,7 +220,7 @@ module MqttSpecs
       end
     end
 
-    it "answers 0x82 to a non-zero DISCONNECT interval after a zero CONNECT [MQTT-3.14.2]" do
+    it "answers 0x82 to a non-zero DISCONNECT interval after a zero CONNECT (§3.14.2.2.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
           io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")

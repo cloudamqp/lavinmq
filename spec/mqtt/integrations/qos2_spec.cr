@@ -35,7 +35,7 @@ module MqttSpecs
   end
 
   describe "qos2 as receiver" do
-    it "completes the QoS 2 handshake for an inbound publish [MQTT-4.3.3-2]" do
+    it "completes the QoS 2 handshake for an inbound publish [MQTT-4.3.3-8]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -58,7 +58,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-2]" do
+    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-10]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -151,7 +151,7 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
-    it "keeps inbound QoS 2 state across a persistent reconnect [MQTT-4.4.0-1]" do
+    it "keeps inbound QoS 2 state across a persistent reconnect [MQTT-4.3.3-10]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -180,7 +180,7 @@ module MqttSpecs
       end
     end
 
-    it "drops inbound QoS 2 state on a clean session [MQTT-3.1.2-6]" do
+    it "drops inbound QoS 2 state on a clean session [MQTT-3.1.2-4]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -296,7 +296,7 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
-    it "encodes PUBCOMP with the reserved flags at 0 [MQTT-3.7.1]" do
+    it "encodes PUBCOMP with the reserved flags at 0 [MQTT-2.1.3-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
@@ -304,7 +304,7 @@ module MqttSpecs
           pubrel(io, 7u16)
 
           # Read as bytes, not as a packet: only PUBREL, SUBSCRIBE and
-          # UNSUBSCRIBE carry 0b0010. [MQTT-2.2.2-2] requires a receiver to
+          # UNSUBSCRIBE carry 0b0010. §2.1.3 requires a receiver to
           # close on bad reserved bits, though mosquitto does not enforce it.
           io.read_byte.should eq 0x70u8
           io.read_byte.should eq 2u8
@@ -338,8 +338,8 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK [MQTT-4.8.0-1]" do
-      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for one
+    it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK [MQTT-4.13.1-1]" do
+      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-3], so a PUBACK for one
       # is a protocol violation, and a violation must close the connection.
       with_server do |server|
         with_client_io(server) do |io|
@@ -377,7 +377,7 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that answers a QoS 1 delivery with PUBREC [MQTT-4.8.0-1]" do
+    it "closes a subscriber that answers a QoS 1 delivery with PUBREC [MQTT-4.13.1-1]" do
       # The mirror of the PUBACK case: a QoS 1 delivery is settled by PUBACK.
       with_server do |server|
         with_client_io(server) do |io|
@@ -396,7 +396,7 @@ module MqttSpecs
       end
     end
 
-    it "closes a subscriber that sends PUBCOMP before PUBREC [MQTT-4.8.0-1]" do
+    it "closes a subscriber that sends PUBCOMP before PUBREC [MQTT-4.13.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
@@ -477,7 +477,7 @@ module MqttSpecs
       end
     end
 
-    it "owes no PUBREL to a clean session [MQTT-3.1.2-6]" do
+    it "owes no PUBREL to a clean session [MQTT-3.1.2-4]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)

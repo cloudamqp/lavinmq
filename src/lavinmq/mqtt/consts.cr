@@ -30,7 +30,7 @@ module LavinMQ
     QOS2_ARGUMENTS = AMQP::Table.new({QOS_HEADER => 2u8})
 
     # Stamped on every message replayed from the retain store at subscribe time,
-    # which always carries RETAIN=1 [MQTT-3.3.1-8]. Shared and never mutated, so
+    # which always carries RETAIN=1 (§3.3.1.3). Shared and never mutated, so
     # a SUBSCRIBE allocates no table - and none at all when Retain Handling
     # suppresses the replay.
     RETAINED_HEADERS = AMQP::Table.new({RETAIN_HEADER => true})

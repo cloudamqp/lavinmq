@@ -17,7 +17,7 @@ module LavinMQ
     # reason code. Caught centrally in Client#read_loop, which sends a v5
     # DISCONNECT carrying the reason (v3 has no server DISCONNECT, so it just
     # closes). `Session` raises it for a known packet id acknowledged with the
-    # wrong packet type [MQTT-4.8.0-1]; an unknown id is not this, because the
+    # wrong packet type [MQTT-4.13.1-1]; an unknown id is not this, because the
     # window does not survive a restart.
     class ProtocolViolation < MQTT::Error
       getter reason : Protocol::Disconnect::ReasonCode
@@ -48,7 +48,7 @@ module LavinMQ
         @io.version
       end
 
-      # The interval named on CONNECT. Kept because [MQTT-3.14.2] makes a
+      # The interval named on CONNECT. Kept because §3.14.2.2.2 makes a
       # non-zero interval on DISCONNECT a Protocol Error when this one was 0.
       getter session_expiry_interval : UInt32
       @connected_at = RoughTime.unix_ms
@@ -135,7 +135,7 @@ module LavinMQ
       private def apply_keepalive_timeout
         socket = @io.io
         return unless socket.responds_to?(:"read_timeout=")
-        # 50% grace period according to [MQTT-3.1.2-24]
+        # 50% grace period according to [MQTT-3.1.2-22]
         socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
       end
 
@@ -203,12 +203,12 @@ module LavinMQ
         @closed || @session.deleted?
       end
 
-      # A DISCONNECT may name a new Session Expiry Interval [MQTT-3.14.2.2.2].
+      # A DISCONNECT may name a new Session Expiry Interval (§3.14.2.2.2).
       # Absent means keep the CONNECT value, not 0.
       #
       # A non-zero interval when CONNECT sent 0 is a Protocol Error, and the spec
       # is explicit that the server does not treat it as a valid DISCONNECT but
-      # answers 0x82 as in section 4.13 [MQTT-3.14.2] - which is exactly what the
+      # answers 0x82 as in section 4.13 (§3.14.2.2.2) - which is exactly what the
       # ProtocolViolation handler already does, will included.
       private def apply_disconnect_expiry(packet : Protocol::Disconnect) : Nil
         interval = packet.properties.session_expiry_interval || return
@@ -382,8 +382,8 @@ module LavinMQ
       end
 
       # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
-      # alone: a recipient cannot assume a `dup` PUBLISH is one it has seen
-      # (3.3.1.1).
+      # alone [MQTT-4.3.3-10]: a recipient cannot assume a `dup` PUBLISH is one it
+      # has seen (§3.3.1.1).
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
         reason = Protocol::PubRec::ReasonCode::Success
         if @session.qos2_publish_received?(packet_id)

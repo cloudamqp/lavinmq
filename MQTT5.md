@@ -61,7 +61,7 @@ This is what makes our deferrals legal rather than broken.
 | `maximum_packet_size` | `Config#mqtt_max_packet_size` | oversized inbound rejected by the codec; oversized outbound dropped | [x] | [~] |
 | `receive_maximum` | omitted (default 65535) | **not enforced**, see the release notes | [x] | [ ] |
 
-Plus: enhanced authentication (the AUTH-packet flow, [MQTT-4.12]) is rejected at
+Plus: enhanced authentication (the AUTH-packet flow, [MQTT-4.12.0-1]) is rejected at
 CONNECT with CONNACK `0x8C` BadAuthenticationMethod, before username/password
 auth runs so the reason is accurate.
 
@@ -131,7 +131,7 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
   `mqtt.retain-as-published`, omitted when false
 
 **UNSUBSCRIBE / UNSUBACK**
-- Per-topic reason codes, `Success` vs `NoSubscriptionExisted` [MQTT-3.11.3]
+- Per-topic reason codes, `Success` vs `NoSubscriptionExisted` [MQTT-3.11.3-2]
 
 **PUBACK and ack reason codes**
 - `NoMatchingSubscribers` `0x10` when the publish matched no session
@@ -142,8 +142,8 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 
 **DISCONNECT**
 - The client's reason code is honoured: only `0x00` discards the will
-  [MQTT-3.14.4-3]. We send nothing back [MQTT-3.14.4-2].
-- It may carry a new Session Expiry Interval [MQTT-3.14.2.2.2]
+  [MQTT-3.14.4-3]. We send nothing back.
+- It may carry a new Session Expiry Interval (§3.14.2.2.2)
 
 **Will**
 - The six will properties that are also PUBLISH properties are carried onto the
@@ -154,7 +154,7 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 **Session expiry**
 - `Session#session_expiry_interval : UInt32` is the single input to a session's
   lifetime; `clean_session?` is gone from both `Session` and `Client`
-- Derived at CONNECT: v5 reads the property, absent meaning 0 [MQTT-3.1.2-11];
+- Derived at CONNECT: v5 reads the property, absent meaning 0 (§3.1.2.11.2);
   v3 maps `clean_session=1` to 0 and `clean_session=0` to `UInt32::MAX`
 - DISCONNECT can narrow it, applied before the client is removed, so narrowing
   to 0 ends the session on that disconnect

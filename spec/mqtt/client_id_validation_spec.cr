@@ -42,7 +42,7 @@ module MqttSpecs
             connack.should be_a(MQTT::Protocol::Connack)
             connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
             # Proof the assigned id is the username: a second connection with
-            # client_id "guest" must take over this session [MQTT-3.1.4-2]
+            # client_id "guest" must take over this session [MQTT-3.1.4-3]
             with_client_io(server) do |io2|
               connect(io2, client_id: "guest")
               io.should be_closed

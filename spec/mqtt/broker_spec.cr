@@ -41,7 +41,7 @@ module MqttSpecs
       end
     end
 
-    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-2]" do
+    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
@@ -74,7 +74,7 @@ module MqttSpecs
       end
     end
 
-    it "takes over a connection whose CONNECT is still declaring its session [MQTT-3.1.4-2]" do
+    it "takes over a connection whose CONNECT is still declaring its session [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")

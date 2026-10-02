@@ -154,7 +154,7 @@ module MqttHelpers
   # The receiver half of the QoS 2 flow: PUBLISH, PUBREC, PUBREL, PUBCOMP.
   #
   # Takes an explicit `packet_id` rather than using `next_packet_id`, because
-  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.3.1-1].
+  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.2.1-3].
   def publish_qos2(io, packet_id : UInt16, **args)
     publish(io, **{packet_id: packet_id, qos: 2u8}.merge(args))
     pubrel(io, packet_id)
@@ -181,7 +181,7 @@ module MqttHelpers
   end
 
   # Reads the next packet as a PUBLISH, asserting it carries a packet id when the
-  # QoS needs one and none at QoS 0 [MQTT-2.3.1-1] [MQTT-2.3.1-5]. Use this
+  # QoS needs one and none at QoS 0 [MQTT-2.2.1-3] [MQTT-2.2.1-2]. Use this
   # instead of casting `read_packet` when comparing packet ids: `packet_id` is
   # nilable, so a pair of nils would otherwise satisfy an equality assertion.
   def read_publish(io) : MQTT::Protocol::Publish
@@ -191,7 +191,7 @@ module MqttHelpers
     pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
     if pub.qos.positive?
       pub.packet_id.should_not be_nil
-      # [MQTT-2.3.1-1]. Free teeth for every delivery spec in the suite.
+      # [MQTT-2.2.1-4]. Free teeth for every delivery spec in the suite.
       pub.packet_id.should_not eq 0u16
     else
       pub.packet_id.should be_nil

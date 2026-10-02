@@ -6,7 +6,7 @@ module MqttSpecs
   extend MqttMatchers
   describe "connect [MQTT-3.1.4-1]" do
     describe "when client already connected" do
-      it "should replace the already connected client [MQTT-3.1.4-2]" do
+      it "should replace the already connected client [MQTT-3.1.4-3]" do
         with_server do |server|
           with_client_io(server) do |io|
             connect(io)
@@ -48,7 +48,7 @@ module MqttSpecs
 
     describe "receives connack" do
       describe "with expected flags set" do
-        it "no session present when reconnecting a non-clean session with a clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a non-clean session with a clean session [MQTT-3.2.2-2]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)
@@ -68,7 +68,7 @@ module MqttSpecs
           end
         end
 
-        it "no session present when reconnecting a clean session with a non-clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a clean session with a non-clean session [MQTT-3.2.2-3]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: true)
@@ -87,7 +87,7 @@ module MqttSpecs
           end
         end
 
-        it "no session present when reconnecting a clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a clean session [MQTT-3.2.2-2]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: true)
@@ -106,7 +106,7 @@ module MqttSpecs
           end
         end
 
-        it "session present when reconnecting a non-clean session [MQTT-3.1.2-4]" do
+        it "session present when reconnecting a non-clean session [MQTT-3.2.2-3]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)
@@ -125,7 +125,7 @@ module MqttSpecs
           end
         end
 
-        it "session present when reconnecting a non-clean session without subscriptions [MQTT-3.1.2-4]" do
+        it "session present when reconnecting a non-clean session without subscriptions [MQTT-3.2.2-3]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)
@@ -214,7 +214,7 @@ module MqttSpecs
       end
 
       describe "with expected return code" do
-        it "for valid credentials [MQTT-3.1.4-4]" do
+        it "for valid credentials [MQTT-3.2.0-1]" do
           with_server do |server|
             with_client_io(server) do |io|
               connack = connect(io)
@@ -290,7 +290,7 @@ module MqttSpecs
           end
         end
 
-        it "accepts zero-byte ClientId with CleanSession set to 1 [MQTT-3.1.3-7]" do
+        it "accepts zero-byte ClientId with CleanSession set to 1 [MQTT-3.1.3-7 v3.1.1]" do
           with_server do |server|
             with_client_io(server) do |io|
               connack = connect(io, client_id: "", clean_session: true)
@@ -317,7 +317,7 @@ module MqttSpecs
           end
         end
 
-        it "for empty client id with non-clean session [MQTT-3.1.3-8]" do
+        it "for empty client id with non-clean session [MQTT-3.1.3-8 v3.1.1]" do
           with_server do |server|
             with_client_io(server) do |io|
               connack = connect(io, client_id: "", clean_session: false)
@@ -329,7 +329,7 @@ module MqttSpecs
           end
         end
 
-        it "for password flag set without username flag set [MQTT-3.1.2-22]" do
+        it "for password flag set without username flag set [MQTT-3.1.2-22 v3.1.1]" do
           with_server do |server|
             with_client_io(server) do |io|
               # The shard forbids constructing a v3 password-without-username
@@ -376,7 +376,7 @@ module MqttSpecs
           end
         end
 
-        it "for invalid client id [MQTT-3.1.3-4]." do
+        it "for invalid client id [MQTT-1.5.4-2]" do
           with_server do |server|
             with_client_io(server) do |io|
               MQTT::Protocol::Connect.new(

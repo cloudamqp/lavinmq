@@ -48,7 +48,7 @@ module LavinMQ
           # No Local [MQTT-3.8.3-3]. Bit first: the name compare is then paid
           # for only by a subscription that asked for it.
           next if options.no_local? && queue.name == publisher
-          # The lower of the publish and the subscription QoS [MQTT-3.8.4-6].
+          # The lower of the publish and the subscription QoS [MQTT-3.8.4-8].
           msg.properties.delivery_mode = Math.min(packet.qos, options.qos)
           # Retain As Published. Written for every matched entry, or a `true`
           # leaks into every later subscriber in this walk. Safe to vary per

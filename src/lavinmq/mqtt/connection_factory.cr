@@ -33,7 +33,7 @@ module LavinMQ
           logger.trace { "recv #{packet.inspect}" }
           # Enhanced authentication (the AUTH-packet flow) is not supported;
           # reject before username/password auth so the reason is accurate. v5
-          # only - v3 has no properties. [MQTT-4.12]
+          # only - v3 has no properties. [MQTT-4.12.0-1]
           if packet.properties.authentication_method
             logger.warn { "Enhanced authentication requested but not supported" }
             reject_connack(io, Protocol::Connack::ReasonCode::BadAuthenticationMethod)

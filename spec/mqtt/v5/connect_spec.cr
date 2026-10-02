@@ -9,7 +9,7 @@ module MqttSpecs
         with_client_socket(server) do |socket|
           io = MQTT::Protocol::IO::V5.new(socket)
           # A CONNECT carrying an Authentication Method wants the AUTH-packet
-          # flow, which we don't support -> CONNACK 0x8C [MQTT-4.12].
+          # flow, which we don't support -> CONNACK 0x8C [MQTT-4.12.0-1].
           props = MQTT::Protocol::ConnectProperties.new
           props.authentication_method = "SCRAM-SHA-1"
           connack = connect(io, version: MQTT::Protocol::Version::V5,
