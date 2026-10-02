@@ -6,6 +6,7 @@ Release: 1%{?dist}
 License: Apache-2.0
 BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel zlib-devel
 %{?sysusers_requires_compat}
+Suggests: etcd
 URL: https://github.com/cloudamqp/lavinmq
 Source: lavinmq.tar.gz
 

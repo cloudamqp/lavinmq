@@ -6,6 +6,12 @@ require "../http/constants"
 require "../mqtt/client_id_validation"
 
 module LavinMQ
+  # Where the cluster elects its leader and keeps the in-sync replica set
+  enum ClusteringBackend
+    Etcd
+    Raft
+  end
+
   class Config
     # Marks a config property as settable from a command-line argument.
     #
@@ -420,37 +426,42 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
-      @[CliOpt("", "--clustering-peers=ADDRESSES", "Comma separated host:port raft addresses of all cluster nodes, including this one", section: "clustering")]
+      @[CliOpt("", "--clustering-backend=BACKEND", "Leader election backend, etcd or raft (default: etcd)", ->parse_clustering_backend(String), section: "clustering")]
+      @[IniOpt(ini_name: backend, section: "clustering", transform: ->parse_clustering_backend(String))]
+      @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND", ->parse_clustering_backend(String))]
+      property clustering_backend = ClusteringBackend::Etcd
+
+      @[CliOpt("", "--clustering-peers=ADDRESSES", "Comma separated host:port raft addresses of all cluster nodes, including this one, raft backend only", section: "clustering")]
       @[IniOpt(ini_name: peers, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_PEERS")]
       property clustering_peers = ""
 
-      @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port (default: 5680)", section: "clustering")]
+      @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port, raft backend only (default: 5680)", section: "clustering")]
       @[IniOpt(ini_name: raft_port, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
       property clustering_raft_port = 5680
 
-      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "This node's host:port as listed in the peers (default: hostname:raft_port)", section: "clustering")]
+      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "This node's host:port as listed in the peers, raft backend only (default: hostname:raft_port)", section: "clustering")]
       @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")]
       property clustering_raft_advertised_address : String? = nil
 
-      @[CliOpt("", "--clustering-election-timeout=MS", "Leader election timeout in milliseconds (default: 1500)", section: "clustering")]
+      @[CliOpt("", "--clustering-election-timeout=MS", "Leader election timeout in milliseconds, raft backend only (default: 1500)", section: "clustering")]
       @[IniOpt(ini_name: election_timeout, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ELECTION_TIMEOUT")]
       property clustering_election_timeout = 1500
 
-      @[CliOpt("", "--clustering-heartbeat-interval=MS", "Leader heartbeat interval in milliseconds (default: 250)", section: "clustering")]
+      @[CliOpt("", "--clustering-heartbeat-interval=MS", "Leader heartbeat interval in milliseconds, raft backend only (default: 250)", section: "clustering")]
       @[IniOpt(ini_name: heartbeat_interval, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL")]
       property clustering_heartbeat_interval = 250
 
-      @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet", ->(_v : String) { true }, section: "clustering")]
+      @[CliOpt("", "--clustering-bootstrap", "Let this node lead a cluster none of whose nodes has election state yet, raft backend only", ->(_v : String) { true }, section: "clustering")]
       @[IniOpt(ini_name: bootstrap, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]
       property? clustering_bootstrap = false
 
-      # Shared by all nodes: authenticates election traffic and followers
+      # Raft backend only, shared by all nodes: authenticates election traffic and followers
       # replicating from the leader. Deliberately not a CLI option, argv is
       # visible to every user on the host.
       @[IniOpt(ini_name: password, section: "clustering")]
@@ -460,24 +471,20 @@ module LavinMQ
       # File holding the clustering password, must not be readable by group or
       # others. Preferred over `password`, which lives in the often world
       # readable config file.
-      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600)", section: "clustering")]
+      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600), raft backend only", section: "clustering")]
       @[IniOpt(ini_name: password_file, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD_FILE")]
       property clustering_password_file = ""
 
-      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "(Deprecated) No longer used",
-        section: "clustering", deprecated: "--clustering-etcd-endpoints is deprecated and no longer used, leader election is built in")]
-      @[IniOpt(ini_name: etcd_endpoints, section: "clustering",
-        deprecated: "Ini config etcd_endpoints is deprecated and no longer used, leader election is built in")]
+      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs, etcd backend only (default: 127.0.0.1:2379)", section: "clustering")]
+      @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
-      @clustering_etcd_endpoints = "" # deprecated, no longer used
+      property clustering_etcd_endpoints = "localhost:2379"
 
-      @[CliOpt("", "--clustering-etcd-prefix=KEY", "(Deprecated) No longer used",
-        section: "clustering", deprecated: "--clustering-etcd-prefix is deprecated and no longer used, leader election is built in")]
-      @[IniOpt(ini_name: etcd_prefix, section: "clustering",
-        deprecated: "Ini config etcd_prefix is deprecated and no longer used, leader election is built in")]
+      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd, etcd backend only (default: lavinmq)", section: "clustering")]
+      @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
-      @clustering_etcd_prefix = "" # deprecated, no longer used
+      property clustering_etcd_prefix = "lavinmq"
 
       # Deprecated: still accepted (CLI/INI/ENV) so existing configs don't break,
       # but has no effect. The follower ack buffer is a fixed size now and how far
