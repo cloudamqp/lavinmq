@@ -19,6 +19,11 @@ module LavinMQ
   class Server
     PROCESS_START = Time.instant
 
+    # Monotonic time as an integer, for timestamps that are kept in an Atomic
+    def self.nanoseconds_since_start : Int64
+      (Time.instant - PROCESS_START).total_nanoseconds.to_i64
+    end
+
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
 

@@ -54,6 +54,12 @@ module LavinMQ
     end
 
     getter flow_reason = "Server low on resources"
+    # When flow was last stopped, see Server.nanoseconds_since_start
+    @flow_stopped_at = Atomic(Int64).new(0)
+
+    def flow_stopped_at : Int64
+      @flow_stopped_at.get(:relaxed)
+    end
 
     def flow=(active : Bool)
       @flow = active
@@ -62,6 +68,7 @@ module LavinMQ
     def set_flow(active : Bool, reason : String) : Nil
       @flow_reason = reason
       return if @flow == active
+      @flow_stopped_at.set(Server.nanoseconds_since_start, :relaxed) unless active
       @flow = active
       # A client with a full socket buffer must not stall the caller
       spawn(name: "VHost#notify_flow") do

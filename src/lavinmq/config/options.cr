@@ -336,6 +336,12 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property free_disk_warn : Int64 = 0_i64 # bytes
 
+      # While flow is stopped, publishes from a client that supports
+      # connection.blocked are still accepted for this long after it was sent
+      # connection.blocked, as they were likely sent before it saw the frame
+      @[IniOpt(section: "main")]
+      property blocked_publish_grace = 1000 # milliseconds
+
       # Memory pressure (systemd MemoryPressureWatch) is considered over when
       # the cgroup's memory PSI "some avg10" drops below this percentage
       @[IniOpt(section: "main")]

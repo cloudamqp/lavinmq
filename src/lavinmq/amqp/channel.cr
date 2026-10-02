@@ -153,7 +153,7 @@ module LavinMQ
           @release_buffers.set(false, :relaxed)
           @next_msg_body_tmp = IO::Memory.new
         end
-        unless server_flow?
+        unless server_flow? || @client.in_blocked_grace?
           @client.send_precondition_failed(frame, @client.vhost.flow_reason)
           return
         end

@@ -52,6 +52,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `syncfs_threshold` | — | — | Int | `64` | Files a publish confirm depends on above which the whole filesystem is synced (syncfs) instead of each file individually |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
+| `blocked_publish_grace` | — | — | Int | `1000` | While publishing is blocked (low disk space or memory pressure), publishes from clients that support `connection.blocked` are still accepted for this many milliseconds after the client was sent `connection.blocked`, since they were likely sent before the client saw it |
 | `memory_pressure_release_avg10` | — | — | Float | `1.0` | When systemd signals memory pressure (`MemoryPressureWatch`), publishing and queue creation are blocked until the cgroup's memory PSI `some avg10` drops below this percentage |
 | `memory_pressure_refuse_connections` | — | — | Bool | `true` | Refuse new connections while under memory pressure |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |

@@ -9,7 +9,9 @@ end
 
 describe "Memory pressure" do
   it "stops flow and refuses new connections" do
-    with_amqp_server do |s|
+    config = LavinMQ::Config.new
+    config.blocked_publish_grace = 0
+    with_amqp_server(config: config) do |s|
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm("m1").should be_true
@@ -17,9 +19,9 @@ describe "Memory pressure" do
         control_flow(s)
         s.flow?.should be_false
         s.flow_reason.should eq "Server under memory pressure"
-        expect_raises(AMQP::Client::Channel::ClosedException, /memory pressure/) do
-          q.publish_confirm("m2")
-        end
+        raw_publish(ch, q.name)
+        wait_for { ch.closed? }
+        ch.@closing_frame.try(&.reply_text).should match /memory pressure/
         expect_raises(Exception) do
           AMQP::Client.new(port: amqp_port(s)).connect
         end

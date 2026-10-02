@@ -150,6 +150,15 @@ ensure
   conn.try &.close(no_wait: false)
 end
 
+# Writes a publish straight to the socket, like one already in flight.
+# AMQP::Client::Channel#basic_publish waits while the connection is blocked.
+def raw_publish(ch : AMQP::Client::Channel, routing_key : String, body = "m") : Nil
+  conn = ch.@connection
+  conn.write AMQ::Protocol::Frame::Basic::Publish.new(ch.id, 0_u16, "", routing_key, false, false)
+  conn.write AMQ::Protocol::Frame::Header.new(ch.id, 60_u16, 0_u16, body.bytesize.to_u64, AMQ::Protocol::Properties.new)
+  conn.write AMQ::Protocol::Frame::BytesBody.new(ch.id, body.bytesize.to_u32, body.to_slice)
+end
+
 def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
