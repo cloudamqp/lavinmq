@@ -94,7 +94,11 @@ module LavinMQ::Clustering::Raft
 
     def close : Nil
       @events.close
-      @stopped.receive?
+      if @transport
+        @stopped.receive?
+      else
+        @stopped.close
+      end
       @transport.try &.close
     end
 
