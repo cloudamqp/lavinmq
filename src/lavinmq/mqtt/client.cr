@@ -287,7 +287,8 @@ module LavinMQ
       end
 
       # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
-      # alone; `dup` is unreliable in both directions [MQTT-3.3.1-3].
+      # alone: a recipient cannot assume a `dup` PUBLISH is one it has seen
+      # (3.3.1.1).
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
         if @session.qos2_publish_received?(packet_id)
           begin

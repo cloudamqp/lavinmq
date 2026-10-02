@@ -69,7 +69,7 @@ module LavinMQ
       @has_capacity = BoolChannel.new(true)
       # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
-      # one is answered again and not routed twice [MQTT-4.3.3-1].
+      # one is answered again and not routed twice [MQTT-4.3.3-2].
       @qos2_received = Set(UInt16).new
 
       protected def initialize(@vhost : VHost,
@@ -186,7 +186,7 @@ module LavinMQ
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@unacked` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      # [MQTT-2.3.1-1]. Both fall back to a fresh id.
       private def delivery_id(sp : SegmentPosition) : UInt16?
         if id = @msg_store.packet_id?(sp)
           return id unless id.zero? || @unacked.has_key?(id)
@@ -477,7 +477,7 @@ module LavinMQ
         inflight = @unacked[id]?
         raise ::IO::Error.new("No message inflight for id '#{id}'") if inflight.nil?
         sp = inflight.sp
-        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2], so a PUBACK for
+        # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for
         # one is a protocol violation. Checked before the delete, so it cannot
         # drop an obligation the session still owes.
         if sp.nil? || inflight.qos != 1u8
@@ -496,7 +496,7 @@ module LavinMQ
         end
       end
 
-      # The receiver owns the message from PUBREC on [MQTT-4.3.3-1], so it is
+      # The receiver owns the message from PUBREC on [MQTT-4.3.3-2], so it is
       # deleted here, not at PUBCOMP; the id stays booked until then.
       #
       # Returns rather than raises for an unknown id: nothing in the window
