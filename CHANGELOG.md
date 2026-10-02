@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
+- MQTT QoS 2 (exactly once): the full PUBLISH/PUBREC/PUBREL/PUBCOMP handshake in both directions, and QoS 2 subscriptions are granted rather than downgraded. An unfinished exchange is resumed on reconnect, re-sending the PUBREL under its original packet ID. The state is in memory, so it survives neither a broker restart nor a failover; persisting it is planned as follow-up work
 
 ### Changed
 
@@ -17,11 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MQTT QoS 1 PUBACKs are sent once the publish is persisted to disk, in publish order. QoS 1 throughput is lower as a result [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `max_inflight_messages` must be at least `1`; `0` is now rejected at startup and on config reload instead of leaving every MQTT session accepting publishes it can never deliver [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 - Stream `max-length` and `max-length-bytes` retention only drops a segment if the stream still meets the limit without it, so a stream now keeps at least the limit (up to one extra segment) instead of possibly being emptied on segment rollover. `max-age` segments are dropped when they expire, also on streams that receive no new messages [#2250](https://github.com/cloudamqp/lavinmq/pull/2250)
+- An MQTT message is now delivered at the lower of the QoS it was published with and the QoS of the subscription, instead of always the subscription's. A QoS 0 publish to a QoS 1 or QoS 2 subscriber is no longer acknowledged and is no longer stored while that session is offline
+- `max_inflight_messages` bounds outstanding MQTT packet IDs rather than outstanding messages. A QoS 2 delivery holds its ID across both round trips, so it occupies a slot until PUBCOMP
+- MQTT definitions files may now carry `mqtt.qos = 2` in a binding's arguments. An older broker reading one clamps it back to QoS 1
+- Every MQTT connection now gets a session at CONNECT, not at its first SUBSCRIBE, so a publish-only client also has an `mqtt.<client_id>` queue. A persistent client that reconnects is answered `session_present=1` whether or not it subscribed [MQTT-3.1.2-4], and keeps its inbound QoS 2 state across the reconnect. Sessions still count towards `max-queues`, so a vhost at its limit now refuses a CONNECT that needs a new session with return code 3 (server unavailable) instead of failing its SUBSCRIBE. The session is created without a `permission_check_enabled` check. Deleting a session queue now closes its client's connection. A CONNECT whose `mqtt.<client_id>` name is already taken by a queue that is not a session, which only a definitions import can create, is refused with return code 2 (identifier rejected)
 
 ### Fixed
 
 - Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 - Stream queue memory usage while consuming: segments are released from memory as soon as no consumer is reading them, instead of by a sweep every 60 seconds, which could grow to hundreds of MB during a fast replay [#2250](https://github.com/cloudamqp/lavinmq/pull/2250)
+- An MQTT in-flight packet ID is recorded before the PUBLISH is written rather than after, so an acknowledgement that arrives while the write is still parked is no longer mistaken for one referring to nothing, which reported a lost connection and published the client's will
 
 ## [2.10.0] - 2026-09-25
 

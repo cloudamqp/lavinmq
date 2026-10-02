@@ -37,11 +37,11 @@ module LavinMQ
       # the persister's cumulative confirm releases every PUBACK up to it.
       record PendingPubAck, seq : UInt64, packet_id : UInt16
 
-      getter log, name, user, client_id, socket, connection_info
-      getter? clean_session
+      getter log, name, user, client_id, socket, connection_info, session
       @connected_at = RoughTime.unix_ms
+      @started = false
+      getter? closed = false
       @channels = Hash(UInt16, Client::Channel).new
-      @session : MQTT::Session?
       @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
@@ -75,9 +75,9 @@ module LavinMQ
                      @connection_info : ConnectionInfo,
                      @user : Auth::BaseUser,
                      @broker : MQTT::Broker,
+                     @session : MQTT::Session,
                      @client_id : String,
                      protocol_version : ProtocolVersion,
-                     @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil)
         @protocol = protocol_version.name
@@ -89,7 +89,11 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
       end
 
+      # Attaching can yield on a PUBREL resend, so it comes after `@started`,
+      # which makes a takeover's `close` wait for this fiber to finish.
       def run : Nil
+        @started = true
+        @session.client = self
         @log.info { "Connection established for user=#{@user.name}" }
         case user = @user
         when Auth::OAuthUser
@@ -98,6 +102,8 @@ module LavinMQ
           end
         end
         read_loop
+      ensure
+        @waitgroup.done
       end
 
       def client_name
@@ -125,6 +131,12 @@ module LavinMQ
             break
           end
         end
+      rescue ex : Session::ProtocolViolation
+        # The Will publishes from here as it does on every other close without a
+        # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
+        # error as one of those situations.
+        @log.warn { "Protocol violation: #{ex.message}" }
+        publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will
@@ -132,7 +144,7 @@ module LavinMQ
         @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
         publish_will
       rescue ex : ::IO::Error
-        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
+        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless closed_by_server?
         publish_will
       rescue ex
         @log.error(exception: ex) { "Read Loop error" }
@@ -143,9 +155,13 @@ module LavinMQ
           user.cleanup
         end
         @puback_mailbox.try &.close
-        @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
+      end
+
+      # A deleted session closes only the socket, not the client, and logs why.
+      private def closed_by_server? : Bool
+        @closed || @session.deleted?
       end
 
       private def duration
@@ -163,6 +179,9 @@ module LavinMQ
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
+        when Protocol::PubRec      then recieve_pubrec(packet)
+        when Protocol::PubRel      then recieve_pubrel(packet)
+        when Protocol::PubComp     then recieve_pubcomp(packet)
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
@@ -187,7 +206,7 @@ module LavinMQ
             vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
             vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
-        when Protocol::PubAck
+        when Protocol::PubAck, Protocol::PubRec
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
       end
@@ -202,19 +221,28 @@ module LavinMQ
           close_socket
           return
         end
-        # A topic denial acks and drops, it never closes the connection.
+        packet_id = packet.packet_id
+        # A topic denial acks and drops, it never closes the connection. QoS 2
+        # takes a PUBREC, and the PUBREL that follows is answered by
+        # `recieve_pubrel` like any unknown id.
         unless @broker.permission_service.can_write?(@permission_context, packet.topic)
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
-          # Queued like the others, as PUBACKs must be sent in publish order
-          if packet.qos > 0 && (packet_id = packet.packet_id)
+          if packet.qos == 2 && packet_id
+            send(Protocol::PubRec.new(packet_id))
+          elsif packet.qos == 1 && packet_id
+            # Queued like the others, as PUBACKs must be sent in publish order
             enqueue_puback(packet_id)
           end
+          return
+        end
+        if packet.qos == 2 && packet_id
+          recieve_qos2_publish(packet, packet_id)
           return
         end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
-        if packet.qos > 0 && (packet_id = packet.packet_id)
+        if packet.qos > 0 && packet_id
           enqueue_puback(packet_id)
         end
       end
@@ -258,14 +286,46 @@ module LavinMQ
         end
       end
 
-      def recieve_puback(packet : Protocol::PubAck)
-        # No session means we never delivered anything to ack
-        unless session = @broker.sessions[@client_id]?
-          @log.warn { "Received PubAck from client without a session" }
-          close_socket
-          return
+      # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
+      # alone: a recipient cannot assume a `dup` PUBLISH is one it has seen
+      # (3.3.1.1).
+      private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
+        if @session.qos2_publish_received?(packet_id)
+          begin
+            @broker.publish(packet)
+          rescue ex
+            # An id left behind by a routing failure would dedupe away the
+            # client's re-send, turning a duplicate into silent loss.
+            @session.qos2_release(packet_id)
+            raise ex
+          end
+          vhost.event_tick(EventType::ClientPublish)
         end
-        session.ack(packet)
+        # Answered on both paths: a re-send means our first PUBREC was lost.
+        send(Protocol::PubRec.new(packet_id))
+      end
+
+      def recieve_pubrec(packet : Protocol::PubRec)
+        vhost.event_tick(EventType::ClientAck) if @session.pubrec(packet)
+      end
+
+      def recieve_pubcomp(packet : Protocol::PubComp)
+        @session.pubcomp(packet)
+      end
+
+      def recieve_pubrel(packet : Protocol::PubRel)
+        id = packet.packet_id
+        unless @session.qos2_release(id)
+          # PUBCOMP is the only answer that lets the client release the id, and
+          # an unknown id is ordinary: the held ids do not survive a restart, so
+          # raising would publish the will of every resuming QoS 2 publisher.
+          @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
+        end
+        send(Protocol::PubComp.new(id))
+      end
+
+      def recieve_puback(packet : Protocol::PubAck)
+        @session.ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
@@ -285,7 +345,7 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        @broker.unsubscribe(client_id, packet.topics)
+        @broker.unsubscribe(self, packet.topics)
         send(Protocol::UnsubAck.new(packet.packet_id))
       end
 
@@ -348,12 +408,15 @@ module LavinMQ
       end
 
       # should only be used when server needs to froce close client
+      #
+      # A client that never started has no read fiber to wait for:
+      # `Broker#run_client` sees `closed?` and does not start it.
       def close(reason = "")
         return if @closed
         @log.info { "Closing connection: #{reason}" }
         @closed = true
         close_socket
-        @waitgroup.wait
+        @waitgroup.wait if @started
       end
 
       def state
