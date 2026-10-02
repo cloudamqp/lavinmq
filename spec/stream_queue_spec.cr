@@ -24,6 +24,19 @@ module StreamSpecHelpers
     end
   end
 
+  # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
+  def self.mapped_rss_kb(path : String) : Int32
+    in_mapping = false
+    File.each_line("/proc/self/smaps") do |line|
+      if line.ends_with?(path)
+        in_mapping = true
+      elsif in_mapping && line.starts_with?("Rss:")
+        return line.split[1].to_i
+      end
+    end
+    fail("No mapping found for #{path}")
+  end
+
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
@@ -1496,6 +1509,24 @@ describe LavinMQ::AMQP::Stream do
       end
     end
   end
+
+  {% if flag?(:linux) %}
+    describe "segment rollover" do
+      it "unmaps the first segment when the stream has no consumers" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size * 3 // 4)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            2.times { q.publish_confirm data }
+          end
+          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+          first = stream.stream_msg_store.@segments.first_value
+          StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
+        end
+      end
+    end
+  {% end %}
 
   describe "segment readers" do
     it "tracks which segment each consumer is reading and releases on cancel" do

@@ -284,6 +284,11 @@ module LavinMQ::AMQP
       sp
     end
 
+    # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
+    private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
+      mfile.dontneed unless @segment_readers.has_key?(seg)
+    end
+
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
         @expiry_changed.try_send?(nil)
