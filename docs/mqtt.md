@@ -32,7 +32,7 @@ A message is delivered at the lower of the QoS it was published with and the QoS
 
 Exactly-once rests on remembering packet IDs, not messages.
 
-When a client publishes at QoS 2, LavinMQ records the packet ID, routes the message, and answers PUBREC. A re-sent PUBLISH carrying an ID that is still recorded is answered with another PUBREC and is not routed a second time, which is what makes the delivery exactly-once. The client's PUBREL releases the ID and is answered with PUBCOMP. A PUBREL for an ID LavinMQ is not holding is answered with PUBCOMP as well, so a client whose PUBCOMP was lost can always complete the exchange.
+When a client publishes at QoS 2, LavinMQ records the packet ID, routes the message, and answers PUBREC once the message is persisted to disk, like a QoS 1 PUBACK. PUBACKs and PUBRECs are sent in the order the publishes arrived. A re-sent PUBLISH carrying an ID that is still recorded is answered with another PUBREC and is not routed a second time, which is what makes the delivery exactly-once. The client's PUBREL releases the ID and is answered with PUBCOMP. A PUBREL for an ID LavinMQ is not holding is answered with PUBCOMP as well, so a client whose PUBCOMP was lost can always complete the exchange.
 
 When LavinMQ delivers at QoS 2, the packet ID stays outstanding across both round trips. The message itself is released at PUBREC, since the subscriber owns it from that point and it must never be sent again; the ID alone is held until PUBCOMP. `max_inflight_messages` therefore bounds outstanding *packet IDs* rather than outstanding messages, and a QoS 2 subscriber reaches that bound at a lower message rate than a QoS 1 one.
 

@@ -32,10 +32,11 @@ module LavinMQ
       include SortableJSON
       include Persister::ConfirmTarget
 
-      # A QoS 1 publish waiting for its PUBACK, which is sent once the
-      # persister has made the publish durable. `seq` orders the publishes, so
-      # the persister's cumulative confirm releases every PUBACK up to it.
-      record PendingPubAck, seq : UInt64, packet_id : UInt16
+      # A QoS 1 publish waiting for its PUBACK, or a QoS 2 one for its PUBREC,
+      # which is sent once the persister has made the publish durable. `seq`
+      # orders the publishes, so the persister's cumulative confirm releases
+      # every acknowledgement up to it.
+      record PendingPubAck, seq : UInt64, packet_id : UInt16, qos : UInt8
 
       getter log, name, user, client_id, socket, connection_info, session
       @connected_at = RoughTime.unix_ms
@@ -45,7 +46,7 @@ module LavinMQ
       @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
-      # Created with the PUBACK writer fiber on the first QoS 1 publish
+      # Created with the PUBACK writer fiber on the first QoS 1 or 2 publish
       @puback_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
@@ -227,11 +228,9 @@ module LavinMQ
         # `recieve_pubrel` like any unknown id.
         unless @broker.permission_service.can_write?(@permission_context, packet.topic)
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
-          if packet.qos == 2 && packet_id
-            send(Protocol::PubRec.new(packet_id))
-          elsif packet.qos == 1 && packet_id
-            # Queued like the others, as PUBACKs must be sent in publish order
-            enqueue_puback(packet_id)
+          # Queued like the others, so acknowledgements leave in publish order
+          if packet.qos > 0 && packet_id
+            enqueue_puback(packet_id, packet.qos)
           end
           return
         end
@@ -243,20 +242,20 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
-          enqueue_puback(packet_id)
+          enqueue_puback(packet_id, packet.qos)
         end
       end
 
-      # QoS 1 publishes are acked like publish confirms, once durable. The
-      # PUBACK is sent by the writer fiber, so the read loop never waits for
-      # the disk.
-      private def enqueue_puback(packet_id : UInt16) : Nil
+      # QoS 1 and 2 publishes are acked like publish confirms, once durable. The
+      # PUBACK or PUBREC is sent by the writer fiber, so the read loop never
+      # waits for the disk.
+      private def enqueue_puback(packet_id : UInt16, qos : UInt8) : Nil
         unless @puback_mailbox
           mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
           spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
         end
         seq = @publish_seq &+= 1
-        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
+        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id, qos))
         vhost.enqueue_ack(self, seq)
       end
 
@@ -274,7 +273,11 @@ module LavinMQ
       private def puback_writer(mailbox : ::Channel(UInt64))
         while seq = mailbox.receive?
           while pending = next_puback(seq)
-            send(Protocol::PubAck.new(pending.packet_id))
+            if pending.qos == 2
+              send(Protocol::PubRec.new(pending.packet_id))
+            else
+              send(Protocol::PubAck.new(pending.packet_id))
+            end
           end
         end
       rescue ::IO::Error
@@ -286,9 +289,9 @@ module LavinMQ
         end
       end
 
-      # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
-      # alone: a recipient cannot assume a `dup` PUBLISH is one it has seen
-      # (3.3.1.1).
+      # Figure 4.3: store the id, route, then answer PUBREC once durable.
+      # Dedupe is by id alone: a recipient cannot assume a `dup` PUBLISH is one
+      # it has seen (3.3.1.1).
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
         if @session.qos2_publish_received?(packet_id)
           begin
@@ -302,7 +305,8 @@ module LavinMQ
           vhost.event_tick(EventType::ClientPublish)
         end
         # Answered on both paths: a re-send means our first PUBREC was lost.
-        send(Protocol::PubRec.new(packet_id))
+        # Queued even for a re-send, since the first copy may not be durable yet.
+        enqueue_puback(packet_id, 2u8)
       end
 
       def recieve_pubrec(packet : Protocol::PubRec)
