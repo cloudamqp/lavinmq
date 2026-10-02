@@ -35,7 +35,7 @@ module MqttSpecs
   end
 
   describe "qos2 as receiver" do
-    it "completes the QoS 2 handshake for an inbound publish [MQTT-4.3.3-1]" do
+    it "completes the QoS 2 handshake for an inbound publish [MQTT-4.3.3-2]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -58,7 +58,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-1]" do
+    it "delivers a re-sent QoS 2 publish only once [MQTT-4.3.3-2]" do
       with_server do |server|
         with_client_io(server) do |sub_io|
           connect(sub_io, client_id: "subscriber")
@@ -339,7 +339,7 @@ module MqttSpecs
     end
 
     it "closes a subscriber that acknowledges a QoS 2 delivery with PUBACK [MQTT-4.8.0-1]" do
-      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2], so a PUBACK for one
+      # A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1], so a PUBACK for one
       # is a protocol violation, and a violation must close the connection.
       with_server do |server|
         with_client_io(server) do |io|

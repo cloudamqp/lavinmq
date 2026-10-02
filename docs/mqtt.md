@@ -40,7 +40,7 @@ The QoS 2 state on both sides is held in memory. It is not persisted and not rep
 
 ### Acknowledging with the wrong packet type
 
-A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-2] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
+A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
 
 A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated differently: it is logged and ignored. Neither the outbound in-flight window nor the set of unreleased inbound IDs survives a broker restart, and [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
 

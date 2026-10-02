@@ -132,7 +132,7 @@ module MqttSpecs
       end
     end
 
-    it "grants qos2 for a qos2 subscription [MQTT-3.9.3-1]" do
+    it "grants qos2 for a qos2 subscription" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -146,7 +146,7 @@ module MqttSpecs
 
           # Published at qos 2 from a second connection, so that the grant is
           # what decides the delivery qos rather than the publish capping it
-          # [MQTT-3.3.5-1], and so the publisher's PUBREC does not interleave
+          # [MQTT-3.8.4-6], and so the publisher's PUBREC does not interleave
           # with the delivery on this socket.
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "publisher")
