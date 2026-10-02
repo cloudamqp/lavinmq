@@ -65,7 +65,9 @@ module LavinMQ
       # Run on a dedicated thread so the blocking syscalls only stall this
       # thread, not the worker threads handling client connections.
       Fiber::ExecutionContext::Isolated.new("Publish confirm loop") { publish_confirm_loop }
-      spawn(sync_watchdog_loop, name: "Sync watchdog")
+      # Isolated too, as a stalled device can block every default context
+      # thread in file I/O or page faults
+      Fiber::ExecutionContext::Isolated.new("Sync watchdog") { sync_watchdog_loop }
     end
 
     # Every confirm — sync, no-sync, and clustered alike — is routed through the
