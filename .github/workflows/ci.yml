@@ -628,7 +628,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: compile
     env:
-      QC_VERSION: v0.1.0
+      QC_VERSION: v0.2.0
       QC_BIN: amqp-quickcheck-tests-x86_64-linux
     steps:
       - name: Install LavinMQ dependencies
