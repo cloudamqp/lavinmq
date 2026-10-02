@@ -1,82 +1,27 @@
 name: Claude Code Review
+
 on:
   pull_request:
-    types: [opened, synchronize]
-    paths: # Only run on specific file changes
-      - "src/**/*.cr"
-      - "static/**/*.js"
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: string
+    types: [opened, synchronize, ready_for_review]
+
 jobs:
-  claude-review:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+  review:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
-      issues: read
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
-    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-      - name: Load review config
-        id: config
-        run: |
-          source .review-config
-          if [[ -z "$MODEL" || -z "$CRITERIA" ]]; then
-            echo "::error::.review-config must define MODEL and CRITERIA"
-            exit 1
-          fi
-          {
-            DELIM="EOF_$(openssl rand -hex 16)"
-            echo "criteria<<$DELIM"
-            cat "$CRITERIA"
-            echo "$DELIM"
-            echo "model=$MODEL"
-          } >> "$GITHUB_OUTPUT"
-      - name: Compute turn budget from diff size
-        id: budget
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
-        run: |
-          lines=$(gh pr view "$PR" --repo "${{ github.repository }}" --json additions,deletions -q '.additions + .deletions')
-          if [ "$lines" -lt 300 ]; then
-            turns=15
-          elif [ "$lines" -lt 1000 ]; then
-            turns=25
-          else
-            turns=60
-          fi
-          echo "$lines changed lines, $turns turn budget"
-          echo "turns=$turns" >> "$GITHUB_OUTPUT"
+          fetch-depth: 1
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
-
-            Review this PR and report ONLY problems that need fixing.
-            You have a maximum of ${{ steps.budget.outputs.turns }} turns — finish well within that limit.
-
-            Steps:
-            1. Run `gh pr diff` to read the changes
-            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change, and read every file you need in as few batched tool calls as possible.
-            3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
-
-            ${{ steps.config.outputs.criteria }}
-
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           claude_args: |
-            --model ${{ steps.config.outputs.model }}
-            --max-turns ${{ steps.budget.outputs.turns }}
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
