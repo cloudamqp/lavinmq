@@ -42,7 +42,7 @@ module LavinMQ
       end
 
       if @config.clustering?
-        @runner = controller = Clustering::Controller.new(@config)
+        @runner = controller = Clustering::Controller.create(@config)
         @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
       else
         @runner = StandaloneRunner.new

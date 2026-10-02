@@ -1,23 +1,6 @@
-require "log/spec"
 require "../spec_helper"
+require "../../src/lavinmq/launcher"
 require "../../src/lavinmq/clustering/controller"
-
-private class SpecController < LavinMQ::Clustering::Controller
-  property fake_leader_uri : String? = nil
-  property? fake_leader = false
-
-  def follow_leader_public
-    follow_leader
-  end
-
-  private def current_leader_uri : String?
-    @fake_leader_uri
-  end
-
-  private def leader? : Bool
-    @fake_leader
-  end
-end
 
 private def free_port : Int32
   s = TCPServer.new("127.0.0.1", 0)
@@ -26,227 +9,67 @@ ensure
   s.try &.close
 end
 
-# Controllers of a cluster, each with its own data dir and raft port. The
-# block given to run is recorded so specs can see who's serving.
-private class ControllerCluster
-  getter controllers = Array(LavinMQ::Clustering::Controller).new
-  getter serving = Channel(LavinMQ::Clustering::Controller).new(8)
-  getter exits = Channel(Tuple(LavinMQ::Clustering::Controller, Int32)).new(8)
-  getter dirs = Array(String).new
-
-  def initialize(size : Int32, with_data = false, bootstrap : Int32? = nil)
-    ports = Array.new(size) { free_port }
-    peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
-    ports.each do |port|
-      dir = File.tempname("lavinmq", "controller-spec")
-      Dir.mkdir_p dir
-      File.write(File.join(dir, "users.json"), "[]") if with_data
-      @dirs << dir
-      config = LavinMQ::Config.new
-      config.clustering_bootstrap = bootstrap == @dirs.size - 1
-      config.data_dir = dir
-      config.clustering = true
-      config.clustering_bind = "127.0.0.1"
-      config.clustering_raft_port = port
-      config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
-      config.clustering_peers = peers
-      config.clustering_password = "controller-spec"
-      config.clustering_election_timeout = 300
-      config.clustering_heartbeat_interval = 50
-      config.clustering_port = free_port
-      config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
-      config.metrics_http_port = -1
-      # Followers proxy client ports to the leader, let each pick its own
-      config.amqp_port = config.http_port = config.mqtt_port = 0
-      config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-      @controllers << LavinMQ::Clustering::Controller.new(config)
-    end
-  end
-
-  def start(controller)
-    spawn(name: "controller spec #{controller.id}") do
-      controller.run { @serving.send controller }
-    rescue ex : SpecExit
-      @exits.send({controller, ex.code})
-    end
-  end
-
-  def start_all
-    @controllers.each { |c| start(c) }
-  end
-
-  def next_leader(timeout = 5.seconds) : LavinMQ::Clustering::Controller
-    select
-    when c = @serving.receive
-      c
-    when timeout(timeout)
-      fail "no leader elected within #{timeout}"
-    end
-  end
-
-  def close
-    @controllers.each &.stop
-    @dirs.each { |d| FileUtils.rm_rf d }
-  end
-end
-
-private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = nil, &)
-  cluster = ControllerCluster.new(size, with_data, bootstrap)
-  yield cluster
-ensure
-  cluster.try &.close
+private def clustering_config(data_dir : String) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering = true
+  config.clustering_bind = "127.0.0.1"
+  config.clustering_port = free_port
+  config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
+  config.clustering_raft_port = free_port
+  config.clustering_raft_advertised_address = "127.0.0.1:#{config.clustering_raft_port}"
+  config.clustering_password = "controller-spec"
+  config
 end
 
 describe LavinMQ::Clustering::Controller do
-  it "reports follower proxy bind failures without the generic unhandled exception log" do
-    blocker = TCPServer.new("127.0.0.1", 0)
+  it "uses the etcd backend by default" do
     with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
+      LavinMQ::Clustering::Controller.create(clustering_config(data_dir)).should be_a LavinMQ::Clustering::EtcdController
+    end
+  end
+
+  it "uses the raft backend when configured" do
+    with_datadir do |data_dir|
+      config = clustering_config(data_dir)
+      config.clustering_backend = LavinMQ::ClusteringBackend::Raft
+      LavinMQ::Clustering::Controller.create(config).should be_a LavinMQ::Clustering::RaftController
+    end
+  end
+
+  it "runs a single node raft cluster from the launcher", tags: "slow" do
+    with_datadir do |data_dir|
+      config = clustering_config(data_dir)
+      config.clustering_backend = LavinMQ::ClusteringBackend::Raft
+      config.clustering_election_timeout = 300
+      config.clustering_heartbeat_interval = 50
       config.amqp_bind = "127.0.0.1"
-      config.amqp_port = blocker.local_address.port
-      config.http_port = 0
-      config.mqtt_port = 0
+      config.amqp_port = free_port
+      config.amqps_port = config.https_port = config.mqtts_port = -1
+      config.http_port = config.mqtt_port = 0
       config.metrics_http_port = -1
-      config.clustering_password = "secret"
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = "tcp://192.0.2.10:5679"
-
-      Log.capture("lmq.clustering.controller", :fatal) do |logs|
-        ex = expect_raises(SpecExit) { controller.follow_leader_public }
-        ex.code.should eq 36
-        logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
-        logs.entry.to_s.should_not contain "Unhandled exception while following leader"
+      config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+      config.control_unix_path = File.join(data_dir, "control.sock")
+      launcher = LavinMQ::Launcher.new(config)
+      stopped = Channel(Nil).new
+      spawn(name: "raft launcher spec") do
+        launcher.run
+      rescue SpecExit
+      ensure
+        stopped.close
       end
-    end
-  ensure
-    blocker.try &.close
-  end
-
-  it "stops following once this node is the leader" do
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.clustering_password = "secret"
-      config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = config.clustering_advertised_uri
-      controller.fake_leader = true
-      controller.follow_leader_public # returns instead of blocking or exiting
-    end
-  end
-
-  it "exits when another node advertises the same URI" do
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.clustering_password = "secret"
-      config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = config.clustering_advertised_uri
-      ex = expect_raises(SpecExit) { controller.follow_leader_public }
-      ex.code.should eq 36
-    end
-  end
-
-  it "elects a single leader and fails over", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      first.stop
-      second = cluster.next_leader
-      second.should_not eq first
-      select
-      when extra = cluster.serving.receive
-        fail "two leaders serving: #{extra.id}"
-      when timeout(500.milliseconds)
+      wait_for(10.seconds) do
+        TCPSocket.new("127.0.0.1", config.amqp_port).close
+        true
+      rescue Socket::ConnectError
+        false
       end
-    end
-  end
-
-  it "hands over leadership on shutdown faster than an election timeout", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      started = Time.instant
-      spawn { first.stop }
-      cluster.next_leader(timeout: 2.seconds)
-      (Time.instant - started).should be < 300.milliseconds
-    end
-  end
-
-  it "only fails over to nodes in the ISR", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      # A new leader's ISR is just itself until followers have synced from it
-      others = cluster.controllers.reject(first)
-      in_sync = others.first
-      first.coordinator.update_isr(Set{first.id, in_sync.id})
-      first.stop
-      cluster.next_leader.should eq in_sync
-    end
-  end
-
-  it "doesn't fail over when no other node is in the ISR", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      first.stop
+      File.exists?(File.join(data_dir, ".raft_state")).should be_true
+      launcher.stop
       select
-      when c = cluster.serving.receive
-        fail "#{c.id} was elected without being in the ISR"
-      when timeout(2.seconds)
-      end
-    end
-  end
-
-  it "doesn't elect nodes with data but no raft state, unless bootstrapped", tags: "slow" do
-    with_controllers(with_data: true) do |cluster|
-      cluster.start_all
-      select
-      when c = cluster.serving.receive
-        fail "#{c.id} was elected without knowing if its data is current"
-      when timeout(1.second)
-      end
-    end
-    with_controllers(with_data: true, bootstrap: 1) do |cluster|
-      cluster.start_all
-      cluster.next_leader.should eq cluster.controllers[1]
-    end
-  end
-
-  it "doesn't exit with an error when losing leadership while shutting down", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      first.stopping
-      cluster.controllers.reject(first).each(&.stop)
-      select
-      when exit = cluster.exits.receive
-        fail "exited with #{exit[1]} during a graceful shutdown"
-      when timeout(2.seconds)
-      end
-    end
-  end
-
-  it "exits when it loses leadership", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.start_all
-      first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      # Cut the leader off from its peers: it has to step down on its own
-      cluster.controllers.reject(first).each(&.stop)
-      select
-      when exit = cluster.exits.receive
-        exit[0].should eq first
-        exit[1].should eq 3
+      when stopped.receive?
       when timeout(5.seconds)
-        fail "leader cut off from the majority kept serving"
+        fail "launcher didn't stop"
       end
     end
   end

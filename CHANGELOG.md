@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Built-in Raft clustering backend, enabled with `backend = raft` in `[clustering]`: the nodes elect a leader and keep the ISR themselves over a new raft port (`5680`), no etcd needed. It requires `peers` and a shared password, preferably via `password_file` (mode `0600`). etcd remains the default backend so existing clusters are unaffected, see `docs/clustering.md` for how to migrate them
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 
 ### Changed
 
-- Clustering no longer depends on etcd: the nodes elect a leader and keep the ISR with a built-in Raft implementation over a new raft port (`5680`). Clustering now requires `peers` and a shared password in `[clustering]`, preferably via `password_file` (mode `0600`); `etcd_endpoints` and `etcd_prefix` are deprecated and ignored. See the migration steps in `docs/clustering.md`
 - Publish confirms only sync the segments the confirmed messages were written to, plus the directories of newly created files, instead of a `syncfs` of the whole data dir, so unrelated traffic on other queues no longer gets flushed with every confirm. `tx.commit` still uses `syncfs`. Followers sync the same files before acking (replication protocol v2, v1 peers remain compatible) [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - MQTT QoS 1 PUBACKs are sent once the publish is persisted to disk, in publish order. QoS 1 throughput is lower as a result [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `max_inflight_messages` must be at least `1`; `0` is now rejected at startup and on config reload instead of leaving every MQTT session accepting publishes it can never deliver [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)

@@ -1,20 +1,29 @@
 # Clustering
 
-LavinMQ supports multi-node clustering with leader-based replication. Leader election and the in-sync replica set are handled by the nodes themselves, with a built-in [Raft](https://raft.github.io/) implementation; no external coordination service is needed.
+LavinMQ supports multi-node clustering with leader-based replication. Leader election and the in-sync replica set (ISR) are kept by one of two backends, chosen with `backend` in `[clustering]`:
+
+- **`raft`** — the nodes elect the leader themselves with a built-in [Raft](https://raft.github.io/) implementation, no external coordination service is needed. Recommended for new clusters.
+- **`etcd`** (default) — an external [etcd](https://etcd.io/) cluster does leader election and stores the ISR. Kept so that existing clusters keep working unchanged when upgraded; they can [migrate to raft](#migrating-from-etcd-to-raft) when convenient.
+
+A node never switches backend on its own, `backend` has to be changed by the operator.
 
 ## Architecture
 
 - **Leader** — accepts all client connections and writes. Replicates data to followers.
 - **Followers** — receive replicated data from the leader. Can be promoted to leader on failover.
-- **Raft** — every node takes part in leader election over the raft port (`5680` by default). A majority of the configured peers must be reachable to elect a leader and to change the ISR.
+- **Raft backend** — every node takes part in leader election over the raft port (`5680` by default). A majority of the configured peers must be reachable to elect a leader and to change the ISR.
+- **etcd backend** — external coordination service for leader election, ISR tracking, and the shared replication secret.
 
 Only the leader handles client traffic. Followers maintain a synchronized copy of the data.
 
 ## Enabling Clustering
 
+### Raft backend
+
 ```ini
 [clustering]
 enabled = true
+backend = raft
 bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
@@ -32,6 +41,20 @@ password_file = /etc/lavinmq/clustering_password
   chown lavinmq: /etc/lavinmq/clustering_password && chmod 600 /etc/lavinmq/clustering_password
   ```
 - The raft listener binds to the same address as `bind`.
+
+### etcd backend
+
+```ini
+[clustering]
+enabled = true
+bind = 0.0.0.0
+port = 5679
+advertised_uri = tcp://node1.example.com:5679
+etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
+etcd_prefix = lavinmq
+```
+
+The raft options (`peers`, `password_file`, `election_timeout`, ...) are ignored with the etcd backend.
 
 See [Configuration](configuration.md) for all clustering options.
 
@@ -71,6 +94,8 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 ## Failover
 
+### Raft backend
+
 If the leader stops sending heartbeats for `election_timeout` (1500 ms by default), the other nodes elect a new one. A node only votes for a candidate that is in the ISR and whose election log is at least as recent as its own, so a node lacking confirmed data can never become leader. If no ISR member is reachable, no leader is elected until one comes back.
 
 A new leader starts with an ISR of only itself; followers are added back as they finish syncing from it.
@@ -83,15 +108,21 @@ A leader that can't reach a majority of the peers for `election_timeout` steps d
 | `heartbeat_interval` | `[clustering]` | `250` | Milliseconds between leader heartbeats, at most half the election timeout |
 | `bootstrap` | `[clustering]` | `false` | Let this node become leader before any node has election state, see below |
 
-### Migrating from etcd
+### etcd backend
 
-Earlier versions used etcd for leader election. `etcd_endpoints` and `etcd_prefix` are still accepted but ignored. To migrate:
+If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
+
+### Migrating from etcd to raft
+
+The migration needs a short full cluster downtime. All nodes have to switch backend at the same time, a cluster can't run with both.
 
 1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes.
+2. Add `backend = raft`, `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
 A node that has data but no election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until it has heard from an elected one. `bootstrap` overrides that and lets it become the cluster's first leader. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need no bootstrap.
+
+To roll back to etcd, stop all nodes the same way, followers first and the leader last. Delete `{etcd_prefix}/isr` in etcd (`etcdctl del lavinmq/isr`), since it's from before the migration and may list nodes that are no longer in sync. Set `backend = etcd` again on every node and delete `.raft_state` from the data dirs. Then start the former leader first, and the other nodes once it has been elected.
 
 ### Leader Election Hooks
 
@@ -119,4 +150,8 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-Nodes authenticate each other with the shared password (`password_file` or `password`): raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port. Neither connection is encrypted, so keep clustering traffic on a trusted network.
+With the raft backend, nodes authenticate each other with the shared password (`password_file` or `password`): raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
+
+With the etcd backend, followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+
+Clustering connections aren't encrypted, so keep clustering traffic on a trusted network.

@@ -92,7 +92,7 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
-      validate_clustering! if @clustering
+      validate_raft_clustering! if @clustering && @clustering_backend.raft?
     end
 
     @clustering_password_from_file : String? = nil
@@ -103,7 +103,7 @@ module LavinMQ
       @clustering_password_from_file || @clustering_password
     end
 
-    private def validate_clustering! : Nil
+    private def validate_raft_clustering! : Nil
       load_clustering_password_file
       secret = clustering_secret
       if secret.empty?
@@ -426,6 +426,10 @@ module LavinMQ
       @amqp_bind = value
       @http_bind = value
       @mqtt_bind = value
+    end
+
+    private def parse_clustering_backend(value : String) : ClusteringBackend
+      ClusteringBackend.parse?(value) || raise Error.new("clustering backend must be etcd or raft, got '#{value}'")
     end
 
     # Re-read the config file into a fresh copy and swap it in only if parsing
