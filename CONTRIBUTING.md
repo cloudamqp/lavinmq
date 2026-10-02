@@ -32,6 +32,10 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
 
+#### MQTT spec references
+
+Comments and spec names cite MQTT normative statements by their [MQTT 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) id, e.g. `[MQTT-3.1.2-4]`, also in code shared with 3.1.1. The two specs reuse ids for different rules, so a rule that only exists in [3.1.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html) is tagged: `[MQTT-3.1.2-22 v3.1.1]`. A rule without a statement id is cited by section: `(§3.1.2.11.2)`.
+
 #### AI-assisted review
 
 PRs are reviewed by AI in CI. To run the same review locally, install [local-review](https://github.com/84codes/local-review) and run `local-review install` in the repo. This adds an optional pre-push hook and a CLI (`local-review`, `local-review 42`).

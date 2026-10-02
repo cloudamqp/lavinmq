@@ -42,7 +42,7 @@ module MqttSpecs
             connack.should be_a(MQTT::Protocol::Connack)
             connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
             # Proof the assigned id is the username: a second connection with
-            # client_id "guest" must take over this session [MQTT-3.1.4-2]
+            # client_id "guest" must take over this session [MQTT-3.1.4-3]
             with_client_io(server) do |io2|
               connect(io2, client_id: "guest")
               io.should be_closed
@@ -57,6 +57,24 @@ module MqttSpecs
             connack = connect(io, username: "/:guest", client_id: "guest")
             connack.should be_a(MQTT::Protocol::Connack)
             connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          end
+        end
+      end
+
+      it "assigns the username as client_id on v5 and echoes it back" do
+        with_server do |server|
+          with_client_socket(server) do |socket|
+            io = MQTT::Protocol::IO.v5(socket)
+            connack = connect(io, version: MQTT::Protocol::Version::V5,
+              client_id: "", clean_session: true).as(MQTT::Protocol::Connack)
+            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            # The assigned id must be the username, and it must survive the
+            # rebuild of the CONNECT packet intact so the broker registers it.
+            connack.properties.assigned_client_identifier.should eq("guest")
+            registered = wait_for do
+              server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first?.try(&.client_id)
+            end
+            registered.should eq("guest")
           end
         end
       end

@@ -141,17 +141,21 @@ module MqttSpecs
 
     it "subscribing to topic with retained message does not crash" do
       with_server(clean_dir: false) do |server|
-        # First, publish a retained message
+        # clean_session and QoS 1 are load-bearing. A persistent session keeps
+        # its binding across connections, so the subscriber would get this
+        # message live as well as from the retain store; and QoS 0 is
+        # unacknowledged, so nothing would order the publish before the next
+        # connection. Either way a live delivery can precede the SUBACK, which
+        # is legal (spec 3.8.4) and which read_packet would misread below.
         with_client_io(server) do |io|
-          connect(io, client_id: "publisher")
-          # Use a larger payload to increase chances of triggering copy_file_range
-          subscribe(io, topic_filters: [subtopic("test/retain")])
+          connect(io, client_id: "publisher", clean_session: true)
+          # A larger payload increases the chances of triggering copy_file_range
           large_payload = "retained_message_" + ("x" * 8192)
-          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")])
 
           # Should receive the retained message without crashing
@@ -165,17 +169,17 @@ module MqttSpecs
       end
 
       with_server do |server|
-        # First, publish a retained message
+        # Same server dir as the block above, so this asserts the retained
+        # message survived the restart. Same clean_session/QoS 1 reasoning.
         with_client_io(server) do |io|
-          connect(io, client_id: "publisher")
-          # Use a larger payload to increase chances of triggering copy_file_range
-          subscribe(io, topic_filters: [subtopic("test/retain")])
+          connect(io, client_id: "publisher", clean_session: true)
+          # A larger payload increases the chances of triggering copy_file_range
           large_payload = "retained_message_" + ("x" * 8192)
-          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 1u8, retain: true)
           disconnect(io)
         end
         with_client_io(server) do |io|
-          connect(io, client_id: "subscriber")
+          connect(io, client_id: "subscriber", clean_session: true)
           subscribe(io, topic_filters: [subtopic("test/retain")])
 
           # Should receive the retained message without crashing

@@ -25,7 +25,7 @@ module MqttSpecs
         spawn do
           # Stands in for a same client_id CONNECT deleting the session while
           # this one is still writing its CONNACK.
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a")) { vhost.delete_queue("mqtt.a") }
           done.send nil
         end
@@ -41,7 +41,7 @@ module MqttSpecs
       end
     end
 
-    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-2]" do
+    it "takes over a persistent connection that is still sending its CONNACK [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
@@ -51,11 +51,11 @@ module MqttSpecs
         a_done = Channel(Nil).new
         b_client = nil
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(a_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(a_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a", clean_session: false)) do
             # B connects in full while A is still writing its CONNACK.
             spawn do
-              broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
+              broker.run_client(MQTT::Protocol::IO.v3(b_reader), LavinMQ::ConnectionInfo.local,
                 user, connect_packet("a", clean_session: false)) { }
             end
             wait_for { b_client = vhost.session?("mqtt.a").try(&.client) }
@@ -74,7 +74,7 @@ module MqttSpecs
       end
     end
 
-    it "takes over a connection whose CONNECT is still declaring its session [MQTT-3.1.4-2]" do
+    it "takes over a connection whose CONNECT is still declaring its session [MQTT-3.1.4-3]" do
       with_server do |server|
         vhost = server.vhosts["/"]
         broker = server.mqtt_server.broker("/")
@@ -86,13 +86,13 @@ module MqttSpecs
         # Parks A inside `Sessions#declare`, before it is registered.
         lock.lock
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(a_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(a_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a", clean_session: false)) { }
           a_done.send nil
         end
         Fiber.yield
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(b_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(b_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a", clean_session: false)) { }
         end
         Fiber.yield
@@ -121,7 +121,7 @@ module MqttSpecs
         n_reader, n_writer = IO.pipe
         n_done = Channel(Nil).new(1)
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(c_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(c_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a")) { }
         end
         wait_for { vhost.session?("mqtt.a").try &.client }
@@ -130,7 +130,7 @@ module MqttSpecs
         # after it has marked the session deleted.
         lock.lock
         spawn do
-          broker.run_client(MQTT::Protocol::IO.new(n_reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(n_reader), LavinMQ::ConnectionInfo.local,
             user, connect_packet("a")) { }
           n_done.send nil
         end
@@ -159,7 +159,7 @@ module MqttSpecs
         closed_before = vhost.connection_closed_count
         reader, writer = IO.pipe
         expect_raises(IO::Error) do
-          broker.run_client(MQTT::Protocol::IO.new(reader), LavinMQ::ConnectionInfo.local,
+          broker.run_client(MQTT::Protocol::IO.v3(reader), LavinMQ::ConnectionInfo.local,
             server.users["guest"], connect_packet("a")) { raise IO::Error.new("CONNACK write failed") }
         end
         server.update_stats_rates

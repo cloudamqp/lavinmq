@@ -1,5 +1,6 @@
 require "../amqp/exchange"
 require "./consts"
+require "./publish_headers"
 require "./subscription_tree"
 require "./session"
 require "./subscription_key"
@@ -18,21 +19,42 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : Protocol::Publish) : UInt32
+      # `publisher` is the publishing client's session name, needed to resolve
+      # the No Local subscription option [MQTT-3.8.3-3].
+      def publish(packet : Protocol::Publish, publisher : String) : UInt32
         @publish_in_count.add(1, :relaxed)
-        properties = AMQP::Properties.new(headers: AMQP::Table.new)
+        headers = AMQP::Table.new
+        # Reserve the slot before the properties, and always as a Bool, so the
+        # per-subscription overwrite below stays on Table's in-place path and
+        # scans one key rather than up to six v5 property fields.
+        retained = packet.retain?
+        headers[RETAIN_HEADER] = false if retained
+        PublishHeaders.store(packet.properties, headers)
+        properties = AMQP::Properties.new(headers: headers)
         properties.delivery_mode = packet.qos
 
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
         body = ::IO::Memory.new(packet.payload, writable: false)
 
-        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
+        # `Publish#topic` decodes @topic into a fresh String on every call, so
+        # hold it once: this is the publish hot path.
+        topic = packet.topic
+
+        msg = Message.new(timestamp, EXCHANGE, topic, properties, bodysize, body)
         msg.needs_sync = packet.qos > 0
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos, _filter|
-          # The lower of the publish and the subscription QoS [MQTT-3.8.4-6].
-          msg.properties.delivery_mode = Math.min(packet.qos, qos)
+        @tree.each_entry(topic) do |queue, options, _filter|
+          # No Local [MQTT-3.8.3-3]. Bit first: the name compare is then paid
+          # for only by a subscription that asked for it.
+          next if options.no_local? && queue.name == publisher
+          # The lower of the publish and the subscription QoS [MQTT-3.8.4-8].
+          msg.properties.delivery_mode = Math.min(packet.qos, options.qos)
+          # Retain As Published. Written for every matched entry, or a `true`
+          # leaks into every later subscriber in this walk. Safe to vary per
+          # destination only because MessageStore#push serializes the
+          # properties synchronously, as delivery_mode above already assumes.
+          headers[RETAIN_HEADER] = options.retain_as_published? if retained
           if queue.publish(msg)
             count += 1
             msg.body_io.rewind
@@ -45,8 +67,8 @@ module LavinMQ
 
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |session, qos, filter|
-          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
+        @tree.each_entry do |session, options, filter|
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, options), session)
         end
         result
       end
@@ -60,20 +82,20 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
+        options = MQTT.subscription_options(arguments)
+        @tree.subscribe(routing_key, destination, options)
 
-        binding_key = SubscriptionKey.new(routing_key, qos)
+        binding_key = SubscriptionKey.new(routing_key, options)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
+        options = MQTT.subscription_options(arguments)
         @tree.unsubscribe(routing_key, destination)
 
-        binding_key = SubscriptionKey.new(routing_key, qos)
+        binding_key = SubscriptionKey.new(routing_key, options)
         data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 

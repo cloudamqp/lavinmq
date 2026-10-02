@@ -13,17 +13,17 @@ require "sync/exclusive"
 
 module LavinMQ
   module MQTT
-    # Protocol level from the CONNECT packet:
-    # level 3 is MQTT 3.1 (MQIsdp), level 4 is MQTT 3.1.1 (MQTT).
-    enum ProtocolVersion : UInt8
-      V3_1   = 3
-      V3_1_1 = 4
+    # Raised by a packet handler when the connection must be torn down with a
+    # reason code. Caught centrally in Client#read_loop, which sends a v5
+    # DISCONNECT carrying the reason (v3 has no server DISCONNECT, so it just
+    # closes). `Session` raises it for a known packet id acknowledged with the
+    # wrong packet type [MQTT-4.13.1-1]; an unknown id is not this, because the
+    # window does not survive a restart.
+    class ProtocolViolation < MQTT::Error
+      getter reason : Protocol::Disconnect::ReasonCode
 
-      def name
-        case self
-        in .v3_1?   then "MQTT 3.1"
-        in .v3_1_1? then "MQTT 3.1.1"
-        end
+      def initialize(@reason : Protocol::Disconnect::ReasonCode, message : String = reason.to_s)
+        super(message)
       end
     end
 
@@ -35,14 +35,26 @@ module LavinMQ
       # A QoS 1 publish waiting for its PUBACK, which is sent once the
       # persister has made the publish durable. `seq` orders the publishes, so
       # the persister's cumulative confirm releases every PUBACK up to it.
-      record PendingPubAck, seq : UInt64, packet_id : UInt16
+      record PendingPubAck, seq : UInt64, packet_id : UInt16, reason : Protocol::PubAck::ReasonCode
 
       getter log, name, user, client_id, socket, connection_info, session
+      # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
+      # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
+      getter max_packet_size : UInt32?
+
+      # The negotiated protocol version. Session reads it to skip v5-only work
+      # for a v3 subscriber, the same way it reads max_packet_size.
+      def version : Protocol::Version
+        @io.version
+      end
+
+      # The interval named on CONNECT. Kept because §3.14.2.2.2 makes a
+      # non-zero interval on DISCONNECT a Protocol Error when this one was 0.
+      getter session_expiry_interval : UInt32
       @connected_at = RoughTime.unix_ms
       @started = false
       getter? closed = false
       @channels = Hash(UInt16, Client::Channel).new
-      @protocol : String
       @publish_seq = 0u64
       @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
       # Created with the PUBACK writer fiber on the first QoS 1 publish
@@ -77,10 +89,10 @@ module LavinMQ
                      @broker : MQTT::Broker,
                      @session : MQTT::Session,
                      @client_id : String,
-                     protocol_version : ProtocolVersion,
                      @keepalive : UInt16 = 30,
-                     @will : Protocol::Will? = nil)
-        @protocol = protocol_version.name
+                     @will : Protocol::Will? = nil,
+                     @max_packet_size : UInt32? = nil,
+                     @session_expiry_interval : UInt32 = 0u32)
         @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
@@ -110,32 +122,61 @@ module LavinMQ
         "mqtt-client-#{@client_id}"
       end
 
+      # Exhaustive `case/in` on purpose: a new Version member must be a compile
+      # error here, not silently reported as 3.1.1 in the management UI.
+      private def protocol_name : String
+        case @io.version
+        in .v5?     then "MQTT 5.0"
+        in .v3_1?   then "MQTT 3.1"
+        in .v3_1_1? then "MQTT 3.1.1"
+          # Unreachable: a Client exists only once CONNECT has set the version.
+        in .unknown? then "MQTT"
+        end
+      end
+
+      private def apply_keepalive_timeout
+        socket = @io.io
+        return unless socket.responds_to?(:"read_timeout=")
+        # 50% grace period according to [MQTT-3.1.2-22]
+        socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
+      end
+
       private def read_loop
         received_bytes = 0_u32
-        socket = @io.io
-        if socket.responds_to?(:"read_timeout=")
-          # 50% grace period according to [MQTT-3.1.2-24]
-          socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
-        end
+        apply_keepalive_timeout
         loop do
           @log.trace { "waiting for packet" }
-          packet = read_and_handle_packet
-          if (received_bytes &+= packet.bytesize) > Config.instance.yield_each_received_bytes
+          packet, bytesize = read_and_handle_packet
+          if (received_bytes &+= bytesize) > Config.instance.yield_each_received_bytes
             received_bytes = 0_u32
             Fiber.yield
           end
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(Protocol::Disconnect)
-            @log.debug { "Received disconnect" }
+            @log.debug { "Received disconnect: #{packet.reason_code}" }
+            # Before the will decision: on a protocol error the rescue publishes
+            # the will itself, so doing it here first would publish it twice.
+            apply_disconnect_expiry(packet)
+            # Only reason 0x00 discards the will [MQTT-3.14.4-3]. 0x04
+            # (DisconnectWithWillMessage) and every error code publish it.
+            publish_will unless packet.reason_code.normal_disconnection?
             break
           end
         end
-      rescue ex : Session::ProtocolViolation
+      rescue ex : ProtocolViolation
         # The Will publishes from here as it does on every other close without a
         # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
         # error as one of those situations.
-        @log.warn { "Protocol violation: #{ex.message}" }
+        @log.warn { "Protocol violation, disconnecting client: #{ex.message}" }
+        disconnect(ex.reason)
+        publish_will
+      rescue ex : Protocol::Error::ProtocolError
+        # The shard raises this (with a reason byte) for codec-level protocol
+        # violations, e.g. an empty PUBLISH topic with no alias (0x82). Map it to
+        # a v5 server DISCONNECT; v3 just closes.
+        @log.warn { "Protocol error, disconnecting client: #{ex.message}" }
+        disconnect(disconnect_reason(ex.reason_code))
         publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
@@ -164,6 +205,24 @@ module LavinMQ
         @closed || @session.deleted?
       end
 
+      # A DISCONNECT may name a new Session Expiry Interval (§3.14.2.2.2).
+      # Absent means keep the CONNECT value, not 0.
+      #
+      # A non-zero interval when CONNECT sent 0 is a Protocol Error, and the spec
+      # is explicit that the server does not treat it as a valid DISCONNECT but
+      # answers 0x82 as in section 4.13 (§3.14.2.2.2) - which is exactly what the
+      # ProtocolViolation handler already does, will included.
+      private def apply_disconnect_expiry(packet : Protocol::Disconnect) : Nil
+        interval = packet.properties.session_expiry_interval || return
+        if @session_expiry_interval.zero? && !interval.zero?
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+        @session_expiry_interval = interval
+        # The session picks it up before read_loop's ensure runs remove_client, so
+        # narrowing to 0 deletes the session on this disconnect.
+        @session.session_expiry_interval = interval
+      end
+
       private def duration
         ms = RoughTime.unix_ms - @connected_at
         seconds = (ms / 1000).round.to_i
@@ -173,8 +232,9 @@ module LavinMQ
       def read_and_handle_packet
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
-        @recv_oct_count.add(packet.bytesize, :relaxed)
-        vhost.add_recv_bytes(packet.bytesize.to_u64)
+        bytesize = @io.bytesize(packet)
+        @recv_oct_count.add(bytesize, :relaxed)
+        vhost.add_recv_bytes(bytesize.to_u64)
 
         case packet
         when Protocol::Publish     then recieve_publish(packet)
@@ -185,18 +245,24 @@ module LavinMQ
         when Protocol::Subscribe   then recieve_subscribe(packet)
         when Protocol::Unsubscribe then recieve_unsubscribe(packet)
         when Protocol::PingReq     then receive_pingreq(packet)
-        when Protocol::Disconnect  then return packet
-        else                            raise "received unexpected packet: #{packet}"
+        when Protocol::Disconnect  then return {packet, bytesize}
+        else
+          # Every remaining decodable type is either server-to-client only or
+          # illegal after CONNECT (a second CONNECT is [MQTT-3.1.0-2]), so this
+          # is the client's protocol error, not an internal one to backtrace.
+          @log.debug { "Unexpected packet: #{packet.inspect}" }
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError)
         end
-        packet
+        {packet, bytesize}
       end
 
       def send(packet)
         @lock.synchronize do
           @io.write_packet(packet)
           @io.flush
-          @send_oct_count.add(packet.bytesize, :relaxed)
-          vhost.add_send_bytes(packet.bytesize.to_u64)
+          bytesize = @io.bytesize(packet)
+          @send_oct_count.add(bytesize, :relaxed)
+          vhost.add_send_bytes(bytesize.to_u64)
         end
         case packet
         when Protocol::Publish
@@ -211,52 +277,83 @@ module LavinMQ
         end
       end
 
+      # Server-initiated disconnect. v5 clients get a DISCONNECT carrying the
+      # reason code; v3 has no server DISCONNECT packet, so we just let the
+      # caller's cleanup close the socket. The socket close itself happens in
+      # read_loop's ensure block.
+      private def disconnect(reason : Protocol::Disconnect::ReasonCode)
+        send(Protocol::Disconnect.new(reason)) if @io.version.v5?
+      rescue ::IO::Error
+        # peer may already be gone; read_loop's ensure still closes the socket
+      end
+
+      # Map a shard reason byte to a DISCONNECT reason code, defaulting to a
+      # generic protocol error if it isn't a known DISCONNECT code.
+      private def disconnect_reason(reason_byte : UInt8) : Protocol::Disconnect::ReasonCode
+        Protocol::Disconnect::ReasonCode.from_value?(reason_byte) ||
+          Protocol::Disconnect::ReasonCode::ProtocolError
+      end
+
       def receive_pingreq(packet : Protocol::PingReq)
         send Protocol::PingResp.new
       end
 
+      # Enforce the v5 limits we advertised in CONNACK. A conformant client
+      # honours them, so a violation is a protocol error -> server DISCONNECT
+      # (raised as ProtocolViolation, handled in read_loop). v3 has no such
+      # contract and is unaffected.
+      private def validate_v5_publish!(packet : Protocol::Publish)
+        return unless @io.version.v5?
+        # topic_alias_maximum=0: we accept no Topic Aliases.
+        if packet.properties.topic_alias
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::TopicAliasInvalid)
+        end
+        # (An empty topic with no alias is rejected by the shard on decode with a
+        # ProtocolError 0x82, mapped to a server DISCONNECT in read_loop.)
+      end
+
       def recieve_publish(packet : Protocol::Publish)
+        validate_v5_publish!(packet)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-          close_socket
-          return
+          return refuse_publish(packet)
         end
         packet_id = packet.packet_id
         # A topic denial acks and drops, it never closes the connection. QoS 2
         # takes a PUBREC, and the PUBREL that follows is answered by
-        # `recieve_pubrel` like any unknown id.
+        # `recieve_pubrel` like any unknown id. v5 sees 0x87 in the ack; the
+        # shard drops the reason tail on v3.
         unless @broker.permission_service.can_write?(@permission_context, packet.topic)
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
-          if packet.qos == 2 && packet_id
-            send(Protocol::PubRec.new(packet_id))
-          elsif packet.qos == 1 && packet_id
-            # Queued like the others, as PUBACKs must be sent in publish order
-            enqueue_puback(packet_id)
-          end
+          send_not_authorized(packet, packet_id) if packet.qos > 0 && packet_id
           return
         end
         if packet.qos == 2 && packet_id
           recieve_qos2_publish(packet, packet_id)
           return
         end
-        @broker.publish(packet)
+        matched = @broker.publish(packet, @session.name)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
-          enqueue_puback(packet_id)
+          # 0x10 lets the publisher see that nothing was subscribed (3.4.2.1).
+          # The shard drops the reason tail on v3, so no version branch here.
+          reason = matched.zero? ? Protocol::PubAck::ReasonCode::NoMatchingSubscribers : Protocol::PubAck::ReasonCode::Success
+          enqueue_puback(packet_id, reason)
         end
       end
 
       # QoS 1 publishes are acked like publish confirms, once durable. The
       # PUBACK is sent by the writer fiber, so the read loop never waits for
       # the disk.
-      private def enqueue_puback(packet_id : UInt16) : Nil
+      private def enqueue_puback(packet_id : UInt16,
+                                 reason = Protocol::PubAck::ReasonCode::Success) : Nil
         unless @puback_mailbox
           mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
           spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
         end
         seq = @publish_seq &+= 1
-        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
+        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id, reason))
         vhost.enqueue_ack(self, seq)
       end
 
@@ -274,7 +371,7 @@ module LavinMQ
       private def puback_writer(mailbox : ::Channel(UInt64))
         while seq = mailbox.receive?
           while pending = next_puback(seq)
-            send(Protocol::PubAck.new(pending.packet_id))
+            send(Protocol::PubAck.new(pending.packet_id, pending.reason))
           end
         end
       rescue ::IO::Error
@@ -287,12 +384,13 @@ module LavinMQ
       end
 
       # Figure 4.3: store the id, route, then answer PUBREC. Dedupe is by id
-      # alone: a recipient cannot assume a `dup` PUBLISH is one it has seen
-      # (3.3.1.1).
+      # alone [MQTT-4.3.3-10]: a recipient cannot assume a `dup` PUBLISH is one it
+      # has seen (§3.3.1.1).
       private def recieve_qos2_publish(packet : Protocol::Publish, packet_id : UInt16)
+        reason = Protocol::PubRec::ReasonCode::Success
         if @session.qos2_publish_received?(packet_id)
           begin
-            @broker.publish(packet)
+            matched = @broker.publish(packet, @session.name)
           rescue ex
             # An id left behind by a routing failure would dedupe away the
             # client's re-send, turning a duplicate into silent loss.
@@ -300,9 +398,34 @@ module LavinMQ
             raise ex
           end
           vhost.event_tick(EventType::ClientPublish)
+          reason = Protocol::PubRec::ReasonCode::NoMatchingSubscribers if matched.zero?
         end
         # Answered on both paths: a re-send means our first PUBREC was lost.
-        send(Protocol::PubRec.new(packet_id))
+        send(Protocol::PubRec.new(packet_id, reason))
+      end
+
+      private def send_not_authorized(packet : Protocol::Publish, packet_id : UInt16) : Nil
+        if packet.qos == 2
+          send(Protocol::PubRec.new(packet_id, Protocol::PubRec::ReasonCode::NotAuthorized))
+        else
+          # Queued like the others, as PUBACKs must be sent in publish order
+          enqueue_puback(packet_id, Protocol::PubAck::ReasonCode::NotAuthorized)
+        end
+      end
+
+      # An unauthorized PUBLISH gets a reason code instead of a bare TCP close:
+      # PUBACK/PUBREC 0x87 when there is an ack to carry it, otherwise a server
+      # DISCONNECT 0x87 (spec 3.3.4). v3 has no way to say why, so it just closes.
+      private def refuse_publish(packet : Protocol::Publish) : Nil
+        unless @io.version.v5?
+          close_socket
+          return
+        end
+        if packet.qos > 0 && (packet_id = packet.packet_id)
+          send_not_authorized(packet, packet_id)
+        else
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::NotAuthorized)
+        end
       end
 
       def recieve_pubrec(packet : Protocol::PubRec)
@@ -315,25 +438,56 @@ module LavinMQ
 
       def recieve_pubrel(packet : Protocol::PubRel)
         id = packet.packet_id
-        unless @session.qos2_release(id)
+        if @session.qos2_release(id)
+          send(Protocol::PubComp.new(id))
+        else
           # PUBCOMP is the only answer that lets the client release the id, and
           # an unknown id is ordinary: the held ids do not survive a restart, so
           # raising would publish the will of every resuming QoS 2 publisher.
+          # v5 sees 0x92 (3.7.2.1); the shard drops the reason tail on v3.
           @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
+          send(Protocol::PubComp.new(id, Protocol::PubComp::ReasonCode::PacketIdentifierNotFound))
         end
-        send(Protocol::PubComp.new(id))
       end
 
       def recieve_puback(packet : Protocol::PubAck)
+        # A non-success PUBACK still terminates the QoS 1 delivery (3.4.2.1), so
+        # the message is acked either way and the code is purely diagnostic.
+        unless packet.reason_code.success?
+          @log.warn { "PUBACK for packet id #{packet.packet_id} with reason #{packet.reason_code}" }
+        end
         @session.ack(packet)
         vhost.event_tick(EventType::ClientAck)
       end
 
+      # Enforce the v5 SUBSCRIBE limits we advertised in CONNACK. Both are
+      # packet-level protocol errors -> server DISCONNECT (spec 3.2.2.3.12 /
+      # 3.2.2.3.13), raised via ProtocolViolation and handled in read_loop.
+      private def validate_v5_subscribe!(packet : Protocol::Subscribe)
+        return unless @io.version.v5?
+        # subscription_identifier_available=0
+        if packet.properties.subscription_identifier
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SubscriptionIdentifiersNotSupported)
+        end
+        # shared_subscription_available=0: any $share/ filter fails the whole packet.
+        if packet.topic_filters.any?(&.topic.starts_with?("$share/"))
+          raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::SharedSubscriptionsNotSupported)
+        end
+      end
+
       def recieve_subscribe(packet : Protocol::Subscribe)
+        validate_v5_subscribe!(packet)
         if Config.instance.mqtt_permission_check_enabled?
-          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, @session.name)
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-            close_socket
+            # A v3 SUBACK can only say 0x00-0x02 or 0x80, so v3 keeps closing
+            # without an explanation.
+            if @io.version.v5?
+              codes = Array.new(packet.topic_filters.size, Protocol::SubAck::ReasonCode::NotAuthorized)
+              send(Protocol::SubAck.new(codes, packet.packet_id))
+            else
+              close_socket
+            end
             return
           end
         end
@@ -345,15 +499,17 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        @broker.unsubscribe(self, packet.topics)
-        send(Protocol::UnsubAck.new(packet.packet_id))
+        reason_codes = @broker.unsubscribe(self, packet.topics)
+        # v5 UNSUBACK carries a reason code per topic filter; the shard drops
+        # the payload on v3, so no version branch is needed here.
+        send(Protocol::UnsubAck.new(packet.packet_id, reason_codes))
       end
 
       def details_tuple
         {
           vhost:             @broker.vhost.name,
           user:              @user.name,
-          protocol:          @protocol,
+          protocol:          protocol_name,
           client_id:         @client_id,
           name:              @name,
           timeout:           @keepalive,
@@ -394,6 +550,8 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
+          # The will's publisher is this client, so No Local applies to it by
+          # the same rule as any other publish [MQTT-3.8.3-3].
           @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
@@ -401,10 +559,33 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ))
+            properties: will_properties(will.properties),
+          ), @session.name)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
+      end
+
+      # The six Will Properties that are also PUBLISH properties, carried onto
+      # the message the will becomes. `will_delay_interval` is deliberately not
+      # among them: it is server behaviour, not wire content.
+      #
+      # Needs no version gate - v3 CONNECT has no will properties, so these are
+      # all nil there and `IO::Framing::V3#write_properties` would discard them
+      # anyway.
+      private def will_properties(will : Protocol::WillProperties) : Protocol::PublishProperties
+        properties = Protocol::PublishProperties.new
+        properties.payload_format_indicator = will.payload_format_indicator
+        properties.message_expiry_interval = will.message_expiry_interval
+        properties.content_type = will.content_type
+        properties.response_topic = will.response_topic
+        properties.correlation_data = will.correlation_data
+        # Nilable reader, and assigned whole: the repeatable-property getters
+        # don't memoize, so appending to one is not supported.
+        if user_properties = will.user_properties?
+          properties.user_properties = user_properties
+        end
+        properties
       end
 
       # should only be used when server needs to froce close client
@@ -428,7 +609,7 @@ module LavinMQ
       end
 
       private def close_socket
-        socket = @io
+        socket = @io.io
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end

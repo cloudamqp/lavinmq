@@ -9,17 +9,17 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io)
           temp_io = IO::Memory.new
-          publish(MQTT::Protocol::IO.new(temp_io), topic: "a/b", qos: 1u8, expect_response: false)
+          publish(MQTT::Protocol::IO.v3(temp_io), topic: "a/b", qos: 1u8, expect_response: false)
           pub_pkt = temp_io.to_slice
           pub_pkt[0] |= 0b0000_0110u8
-          io.write pub_pkt
+          io.io.write pub_pkt
 
           io.should be_closed
         end
       end
     end
 
-    it "delivers at the lower of the publish and the subscription qos [MQTT-3.8.4-6]" do
+    it "delivers at the lower of the publish and the subscription qos [MQTT-3.8.4-8]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -47,7 +47,7 @@ module MqttSpecs
       end
     end
 
-    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.8.4-6]" do
+    it "does not raise a qos 0 publish to the subscription's qos [MQTT-3.8.4-8]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -71,7 +71,29 @@ module MqttSpecs
       end
     end
 
-    it "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
+    it "does not store a qos0 publish for an offline qos1 subscription [MQTT-3.8.4-8]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          disconnect(io)
+        end
+
+        with_client_io(server) do |publisher_io|
+          connect(publisher_io, client_id: "publisher")
+          publish(publisher_io, topic: "a/b", qos: 0u8)
+          disconnect(publisher_io)
+        end
+
+        with_client_io(server) do |io|
+          connect(io, clean_session: false)
+          read_packet(io).should be_nil
+          disconnect(io)
+        end
+      end
+    end
+
+    it "qos1 messages are stored for offline sessions [MQTT-4.5.0-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -220,7 +242,7 @@ module MqttSpecs
       end
     end
 
-    it "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-1]" do
+    it "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-6]" do
       max_inflight_messages = 10
       # We'll only ACK odd packet ids, and the first id is 1, so if we don't
       # do -1 the last packet (id=20) won't be sent because we've reached max

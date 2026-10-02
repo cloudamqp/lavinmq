@@ -18,7 +18,7 @@ shards:
 
   mqtt-protocol:
     git: https://github.com/84codes/mqtt-protocol.cr.git
-    version: 0.3.1+git.commit.935a1bcb341a4794c5f25c3507a3329350e0dc4a
+    version: 0.3.1+git.commit.8128cac2b66b547ee6812edef488eaeebcbe3386
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
