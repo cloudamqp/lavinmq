@@ -49,6 +49,7 @@ module LavinMQ::Clustering::Raft
     @entries = Array(Entry).new
     @peers : Array(String)
     @votes = Set(String).new
+    @pre_votes = Set(String).new
     @pre_voting = false
     @next_index = Hash(String, Int64).new
     @match_index = Hash(String, Int64).new
@@ -206,8 +207,8 @@ module LavinMQ::Clustering::Raft
     private def handle_vote_response(msg : VoteResponse, now : Time::Instant) : Nil
       if msg.pre_vote
         return unless @pre_voting && msg.granted && msg.term == @term + 1
-        @votes << msg.from
-        start_election(now, transfer: false) if @votes.size >= quorum
+        @pre_votes << msg.from
+        start_election(now, transfer: false) if @pre_votes.size >= quorum
         return
       end
       if msg.term > @term
@@ -315,9 +316,9 @@ module LavinMQ::Clustering::Raft
     private def start_pre_vote(now : Time::Instant) : Nil
       return unless may_campaign?
       @pre_voting = true
-      @votes.clear
-      @votes << @id
-      if @votes.size >= quorum
+      @pre_votes.clear
+      @pre_votes << @id
+      if @pre_votes.size >= quorum
         start_election(now, transfer: false)
         return
       end

@@ -253,6 +253,24 @@ describe Raft::Core do
     new_leader.id.should_not eq old.id
   end
 
+  it "doesn't count pre-vote grants as votes in the current term" do
+    peers = (1..5).map { |i| "n#{i}" }
+    now = Time.instant
+    core = Raft::Core.new("n1", peers, 1, "tcp://n1:5679", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1), bootstrap: true)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new("n2", 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new("n3", 1, true, pre_vote: true), now)
+    core.role.candidate?.should be_true
+    core.term.should eq 1
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new("n2", 2, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new("n3", 1, true, pre_vote: false), now)
+    core.role.leader?.should be_false
+  end
+
   it "survives randomized crashes and partitions with a single leader per term" do
     rng = Random.new(42)
     sim = SimCluster.new(5)

@@ -105,6 +105,22 @@ describe Raft::Node do
     end
   end
 
+  it "closes without having been run" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    node = Raft::Node.new("127.0.0.1:1", ["127.0.0.1:1"], 1, "tcp://127.0.0.1:1", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds)
+    done = Channel(Nil).new
+    spawn { node.close; done.close }
+    select
+    when done.receive?
+    when timeout(1.second)
+      fail "close hung"
+    end
+  ensure
+    FileUtils.rm_rf dir if dir
+  end
+
   it "fails a proposal when not the leader" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
