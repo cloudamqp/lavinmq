@@ -7,7 +7,7 @@ module MqttSpecs
     it "rejects enhanced authentication with BadAuthenticationMethod (0x8C)" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           # A CONNECT carrying an Authentication Method wants the AUTH-packet
           # flow, which we don't support -> CONNACK 0x8C [MQTT-4.12.0-1].
           props = MQTT::Protocol::ConnectProperties.new
@@ -22,7 +22,7 @@ module MqttSpecs
     it "negotiates the protocol version from CONNECT and replies with a v5 CONNACK" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           # A v5 CONNECT must be answered with a v5-framed CONNACK; if the
           # broker kept v3 framing the reply would be unparseable here.
           connack = connect(io, version: MQTT::Protocol::Version::V5)
@@ -36,7 +36,7 @@ module MqttSpecs
     it "advertises server capabilities in the v5 CONNACK" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connack = connect(io, version: MQTT::Protocol::Version::V5).as(MQTT::Protocol::Connack)
           props = connack.properties
           # Absent means 2, and 2 may not be sent (3.2.2.3.4).
@@ -54,7 +54,7 @@ module MqttSpecs
     it "echoes a server-assigned client id via assigned_client_identifier [MQTT-3.2.2-16]" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connack = connect(io, version: MQTT::Protocol::Version::V5,
             client_id: "", clean_session: true).as(MQTT::Protocol::Connack)
           assigned = connack.properties.assigned_client_identifier
@@ -73,7 +73,7 @@ module MqttSpecs
     it "does not set assigned_client_identifier when the client supplies a client id" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connack = connect(io, version: MQTT::Protocol::Version::V5,
             client_id: "supplied-id").as(MQTT::Protocol::Connack)
           connack.properties.assigned_client_identifier.should be_nil

@@ -181,7 +181,7 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: %w[e
         begin
           # The follower forwards a client that connected on the follower's own loopback
           client_socket.write "PROXY TCP4 127.0.0.1 127.0.0.1 54321 #{mqtt_port}\r\n".to_slice
-          io = MQTT::Protocol::IO::V3.new(client_socket)
+          io = MQTT::Protocol::IO.v3(client_socket)
           MQTT::Protocol::Connect.new("c1", false, 30u16, "guest", "guest".to_slice, nil).to_io(io)
           connack = MQTT::Protocol::Packet.from_io(io).should be_a(MQTT::Protocol::Connack)
           connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized

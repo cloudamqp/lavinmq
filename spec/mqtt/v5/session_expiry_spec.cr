@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   private def self.v5_connect(socket, expiry : UInt32?, **args)
-    io = MQTT::Protocol::IO::V5.new(socket)
+    io = MQTT::Protocol::IO.v5(socket)
     props = MQTT::Protocol::ConnectProperties.new
     props.session_expiry_interval = expiry if expiry
     connect(io, **{version: MQTT::Protocol::Version::V5, properties: props}.merge(args))
@@ -64,7 +64,7 @@ module MqttSpecs
         session.session_expiry_interval.should eq 3600u32
 
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           props = MQTT::Protocol::ConnectProperties.new
           props.session_expiry_interval = 3600u32
           connack = connect(io, version: MQTT::Protocol::Version::V5,

@@ -7,7 +7,7 @@ module MqttSpecs
     it "UNSUBACK carries a reason code per topic filter, in order [MQTT-3.11.3-1]" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V5.new(socket)
+          io = MQTT::Protocol::IO.v5(socket)
           connect(io, version: MQTT::Protocol::Version::V5)
           subscribe(io, topic_filters: [subtopic("a/b", 0)], packet_id: 1u16)
 

@@ -50,7 +50,7 @@ module MqttSpecs
           session = client_session(server, "pub")
           wait_for { session.client }
           client = session.client.should_not be_nil
-          pointerof(client.@io).value = MQTT::Protocol::IO.new(WriteFailingIO.new(client.@io.io))
+          pointerof(client.@io).value = MQTT::Protocol::IO.v3(WriteFailingIO.new(client.@io.io))
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
           # Nothing more may follow a packet that may be half written
           io.should be_closed

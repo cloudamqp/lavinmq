@@ -9,7 +9,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io)
           temp_io = IO::Memory.new
-          publish(MQTT::Protocol::IO::V3.new(temp_io), topic: "a/b", qos: 1u8, expect_response: false)
+          publish(MQTT::Protocol::IO.v3(temp_io), topic: "a/b", qos: 1u8, expect_response: false)
           pub_pkt = temp_io.to_slice
           pub_pkt[0] |= 0b0000_0110u8
           io.io.write pub_pkt

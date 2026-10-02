@@ -18,7 +18,7 @@ module MqttSpecs
             username: "guest", password: "guest".to_slice, will: nil)
           added = Channel(Nil).new
           spawn do
-            broker.run_client(MQTT::Protocol::IO.new(server_end), LavinMQ::ConnectionInfo.local,
+            broker.run_client(MQTT::Protocol::IO.v3(server_end), LavinMQ::ConnectionInfo.local,
               server.users["guest"], packet) { }
             added.close
           end
@@ -28,7 +28,7 @@ module MqttSpecs
             fail "adding the client hung"
           end
           client_end.read_timeout = 5.seconds
-          MQTT::Protocol::IO.new(client_end).should be_closed
+          MQTT::Protocol::IO.v3(client_end).should be_closed
         ensure
           client_end.close
           server_end.close
@@ -336,7 +336,7 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               temp_io = IO::Memory.new
-              temp_mqtt_io = MQTT::Protocol::IO::V3.new(temp_io)
+              temp_mqtt_io = MQTT::Protocol::IO.v3(temp_io)
               connect(temp_mqtt_io, expect_response: false)
               temp_io.rewind
               connect_pkt = temp_io.to_slice

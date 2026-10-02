@@ -181,7 +181,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8, packet_id: 1u16, expect_response: false)
             publish(io, topic: "a/b", payload: "2".to_slice, qos: 2u8, packet_id: 7u16, expect_response: false)
             pingpong(io) # both routed, the PUBACK ahead of the barrier
-            pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
+            pointerof(client.@io).value = MQTT::Protocol::IO.v3(NonIOErrorWriteIO.new(client.@io.io))
             release_drain(gate)
           end
           wait_for { log_size(log) == 4 + 4 }
@@ -647,7 +647,7 @@ module MqttSpecs
               read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
               # The PUBLISH_SENT record is written and waiting, so the send
               # fails after the client may already hold the id
-              pointerof(client.@io).value = MQTT::Protocol::IO.new(NonIOErrorWriteIO.new(client.@io.io))
+              pointerof(client.@io).value = MQTT::Protocol::IO.v3(NonIOErrorWriteIO.new(client.@io.io))
               release_drain(gate)
             end
           end

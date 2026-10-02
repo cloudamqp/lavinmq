@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   private def self.v5_connect(socket, **args)
-    io = MQTT::Protocol::IO::V5.new(socket)
+    io = MQTT::Protocol::IO.v5(socket)
     connect(io, **{version: MQTT::Protocol::Version::V5}.merge(args))
     io
   end
@@ -53,7 +53,7 @@ module MqttSpecs
     it "keeps the v3 PUBACK a bare packet id on the wire" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = MQTT::Protocol::IO::V3.new(socket)
+          io = MQTT::Protocol::IO.v3(socket)
           connect(io)
           publish(io, false, topic: "no/subs", qos: 1u8, packet_id: 7u16)
           io.flush

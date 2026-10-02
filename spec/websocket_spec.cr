@@ -160,7 +160,7 @@ describe "Websocket support" do
 
           ch = Channel(Nil).new
           websocket.on_binary do |bytes|
-            pkt = MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO::V3.new(IO::Memory.new(bytes)))
+            pkt = MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO.v3(IO::Memory.new(bytes)))
             fail("received unexpected #{pkt}")
           rescue
             ch.close # close to signal "failure"
@@ -170,7 +170,7 @@ describe "Websocket support" do
           end
           spawn { websocket.run }
 
-          websocket.stream { |io| connect.to_io(MQTT::Protocol::IO::V3.new(io)) }
+          websocket.stream { |io| connect.to_io(MQTT::Protocol::IO.v3(io)) }
 
           expect_raises(Channel::ClosedError) do
             select
@@ -228,7 +228,7 @@ describe "Websocket support" do
 
             ch = Channel(Nil).new
             websocket.on_binary do |bytes|
-              pkt = MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO::V3.new(IO::Memory.new(bytes)))
+              pkt = MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO.v3(IO::Memory.new(bytes)))
               fail("received unexpected #{pkt}")
             rescue
               ch.close # close to signal "failure"
@@ -238,7 +238,7 @@ describe "Websocket support" do
             end
             spawn { websocket.run }
 
-            websocket.stream { |io| connect.to_io(MQTT::Protocol::IO::V3.new(io)) }
+            websocket.stream { |io| connect.to_io(MQTT::Protocol::IO.v3(io)) }
 
             expect_raises(Channel::ClosedError) do
               select
@@ -287,12 +287,12 @@ describe "Websocket support" do
 
             ch = Channel(MQTT::Protocol::Packet).new
             websocket.on_binary do |bytes|
-              ch.send MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO::V3.new(IO::Memory.new(bytes)))
+              ch.send MQTT::Protocol::Packet.from_io(MQTT::Protocol::IO.v3(IO::Memory.new(bytes)))
               websocket.close
             end
             spawn { websocket.run }
 
-            websocket.stream { |io| connect.to_io(MQTT::Protocol::IO::V3.new(io)) }
+            websocket.stream { |io| connect.to_io(MQTT::Protocol::IO.v3(io)) }
 
             select
             when pkt = ch.receive
