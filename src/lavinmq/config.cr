@@ -120,6 +120,12 @@ module LavinMQ
         raise Error.new("clustering heartbeat_interval must be at most half the election_timeout")
       end
       peers = clustering_peer_addresses
+      peers.each do |peer|
+        host, sep, port = peer.rpartition(':')
+        if sep.empty? || host.empty? || port.to_u16?.nil?
+          raise Error.new("clustering peer '#{peer}' must be host:port")
+        end
+      end
       unless peers.includes?(clustering_raft_address)
         raise Error.new("clustering peers (#{peers.join(", ")}) must include this node's raft address #{clustering_raft_address}, " \
                         "set raft_advertised_address in [clustering] if it differs")

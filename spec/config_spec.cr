@@ -454,6 +454,16 @@ describe LavinMQ::Config do
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
     end
 
+    it "rejects a peer without a port" do
+      ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /must be host:port/) do
+        config.parse(["--clustering", "--clustering-peers=a:1,b", "--clustering-raft-advertised-address=a:1"])
+      end
+    ensure
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+    end
+
     it "defaults to a single node cluster" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "secret"
       config = LavinMQ::Config.new
