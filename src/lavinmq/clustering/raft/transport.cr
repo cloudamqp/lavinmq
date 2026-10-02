@@ -10,6 +10,10 @@ module LavinMQ::Clustering::Raft
     # Best effort: may drop the message, raft retransmits.
     abstract def send(to : String, msg : Message) : Nil
     abstract def close : Nil
+
+    # Connect to exactly these addresses from now on.
+    def update_peers(addrs : Enumerable(String)) : Nil
+    end
   end
 
   # One outbound connection per peer carries everything this node sends to
@@ -19,7 +23,7 @@ module LavinMQ::Clustering::Raft
   class TCPTransport < Transport
     Log = LavinMQ::Log.for "clustering.raft.transport"
 
-    MAGIC      = "LMQRAFT1".to_slice
+    MAGIC      = "LMQRAFT2".to_slice
     NONCE_SIZE =  32
     QUEUE_SIZE = 256
     # Seconds idle before probing, between probes, and unanswered probes
@@ -27,14 +31,33 @@ module LavinMQ::Clustering::Raft
     KEEPALIVE = {5, 1, 3}
 
     @outbound = Hash(String, Channel(Message)).new
+    @lock = Mutex.new
+    @inbound = Set(TCPSocket).new
     @server : TCPServer? = nil
     @closed = false
 
     def initialize(@password : String, peers : Enumerable(String), @handler : Message ->,
                    @connect_timeout = 1.second, @write_timeout = 2.seconds)
-      peers.each do |peer|
-        ch = @outbound[peer] = Channel(Message).new(QUEUE_SIZE)
-        spawn(outbound_loop(peer, ch), name: "raft outbound #{peer}")
+      update_peers(peers)
+    end
+
+    # Starts outbound connections to new addresses and closes those to
+    # addresses that are no longer wanted.
+    def update_peers(addrs : Enumerable(String)) : Nil
+      wanted = addrs.to_set
+      @lock.synchronize do
+        return if @closed
+        @outbound.reject! do |peer, ch|
+          next false if wanted.includes?(peer)
+          Log.debug { "Disconnecting from #{peer}" }
+          ch.close
+          true
+        end
+        wanted.each do |peer|
+          next if @outbound.has_key?(peer)
+          ch = @outbound[peer] = Channel(Message).new(QUEUE_SIZE)
+          spawn(outbound_loop(peer, ch), name: "raft outbound #{peer}")
+        end
       end
     end
 
@@ -46,23 +69,30 @@ module LavinMQ::Clustering::Raft
     end
 
     def send(to : String, msg : Message) : Nil
-      ch = @outbound[to]? || return
+      ch = @lock.synchronize { @outbound[to]? } || return
       select
       when ch.send(msg)
       else
         Log.debug { "Outbound queue to #{to} full, dropping #{msg.class}" }
       end
+    rescue Channel::ClosedError
+      # the peer was removed meanwhile
     end
 
     def close : Nil
-      @closed = true
       @server.try &.close
-      @outbound.each_value &.close
+      @lock.synchronize do
+        @closed = true
+        @outbound.each_value &.close
+        # Or peers stay connected to a transport that discards what they send
+        @inbound.each { |socket| socket.close rescue nil }
+        @inbound.clear
+      end
     end
 
     private def outbound_loop(peer : String, ch : Channel(Message)) : Nil
       backoff = 50.milliseconds
-      until @closed
+      until @closed || ch.closed?
         connected = false
         begin
           host, _, port = peer.rpartition(':')
@@ -85,7 +115,7 @@ module LavinMQ::Clustering::Raft
             socket.close rescue nil
           end
         rescue ex : IO::Error | Socket::Error | AuthError
-          return if @closed
+          return if @closed || ch.closed?
           Log.debug { "Connection to #{peer} failed: #{ex.message}" }
           drain(ch)
           backoff = connected ? 50.milliseconds : Math.min(backoff * 2, 1.second)
@@ -108,6 +138,13 @@ module LavinMQ::Clustering::Raft
     end
 
     private def inbound(socket : TCPSocket) : Nil
+      @lock.synchronize do
+        if @closed
+          socket.close rescue nil
+          return
+        end
+        @inbound << socket
+      end
       socket.sync = true
       socket.read_timeout = @connect_timeout
       authenticate_server(socket)
@@ -128,6 +165,7 @@ module LavinMQ::Clustering::Raft
     rescue ex : IO::Error | Socket::Error
       Log.debug { "Raft inbound connection closed: #{ex.message}" }
     ensure
+      @lock.synchronize { @inbound.delete(socket) }
       socket.close rescue nil
     end
 

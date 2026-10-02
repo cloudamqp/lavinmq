@@ -8,7 +8,12 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   getter coordinator : RaftCoordinator
   getter node : Raft::Node
 
+  # Accepted leadership transfer: who, and in which term
+  record Transfer, target : String, term : Int64
+
   @transport : Raft::TCPTransport? = nil
+  @step_down : (String ->)? = nil
+  @transfer_target : String? = nil
   @stop_signal = Channel(Nil).new
   # Closed by the follower monitor once this node is a serving leader, so
   # only that fiber decides between replicating and promoting.
@@ -21,6 +26,52 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
       bootstrap: may_bootstrap?)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
+  end
+
+  # Registers what to do when an operator asks this leader to hand over
+  # leadership, see #step_down. The Launcher shuts the node down gracefully.
+  def on_step_down(&block : String ->) : Nil
+    @step_down = block
+  end
+
+  # Checks that `target` (a raft address, or without one any caught up
+  # in-sync voter) can take over right now: it must be a voter in the
+  # committed ISR with a known clustering id. Returns the accepted transfer,
+  # or why not. Nothing changes until #step_down.
+  # ameba:disable Metrics/CyclomaticComplexity
+  def request_transfer(target : String? = nil) : Transfer | String
+    status = @node.status
+    return "This node is not the leader" if status.nil? || !status.role.leader? || @stopping
+    return "The leader hasn't committed an entry in its term yet" unless @node.serving.value
+    voters = status.membership.try(&.voters) || return "The cluster has no membership yet"
+    isr = status.committed_isr || return "The cluster has no in-sync replica set yet"
+    if target
+      return "#{target} is the leader" if target == status.address
+      return "#{target} is not a voter" unless voters.includes?(target)
+      return "#{target} is not in the in-sync replica set" unless transfer_eligible?(status, voters, isr, target)
+    else
+      target = voters.find { |a| transfer_eligible?(status, voters, isr, a) && status.caught_up.includes?(a) } ||
+               voters.find { |a| transfer_eligible?(status, voters, isr, a) } ||
+               return "No voter is in the in-sync replica set"
+    end
+    Transfer.new(target, status.term)
+  end
+
+  private def transfer_eligible?(status : Raft::Status, voters : Set(String), isr : Set(Int32), addr : String) : Bool
+    return false if addr == status.address || !voters.includes?(addr)
+    id = status.node_id_of(addr)
+    !id.nil? && isr.includes?(id)
+  end
+
+  # Gracefully step down in favour of `target`: stop serving, hand over
+  # leadership and restart as a follower, see Launcher#step_down.
+  def step_down(target : String) : Nil
+    @transfer_target = target
+    if callback = @step_down
+      callback.call(target)
+    else
+      Log.warn { "No step down handler registered, can't hand over leadership to #{target}" }
+    end
   end
 
   def run(&)
@@ -55,9 +106,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   def stop
     return if @stopped
     @stopped = @stopping = true
-    @stop_signal.close
     @repli_client.try &.close
+    # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
+    @stop_signal.close
     @node.close
   end
 
@@ -73,7 +125,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # election timeout.
   private def hand_over_leadership : Nil
     return unless leader?
-    return unless @node.transfer_leadership
+    result = @node.transfer_leadership(@transfer_target)
+    return unless result.sent? || result.pending?
     deadline = Time.instant + @config.clustering_election_timeout.milliseconds * 2
     while @node.leader? && Time.instant < deadline
       select
@@ -146,6 +199,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
     Log.info { "Leader: #{uri}" }
     @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
+    r.member_check = -> { @node.self_member? }
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil

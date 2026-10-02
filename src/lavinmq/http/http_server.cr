@@ -26,7 +26,8 @@ module LavinMQ
       # different from the one we actually bound.
       @internal_unix_socket_path : String = Config.instance.control_unix_path
 
-      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server)
+      def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
+                     cluster : Clustering::RaftController? = nil)
         oauth_authenticator =
           case auth = @server.authenticator
           when Auth::Chain
@@ -62,6 +63,7 @@ module LavinMQ
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
+          ClusterController.new(@server, cluster),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @http = ::HTTP::Server.new(handlers)

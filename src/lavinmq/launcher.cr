@@ -23,6 +23,8 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @raft_controller : Clustering::RaftController?
+    @stepped_down = false
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -43,6 +45,10 @@ module LavinMQ
       if @config.clustering?
         @runner = controller = Clustering::Controller.create(@config)
         @replicator = Clustering::Server.new(@config, controller.coordinator, controller.id)
+        if controller.is_a?(Clustering::RaftController)
+          @raft_controller = controller
+          controller.on_step_down { |target| spawn(step_down(target), name: "Step down") }
+        end
       else
         @runner = StandaloneRunner.new
       end
@@ -65,7 +71,7 @@ module LavinMQ
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller)
       start_listeners(amqp_server, mqtt_server, http_server)
       start_metrics_server(server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
@@ -83,6 +89,19 @@ module LavinMQ
       end
       @replicator.try &.close if @server # only a leader started it
       @data_dir_lock.try &.release
+      exit 3 if @stepped_down
+    end
+
+    # Hands leadership over to `target` after a request from an operator: stops
+    # serving clients, lets the target take over, and exits with 3, like when
+    # leadership is lost, so that the supervisor restarts this node as a
+    # follower. A node that is shut down gracefully, like systemd does with
+    # SIGTERM, wouldn't be restarted.
+    private def step_down(target : String) : Nil
+      Log.warn { "Stepping down, handing over leadership to #{target}" }
+      @stepped_down = true
+      stop
+      exit 3
     end
 
     def stop

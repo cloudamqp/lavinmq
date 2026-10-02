@@ -21,5 +21,13 @@ module LavinMQ::Clustering
     def password : String
       @password
     end
+
+    def member?(node_id : Int32) : Bool
+      @node.member?(node_id)
+    end
+
+    def on_member_removed(&block : Int32 ->) : Nil
+      @node.on_member_removed(&block)
+    end
   end
 end

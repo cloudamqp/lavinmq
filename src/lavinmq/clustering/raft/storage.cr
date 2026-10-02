@@ -5,10 +5,15 @@ module LavinMQ::Clustering::Raft
   # Persists a HardState. The state is a handful of bytes (ISR entries are
   # compacted on commit), so every save rewrites the whole file: write a temp
   # file, fsync it, rename over the old one and fsync the directory.
+  #
+  # Version 3 added the membership, to the snapshot and to each entry. Version
+  # 2 files load without one, the leader seeds it.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 2u8
+    VERSION = 3u8
     Format  = IO::ByteFormat::LittleEndian
+    # Uncommitted entries are few, this only guards against a corrupt count.
+    MAX_ENTRIES = 1 << 20
 
     class CorruptError < Exception; end
 
@@ -55,11 +60,8 @@ module LavinMQ::Clustering::Raft
       io.write_bytes state.snapshot_index, Format
       io.write_bytes state.snapshot_term, Format
       Codec.write_isr(io, state.snapshot_isr)
-      io.write_bytes state.entries.size, Format
-      state.entries.each do |e|
-        io.write_bytes e.term, Format
-        Codec.write_isr(io, e.isr)
-      end
+      Codec.write_membership(io, state.snapshot_membership)
+      Codec.write_entries(io, state.entries)
       io.write_bytes state.peer_node_ids.size, Format
       state.peer_node_ids.each do |addr, node_id|
         io.write_bytes addr.bytesize, Format
@@ -71,21 +73,23 @@ module LavinMQ::Clustering::Raft
     private def decode(io) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
-      raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
+      unless version && (version == VERSION || version == 2)
+        raise CorruptError.new("#{@path} has unsupported version #{version}")
+      end
       term = io.read_bytes Int64, Format
       voted_for = io.read_string(io.read_bytes(Int32, Format))
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
-      entries = Array(Entry).new(io.read_bytes(Int32, Format)) do
-        Entry.new(io.read_bytes(Int64, Format), Codec.read_isr(io))
-      end
+      snapshot_membership = Codec.read_membership(io) if version >= 3
+      entries = Codec.read_entries(io, MAX_ENTRIES, version)
       peer_node_ids = Hash(String, Int32).new
       io.read_bytes(Int32, Format).times do
         addr = io.read_string(io.read_bytes(Int32, Format))
         peer_node_ids[addr] = io.read_bytes(Int32, Format)
       end
-      HardState.new(term, voted_for.presence, snapshot_index, snapshot_term, snapshot_isr, entries, peer_node_ids)
+      HardState.new(term, voted_for.presence, snapshot_index, snapshot_term, snapshot_isr, entries, peer_node_ids,
+        snapshot_membership)
     end
   end
 end

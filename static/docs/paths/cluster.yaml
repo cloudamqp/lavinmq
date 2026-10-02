@@ -1,0 +1,203 @@
+---
+"/cluster":
+  get:
+    tags:
+    - cluster
+    description: |
+      The leader, the members of the cluster and how far they have caught up. Only available with the raft clustering backend.
+      Requests to a follower are proxied to the leader, which is the node that knows how far the others have caught up.
+      Requires administrator permission.
+    summary: Cluster status
+    operationId: GetCluster
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/cluster"
+      '400':
+        description: The node uses the etcd clustering backend.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '404':
+        description: Clustering is not enabled.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/cluster/members":
+  post:
+    tags:
+    - cluster
+    description: |
+      Add a node to the cluster as a non-voting learner. The learner gets the Raft log and starts replicating broker data,
+      but doesn't count towards quorum until it is promoted. The request returns when the change is committed.
+      Requires administrator permission.
+    summary: Add a cluster member
+    operationId: AddClusterMember
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/cluster-AddClusterMemberRequestBody"
+    responses:
+      '201':
+        description: The learner was added.
+      '409':
+        description: Another membership change is pending, or the node is already a member.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/cluster/members/{address}/promote":
+  parameters:
+  - in: path
+    name: address
+    required: true
+    schema:
+      type: string
+      description: Raft address of the member, host:port. The colon may be URL encoded.
+  post:
+    tags:
+    - cluster
+    description: |
+      Make a learner a voter. The learner must be in the in-sync replica set, i.e. have the broker data,
+      and must have caught up with the leader's Raft log. The request returns when the change is committed.
+      Requires administrator permission.
+    summary: Promote a learner
+    operationId: PromoteClusterMember
+    responses:
+      '200':
+        description: The learner was promoted.
+      '409':
+        description: Another membership change is pending, or the learner isn't in the in-sync replica set or hasn't caught up yet.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/cluster/members/{address}":
+  parameters:
+  - in: path
+    name: address
+    required: true
+    schema:
+      type: string
+      description: Raft address of the member, host:port. The colon may be URL encoded.
+  delete:
+    tags:
+    - cluster
+    description: |
+      Remove a member from the cluster, which also takes it out of the in-sync replica set.
+      The leader can't be removed, transfer leadership first. Shut the removed node down afterwards.
+      The request returns when the change is committed. Requires administrator permission.
+    summary: Remove a cluster member
+    operationId: RemoveClusterMember
+    responses:
+      '204':
+        description: The member was removed.
+      '404':
+        description: Not a member.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '409':
+        description: Another membership change is pending, or the member is the leader.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/cluster/transfer-leadership":
+  post:
+    tags:
+    - cluster
+    description: |
+      Hand over leadership. The leader stops serving clients, lets the target take over and then exits with status 3
+      so that its supervisor restarts it as a follower. The response is sent before that. The transfer is complete when
+      `GET /api/cluster` answers with the target as `leader`, which is only the case once it is up and serving.
+      Requires administrator permission.
+    summary: Transfer leadership
+    operationId: TransferLeadership
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/cluster-TransferLeadershipRequestBody"
+    responses:
+      '202':
+        description: The leader is stepping down.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/cluster-TransferLeadershipResponse"
+      '409':
+        description: The target isn't a voter in the in-sync replica set, or there is no such voter.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"

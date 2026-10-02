@@ -93,6 +93,11 @@ module LavinMQ
         end
       end
 
+      # Tells whether this node is part of the cluster, to explain why the
+      # leader keeps refusing the connection. Set by controllers that have
+      # a membership.
+      property member_check : Proc(Bool)? = nil
+
       def follow(uri : String)
         follow(URI.parse(uri))
       end
@@ -103,6 +108,7 @@ module LavinMQ
         follow(host, port)
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def follow(host : String, port : Int32)
         Log.info { "Following #{host}:#{port}" }
         @host = host
@@ -140,7 +146,13 @@ module LavinMQ
           lz4.try &.close
           socket.try &.close
           break if @closed
-          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          if (check = @member_check) && !check.call
+            # Refused by the leader, keep retrying: we may be added back, and
+            # exiting would only make a supervisor restart us in a loop.
+            Log.warn { "Disconnected from server #{host}:#{port} (#{ex}): this node is not a member of the cluster, shut it down" }
+          else
+            Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          end
           break if closed_while_waiting?(1.second)
         end
       ensure
