@@ -1,0 +1,66 @@
+---
+cluster:
+  type: object
+  properties:
+    leader:
+      type: string
+      description: Raft address of the leader.
+    term:
+      type: integer
+    isr:
+      type: array
+      description: Clustering ids (base 36) of the nodes in the committed in-sync replica set.
+      items:
+        type: string
+    members:
+      type: array
+      items:
+        "$ref": "#/member"
+member:
+  type: object
+  properties:
+    address:
+      type: string
+      description: Raft address.
+    node_id:
+      type: string
+      nullable: true
+      description: Clustering id (base 36), null until the node has been in contact with the leader.
+    role:
+      type: string
+      enum:
+      - voter
+      - learner
+    in_isr:
+      type: boolean
+      description: Whether the node has the broker data, as part of the committed in-sync replica set.
+    match_index:
+      type: integer
+      nullable: true
+      description: The last index of the Raft log that the node has.
+    caught_up:
+      type: boolean
+      description: Whether the node has the whole Raft log of the leader.
+    leader:
+      type: boolean
+AddClusterMemberRequestBody:
+  type: object
+  required:
+  - address
+  properties:
+    address:
+      type: string
+      description: Raft address of the node to add, host:port.
+TransferLeadershipRequestBody:
+  type: object
+  properties:
+    target:
+      type: string
+      description: Raft address of the voter to hand over to. Default is a caught up voter in the in-sync replica set.
+TransferLeadershipResponse:
+  type: object
+  properties:
+    target:
+      type: string
+    term:
+      type: integer

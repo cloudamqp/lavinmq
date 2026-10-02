@@ -1,9 +1,23 @@
 module LavinMQ::Clustering::Raft
-  # A log entry. The replicated state machine is just the ISR, and every
-  # entry carries the full set (nil for the no-op a new leader appends,
-  # unless it's the first leader), so the latest entry is the whole state
-  # and compaction is trivial.
-  record Entry, term : Int64, isr : Set(Int32)?
+  # The cluster configuration, as raft addresses. Voters count towards
+  # quorum, commit and elections. Learners only receive the log, they are
+  # added first and promoted once they've caught up.
+  record Membership, voters : Set(String), learners : Set(String) do
+    def members : Set(String)
+      voters | learners
+    end
+
+    def includes?(addr : String) : Bool
+      voters.includes?(addr) || learners.includes?(addr)
+    end
+  end
+
+  # A log entry. The replicated state machine is the ISR and the membership,
+  # and every entry carries the full value of whichever it changes (nil for
+  # the other, and for both in the no-op a new leader appends, unless it's the
+  # first leader), so the latest non-nil value is the whole state and
+  # compaction is trivial.
+  record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil
 
   # `from` is the sender's raft address. Messages are one-way: replies are
   # sent back as their own message over the sender's outbound connection.
@@ -19,7 +33,7 @@ module LavinMQ::Clustering::Raft
   record AppendResponse, from : String, term : Int64, node_id : Int32, success : Bool, match_index : Int64
 
   record InstallSnapshot, from : String, term : Int64, node_id : Int32, leader_uri : String,
-    index : Int64, snapshot_term : Int64, isr : Set(Int32)?
+    index : Int64, snapshot_term : Int64, isr : Set(Int32)?, membership : Membership? = nil
 
   # Sent by a leader shutting down gracefully, so an up-to-date follower
   # campaigns at once instead of waiting out its election timeout.
@@ -28,7 +42,8 @@ module LavinMQ::Clustering::Raft
   # A voter's whole log, sent to an in-ISR candidate whose log is older, see
   # Core#handle_catch_up.
   record CatchUp, from : String, term : Int64, node_id : Int32,
-    snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?, entries : Array(Entry)
+    snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?, entries : Array(Entry),
+    snapshot_membership : Membership? = nil
 
   alias Message = RequestVote | VoteResponse | AppendEntries | AppendResponse | InstallSnapshot | TimeoutNow | CatchUp
 
@@ -84,6 +99,7 @@ module LavinMQ::Clustering::Raft
         io.write_bytes msg.index, Format
         io.write_bytes msg.snapshot_term, Format
         write_isr io, msg.isr
+        write_membership io, msg.membership
       in TimeoutNow
         io.write_byte 6u8
         write_str io, msg.from
@@ -97,6 +113,7 @@ module LavinMQ::Clustering::Raft
         io.write_bytes msg.snapshot_term, Format
         write_isr io, msg.snapshot_isr
         write_entries io, msg.entries
+        write_membership io, msg.snapshot_membership
       end
       io.to_slice
     end
@@ -125,12 +142,12 @@ module LavinMQ::Clustering::Raft
         node_id = io.read_bytes Int32, Format
         leader_uri = read_str(io)
         InstallSnapshot.new(from, term, node_id, leader_uri, io.read_bytes(Int64, Format),
-          io.read_bytes(Int64, Format), read_isr(io))
+          io.read_bytes(Int64, Format), read_isr(io), read_membership(io))
       when 6
         TimeoutNow.new(from, term)
       when 7
         CatchUp.new(from, term, io.read_bytes(Int32, Format), io.read_bytes(Int64, Format),
-          io.read_bytes(Int64, Format), read_isr(io), read_entries(io, bytes.size))
+          io.read_bytes(Int64, Format), read_isr(io), read_entries(io, bytes.size), read_membership(io))
       else
         raise IO::Error.new("Unknown raft message type #{type}")
       end
@@ -154,34 +171,64 @@ module LavinMQ::Clustering::Raft
       set
     end
 
-    private def write_entries(io, entries : Array(Entry)) : Nil
+    def write_membership(io, membership : Membership?) : Nil
+      unless membership
+        io.write_byte 0u8
+        return
+      end
+      io.write_byte 1u8
+      write_addrs io, membership.voters
+      write_addrs io, membership.learners
+    end
+
+    def read_membership(io) : Membership?
+      return unless read_bool(io)
+      Membership.new(read_addrs(io), read_addrs(io))
+    end
+
+    def write_entries(io, entries : Array(Entry)) : Nil
       io.write_bytes entries.size, Format
       entries.each do |e|
         io.write_bytes e.term, Format
         write_isr io, e.isr
+        write_membership io, e.membership
       end
     end
 
-    private def read_entries(io, max : Int32) : Array(Entry)
+    # `max` bounds the count by what the input could possibly hold.
+    def read_entries(io, max : Int32, version = 3) : Array(Entry)
       count = io.read_bytes Int32, Format
       raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= max
       Array(Entry).new(count) do
-        Entry.new(io.read_bytes(Int64, Format), read_isr(io))
+        Entry.new(io.read_bytes(Int64, Format), read_isr(io), version >= 3 ? read_membership(io) : nil)
       end
     end
 
-    private def write_str(io, str : String) : Nil
+    private def write_addrs(io, addrs : Set(String)) : Nil
+      io.write_bytes addrs.size, Format
+      addrs.each { |a| write_str io, a }
+    end
+
+    private def read_addrs(io) : Set(String)
+      size = io.read_bytes Int32, Format
+      raise IO::Error.new("Invalid member count #{size}") unless 0 <= size <= MAX_FRAME // 4
+      set = Set(String).new(size)
+      size.times { set << read_str(io) }
+      set
+    end
+
+    def write_str(io, str : String) : Nil
       io.write_bytes str.bytesize, Format
       io.write str.to_slice
     end
 
-    private def read_str(io) : String
+    def read_str(io) : String
       len = io.read_bytes Int32, Format
       raise IO::Error.new("Invalid string length #{len}") unless 0 <= len <= MAX_FRAME
       io.read_string(len)
     end
 
-    private def read_bool(io) : Bool
+    def read_bool(io) : Bool
       (io.read_byte || raise IO::EOFError.new) != 0
     end
   end

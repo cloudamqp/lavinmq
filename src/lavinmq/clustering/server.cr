@@ -49,6 +49,16 @@ module LavinMQ
         @data_dir = @config.data_dir
         @password = password
         @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
+        @coordinator.on_member_removed { |id| drop_follower(id) }
+      end
+
+      # Disconnects a follower that was removed from the cluster. It stays out
+      # of the ISR and is refused when it reconnects.
+      private def drop_follower(id : Int32) : Nil
+        follower = @lock.synchronize { @followers.find { |f| f.id == id } }
+        return unless follower
+        Log.warn { "Disconnecting follower id=#{id.to_s(36)}, it was removed from the cluster" }
+        follower.close
       end
 
       def clear
@@ -328,6 +338,10 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
+        unless @coordinator.member?(follower.id)
+          Log.warn { "Refusing follower id=#{follower.id.to_s(36)}, it is not a member of the cluster" }
+          return
+        end
         @lock.synchronize do
           if stale_follower = @followers.find { |f| f.id == follower.id }
             Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
@@ -411,7 +425,7 @@ module LavinMQ
           # A dead follower may linger in @followers until its handler fiber
           # runs its cleanup; it must not re-enter the ISR meanwhile (flush_isr
           # races that cleanup when a confirm is pending).
-          ids.add(f.id) if f.synced? && !f.dead?
+          ids.add(f.id) if f.synced? && !f.dead? && @coordinator.member?(f.id)
         end
         ids.add(@id)
         Log.info { "In-sync replicas: #{ids.to_a}" }

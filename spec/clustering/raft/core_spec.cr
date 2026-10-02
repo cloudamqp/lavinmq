@@ -74,6 +74,31 @@ private class SimCluster
     index
   end
 
+  def change(core : Raft::Core, change : Raft::MembershipChange, addr : String) : Int64 | Raft::MembershipError
+    result = core.propose_membership(change, addr, @now)
+    pump
+    result
+  end
+
+  # A node that starts with itself and an existing member as peers, like one
+  # being added to a running cluster.
+  def join(addr : String, seeds : Array(String), seed = 11, state : Raft::HardState? = nil,
+           node_id : Int32? = nil) : Raft::Core
+    @addrs << addr
+    @disk[addr] = state
+    @cores[addr] = Raft::Core.new(addr, [addr] + seeds, node_id || @addrs.size, "tcp://#{addr}:5679", ELECTION, HEARTBEAT,
+      @now, state, Random.new(seed), bootstrap: false)
+  end
+
+  # Runs until there's a serving leader and has it commit `isr`.
+  def elect(isr : Set(Int32)) : Raft::Core
+    run_until { leader.try &.serving_leader? }
+    l = leader.not_nil!
+    propose(l, isr)
+    advance(100.milliseconds)
+    l
+  end
+
   def pump
     loop do
       @cores.each_value do |c|
@@ -89,7 +114,7 @@ private class SimCluster
         to, msg = item
         next if @crashed.includes?(to) || @crashed.includes?(msg.from)
         next if @isolated.includes?(to) || @isolated.includes?(msg.from)
-        @cores[to].step(msg, @now)
+        @cores[to]?.try &.step(msg, @now)
       end
     end
   end
@@ -317,7 +342,7 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_false
   end
 
-  it "forgets the clustering id of an address no longer among the peers" do
+  it "lets a new address take the clustering id of one no longer among the peers" do
     now = Time.instant
     core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now)
     core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
@@ -356,7 +381,7 @@ describe Raft::Core do
     old = sim.leader.not_nil!
     sim.propose(old, sim.cores.keys.map { |a| sim.node_id(a) }.to_set)
     sim.advance(100.milliseconds)
-    old.transfer_leadership.should be_true
+    old.transfer_leadership.should eq Raft::TransferResult::Sent
     sim.pump
     sim.advance(50.milliseconds) # well within the election timeout
     new_leader = sim.leader.not_nil!
@@ -428,5 +453,285 @@ describe Raft::Core do
     end
     leaders_by_term.size.should be > 5
     committed.size.should be > 5
+  end
+end
+
+describe Raft::Core, "membership" do
+  it "seeds the membership from the configured peers when the first leader is elected" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.advance(100.milliseconds)
+    expected = Raft::Membership.new(Set{"n1", "n2", "n3"}, Set(String).new)
+    sim.cores.each_value { |c| c.committed_membership.should eq expected }
+  end
+
+  it "replicates to a learner without counting it towards commit or quorum" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3, 4})
+    sim.join("n4", [leader.id])
+    index = sim.change(leader, Raft::MembershipChange::AddLearner, "n4").as(Int64)
+    sim.advance(200.milliseconds)
+    leader.commit_index.should be >= index
+    sim["n4"].latest_membership.not_nil!.learners.should eq Set{"n4"}
+    leader.quorum.should eq 2
+
+    # With both voters cut off the learner has the entry but it can't commit
+    sim.cores.each_key { |a| sim.isolated << a if a.in?("n1", "n2", "n3") && a != leader.id }
+    pending = sim.propose(leader, Set{1, 2, 3, 4}).not_nil!
+    sim.advance(50.milliseconds)
+    sim["n4"].last_index.should be >= pending
+    leader.commit_index.should be < pending
+  end
+
+  it "never lets a learner campaign" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3, 4})
+    sim.join("n4", [leader.id])
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n4")
+    sim.advance(200.milliseconds)
+    sim["n4"].last_index.should be > 0
+    campaigns?(sim["n4"], sim.now).should be_false
+  end
+
+  it "raises the quorum when a learner is promoted" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3, 4})
+    sim.join("n4", [leader.id])
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n4")
+    sim.advance(200.milliseconds)
+    leader.quorum.should eq 2
+    index = sim.change(leader, Raft::MembershipChange::Promote, "n4").as(Int64)
+    sim.advance(200.milliseconds)
+    leader.commit_index.should be >= index
+    leader.quorum.should eq 3
+    sim["n4"].voter?("n4").should be_true
+  end
+
+  it "only promotes a learner that is in the ISR and has caught up" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    sim.join("n4", [leader.id])
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n4")
+    sim.advance(200.milliseconds)
+    sim.change(leader, Raft::MembershipChange::Promote, "n4").should eq Raft::MembershipError::NotInIsr
+    sim.propose(leader, Set{1, 2, 3, 4})
+    sim.advance(200.milliseconds)
+    sim.isolated << "n4"
+    sim.propose(leader, Set{1, 2, 3, 4})
+    sim.change(leader, Raft::MembershipChange::Promote, "n4").should eq Raft::MembershipError::NotCaughtUp
+    sim.isolated.delete("n4")
+    sim.advance(100.milliseconds)
+    sim.change(leader, Raft::MembershipChange::Promote, "n4").should be_a Int64
+  end
+
+  it "rejects a second change while the first is pending" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    sim.cores.each_key { |a| sim.isolated << a unless a == leader.id }
+    first = sim.change(leader, Raft::MembershipChange::AddLearner, "n4").as(Int64)
+    leader.commit_index.should be < first
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n5").should eq Raft::MembershipError::Pending
+    sim.isolated.clear
+    sim.advance(200.milliseconds)
+    leader.commit_index.should be >= first
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n5").should be_a Int64
+  end
+
+  it "doesn't let a new leader change the membership before its no-op is committed" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, nil, Random.new(1), bootstrap: true)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new("n2", 1, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new("n2", 1, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    core.propose_membership(Raft::MembershipChange::AddLearner, "n4", now).should eq Raft::MembershipError::NotServing
+    core.step(Raft::AppendResponse.new("n2", 1, 2, true, core.last_index), now)
+    core.serving_leader?.should be_true
+    core.propose_membership(Raft::MembershipChange::AddLearner, "n4", now).should be_a Int64
+  end
+
+  it "reverts an uncommitted membership entry that is truncated after a leader crash" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    sim.cores.each_key { |a| sim.isolated << a unless a == old.id }
+    sim.change(old, Raft::MembershipChange::AddLearner, "n4").should be_a Int64
+    old.latest_membership.not_nil!.learners.should eq Set{"n4"}
+    sim.isolated.clear
+    sim.isolated << old.id
+    sim.run_until { (l = sim.leader) && l.id != old.id && l.serving_leader? }
+    sim.isolated.clear
+    sim.advance(500.milliseconds)
+    old.role.leader?.should be_false
+    old.latest_membership.not_nil!.learners.should be_empty
+    old.committed_membership.not_nil!.learners.should be_empty
+    sim.leader.not_nil!.latest_membership.not_nil!.learners.should be_empty
+  end
+
+  it "adopts the membership from the snapshot when joining with an empty log" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3, 4})
+    n4 = sim.join("n4", [leader.id])
+    n4.latest_membership.should be_nil
+    campaigns?(n4, sim.now).should be_false
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n4")
+    sim.advance(200.milliseconds)
+    n4.latest_membership.not_nil!.voters.should eq Set{"n1", "n2", "n3"}
+    n4.latest_membership.not_nil!.learners.should eq Set{"n4"}
+    n4.voter?("n4").should be_false
+    n4.leader.should eq leader.id
+    campaigns?(n4, sim.now).should be_false
+  end
+
+  it "takes the removed node out of the ISR in the same entry" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    removed = sim.cores.keys.find! { |a| a != leader.id }
+    index = sim.change(leader, Raft::MembershipChange::Remove, removed).as(Int64)
+    sim.advance(200.milliseconds)
+    leader.commit_index.should be >= index
+    leader.committed_isr.should eq Set{1, 2, 3} - Set{sim.node_id(removed)}
+    leader.committed_membership.not_nil!.members.should_not contain(removed)
+    leader.quorum.should eq 2
+  end
+
+  it "doesn't let a removed node with a stale configuration win an election" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    removed = sim.cores.keys.find! { |a| a != leader.id }
+    sim.isolated << removed
+    index = sim.change(leader, Raft::MembershipChange::Remove, removed).as(Int64)
+    sim.advance(200.milliseconds)
+    leader.commit_index.should be >= index
+    sim[removed].latest_membership.not_nil!.voters.size.should eq 3
+    sim.crash(leader.id)
+    sim.isolated.delete(removed)
+    sim.advance(3.seconds)
+    sim[removed].role.leader?.should be_false
+    sim.leader.should be_nil
+  end
+
+  it "tells a removed node that it was removed" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    removed = sim.cores.keys.find! { |a| a != leader.id }
+    sim.isolated << removed
+    sim.change(leader, Raft::MembershipChange::Remove, removed)
+    sim.advance(100.milliseconds)
+    sim[removed].latest_membership.not_nil!.includes?(removed).should be_true
+    leader.departing.should eq [removed]
+    sim.isolated.delete(removed)
+    sim.advance(100.milliseconds)
+    sim[removed].latest_membership.not_nil!.includes?(removed).should be_false
+    leader.departing.should be_empty
+    campaigns?(sim[removed], sim.now).should be_false
+  end
+
+  it "stops telling a removed node that doesn't answer" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    removed = sim.cores.keys.find! { |a| a != leader.id }
+    sim.isolated << removed
+    sim.change(leader, Raft::MembershipChange::Remove, removed)
+    leader.departing.should eq [removed]
+    sim.advance(SimCluster::ELECTION * 6)
+    leader.departing.should be_empty
+  end
+
+  it "rejects removing the leader" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    sim.change(leader, Raft::MembershipChange::Remove, leader.id).should eq Raft::MembershipError::IsLeader
+    sim.change(leader, Raft::MembershipChange::Remove, "n9").should eq Raft::MembershipError::UnknownMember
+  end
+
+  it "takes a removed node back at a new address with the same data dir" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    moved = sim.cores.keys.find! { |a| a != leader.id }
+    node_id = sim.node_id(moved)
+    sim.change(leader, Raft::MembershipChange::Remove, moved)
+    sim.advance(200.milliseconds)
+    leader.departing.should be_empty
+    sim.crash(moved)
+    sim.change(leader, Raft::MembershipChange::AddLearner, "n9").should be_a Int64
+    sim.advance(100.milliseconds)
+    sim.join("n9", [leader.id], state: sim[moved].hard_state, node_id: node_id)
+    sim.advance(200.milliseconds)
+    leader.id_conflict.should be_nil
+    sim.propose(leader, Set{1, 2, 3})
+    sim.advance(100.milliseconds)
+    leader.committed_isr.not_nil!.should contain(node_id)
+    sim.change(leader, Raft::MembershipChange::Promote, "n9").should be_a Int64
+  end
+
+  it "keeps a removed node out of later ISR updates" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    removed = sim.cores.keys.find! { |a| a != leader.id }
+    sim.change(leader, Raft::MembershipChange::Remove, removed)
+    sim.advance(200.milliseconds)
+    sim.propose(leader, Set{1, 2, 3})
+    sim.advance(100.milliseconds)
+    leader.committed_isr.should eq Set{1, 2, 3} - Set{sim.node_id(removed)}
+  end
+end
+
+describe Raft::Core, "leadership transfer" do
+  it "hands leadership to the chosen target" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    target = sim.cores.keys.reverse!.find! { |a| a != old.id }
+    old.transfer_leadership(target).should eq Raft::TransferResult::Sent
+    sim.pump
+    sim.advance(50.milliseconds)
+    sim.leader.not_nil!.id.should eq target
+  end
+
+  it "sends TimeoutNow to a lagging target once it has caught up" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    target = sim.cores.keys.find! { |a| a != old.id }
+    sim.isolated << target
+    sim.propose(old, Set{1, 2, 3})
+    sim.advance(20.milliseconds)
+    old.transfer_leadership(target).should eq Raft::TransferResult::Pending
+    sim.isolated.delete(target)
+    sim.advance(100.milliseconds)
+    sim.leader.not_nil!.id.should eq target
+  end
+
+  it "gives up on a lagging target at the deadline" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    target = sim.cores.keys.find! { |a| a != old.id }
+    sim.isolated << target
+    sim.propose(old, Set{1, 2, 3})
+    old.transfer_leadership(target).should eq Raft::TransferResult::Pending
+    sim.advance(SimCluster::ELECTION * 2)
+    sim.isolated.delete(target)
+    sim.advance(300.milliseconds)
+    sim.leader.should be old
+  end
+
+  it "refuses a target outside the ISR, a learner and an unknown address" do
+    sim = SimCluster.new(3)
+    sim.run_until { sim.leader.try &.serving_leader? }
+    old = sim.leader.not_nil!
+    others = sim.cores.keys.reject(old.id)
+    not_in_isr = others.last
+    sim.propose(old, Set{sim.node_id(old.id), sim.node_id(others.first)})
+    sim.advance(100.milliseconds)
+    old.transfer_leadership(not_in_isr).should eq Raft::TransferResult::NotEligible
+    old.transfer_leadership("n9").should eq Raft::TransferResult::NotEligible
+    old.transfer_leadership(old.id).should eq Raft::TransferResult::NotEligible
+
+    sim.propose(old, Set{sim.node_id(old.id), sim.node_id(others.first), 4})
+    sim.join("n4", [old.id])
+    sim.change(old, Raft::MembershipChange::AddLearner, "n4")
+    sim.advance(200.milliseconds)
+    old.transfer_leadership("n4").should eq Raft::TransferResult::NotEligible
+    sim[others.first].transfer_leadership(others.last).should eq Raft::TransferResult::NotLeader
   end
 end
