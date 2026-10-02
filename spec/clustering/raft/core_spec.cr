@@ -281,6 +281,29 @@ describe Raft::Core do
     core.id_conflict.should_not be_nil
   end
 
+  it "campaigns again once the node with its clustering id gets a new one" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, bootstrap: true)
+    core.step(Raft::AppendEntries.new("n2", 1, 1, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core.id_conflict.should_not be_nil
+    core.step(Raft::AppendEntries.new("n2", 1, 5, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core.id_conflict.should be_nil
+    core.take_outbox
+    core.tick(now + 1.second)
+    core.take_outbox.map(&.[1]).any?(Raft::RequestVote).should be_true
+  end
+
+  it "keeps campaigning when two other peers share a clustering id" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, bootstrap: true)
+    core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core.step(Raft::RequestVote.new("n3", 2, 2, 0, 0, pre_vote: true, transfer: false), now)
+    core.id_conflict.should_not be_nil
+    core.take_outbox
+    core.tick(now + 1.second)
+    core.take_outbox.map(&.[1]).any?(Raft::RequestVote).should be_true
+  end
+
   it "remembers peer clustering ids across restarts" do
     now = Time.instant
     core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now)

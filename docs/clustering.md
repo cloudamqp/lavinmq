@@ -41,6 +41,7 @@ password_file = /etc/lavinmq/clustering_password
   chown lavinmq: /etc/lavinmq/clustering_password && chmod 600 /etc/lavinmq/clustering_password
   ```
 - The raft listener binds to the same address as `bind`.
+- When starting a new cluster of more than one node, start one of them with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`) the first time. No node becomes leader without it, see [Migrating from etcd to raft](#migrating-from-etcd-to-raft) for why.
 
 ### etcd backend
 
@@ -120,7 +121,7 @@ The migration needs a short full cluster downtime. All nodes have to switch back
 2. Add `backend = raft`, `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
-A node that has data but no election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until an elected leader has it in the in-sync replica set, i.e. once it has synced from that leader. `bootstrap` overrides that and lets it become the cluster's first leader. Until the other nodes have synced, the bootstrapped node is the only one that can lead, so if it goes down the cluster waits for it to come back. It only has an effect while the node has no election state, so leaving it set afterwards is harmless. Nodes with an empty data dir, and a cluster of a single node, need no bootstrap.
+A node without election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until an elected leader has it in the in-sync replica set, i.e. once it has synced from that leader. That includes nodes with an empty data dir: if they could, two replaced nodes could outvote the one that still has the data, and it would then sync their empty state. `bootstrap` overrides that and lets the node become the cluster's first leader. Until the other nodes have synced, the bootstrapped node is the only one that can lead, so if it goes down the cluster waits for it to come back. It only has an effect while the node has no election state, but remove it once the cluster is up: if that node loses its data dir along with a majority of the others, it could otherwise start a new, empty cluster. A cluster of a single node needs no bootstrap.
 
 To roll back to etcd, stop all nodes the same way, followers first and the leader last. Delete `{etcd_prefix}/isr` in etcd (`etcdctl del lavinmq/isr`), since it's from before the migration and may list nodes that are no longer in sync. Set `backend = etcd` again on every node and delete `.raft_state` from the data dirs. Then start the former leader first, and the other nodes once it has been elected.
 

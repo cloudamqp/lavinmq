@@ -93,13 +93,12 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     abort "Error: #{ex.message}"
   end
 
-  # Whether this node may win an election before it has any raft state. Only
-  # safe when it can't hold data another node lacks (a new node, or the only
-  # one), or when the operator says it has the latest data.
+  # Whether this node may win an election before it has any raft state: when
+  # it's the only node, or when the operator says it has the latest data. An
+  # empty data dir isn't enough, a majority of new nodes would then elect one
+  # of themselves and wipe the data of the nodes that have it.
   private def may_bootstrap? : Bool
-    return true if @config.clustering_bootstrap?
-    return true if @config.clustering_peer_addresses.size == 1
-    Dir.children(@config.data_dir).all? { |f| f.in?(".clustering_id", ".raft_state", ".lock") }
+    @config.clustering_bootstrap? || @config.clustering_peer_addresses.size == 1
   end
 
   # Switch leader to replicate from whenever the leader changes, until this
