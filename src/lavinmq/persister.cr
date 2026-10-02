@@ -52,9 +52,12 @@ module LavinMQ
     # Acks, dirty files and sync waiters share one lock, so a drain swaps out
     # every file marked before the acks it confirms
     @pending = Sync::Exclusive(Batch).new(Batch.new, :unchecked)
-    # Start and end of each sync, buffered so the syncing thread never waits
-    # on the watchdog
-    @sync_signals = ::Channel(Nil).new(2)
+    # Milliseconds since @epoch when the ongoing sync started, 0 when not
+    # syncing. Polled by the watchdog, so the drain never waits on it and a
+    # dead watchdog can't wedge confirms.
+    @sync_started = Atomic(Int64).new(0)
+    @epoch = Time.instant
+    @closed = Atomic(Bool).new(false)
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator? = nil)
       @data_dir_fd = LibC.open(data_dir.check_no_null_byte, LibC::O_RDONLY)
@@ -110,6 +113,7 @@ module LavinMQ
     end
 
     def close : Nil
+      @closed.set(true, :release)
       @publish_confirm_requested.close
     end
 
@@ -125,32 +129,37 @@ module LavinMQ
       # @publish_confirm_requested is closed; flush anything that was persisted
       # but not yet confirmed before exiting.
       drain
-      @sync_signals.close
       LibC.close(@data_dir_fd) if @data_dir_fd >= 0
     end
 
     private def sync_watchdog_loop : Nil
-      loop do
-        @sync_signals.receive
-        watch_sync
-      end
-    rescue ::Channel::ClosedError
-    end
-
-    private def watch_sync : Nil
-      started_at = Time.instant
-      loop do
-        select
-        when @sync_signals.receive
-          return
-        when timeout(sync_timeout)
-          sync_stalled(Time.instant - started_at)
+      reported_start = 0i64
+      reports = 0
+      until @closed.get(:acquire)
+        sleep sync_timeout / 4
+        started = @sync_started.get(:acquire)
+        next if started.zero?
+        if started != reported_start
+          reported_start = started
+          reports = 0
+        end
+        elapsed = (now_ms - started).milliseconds
+        next if elapsed < sync_timeout * (reports + 1)
+        reports += 1
+        begin
+          sync_stalled(elapsed)
+        rescue
+          # e.g. the log output failed, keep watching
         end
       end
     end
 
-    # Called on every timeout, as a follower may finish its full sync while
-    # the disk is still stalled
+    private def now_ms : Int64
+      (Time.instant - @epoch).total_milliseconds.to_i64 + 1
+    end
+
+    # Called once per timeout a sync stays blocked, as a follower may finish
+    # its full sync while the disk is still stalled
     protected def sync_stalled(elapsed : Time::Span) : Nil
       if @replicator.try &.in_sync_followers?
         Log.fatal { "Disk sync blocked for #{elapsed.total_seconds.to_i}s, exiting so a follower can take over" }
@@ -164,11 +173,11 @@ module LavinMQ
     end
 
     private def watched(&) : Nil
-      @sync_signals.send nil
+      @sync_started.set(now_ms, :release)
       begin
         yield
       ensure
-        @sync_signals.send nil
+        @sync_started.set(0, :release)
       end
     end
 

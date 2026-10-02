@@ -49,6 +49,14 @@ class LavinMQ::SpecStallingPersister < LavinMQ::Persister
   end
 end
 
+# The watchdog's verdict raises, like a log write failing on a closed pipe
+class LavinMQ::SpecRaisingWatchdogPersister < LavinMQ::SpecStallingPersister
+  protected def sync_stalled(elapsed : Time::Span) : Nil
+    @verdicts.send nil
+    raise IO::Error.new("log output closed (spec)")
+  end
+end
+
 private def queue_dir(s : LavinMQ::Server, queue_name : String) : String
   File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(queue_name))
 end
@@ -191,6 +199,25 @@ describe LavinMQ::Persister do
         loop { break if persister.verdicts.receive == 1 }
       ensure
         persister.try &.release.send nil
+        persister.try &.close
+      end
+    end
+
+    it "keeps syncing and watching when a stall verdict raises" do
+      with_datadir do |data_dir|
+        persister = LavinMQ::SpecRaisingWatchdogPersister.new(data_dir)
+        3.times do
+          done = Channel(Nil).new
+          spawn { persister.sync; done.send nil }
+          persister.verdicts.receive.should be_nil
+          persister.release.send nil
+          select
+          when done.receive
+          when timeout(5.seconds)
+            fail "sync wedged after the watchdog raised"
+          end
+        end
+      ensure
         persister.try &.close
       end
     end
