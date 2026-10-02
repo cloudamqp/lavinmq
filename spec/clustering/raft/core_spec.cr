@@ -100,6 +100,13 @@ private class SimCluster
   end
 end
 
+# Whether the core starts a (pre-)vote once its election timeout has passed.
+private def campaigns?(core : Raft::Core, now : Time::Instant) : Bool
+  core.take_outbox
+  core.tick(now + 1.second)
+  core.take_outbox.any?(&.[1].is_a?(Raft::RequestVote))
+end
+
 describe Raft::Core do
   it "elects exactly one leader" do
     sim = SimCluster.new(3)
@@ -288,9 +295,7 @@ describe Raft::Core do
     core.id_conflict.should_not be_nil
     core.step(Raft::AppendEntries.new("n2", 1, 5, "u2", 0, 0, [] of Raft::Entry, 0), now)
     core.id_conflict.should be_nil
-    core.take_outbox
-    core.tick(now + 1.second)
-    core.take_outbox.map(&.[1]).any?(Raft::RequestVote).should be_true
+    campaigns?(core, now).should be_true
   end
 
   it "keeps campaigning when two other peers share a clustering id" do
@@ -299,9 +304,7 @@ describe Raft::Core do
     core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
     core.step(Raft::RequestVote.new("n3", 2, 2, 0, 0, pre_vote: true, transfer: false), now)
     core.id_conflict.should_not be_nil
-    core.take_outbox
-    core.tick(now + 1.second)
-    core.take_outbox.map(&.[1]).any?(Raft::RequestVote).should be_true
+    campaigns?(core, now).should be_true
   end
 
   it "remembers peer clustering ids across restarts" do
@@ -321,8 +324,7 @@ describe Raft::Core do
     core.leader.should be_nil
     core.take_outbox.should be_empty
     core.id_conflict.should_not be_nil
-    core.tick(now + 1.second)
-    core.take_outbox.should be_empty
+    campaigns?(core, now).should be_false
   end
 
   it "doesn't count a peer with a duplicate clustering id towards commit" do

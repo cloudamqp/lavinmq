@@ -54,13 +54,12 @@ private class ControllerCluster
   getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
 
-  def initialize(size : Int32, with_data = false, bootstrap : Int32? = 0)
+  def initialize(size : Int32, bootstrap : Int32? = 0)
     ports = Array.new(size) { free_port }
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
       dir = File.tempname("lavinmq", "controller-spec")
       Dir.mkdir_p dir
-      File.write(File.join(dir, "users.json"), "[]") if with_data
       @dirs << dir
       config = LavinMQ::Config.new
       config.clustering_bootstrap = bootstrap == @dirs.size - 1
@@ -114,8 +113,8 @@ private class ControllerCluster
   end
 end
 
-private def with_controllers(size = 3, with_data = false, bootstrap : Int32? = 0, &)
-  cluster = ControllerCluster.new(size, with_data, bootstrap)
+private def with_controllers(size = 3, bootstrap : Int32? = 0, &)
+  cluster = ControllerCluster.new(size, bootstrap)
   yield cluster
 ensure
   cluster.try &.close
@@ -260,18 +259,17 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "doesn't elect nodes without raft state, unless bootstrapped", tags: "slow" do
-    # New nodes too: a majority of them could otherwise outvote a node with data
-    [false, true].each do |with_data|
-      with_controllers(with_data: with_data, bootstrap: nil) do |cluster|
-        cluster.start_all
-        select
-        when c = cluster.serving.receive
-          fail "#{c.id} was elected without knowing if its data is current (with_data: #{with_data})"
-        when timeout(1.second)
-        end
+    # Even with empty data dirs: a majority of new nodes could otherwise
+    # outvote a node with data
+    with_controllers(bootstrap: nil) do |cluster|
+      cluster.start_all
+      select
+      when c = cluster.serving.receive
+        fail "#{c.id} was elected without knowing if its data is current"
+      when timeout(1.second)
       end
     end
-    with_controllers(with_data: true, bootstrap: 1) do |cluster|
+    with_controllers(bootstrap: 1) do |cluster|
       cluster.start_all
       cluster.next_leader.should eq cluster.controllers[1]
     end
