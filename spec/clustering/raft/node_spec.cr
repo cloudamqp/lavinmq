@@ -87,9 +87,27 @@ describe Raft::Node do
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
-      leader.transfer_leadership.should be_true
+      leader.transfer_leadership.should eq Raft::TransferResult::Sent
       wait_for(1.second) { !leader.leader? }
       c.wait_for_leader(except: leader)
+    end
+  end
+
+  it "reports the seeded membership and refuses changes on a follower" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
+      status = leader.status.not_nil!
+      status.role.leader?.should be_true
+      status.membership.not_nil!.voters.should eq c.nodes.keys.to_set
+      status.membership.not_nil!.learners.should be_empty
+      status.committed_isr.should eq Set{1, 2, 3}
+      follower = c.nodes.values.find! { |n| n != leader }
+      follower.add_learner("127.0.0.1:1").should eq Raft::MembershipError::NotLeader
+      follower.transfer_leadership.should eq Raft::TransferResult::NotLeader
+      follower.member?(1).should be_true
+      follower.member?(99).should be_false
     end
   end
 
@@ -163,6 +181,52 @@ describe Raft::Storage do
     end
   end
 
+  it "round-trips the membership of the snapshot and of the entries" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      members = Raft::Membership.new(Set{"a:1", "b:1", "c:1"}, Set{"d:1"})
+      state = Raft::HardState.new(7, nil, 3, 6, Set{1, 2}, [
+        Raft::Entry.new(7, nil),
+        Raft::Entry.new(7, Set{2}, Raft::Membership.new(Set{"a:1", "b:1"}, Set(String).new)),
+      ], {"b:1" => 2}, members)
+      storage.save(state)
+      loaded = storage.load.not_nil!
+      loaded.should eq state
+      loaded.snapshot_membership.should eq members
+    end
+  end
+
+  it "loads a version 2 state file without membership" do
+    with_datadir do |dir|
+      storage = Raft::Storage.new(dir)
+      io = IO::Memory.new
+      format = IO::ByteFormat::LittleEndian
+      io.write "LMQRAFT".to_slice
+      io.write_byte 2u8
+      io.write_bytes 4i64, format # term
+      io.write_bytes 2, format    # voted_for
+      io.write "n2".to_slice
+      io.write_bytes 5i64, format # snapshot index
+      io.write_bytes 3i64, format # snapshot term
+      Raft::Codec.write_isr(io, Set{1, 2})
+      io.write_bytes 1, format # entries
+      io.write_bytes 4i64, format
+      Raft::Codec.write_isr(io, Set{2})
+      io.write_bytes 1, format # peer ids
+      io.write_bytes 2, format
+      io.write "n2".to_slice
+      io.write_bytes 2, format
+      io.write_bytes Digest::CRC32.checksum(io.to_slice), format
+      File.write(storage.path, io.to_slice)
+      state = storage.load.not_nil!
+      state.should eq Raft::HardState.new(4, "n2", 5, 3, Set{1, 2}, [Raft::Entry.new(4, Set{2})], {"n2" => 2})
+      state.snapshot_membership.should be_nil
+      # and is written back as the current version
+      storage.save(state)
+      storage.load.should eq state
+    end
+  end
+
   it "detects a corrupt state file" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
@@ -189,5 +253,24 @@ describe Raft::Codec do
       Raft::CatchUp.new("b", 3, 7, 8, 2, Set{42}, [Raft::Entry.new(3, Set{7})]),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
+  end
+
+  it "round-trips the membership" do
+    members = Raft::Membership.new(Set{"a:5680", "b:5680"}, Set{"c:5680"})
+    entries = [Raft::Entry.new(3, nil, members), Raft::Entry.new(3, Set{1}, Raft::Membership.new(Set{"a:5680"}, Set(String).new))]
+    msgs = [
+      Raft::AppendEntries.new("a", 3, 2, "tcp://a:5679", 8, 2, entries, 7),
+      Raft::InstallSnapshot.new("a", 3, 2, "tcp://a:5679", 8, 2, Set{42}, members),
+      Raft::CatchUp.new("b", 3, 7, 8, 2, nil, entries, members),
+    ] of Raft::Message
+    msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
+  end
+
+  it "rejects an implausible member count" do
+    bytes = Raft::Codec.encode(Raft::InstallSnapshot.new("a", 3, 2, "u", 8, 2, nil, Raft::Membership.new(Set{"a"}, Set(String).new)))
+    # the voter count follows the membership flag, right after the nil ISR
+    offset = bytes.size - (1 + 4 + 4 + 1 + 4)
+    bytes[offset + 1, 4].copy_from(Bytes[0xff, 0xff, 0xff, 0x7f])
+    expect_raises(IO::Error) { Raft::Codec.decode(bytes) }
   end
 end

@@ -9,5 +9,16 @@ module LavinMQ::Clustering
 
     # Read the cluster's shared replication secret, generating one if missing.
     abstract def password : String
+
+    # Whether the node with this clustering id belongs to the cluster. Only
+    # members may replicate from the leader and be in the ISR.
+    def member?(node_id : Int32) : Bool
+      true
+    end
+
+    # Called, from a fiber of its own, with the id of a node that was removed
+    # from the cluster.
+    def on_member_removed(&_block : Int32 ->) : Nil
+    end
   end
 end

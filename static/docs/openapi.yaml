@@ -81,6 +81,14 @@ components:
       "$ref": "./schemas/main.yaml#/federation-links"
     main-extensions:
       "$ref": "./schemas/main.yaml#/extensions"
+    cluster:
+      "$ref": "./schemas/cluster.yaml#/cluster"
+    cluster-AddClusterMemberRequestBody:
+      "$ref": "./schemas/cluster.yaml#/AddClusterMemberRequestBody"
+    cluster-TransferLeadershipRequestBody:
+      "$ref": "./schemas/cluster.yaml#/TransferLeadershipRequestBody"
+    cluster-TransferLeadershipResponse:
+      "$ref": "./schemas/cluster.yaml#/TransferLeadershipResponse"
     node:
       "$ref": "./schemas/nodes.yaml#/node"
     nodes:
@@ -254,6 +262,16 @@ paths:
     "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1rules"
   "/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}":
     "$ref": "./paths/mqtt-permissions.yaml#/~1mqtt~1permission-groups~1{vhost}~1{name}~1rules~1{identifier}"
+  "/cluster":
+    "$ref": "./paths/cluster.yaml#/~1cluster"
+  "/cluster/members":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1members"
+  "/cluster/members/{address}":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{address}"
+  "/cluster/members/{address}/promote":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{address}~1promote"
+  "/cluster/transfer-leadership":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1transfer-leadership"
   "/nodes":
     "$ref": "./paths/nodes.yaml#/~1nodes"
   "/nodes/gc_stats":
@@ -357,6 +375,8 @@ tags:
     description: Manage shovels.
   - name: mqtt
     description: Manage MQTT topic permission groups.
+  - name: cluster
+    description: Manage the members and the leader of a raft cluster.
   - name: nodes
     description: Get node statistics.
   - name: parameters

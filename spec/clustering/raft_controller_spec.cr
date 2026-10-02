@@ -53,45 +53,77 @@ private class ControllerCluster
   getter serving = Channel(LavinMQ::Clustering::RaftController).new(8)
   getter exits = Channel(ControllerExit).new(8)
   getter dirs = Array(String).new
+  getter configs = Array(LavinMQ::Config).new
+  # With *replication*, a leader also serves its data to followers, as the
+  # Launcher does, so followers sync and the ISR follows.
+  getter servers = Hash(LavinMQ::Clustering::RaftController, LavinMQ::Clustering::Server).new
 
-  def initialize(size : Int32, bootstrap : Int32? = 0)
+  def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false)
     ports = Array.new(size) { free_port }
     peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
-      dir = File.tempname("lavinmq", "controller-spec")
-      Dir.mkdir_p dir
-      @dirs << dir
-      config = LavinMQ::Config.new
-      config.clustering_bootstrap = bootstrap == @dirs.size - 1
-      config.data_dir = dir
-      config.clustering = true
-      config.clustering_bind = "127.0.0.1"
-      config.clustering_raft_port = port
-      config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
-      config.clustering_peers = peers
-      config.clustering_secret = "controller-spec"
-      config.clustering_election_timeout = 300
-      config.clustering_heartbeat_interval = 50
-      config.clustering_port = free_port
-      config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
-      config.metrics_http_port = -1
-      # Followers proxy client ports to the leader, let each pick its own
-      config.amqp_port = config.http_port = config.mqtt_port = 0
-      config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-      @controllers << ExitRecordingController.new(config, @exits)
+      add_node(port, peers, bootstrap == @dirs.size)
     end
+  end
+
+  # A node that isn't started yet. Doesn't bootstrap unless told to.
+  def add_node(port : Int32, peers : String, bootstrap = false) : LavinMQ::Clustering::RaftController
+    dir = File.tempname("lavinmq", "controller-spec")
+    Dir.mkdir_p dir
+    @dirs << dir
+    config = LavinMQ::Config.new
+    @configs << config
+    config.clustering_bootstrap = bootstrap
+    config.data_dir = dir
+    config.clustering = true
+    config.clustering_bind = "127.0.0.1"
+    config.clustering_raft_port = port
+    config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
+    config.clustering_peers = peers
+    config.clustering_secret = "controller-spec"
+    config.clustering_election_timeout = 300
+    config.clustering_heartbeat_interval = 50
+    config.clustering_port = free_port
+    config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
+    config.metrics_http_port = -1
+    # Followers proxy client ports to the leader, let each pick its own
+    config.amqp_port = config.http_port = config.mqtt_port = 0
+    config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+    ExitRecordingController.new(config, @exits).tap { |c| @controllers << c }
+  end
+
+  def address(controller : LavinMQ::Clustering::RaftController) : String
+    @configs[@controllers.index!(controller)].clustering_raft_advertised_address.not_nil!
+  end
+
+  # Starts a new controller with the config of a stopped one, like a
+  # supervisor restarting the process.
+  def restart(controller : LavinMQ::Clustering::RaftController) : LavinMQ::Clustering::RaftController
+    index = @controllers.index!(controller)
+    @controllers[index] = fresh = ExitRecordingController.new(@configs[index], @exits)
+    start(fresh)
+    fresh
   end
 
   # *startup* runs as the leader's startup, after it's reported as serving.
   def start(controller, startup : Proc(Nil) = -> { })
     spawn(name: "controller spec #{controller.id}") do
       controller.run do
+        serve_replication(controller) if @replication
         @serving.send controller
         startup.call
       end
     rescue ex : SpecExit
       @exits.send({controller, ex.code})
     end
+  end
+
+  private def serve_replication(controller)
+    config = @configs[@controllers.index!(controller)]
+    server = LavinMQ::Clustering::Server.new(config, controller.coordinator, controller.id)
+    @servers[controller] = server
+    tcp = TCPServer.new(config.clustering_bind.not_nil!, config.clustering_port)
+    spawn(name: "replication spec #{controller.id}") { server.listen(tcp) }
   end
 
   def start_all(startup : Proc(Nil) = -> { })
@@ -108,13 +140,14 @@ private class ControllerCluster
   end
 
   def close
+    @servers.each_value &.close
     @controllers.each &.stop
     @dirs.each { |d| FileUtils.rm_rf d }
   end
 end
 
-private def with_controllers(size = 3, bootstrap : Int32? = 0, &)
-  cluster = ControllerCluster.new(size, bootstrap)
+private def with_controllers(size = 3, bootstrap : Int32? = 0, replication = false, &)
+  cluster = ControllerCluster.new(size, bootstrap, replication)
   yield cluster
 ensure
   cluster.try &.close
@@ -320,6 +353,64 @@ describe LavinMQ::Clustering::RaftController do
       when timeout(5.seconds)
         fail "leader cut off from the majority kept serving"
       end
+    end
+  end
+
+  it "relocates a replica: learner, promotion, handover and removal", tags: "slow" do
+    with_controllers(replication: true) do |cluster|
+      cluster.start_all
+      a = cluster.next_leader
+      a_addr = cluster.address(a)
+      wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
+
+      # A new node starts with itself and an existing member as peers. It
+      # doesn't campaign, and doesn't get anything until it's added.
+      port = free_port
+      d = cluster.add_node(port, "127.0.0.1:#{port},#{a_addr}")
+      cluster.start(d)
+      d_addr = cluster.address(d)
+      sleep 100.milliseconds
+      d.node.leader?.should be_false
+      d.node.leader_uri.should be_nil
+
+      a.node.add_learner(d_addr).should be_nil
+      a.node.membership.not_nil!.learners.should eq Set{d_addr}
+      # It gets the broker data from the leader and ends up in the ISR
+      wait_for(10.seconds) { a.node.committed_isr.try(&.includes?(d.id)) }
+      a.node.membership.not_nil!.voters.size.should eq 3
+
+      deadline = Time.instant + 10.seconds
+      while error = a.node.promote(d_addr)
+        error.should(be_a(LavinMQ::Clustering::Raft::MembershipError))
+        fail "not promoted: #{error.message}" if Time.instant > deadline
+        sleep 50.milliseconds
+      end
+      a.node.membership.not_nil!.voters.should contain(d_addr)
+
+      a.request_transfer("127.0.0.1:1").should be_a String # not a member
+      a.on_step_down { |_| spawn(name: "step down spec") { a.stop } }
+      plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
+      plan.target.should eq d_addr
+      a.step_down(plan.target)
+      cluster.next_leader(10.seconds).should eq d
+
+      # The old leader restarts as a follower, and replicates from the new one
+      cluster.servers.delete(a).try &.close
+      a2 = cluster.restart(a)
+      wait_for(10.seconds) { d.node.committed_isr.try(&.includes?(a.id)) }
+      cluster.servers[d].all_followers.map(&.id).should contain(a.id)
+
+      d.node.remove_member(a_addr).should be_nil
+      d.node.remove_member(a_addr).should eq LavinMQ::Clustering::Raft::MembershipError::UnknownMember
+      d.node.committed_isr.not_nil!.should_not contain(a.id)
+      d.node.membership.not_nil!.members.should_not contain(a_addr)
+
+      # It's told, disconnected and refused when it comes back
+      wait_for(10.seconds) { !a2.node.self_member? }
+      wait_for(10.seconds) { cluster.servers[d].all_followers.none? { |f| f.id == a.id } }
+      sleep 2.5.seconds # a few reconnect attempts
+      cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true
+      d.node.committed_isr.not_nil!.should_not contain(a.id)
     end
   end
 end
