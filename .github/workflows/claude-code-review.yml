@@ -29,7 +29,7 @@ jobs:
         id: previous
         run: |
           comment=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | select(.) | {id, body}" | tail -n1)
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\")))] | last | select(.) | {id, body}" | tail -n1)
           [[ -n "$comment" ]] || comment='{}'
           echo "id=$(jq -r '.id // empty' <<< "$comment")" >> "$GITHUB_OUTPUT"
           {
