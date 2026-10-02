@@ -8,9 +8,7 @@ require "../../src/lavinmq/clustering/server"
 # write_to_disk gap (local write at message_store.cr:339 before the replicate
 # at :340) cause a message to be delivered both in the full-sync file copy AND
 # again incrementally, duplicating it on the follower?
-describe "clustering join-during-publish race", tags: "etcd" do
-  add_etcd_around_each
-
+describe "clustering join-during-publish race" do
   it "follower joining during active publishing has the same message count as the leader" do
     follower_dir = File.tempname
     Dir.mkdir follower_dir

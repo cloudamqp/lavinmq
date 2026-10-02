@@ -92,6 +92,62 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
+      validate_raft_clustering! if @clustering && @clustering_backend.raft?
+    end
+
+    # The password nodes authenticate each other with, read from `password_file`.
+    property clustering_secret = ""
+
+    private def validate_raft_clustering! : Nil
+      load_clustering_password_file
+      if @clustering_secret.empty?
+        raise Error.new("clustering requires a password shared by all nodes, set password_file in [clustering]")
+      end
+      if @clustering_secret.bytesize > 255
+        raise Error.new("clustering password can be at most 255 bytes")
+      end
+      unless @clustering_election_timeout.positive? && @clustering_heartbeat_interval.positive?
+        raise Error.new("clustering election_timeout and heartbeat_interval must be positive")
+      end
+      if @clustering_heartbeat_interval * 2 > @clustering_election_timeout
+        raise Error.new("clustering heartbeat_interval must be at most half the election_timeout")
+      end
+      peers = clustering_peer_addresses
+      peers.each do |peer|
+        host, sep, port = peer.rpartition(':')
+        if sep.empty? || host.empty? || port.to_u16?.nil?
+          raise Error.new("clustering peer '#{peer}' must be host:port")
+        end
+      end
+      unless peers.includes?(clustering_raft_address)
+        raise Error.new("clustering peers (#{peers.join(", ")}) must include this node's raft address #{clustering_raft_address}, " \
+                        "set raft_advertised_address in [clustering] if it differs")
+      end
+    end
+
+    private def load_clustering_password_file : Nil
+      path = @clustering_password_file
+      return if path.empty?
+      info = File.info(path)
+      unless info.permissions.value & 0o077 == 0
+        raise Error.new("clustering password_file #{path} is accessible by group or others " \
+                        "(mode #{info.permissions.value.to_s(8)}), chmod 600 it")
+      end
+      @clustering_secret = File.read(path).strip
+    rescue ex : File::Error
+      raise Error.new("Cannot read clustering password_file: #{ex.message}")
+    end
+
+    # This node's raft address as it appears in the peer list.
+    def clustering_raft_address : String
+      @clustering_raft_advertised_address || "#{System.hostname}:#{@clustering_raft_port}"
+    end
+
+    # Every voting member, including this node. Without a peer list the node
+    # forms a cluster of one.
+    def clustering_peer_addresses : Array(String)
+      peers = @clustering_peers.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
+      peers.empty? ? [clustering_raft_address] : peers.uniq
     end
 
     private def parse_config_from_cli(argv)
@@ -347,6 +403,10 @@ module LavinMQ
       @amqp_bind = value
       @http_bind = value
       @mqtt_bind = value
+    end
+
+    private def parse_clustering_backend(value : String) : ClusteringBackend
+      ClusteringBackend.parse?(value) || raise Error.new("clustering backend must be etcd or raft, got '#{value}'")
     end
 
     # Re-read the config file into a fresh copy and swap it in only if parsing

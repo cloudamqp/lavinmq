@@ -384,7 +384,7 @@ module LavinMQ
           if follower.synced?
             # If the follower was behind (unacked replicated data) when it
             # dropped, it may be missing data that's about to be confirmed via
-            # the surviving followers, so it must leave the etcd ISR now rather
+            # the surviving followers, so it must leave the ISR now rather
             # than lazily — otherwise it could be promoted on failover lacking
             # already-confirmed data. A caught-up follower (no lag) still has
             # everything confirmed so far, so we leave it in the ISR as a valid
@@ -448,7 +448,7 @@ module LavinMQ
 
       # Block until every in-sync follower has acked everything replicated so
       # far, so a durable operation may be acknowledged to a client: once
-      # this returns, every node etcd lists as a failover candidate has the
+      # this returns, every node the ISR lists as a failover candidate has the
       # operation durably on disk. Wait for all followers (no short-circuit)
       # — wait_for_confirm blocks until the follower acks or disconnects. A
       # follower that disconnected (wait_for_confirm == false, or it dropped
@@ -485,10 +485,10 @@ module LavinMQ
       # dirty ISR before returning. Every durable operation replicates its
       # change before acknowledging it (definitions writes, JSON file
       # replaces, segment deletes, publishes), so flushing here guarantees no
-      # operation is acknowledged while etcd still lists a follower that
+      # operation is acknowledged while the ISR still lists a follower that
       # disconnected before this change was dispatched — a leader crash right
       # after the acknowledgment could otherwise elect that follower without
-      # the acknowledged change. The etcd write happens after the dispatch
+      # the acknowledged change. The ISR write happens after the dispatch
       # loop, so a coordinator failure can't abort a dispatch halfway and
       # leave a hole in every follower's file, and flush_isr retries instead
       # of raising into the publish path — the operation stalls, and if the

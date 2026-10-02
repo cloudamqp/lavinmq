@@ -29,6 +29,7 @@ module LavinMQ
 
       @data_dir_lock : DataDirLock
       @closed = false
+      @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -143,10 +144,19 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
+          break if closed_while_waiting?(1.second)
         end
       ensure
         @follower_done.send(nil)
+      end
+
+      private def closed_while_waiting?(span : Time::Span) : Bool
+        select
+        when @closing.receive?
+          true
+        when timeout(span)
+          false
+        end
       end
 
       def follows?(_nil : Nil) : Bool
@@ -397,10 +407,11 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them. Losing
+            # .raft_state would let this node vote twice in a term.
+            next if child.in?(".lock", ".clustering_id", ".raft_state", ".raft_state.tmp",
+                      "checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -728,6 +739,7 @@ module LavinMQ
       def close
         return if @closed
         @closed = true
+        @closing.close
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close

@@ -212,7 +212,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
 
-[etcd](https://etcd.io/) is used for leader election and maintaining the In-Sync-Replica (ISR) set. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
+Leader election and the In-Sync-Replica (ISR) set are handled either by the nodes themselves with a built-in Raft implementation (`backend = raft`, recommended for new clusters, no external coordination service needed) or by [etcd](https://etcd.io/) (`backend = etcd`, the default, kept for existing clusters). LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
 
 See [Setting up Clustering with LavinMQ](https://lavinmq.com/documentation/clustering) for more information on Clustering in LavinMQ.
 
@@ -226,14 +226,21 @@ enabled = true
 bind = ::
 port = 5679
 advertised_uri = tcp://my-ip:5679
-etcd_endpoints = localhost:2379
+backend = raft
+peers = node1:5680,node2:5680,node3:5680
+raft_advertised_address = node1:5680
+password_file = /etc/lavinmq/clustering_password # same secret on every node, chmod 600
 ```
 
 or start LavinMQ with:
 
 ```sh
-lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-advertised-uri=tcp://my-ip:5679
+lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-backend=raft --clustering-bind :: --clustering-password-file=/etc/lavinmq/clustering_password \
+  --clustering-advertised-uri=tcp://my-ip:5679 --clustering-peers=node1:5680,node2:5680,node3:5680 \
+  --clustering-raft-advertised-address=node1:5680
 ```
+
+The first time a new cluster starts, add `--clustering-bootstrap` on one of the nodes, so it may become the first leader.
 
 ### Stream Queues
 
