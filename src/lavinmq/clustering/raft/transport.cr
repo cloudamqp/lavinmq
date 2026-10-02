@@ -95,7 +95,8 @@ module LavinMQ::Clustering::Raft
     private def drain(ch : Channel(Message)) : Nil
       loop do
         select
-        when ch.receive?
+        when msg = ch.receive?
+          return unless msg
         else
           return
         end
