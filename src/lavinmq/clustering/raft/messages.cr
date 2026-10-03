@@ -196,11 +196,11 @@ module LavinMQ::Clustering::Raft
     end
 
     # `max` bounds the count by what the input could possibly hold.
-    def read_entries(io, max : Int32, version = 3) : Array(Entry)
+    def read_entries(io, max : Int32) : Array(Entry)
       count = io.read_bytes Int32, Format
       raise IO::Error.new("Invalid entry count #{count}") unless 0 <= count <= max
       Array(Entry).new(count) do
-        Entry.new(io.read_bytes(Int64, Format), read_isr(io), version >= 3 ? read_membership(io) : nil)
+        Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io))
       end
     end
 
