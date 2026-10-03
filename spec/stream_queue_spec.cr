@@ -738,6 +738,79 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    describe "segment dropped while a message from it is being delivered" do
+      # Parks the real deliver_loop on prefetch and drives consume_get from the
+      # spec instead; the yield is where the deliver_loop can be suspended in a
+      # socket write while retention drops the segment
+      it "keeps the segment mapped until the delivery is done" do
+        with_amqp_server do |s|
+          qname = Random::Secure.hex
+          segment_size = LavinMQ::Config.instance.segment_size
+          body = "x" * (segment_size // 4)
+          with_channel(s) do |ch|
+            cq = ch.queue(qname, args: AMQP::Client::Arguments.new({
+              "x-queue-type": "stream", "x-max-length-bytes": segment_size.to_i64 * 2,
+            }))
+            12.times { cq.publish_confirm body }
+            ch.prefetch 1
+            msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+            cq.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            msgs.receive
+            q = s.vhosts["/"].queue(qname).as(LavinMQ::AMQP::Stream)
+            consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
+            store = q.stream_msg_store
+            mfile = nil
+            q.consume_get(consumer) do |env|
+              seg = env.segment_position.segment
+              mfile = store.@segments[seg]
+              20.times do
+                break unless store.@segments.has_key?(seg)
+                q.publish(LavinMQ::Message.new("", qname, body))
+              end
+              store.@segments.has_key?(seg).should be_false
+              mfile.try(&.closed?).should be_false
+              String.new(env.message.body).should eq body
+            end.should be_true
+            mfile.try(&.closed?).should be_true
+          end
+        end
+      end
+
+      it "keeps the segment mapped when a policy drops it" do
+        with_amqp_server do |s|
+          qname = Random::Secure.hex
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          with_channel(s) do |ch|
+            cq = ch.queue(qname, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+            12.times { cq.publish_confirm body }
+            ch.prefetch 1
+            msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+            cq.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            msgs.receive
+            q = s.vhosts["/"].queue(qname).as(LavinMQ::AMQP::Stream)
+            consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
+            store = q.stream_msg_store
+            mfile = nil
+            q.consume_get(consumer) do |env|
+              seg = env.segment_position.segment
+              mfile = store.@segments[seg]
+              policy = s.vhosts["/"].add_policy("mlb", qname, "queues",
+                {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8, apply: false)
+              q.apply_policy(policy, nil)
+              store.@segments.has_key?(seg).should be_false
+              mfile.try(&.closed?).should be_false
+              String.new(env.message.body).should eq body
+            end.should be_true
+            mfile.try(&.closed?).should be_true
+          end
+        end
+      end
+    end
+
     it "should not lose messages on restart when max-age is set" do
       queue_name = Random::Secure.hex
       with_amqp_server do |s|

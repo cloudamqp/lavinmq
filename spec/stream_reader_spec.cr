@@ -82,4 +82,40 @@ describe LavinMQ::AMQP::StreamReader do
       end
     end
   end
+
+  it "keeps reading when retention drops the segment being read" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        segment_size = LavinMQ::Config.instance.segment_size
+        body = "x" * (segment_size // 4)
+        q = ch.queue("", args: AMQP::Client::Arguments.new({
+          "x-queue-type" => "stream", "x-max-length-bytes" => segment_size.to_i64 * 2,
+        }))
+        12.times { q.publish_confirm body }
+
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        store = iq.stream_msg_store
+        first_seg = store.@segments.first_key
+        offsets = [] of Int64
+        dropped = false
+        iq.reader("first").each do |env|
+          offsets << env.message.properties.headers.not_nil!["x-stream-offset"].as(Int64)
+          unless dropped
+            20.times do
+              break unless store.@segments.has_key?(first_seg)
+              iq.publish(LavinMQ::Message.new("", q.name, body))
+            end
+            dropped = true
+          end
+          String.new(env.message.body).should eq body
+        end
+        store.@segments.has_key?(first_seg).should be_false
+        # Skips the dropped messages, with offsets matching the messages read
+        offsets.first.should eq 1
+        offsets[1].should be > 2
+        offsets.skip(1).each_cons_pair { |a, b| b.should eq a + 1 }
+        offsets.last.should eq iq.last_offset
+      end
+    end
+  end
 end

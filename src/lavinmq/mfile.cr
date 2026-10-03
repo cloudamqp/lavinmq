@@ -48,6 +48,9 @@ class MFile < IO
   # Held while msyncing and while unmapping (close/truncate), as msync runs on
   # the Persister's thread
   @mapping_lock = Mutex.new(:unchecked)
+  # Readers still using the mapping, see #lease and #close_when_unleased
+  @leases = Atomic(Int32).new(0)
+  @close_when_unleased = Atomic(Bool).new(false)
   @@mmap_count = Atomic(Int64).new(0)
 
   def self.mmap_count : Int64
@@ -151,6 +154,27 @@ class MFile < IO
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
     @mapping_lock.synchronize { close_mapping(truncate_to_size) }
+  end
+
+  # Keeps the mapping open until #release_lease, even if #close_when_unleased
+  # is called meanwhile. Must not be called after #close_when_unleased.
+  def lease : self
+    @leases.add(1)
+    self
+  end
+
+  def release_lease : Nil
+    if @leases.sub(1) == 1 && @close_when_unleased.get
+      close
+    end
+  end
+
+  # Closes now, or when the last lease is released. The flag is set before the
+  # lease count is read, and release_lease decrements before reading the flag,
+  # so at least one of them sees the other and closes (close is idempotent).
+  def close_when_unleased : Nil
+    @close_when_unleased.set(true)
+    close if @leases.get.zero?
   end
 
   private def close_mapping(truncate_to_size) : Nil

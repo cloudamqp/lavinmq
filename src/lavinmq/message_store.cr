@@ -297,7 +297,8 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
-      file.close
+      # A stream delivery may still be reading from the mapping
+      file.close_when_unleased
     end
 
     def empty?
