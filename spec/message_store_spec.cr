@@ -1011,7 +1011,7 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      it "restores readahead on a segment once it's full" do
+      it "advises a segment sequential once it's full" do
         with_datadir do |dir|
           persister = LavinMQ::Persister.new(dir)
           store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
@@ -1022,6 +1022,7 @@ describe LavinMQ::MessageStore do
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
           store.@wfile.path.should_not eq first_segment
           vm_flags(first_segment).should_not contain "rr"
+          vm_flags(first_segment).should contain "sr"
           store.close
           persister.close
         end

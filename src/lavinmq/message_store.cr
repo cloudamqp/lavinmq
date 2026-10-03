@@ -387,7 +387,7 @@ module LavinMQ
     # cache keep their size, so the first syncs after this still write
     # large folios, until the writes pass the readahead window. Segments
     # opened later get it from the start, and when a segment is full it's
-    # advised back to normal (see #open_new_segment), as reading it without
+    # advised sequential (see #open_new_segment), as reading it without
     # readahead would be slow. It's only for stores that sync, as page sized
     # folios take more page faults to write.
     private def random_access_for_sync(wfile : MFile) : Nil
@@ -404,8 +404,10 @@ module LavinMQ
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
-        # Done writing, so restore readahead for consumers reading it back
-        @wfile.advise(MFile::Advice::Normal) if @synced_writes
+        # Done writing, so read it back with readahead, and let the kernel
+        # evict its pages early once read. If no consumer is reading it,
+        # unmap_finished_segment also drops its pages from memory.
+        @wfile.advise(MFile::Advice::Sequential)
       end
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
