@@ -190,6 +190,10 @@ main.main-grid {
   grid-column: 1 / span 12;
 }
 
+.card[hidden] {
+  display: none;
+}
+
 .cols-1 {
   grid-column: auto / span 1;
 }
