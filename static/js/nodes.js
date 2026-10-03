@@ -272,6 +272,95 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
 })
 
+// Cluster members, only with the raft clustering backend. The cluster API
+// answers 400/404 otherwise, so use fetch directly instead of HTTP.request
+// to not alert about that.
+const clusterDataSource = new (class extends DataSource {
+  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  update (items) { this.items = items }
+  reload () { }
+})()
+const clusterTableOpts = {
+  dataSource: clusterDataSource,
+  keyColumns: ['address'],
+  countId: 'cluster-members-count'
+}
+const clusterRequest = (method, path, body) => {
+  return HTTP.request(method, path, body ? { body } : {}).then((r) => { updateCluster(); return r })
+}
+Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) => {
+  Table.renderCell(tr, 0, item.leader ? item.address + ' (leader)' : item.address)
+  Table.renderCell(tr, 1, item.node_id || '')
+  Table.renderCell(tr, 2, item.role)
+  Table.renderCell(tr, 3, item.in_isr ? '●' : '○')
+  Table.renderCell(tr, 4, item.match_index == null ? '' : numFormatter.format(item.match_index), 'right')
+  Table.renderCell(tr, 5, item.caught_up ? '●' : '○')
+  const buttons = document.createElement('div')
+  buttons.classList.add('buttons', 'require-administrator')
+  if (item.role === 'learner') {
+    buttons.append(DOM.button.edit({
+      text: 'Promote',
+      click: () => {
+        clusterRequest('POST', HTTP.url`api/cluster/members/${item.address}/promote`)
+          .then(() => DOM.toast(`Promoted ${item.address}`)).catch(() => {})
+      }
+    }))
+  } else if (!item.leader && item.in_isr) {
+    buttons.append(DOM.button.edit({
+      text: 'Make leader',
+      click: () => {
+        if (!window.confirm(`Hand over leadership to ${item.address}? The current leader stops serving and restarts as a follower.`)) return
+        clusterRequest('POST', 'api/cluster/transfer-leadership', { target: item.address })
+          .then(() => DOM.toast(`Handing over leadership to ${item.address}`)).catch(() => {})
+      }
+    }))
+  }
+  if (!item.leader) {
+    buttons.append(DOM.button.delete({
+      text: 'Remove',
+      click: () => {
+        if (!window.confirm(`Remove ${item.address} from the cluster? Shut the node down afterwards.`)) return
+        clusterRequest('DELETE', HTTP.url`api/cluster/members/${item.address}`)
+          .then(() => DOM.toast(`Removed ${item.address}`)).catch(() => {})
+      }
+    }))
+  }
+  Table.renderCell(tr, 6, buttons, 'right')
+})
+
+function updateCluster () {
+  return window.fetch('api/cluster').then((response) => {
+    const section = document.getElementById('cluster-section')
+    if (!response.ok) {
+      section.hidden = true
+      return
+    }
+    return response.json().then((cluster) => {
+      if (!Array.isArray(cluster.members)) {
+        section.hidden = true
+        return
+      }
+      section.hidden = false
+      document.getElementById('cluster-summary').textContent =
+        `Leader ${cluster.leader}, term ${cluster.term}. In-sync replicas: ${(cluster.isr || []).join(', ')}`
+      clusterDataSource.update(cluster.members)
+    })
+  }).catch(() => {})
+}
+
+document.getElementById('addClusterMember').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const address = new window.FormData(this).get('address').trim()
+  clusterRequest('POST', 'api/cluster/members', { address })
+    .then(() => {
+      DOM.toast(`Added ${address} as learner`)
+      this.reset()
+    }).catch(() => {})
+})
+
+updateCluster()
+setInterval(updateCluster, 5000)
+
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {
     const memoryStats = {
