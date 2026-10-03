@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Built-in Raft clustering backend, enabled with `backend = raft` in `[clustering]`: the nodes elect a leader and keep the ISR themselves over a new raft port (`5680`), no etcd needed. It requires `peers` and a shared password in `password_file` (mode `0600`). etcd remains the default backend so existing clusters are unaffected, see `docs/clustering.md` for how to migrate them
-- Raft clustering: the membership is kept in the Raft log, so nodes are added as non-voting learners, promoted and removed at runtime, and leadership can be handed to a chosen node. New `/api/cluster` endpoints, a cluster members section on the Nodes page for administrators, and `lavinmqctl` commands (`add_cluster_member`, `promote_cluster_member`, `remove_cluster_member`, `transfer_leadership`; `cluster_status` shows the raft members). Raft nodes built before this change can't connect to new ones [#2322](https://github.com/cloudamqp/lavinmq/pull/2322)
+- Raft clustering: the membership is kept in the Raft log, so nodes are added as non-voting learners, promoted and removed at runtime, and leadership can be handed to a chosen node. New `/api/cluster` endpoints, a cluster members section on the Nodes page for administrators, and `lavinmqctl` commands (`add_cluster_member`, `promote_cluster_member`, `remove_cluster_member`, `transfer_leadership`; `cluster_status` shows the raft members). [#2322](https://github.com/cloudamqp/lavinmq/pull/2322)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 
 ### Changed

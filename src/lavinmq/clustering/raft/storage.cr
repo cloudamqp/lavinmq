@@ -5,12 +5,9 @@ module LavinMQ::Clustering::Raft
   # Persists a HardState. The state is a handful of bytes (ISR entries are
   # compacted on commit), so every save rewrites the whole file: write a temp
   # file, fsync it, rename over the old one and fsync the directory.
-  #
-  # Version 3 added the membership, to the snapshot and to each entry. Version
-  # 2 files load without one, the leader seeds it.
   class Storage
     MAGIC   = "LMQRAFT"
-    VERSION = 3u8
+    VERSION = 2u8
     Format  = IO::ByteFormat::LittleEndian
     # Uncommitted entries are few, this only guards against a corrupt count.
     MAX_ENTRIES = 1 << 20
@@ -73,16 +70,14 @@ module LavinMQ::Clustering::Raft
     private def decode(io) : HardState
       raise CorruptError.new("#{@path} has an invalid header") unless io.read_string(MAGIC.bytesize) == MAGIC
       version = io.read_byte
-      unless version && (version == VERSION || version == 2)
-        raise CorruptError.new("#{@path} has unsupported version #{version}")
-      end
+      raise CorruptError.new("#{@path} has unsupported version #{version}") unless version == VERSION
       term = io.read_bytes Int64, Format
       voted_for = io.read_string(io.read_bytes(Int32, Format))
       snapshot_index = io.read_bytes Int64, Format
       snapshot_term = io.read_bytes Int64, Format
       snapshot_isr = Codec.read_isr(io)
-      snapshot_membership = Codec.read_membership(io) if version >= 3
-      entries = Codec.read_entries(io, MAX_ENTRIES, version)
+      snapshot_membership = Codec.read_membership(io)
+      entries = Codec.read_entries(io, MAX_ENTRIES)
       peer_node_ids = Hash(String, Int32).new
       io.read_bytes(Int32, Format).times do
         addr = io.read_string(io.read_bytes(Int32, Format))

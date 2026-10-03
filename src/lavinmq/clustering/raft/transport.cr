@@ -23,7 +23,7 @@ module LavinMQ::Clustering::Raft
   class TCPTransport < Transport
     Log = LavinMQ::Log.for "clustering.raft.transport"
 
-    MAGIC      = "LMQRAFT2".to_slice
+    MAGIC      = "LMQRAFT1".to_slice
     NONCE_SIZE =  32
     QUEUE_SIZE = 256
     # Seconds idle before probing, between probes, and unanswered probes

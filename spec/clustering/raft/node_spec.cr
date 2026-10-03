@@ -196,37 +196,6 @@ describe Raft::Storage do
     end
   end
 
-  it "loads a version 2 state file without membership" do
-    with_datadir do |dir|
-      storage = Raft::Storage.new(dir)
-      io = IO::Memory.new
-      format = IO::ByteFormat::LittleEndian
-      io.write "LMQRAFT".to_slice
-      io.write_byte 2u8
-      io.write_bytes 4i64, format # term
-      io.write_bytes 2, format    # voted_for
-      io.write "n2".to_slice
-      io.write_bytes 5i64, format # snapshot index
-      io.write_bytes 3i64, format # snapshot term
-      Raft::Codec.write_isr(io, Set{1, 2})
-      io.write_bytes 1, format # entries
-      io.write_bytes 4i64, format
-      Raft::Codec.write_isr(io, Set{2})
-      io.write_bytes 1, format # peer ids
-      io.write_bytes 2, format
-      io.write "n2".to_slice
-      io.write_bytes 2, format
-      io.write_bytes Digest::CRC32.checksum(io.to_slice), format
-      File.write(storage.path, io.to_slice)
-      state = storage.load.not_nil!
-      state.should eq Raft::HardState.new(4, "n2", 5, 3, Set{1, 2}, [Raft::Entry.new(4, Set{2})], {"n2" => 2})
-      state.snapshot_membership.should be_nil
-      # and is written back as the current version
-      storage.save(state)
-      storage.load.should eq state
-    end
-  end
-
   it "detects a corrupt state file" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
