@@ -128,6 +128,26 @@ def setup_orphaned_ack_scenario(dir)
   end
 end
 
+# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
+# mapping of the file at `path`
+private def vm_flags(path : String) : Array(String)
+  in_mapping = false
+  File.each_line("/proc/self/smaps") do |line|
+    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
+      in_mapping = line.ends_with?(" #{path}")
+    elsif in_mapping && line.starts_with?("VmFlags:")
+      return line.split[1..]
+    end
+  end
+  fail "#{path} isn't mapped"
+end
+
+private def synced_message(body) : LavinMQ::Message
+  msg = LavinMQ::Message.new("", "rk", body)
+  msg.needs_sync = true
+  msg
+end
+
 describe LavinMQ::MessageStore do
   describe "#copy" do
     # Regression: dead-lettering routes a message after releasing the queue's
@@ -957,4 +977,62 @@ describe LavinMQ::MessageStore do
       end
     end
   end
+
+  {% if flag?(:linux) %}
+    describe "random access advice" do
+      it "advises the write segment once a publish needs a sync" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          wfile = store.@wfile.path
+          store.push(LavinMQ::Message.new("", "rk", "not synced"))
+          vm_flags(wfile).should_not contain "rr"
+          store.push(synced_message("synced"))
+          vm_flags(wfile).should contain "rr"
+          store.close
+          persister.close
+        end
+      end
+
+      it "advises segments opened after a synced publish, also when the reader reaches them" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("synced"))
+          first_segment = store.@wfile_id
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq first_segment
+          4.times { store.shift?.should_not be_nil }
+          store.@rfile_id.should eq store.@wfile_id
+          vm_flags(store.@wfile.path).should contain "rr"
+          store.close
+          persister.close
+        end
+      end
+
+      it "doesn't advise segments of stores that never sync" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
+          persister.close
+        end
+      end
+
+      it "advises ack files" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          2.times { |i| store.push(LavinMQ::Message.new("", "rk", "m#{i}")) }
+          env = store.shift?.should_not be_nil
+          store.delete(env.segment_position)
+          vm_flags(store.@acks[env.segment_position.segment].path).should contain "rr"
+          store.close
+        end
+      end
+    end
+  {% end %}
 end
