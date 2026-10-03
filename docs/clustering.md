@@ -151,8 +151,8 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-With the raft backend, nodes authenticate each other with the shared password from `password_file`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
+With the raft backend, nodes authenticate each other with the shared password from `password_file`: both raft connections and followers connecting to the leader's replication port answer an HMAC-SHA256 challenge, so the password is never sent over the network. A raft follower refuses to authenticate to a leader that only speaks the older replication protocol, which sent the password in clear text. Traffic between nodes is not encrypted, so keep it on a trusted network.
 
-With the etcd backend, followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
+With the etcd backend, followers authenticate to the leader the same way, using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
 
 Clustering connections aren't encrypted, so keep clustering traffic on a trusted network.
