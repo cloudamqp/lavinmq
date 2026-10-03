@@ -140,7 +140,7 @@ The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_mem
 
 ### Transferring leadership
 
-`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR (without `--target`, any caught up one). The leader stops serving clients, tells the target to take over, and exits with code 3, so that its supervisor (`Restart=on-failure` in the systemd unit) restarts it as a follower. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers proxy HTTP to the leader and a leader starts HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that.
+`lavinmqctl transfer_leadership --target <address>` hands leadership to a chosen voter that is in the ISR (without `--target`, any caught up one). The leader stops serving clients, tells the target to take over, and exits cleanly (code 0), so that its supervisor restarts it as a follower. That needs `Restart=always` in the systemd unit, which the shipped units use. Without a restarting supervisor the node stays down. The HTTP request returns `202` before that, so it only means the transfer was accepted. Followers proxy HTTP to the leader and a leader starts HTTP once it is serving, so `GET /api/cluster` answering with `leader` set to the target means the target leads and serves. `--wait` polls for that.
 
 ### Relocating a replica
 

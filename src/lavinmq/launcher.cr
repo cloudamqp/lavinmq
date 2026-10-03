@@ -24,7 +24,6 @@ module LavinMQ
     @closed = false
     @replicator : Clustering::Server?
     @raft_controller : Clustering::RaftController?
-    @stepped_down = false
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -91,19 +90,16 @@ module LavinMQ
       end
       @replicator.try &.close if @server # only a leader started it
       @data_dir_lock.try &.release
-      exit 3 if @stepped_down
     end
 
     # Hands leadership over to `target` after a request from an operator: stops
-    # serving clients, lets the target take over, and exits with 3, like when
-    # leadership is lost, so that the supervisor restarts this node as a
-    # follower. A node that is shut down gracefully, like systemd does with
-    # SIGTERM, wouldn't be restarted.
+    # serving clients, lets the target take over, and exits cleanly (0). The
+    # supervisor, with systemd's Restart=always, restarts this node as a
+    # follower.
     private def step_down(target : String) : Nil
       Log.warn { "Stepping down, handing over leadership to #{target}" }
-      @stepped_down = true
       stop
-      exit 3
+      exit 0
     end
 
     def stop
