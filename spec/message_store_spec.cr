@@ -44,6 +44,9 @@ class SpyReplicator
     @deleted_files << path
   end
 
+  def delete_dir(path : String)
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
