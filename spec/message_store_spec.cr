@@ -1011,6 +1011,22 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "restores readahead on a segment once it's full" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("synced"))
+          first_segment = store.@wfile.path
+          vm_flags(first_segment).should contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile.path.should_not eq first_segment
+          vm_flags(first_segment).should_not contain "rr"
+          store.close
+          persister.close
+        end
+      end
+
       it "doesn't advise segments of stores that never sync" do
         with_datadir do |dir|
           persister = LavinMQ::Persister.new(dir)
