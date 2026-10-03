@@ -1616,6 +1616,28 @@ describe LavinMQ::AMQP::Stream do
           StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
         end
       end
+
+      it "advises a full segment sequential when a consumer starts reading it" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            3.times { q.publish_confirm data }
+            store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
+            first_seg, first = store.@segments.first
+            first.should_not eq store.@wfile
+            # Confirmed publishes made the segment random access when it was written
+            vm_flags(first.path).should contain "rr"
+
+            ch.prefetch 1
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
+            wait_for { store.@segment_readers.has_key?(first_seg) }
+            vm_flags(first.path).should_not contain "rr"
+            vm_flags(first.path).should contain "sr"
+          end
+        end
+      end
     end
   {% end %}
 

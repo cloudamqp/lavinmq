@@ -81,7 +81,17 @@ module LavinMQ::AMQP
     def acquire_segment(consumer : StreamConsumer) : Nil
       return if consumer.segment_acquired?
       consumer.segment_acquired = true
-      @segment_readers[consumer.segment] = (@segment_readers[consumer.segment]? || 0u32) + 1
+      seg = consumer.segment
+      if count = @segment_readers[seg]?
+        @segment_readers[seg] = count + 1
+      else
+        @segment_readers[seg] = 1u32
+        # Readahead for the first consumer of a full segment, which can still
+        # be advised random from when it was written
+        if (mfile = @segments[seg]?) && mfile != @wfile
+          mfile.advise(MFile::Advice::Sequential)
+        end
+      end
     end
 
     def release_segment(consumer : StreamConsumer) : Nil
@@ -286,7 +296,11 @@ module LavinMQ::AMQP
 
     # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      mfile.dontneed unless @segment_readers.has_key?(seg)
+      if @segment_readers.has_key?(seg)
+        mfile.advise(MFile::Advice::Sequential)
+      else
+        mfile.dontneed
+      end
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile

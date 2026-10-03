@@ -128,20 +128,6 @@ def setup_orphaned_ack_scenario(dir)
   end
 end
 
-# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
-# mapping of the file at `path`
-private def vm_flags(path : String) : Array(String)
-  in_mapping = false
-  File.each_line("/proc/self/smaps") do |line|
-    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
-      in_mapping = line.ends_with?(" #{path}")
-    elsif in_mapping && line.starts_with?("VmFlags:")
-      return line.split[1..]
-    end
-  end
-  fail "#{path} isn't mapped"
-end
-
 private def synced_message(body) : LavinMQ::Message
   msg = LavinMQ::Message.new("", "rk", body)
   msg.needs_sync = true
@@ -1011,7 +997,7 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      it "advises a segment sequential once it's full" do
+      it "advises a full segment sequential if the reader is in it" do
         with_datadir do |dir|
           persister = LavinMQ::Persister.new(dir)
           store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
@@ -1021,8 +1007,27 @@ describe LavinMQ::MessageStore do
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
           store.@wfile.path.should_not eq first_segment
+          store.@rfile.path.should eq first_segment
           vm_flags(first_segment).should_not contain "rr"
           vm_flags(first_segment).should contain "sr"
+          store.close
+          persister.close
+        end
+      end
+
+      it "advises a full segment sequential when the reader reaches it" do
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("synced"))
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          4.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          second_segment = store.@segments.values[1].path
+          vm_flags(second_segment).should contain "rr"
+          3.times { store.shift?.should_not be_nil }
+          store.@rfile.path.should eq second_segment
+          vm_flags(second_segment).should_not contain "rr"
+          vm_flags(second_segment).should contain "sr"
           store.close
           persister.close
         end

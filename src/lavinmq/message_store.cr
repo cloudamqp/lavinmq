@@ -386,8 +386,8 @@ module LavinMQ
     # readahead, so the folios stay at a page. Folios already in the page
     # cache keep their size, so the first syncs after this still write
     # large folios, until the writes pass the readahead window. Segments
-    # opened later get it from the start, and when a segment is full it's
-    # advised sequential (see #open_new_segment), as reading it without
+    # opened later get it from the start. Readers advise a full segment
+    # sequential (see #unmap_finished_segment), as reading it without
     # readahead would be slow. It's only for stores that sync, as page sized
     # folios take more page faults to write.
     private def random_access_for_sync(wfile : MFile) : Nil
@@ -395,19 +395,21 @@ module LavinMQ
       wfile.advise(MFile::Advice::Random)
     end
 
-    # Called on rollover for the segment that was just written to
+    # Called on rollover for the segment that was just written to. A segment
+    # that is being read gets sequential advice here, as it won't get it when
+    # the reader moves into it (see #select_next_read_segment).
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      mfile.dontneed unless mfile == @rfile
+      if mfile == @rfile
+        mfile.advise(MFile::Advice::Sequential)
+      else
+        mfile.dontneed
+      end
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
-        # Done writing, so read it back with readahead, and let the kernel
-        # evict its pages early once read. If no consumer is reading it,
-        # unmap_finished_segment also drops its pages from memory.
-        @wfile.advise(MFile::Advice::Sequential)
       end
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
