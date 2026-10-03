@@ -86,12 +86,14 @@ module LavinMQ::AMQP
         @segment_readers[seg] = count + 1
       else
         @segment_readers[seg] = 1u32
-        # Readahead for the first consumer of a full segment, which can still
-        # be advised random from when it was written
-        if (mfile = @segments[seg]?) && mfile != @wfile
-          mfile.advise(MFile::Advice::Sequential)
-        end
+        @segments[seg]?.try { |mfile| read_ahead(mfile) }
       end
+    end
+
+    # Readahead for reading a full segment, which can still be advised random
+    # from when it was written (see MessageStore#random_access_for_sync)
+    private def read_ahead(mfile : MFile) : Nil
+      mfile.advise(MFile::Advice::Sequential) unless mfile == @wfile
     end
 
     def release_segment(consumer : StreamConsumer) : Nil
@@ -152,12 +154,14 @@ module LavinMQ::AMQP
       segment = offset_index_lookup(offset)
       pos = 4u32
       msg_offset = @segment_first_offset[segment] || 0i64
+      @segments[segment]?.try { |mfile| read_ahead(mfile) }
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
           unmap_if_unused(segment)
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
+            read_ahead(rfile)
             pos = 4u32
             msg_offset = @segment_first_offset[segment]
           else

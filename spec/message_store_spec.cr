@@ -1033,6 +1033,20 @@ describe LavinMQ::MessageStore do
         end
       end
 
+      it "doesn't advise the write segment when sync is disabled" do
+        LavinMQ::Config.instance.sync = false
+        with_datadir do |dir|
+          persister = LavinMQ::Persister.new(dir)
+          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store.push(synced_message("not synced, sync is disabled"))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
+          persister.close
+        end
+      ensure
+        LavinMQ::Config.instance.sync = true
+      end
+
       it "doesn't advise segments of stores that never sync" do
         with_datadir do |dir|
           persister = LavinMQ::Persister.new(dir)

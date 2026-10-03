@@ -372,7 +372,8 @@ module LavinMQ
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
       if msg.needs_sync? && (persister = @persister)
-        random_access_for_sync(wfile) unless @synced_writes
+        # Only when the persister actually syncs, see #random_access_for_sync
+        random_access_for_sync(wfile) if !@synced_writes && Config.instance.sync?
         persister.mark_dirty(wfile)
       end
       @segment_msg_count[wfile_id] += 1

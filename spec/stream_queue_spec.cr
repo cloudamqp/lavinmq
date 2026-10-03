@@ -1638,6 +1638,24 @@ describe LavinMQ::AMQP::Stream do
           end
         end
       end
+
+      it "advises a full segment sequential before scanning it for an offset" do
+        queue_name = Random::Secure.hex
+        data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            3.times { q.publish_confirm data }
+            stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+            store = stream.stream_msg_store
+            first = store.@segments.first_value
+            vm_flags(first.path).should contain "rr"
+            stream.@msg_store_lock.synchronize { store.find_offset(1i64) }
+            vm_flags(first.path).should_not contain "rr"
+            vm_flags(first.path).should contain "sr"
+          end
+        end
+      end
     end
   {% end %}
 
