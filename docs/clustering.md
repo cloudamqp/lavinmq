@@ -33,7 +33,7 @@ password_file = /etc/lavinmq/clustering_password
 ```
 
 - `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. Without `peers` the node forms a cluster of one.
-- `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
+- `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default. Nodes are known by the `.clustering_id` in their data dir, so a node can move to a new address and keep its data dir: update `peers` on every node and restart them.
 - A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
 
   ```sh

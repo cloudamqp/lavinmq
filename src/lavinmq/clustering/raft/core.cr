@@ -85,7 +85,9 @@ module LavinMQ::Clustering::Raft
         @snapshot_term = state.snapshot_term
         @snapshot_isr = state.snapshot_isr
         @entries = state.entries.dup
-        @peer_node_ids = state.peer_node_ids.dup
+        # Peer addresses that are no longer configured have moved or been
+        # removed, keeping their ids would flag the moved node as a conflict
+        @peer_node_ids = state.peer_node_ids.select { |addr, _| @peers.includes?(addr) }
         @commit_index = @snapshot_index
       end
       @election_deadline = now + randomized_election_timeout

@@ -317,6 +317,17 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_false
   end
 
+  it "forgets the clustering id of an address no longer among the peers" do
+    now = Time.instant
+    core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now)
+    core.step(Raft::AppendEntries.new("n2", 1, 2, "u2", 0, 0, [] of Raft::Entry, 0), now)
+    core = Raft::Core.new("n1", ["n1", "n2b", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, core.hard_state)
+    core.step(Raft::RequestVote.new("n2b", 2, 2, 0, 0, pre_vote: false, transfer: true), now)
+    _, reply = core.take_outbox.first
+    reply.as(Raft::VoteResponse).granted.should be_true
+    core.id_conflict.should be_nil
+  end
+
   it "refuses to follow or campaign when a peer has its clustering id" do
     now = Time.instant
     core = Raft::Core.new("n1", ["n1", "n2", "n3"], 1, "u1", 100.milliseconds, 20.milliseconds, now, bootstrap: true)
