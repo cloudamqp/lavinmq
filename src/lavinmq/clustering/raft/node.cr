@@ -7,14 +7,22 @@ require "../../logger"
 module LavinMQ::Clustering::Raft
   # A snapshot of the cluster as this node sees it, see Node#status. Only
   # the leader knows `match_index` and `caught_up`.
-  record Status, address : String, node_id : Int32, role : Role, term : Int64,
-    leader : String?, leader_uri : String?,
+  record Status, id : Int32, address : String, role : Role, term : Int64,
+    leader : Int32?, leader_uri : String?,
     membership : Membership?, committed_membership : Membership?,
-    peer_node_ids : Hash(String, Int32), match_index : Hash(String, Int64),
-    last_index : Int64, caught_up : Set(String), committed_isr : Set(Int32)? do
-    # The clustering id of a member, ours included
-    def node_id_of(addr : String) : Int32?
-      addr == @address ? @node_id : @peer_node_ids[addr]?
+    match_index : Hash(Int32, Int64), last_index : Int64, caught_up : Set(Int32),
+    committed_isr : Set(Int32)? do
+    # The member a clustering id (base 36, as shown) or a raft address refers to
+    def resolve(ref : String) : Int32?
+      members = membership.try(&.addresses) || {@id => @address}
+      if id = ref.to_i?(36)
+        return id if members.has_key?(id)
+      end
+      members.key_for?(ref)
+    end
+
+    def address_of(id : Int32) : String?
+      membership.try(&.addresses[id]?) || (@address if id == @id)
     end
   end
 
@@ -25,12 +33,13 @@ module LavinMQ::Clustering::Raft
     Log = LavinMQ::Log.for "clustering.raft"
 
     private record Propose, isr : Set(Int32), reply : Channel(Bool)
-    private record ChangeMembership, change : MembershipChange, addr : String, reply : Channel(MembershipError?)
-    private record Transfer, target : String?, reply : Channel(TransferResult)
+    private record ChangeMembership, change : MembershipChange, id : Int32, address : String?,
+      reply : Channel(MembershipError?)
+    private record Transfer, target : Int32?, reply : Channel(TransferResult)
     private record GetStatus, reply : Channel(Status)
     private record Pending, index : Int64, term : Int64, reply : Channel(Bool)
     private record PendingChange, index : Int64, term : Int64, reply : Channel(MembershipError?)
-    private alias Event = Message | Propose | ChangeMembership | Transfer | GetStatus
+    private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | GetStatus
 
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
@@ -48,26 +57,23 @@ module LavinMQ::Clustering::Raft
     @committed_isr : Set(Int32)? = nil
     @membership : Membership? = nil
     @committed_membership : Membership? = nil
-    @peer_node_ids = Hash(String, Int32).new
     @removed_callbacks = Array(Int32 ->).new
     @state_lock = Mutex.new
     @stopped = Channel(Nil).new
     @transport : Transport? = nil
-    @logged_conflict : IdConflict? = nil
     @synced_peers = Set(String).new
     @configured : Set(String)
     @warned_config = false
 
-    def initialize(@id : String, peers : Enumerable(String), @node_id : Int32, uri : String,
+    def initialize(@id : Int32, @address : String, peers : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
                    @tick = 20.milliseconds, bootstrap = false)
-      @core = Core.new(@id, peers, @node_id, uri, election_timeout, heartbeat_interval,
+      @core = Core.new(@id, @address, peers, uri, election_timeout, heartbeat_interval,
         Time.instant, @storage.load, bootstrap: bootstrap)
-      @configured = peers.to_set << @id
+      @configured = peers.to_set << @address
       @committed_isr = @core.committed_isr
       @membership = @core.latest_membership
       @committed_membership = @core.committed_membership
-      @peer_node_ids = @core.peer_node_ids.dup
     end
 
     def run(transport : Transport) : Nil
@@ -75,9 +81,9 @@ module LavinMQ::Clustering::Raft
       spawn(event_loop, name: "raft node")
     end
 
-    # Called by the transport for every received message.
-    def deliver(msg : Message) : Nil
-      @events.send msg
+    # Called by the transport for every received message and connection change.
+    def deliver(event : TransportEvent) : Nil
+      @events.send event
     rescue Channel::ClosedError
     end
 
@@ -100,14 +106,10 @@ module LavinMQ::Clustering::Raft
     end
 
     # Whether the node with this clustering id is part of the cluster, as
-    # voter or learner. True while there's no membership yet. A node whose id
-    # hasn't been seen by raft yet isn't a member.
-    def member?(node_id : Int32) : Bool
-      return true if node_id == @node_id
-      @state_lock.synchronize do
-        return true unless m = @membership
-        m.members.any? { |addr| @peer_node_ids[addr]? == node_id }
-      end
+    # voter or learner. True while there's no membership yet.
+    def member?(id : Int32) : Bool
+      return true if id == @id
+      @state_lock.synchronize { (m = @membership).nil? || m.includes?(id) }
     end
 
     # False once this node has been removed from the cluster.
@@ -131,25 +133,28 @@ module LavinMQ::Clustering::Raft
       false
     end
 
-    # Add a node as non-voting learner. Each of the membership changes blocks
+    # Add the node at `address` as non-voting learner. It must be running, so
+    # its clustering id can be asked for. Each of the membership changes blocks
     # until the change is committed and returns nil, or returns why it was
     # refused (or lost, see MembershipError::Lost).
-    def add_learner(addr : String) : MembershipError?
-      change MembershipChange::AddLearner, addr
+    def add_learner(address : String) : MembershipError?
+      return MembershipError::NotLeader unless leader?
+      id = @transport.try(&.probe(address)) || return MembershipError::Unreachable
+      change MembershipChange::AddLearner, id, address
     end
 
     # Make a learner that has caught up a voter.
-    def promote(addr : String) : MembershipError?
-      change MembershipChange::Promote, addr
+    def promote(id : Int32) : MembershipError?
+      change MembershipChange::Promote, id
     end
 
-    def remove_member(addr : String) : MembershipError?
-      change MembershipChange::Remove, addr
+    def remove_member(id : Int32) : MembershipError?
+      change MembershipChange::Remove, id
     end
 
-    private def change(change : MembershipChange, addr : String) : MembershipError?
+    private def change(change : MembershipChange, id : Int32, address : String? = nil) : MembershipError?
       reply = Channel(MembershipError?).new(1)
-      @events.send ChangeMembership.new(change, addr, reply)
+      @events.send ChangeMembership.new(change, id, address, reply)
       await reply, MembershipError::Lost
     rescue Channel::ClosedError
       MembershipError::NotLeader
@@ -157,7 +162,7 @@ module LavinMQ::Clustering::Raft
 
     # Hand leadership over to a caught up in-sync voter, the chosen one or any,
     # so the cluster fails over without waiting for an election timeout.
-    def transfer_leadership(target : String? = nil) : TransferResult
+    def transfer_leadership(target : Int32? = nil) : TransferResult
       reply = Channel(TransferResult).new(1)
       @events.send Transfer.new(target, reply)
       await reply, TransferResult::NotLeader
@@ -241,6 +246,13 @@ module LavinMQ::Clustering::Raft
       case event
       in Message
         @core.step(event, Time.instant)
+      in Connected
+        Log.debug { "#{event.address} (#{event.id.to_s(36)}) connected" }
+        @core.connected(event.id, event.address, Time.instant)
+      in Disconnected
+        @core.disconnected(event.id, event.address)
+      in Identified
+        @core.identified(event.address, event.id)
       in Propose
         if index = @core.propose(event.isr, Time.instant)
           @pending << Pending.new(index, @core.term, event.reply)
@@ -248,7 +260,7 @@ module LavinMQ::Clustering::Raft
           event.reply.send false
         end
       in ChangeMembership
-        case result = @core.propose_membership(event.change, event.addr, Time.instant)
+        case result = @core.propose_membership(event.change, event.id, Time.instant, event.address)
         in Int64
           @pending_changes << PendingChange.new(result, @core.term, event.reply)
         in MembershipError
@@ -262,16 +274,16 @@ module LavinMQ::Clustering::Raft
     end
 
     private def build_status : Status
-      match_index = Hash(String, Int64).new
-      caught_up = Set(String).new
+      match_index = Hash(Int32, Int64).new
+      caught_up = Set(Int32).new
       if @core.role.leader?
         @core.peers.each do |p|
           match_index[p] = @core.match_index(p)
           caught_up << p if @core.caught_up?(p)
         end
       end
-      Status.new(@id, @node_id, @core.role, @core.term, @core.leader, @core.leader_uri,
-        @core.latest_membership, @core.committed_membership, @core.peer_node_ids.dup, match_index,
+      Status.new(@id, @address, @core.role, @core.term, @core.leader, @core.leader_uri,
+        @core.latest_membership, @core.committed_membership, match_index,
         @core.last_index, caught_up, @core.committed_isr)
     end
 
@@ -286,7 +298,9 @@ module LavinMQ::Clustering::Raft
         @core.persisted
       end
       if transport = @transport
-        @core.take_outbox.each { |(to, msg)| transport.send(to, msg) }
+        @core.take_outbox.each do |(to, msg)|
+          @core.address_of(to).try { |address| transport.send(address, msg) }
+        end
       end
       resolve_pending
       resolve_pending_changes
@@ -324,39 +338,20 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    # Connect to every member, and to the leader even if we don't know yet
-    # that it is one: a node joining with an empty log can only answer the
-    # leader that way before it has learned the membership.
     private def sync_transport : Nil
       transport = @transport || return
-      wanted = @core.peers.to_set
-      @core.departing.each { |p| wanted << p }
-      @core.leader.try { |l| wanted << l unless l == @id }
+      wanted = @core.connect_to
       return if wanted == @synced_peers
       @synced_peers = wanted
       transport.update_peers(wanted)
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def publish_state : Nil
-      if (conflict = @core.id_conflict) != @logged_conflict
-        @logged_conflict = conflict
-        if conflict
-          own = conflict.holder == @core.id ? " and not campaigning" : ""
-          Log.error do
-            "#{conflict}: ignoring #{conflict.addr}#{own}, delete .clustering_id on the copied node, " \
-            "or if a node changed address, update the peer list and restart"
-          end
-        else
-          Log.info { "Clustering id conflict resolved" }
-        end
-      end
       uri = @core.leader_uri
       isr = @core.committed_isr
       leader = @core.role.leader?
       membership = @core.latest_membership
       committed = @core.committed_membership
-      peer_ids = @core.peer_node_ids
       changed = false
       removed = Array(Int32).new
       callbacks = nil
@@ -366,12 +361,11 @@ module LavinMQ::Clustering::Raft
         @leader = leader
         @committed_isr = isr
         @membership = membership
-        @peer_node_ids = peer_ids.dup if peer_ids != @peer_node_ids
         if committed != @committed_membership
-          if (before = @committed_membership) && committed
-            (before.members - committed.members).each do |addr|
-              @peer_node_ids[addr]?.try { |id| removed << id }
-            end
+          before = @committed_membership
+          log_membership_change(before, committed)
+          if before && committed
+            removed.concat(before.members - committed.members)
           end
           @committed_membership = committed
           callbacks = @removed_callbacks.dup unless removed.empty?
@@ -394,16 +388,28 @@ module LavinMQ::Clustering::Raft
       @serving.set(@core.serving_leader?)
     end
 
+    private def log_membership_change(before : Membership?, after : Membership?) : Nil
+      return unless before && after
+      after.addresses.each do |id, address|
+        old = before.addresses[id]?
+        next if old.nil? || old == address
+        Log.info { "Node #{id.to_s(36)} moved from #{old} to #{address}" }
+      end
+    end
+
     private def warn_if_config_differs(membership : Membership?) : Nil
       return if @warned_config || membership.nil?
       @warned_config = true
-      members = membership.members
-      return if members == @configured
+      return if membership.addresses.values.to_set == @configured
       Log.warn do
         "Configured peers (#{@configured.to_a.sort.join(", ")}) differ from the cluster membership " \
-        "(voters: #{membership.voters.to_a.sort.join(", ")}; learners: #{membership.learners.to_a.sort.join(", ")}). " \
+        "(voters: #{describe(membership, membership.voters)}; learners: #{describe(membership, membership.learners)}). " \
         "The membership in the raft log is used, peers is only a seed for joining nodes."
       end
+    end
+
+    private def describe(membership : Membership, ids : Set(Int32)) : String
+      ids.map { |id| "#{membership.addresses[id]? || "?"} (#{id.to_s(36)})" }.sort!.join(", ")
     end
   end
 end

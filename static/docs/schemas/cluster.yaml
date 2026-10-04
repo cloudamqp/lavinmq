@@ -24,8 +24,7 @@ member:
       description: Raft address.
     node_id:
       type: string
-      nullable: true
-      description: Clustering id (base 36), null until the node has been in contact with the leader.
+      description: Clustering id (base 36), what identifies the node. Its address may change.
     role:
       type: string
       enum:
@@ -56,11 +55,15 @@ TransferLeadershipRequestBody:
   properties:
     target:
       type: string
-      description: Raft address of the voter to hand over to. Default is a caught up voter in the in-sync replica set.
+      description: Clustering id (base 36) or raft address of the voter to hand over to. Default is a caught up voter in the in-sync replica set.
 TransferLeadershipResponse:
   type: object
   properties:
     target:
       type: string
+      description: Raft address of the target.
+    node_id:
+      type: string
+      description: Clustering id (base 36) of the target.
     term:
       type: integer

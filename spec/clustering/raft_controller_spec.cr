@@ -378,27 +378,28 @@ describe LavinMQ::Clustering::RaftController do
       d.node.leader_uri.should be_nil
 
       a.node.add_learner(d_addr).should be_nil
-      a.node.membership.not_nil!.learners.should eq Set{d_addr}
+      a.node.membership.not_nil!.learners.should eq Set{d.id}
       # It gets the broker data from the leader and ends up in the ISR
       wait_for(10.seconds) { a.node.committed_isr.try(&.includes?(d.id)) }
       a.node.membership.not_nil!.voters.size.should eq 3
 
       deadline = Time.instant + 10.seconds
-      while error = a.node.promote(d_addr)
+      while error = a.node.promote(d.id)
         error.should(be_a(LavinMQ::Clustering::Raft::MembershipError))
         fail "not promoted: #{error.message}" if Time.instant > deadline
         sleep 50.milliseconds
       end
-      a.node.membership.not_nil!.voters.should contain(d_addr)
+      a.node.membership.not_nil!.voters.should contain(d.id)
 
       a.request_transfer("127.0.0.1:1").should be_a String # not a member
       a.on_step_down { |_| spawn(name: "step down spec") { a.stop } }
       plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
-      plan.target.should eq d_addr
+      plan.target.should eq d.id
+      plan.address.should eq d_addr
       # A second request before the step down can't override the accepted one
       a.request_transfer("127.0.0.1:1").as(String).should contain "already in progress"
       a.request_transfer(d_addr).as(String).should contain "already in progress"
-      a.step_down(plan.target)
+      a.step_down(plan)
       cluster.next_leader(10.seconds).should eq d
 
       # The old leader restarts as a follower, and replicates from the new one
@@ -407,10 +408,10 @@ describe LavinMQ::Clustering::RaftController do
       wait_for(10.seconds) { d.node.committed_isr.try(&.includes?(a.id)) }
       cluster.servers[d].all_followers.map(&.id).should contain(a.id)
 
-      d.node.remove_member(a_addr).should be_nil
-      d.node.remove_member(a_addr).should eq LavinMQ::Clustering::Raft::MembershipError::UnknownMember
+      d.node.remove_member(a.id).should be_nil
+      d.node.remove_member(a.id).should eq LavinMQ::Clustering::Raft::MembershipError::UnknownMember
       d.node.committed_isr.not_nil!.should_not contain(a.id)
-      d.node.membership.not_nil!.members.should_not contain(a_addr)
+      d.node.membership.not_nil!.members.should_not contain(a.id)
 
       # It's told, disconnected and refused when it comes back
       wait_for(10.seconds) { !a2.node.self_member? }
@@ -418,6 +419,26 @@ describe LavinMQ::Clustering::RaftController do
       sleep 2.5.seconds # a few reconnect attempts
       cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true
       d.node.committed_isr.not_nil!.should_not contain(a.id)
+    end
+  end
+
+  it "takes a follower back at a new raft address with its data dir", tags: "slow" do
+    with_controllers(replication: true) do |cluster|
+      cluster.start_all
+      a = cluster.next_leader
+      wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
+      b = cluster.controllers.find! { |c| c != a }
+      b.stop
+      port = free_port
+      config = cluster.configs[cluster.controllers.index!(b)]
+      config.clustering_raft_port = port
+      config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
+      cluster.restart(b)
+      wait_for(10.seconds) do
+        m = a.node.membership
+        !m.nil? && m.addresses[b.id]? == "127.0.0.1:#{port}" && m.voters.includes?(b.id)
+      end
+      wait_for(10.seconds) { a.node.committed_isr.try(&.includes?(b.id)) }
     end
   end
 end

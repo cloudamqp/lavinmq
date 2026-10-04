@@ -29,18 +29,20 @@ module LavinMQ
           change(context, cluster.node.add_learner(address), 201, address)
         end
 
-        post "/api/cluster/members/:address/promote" do |context, params|
+        post "/api/cluster/members/:member/promote" do |context, params|
           refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
-          address = params["address"]
-          change(context, cluster.node.promote(address), 200, address)
+          member = params["member"]
+          id = require_member(context, cluster, member)
+          change(context, cluster.node.promote(id), 200, member)
         end
 
-        delete "/api/cluster/members/:address" do |context, params|
+        delete "/api/cluster/members/:member" do |context, params|
           refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
-          address = params["address"]
-          change(context, cluster.node.remove_member(address), 204, address)
+          member = params["member"]
+          id = require_member(context, cluster, member)
+          change(context, cluster.node.remove_member(id), 204, member)
         end
 
         post "/api/cluster/transfer-leadership" do |context, _params|
@@ -54,12 +56,12 @@ module LavinMQ
             # response has to be complete before that.
             begin
               context.response.status_code = 202
-              {target: plan.target, term: plan.term}.to_json(context.response)
+              {target: plan.address, node_id: plan.target.to_s(36), term: plan.term}.to_json(context.response)
               context.response.close
             ensure
               # The transfer is claimed, so it has to proceed even if the
               # client went away, or no later transfer could be requested
-              cluster.step_down(plan.target)
+              cluster.step_down(plan)
             end
           in String
             halt(context, 409, {error: "conflict", reason: plan})
@@ -87,15 +89,24 @@ module LavinMQ
         status
       end
 
-      private def change(context, error : Clustering::Raft::MembershipError?, success : Int32, address : String)
+      # The clustering id of the member `ref` (a clustering id or raft address)
+      # refers to.
+      private def require_member(context, cluster : Clustering::RaftController, ref : String) : Int32
+        status = require_status(context, cluster)
+        status.resolve(ref) || not_found(context, "#{ref} is not a member of the cluster")
+      end
+
+      private def change(context, error : Clustering::Raft::MembershipError?, success : Int32, member : String)
         if error
           case error
           in .unknown_member?
-            not_found(context, "#{address} is not a member of the cluster")
+            not_found(context, "#{member} is not a member of the cluster")
           in .lost?
             halt(context, 409, {error: "conflict", reason: "#{error.message}, check the cluster status"})
+          in .unreachable?
+            halt(context, 409, {error: "conflict", reason: "Couldn't reach #{member}, start it first"})
           in .not_leader?, .not_serving?, .pending?, .already_member?, .not_learner?,
-             .is_leader?, .not_in_isr?, .not_caught_up?
+             .is_leader?, .not_in_isr?, .not_caught_up?, .address_in_use?
             halt(context, 409, {error: "conflict", reason: error.message})
           end
         end
@@ -113,17 +124,17 @@ module LavinMQ
           end
           json.field "members" do
             json.array do
-              members = membership.try(&.members) || Set{status.address}
-              members.to_a.sort.each do |addr|
-                node_id = status.node_id_of(addr)
+              addresses = membership.try(&.addresses) || {status.id => status.address}
+              addresses.to_a.sort_by!(&.[1]).each do |id, addr|
+                me = id == status.id
                 json.object do
                   json.field "address", addr
-                  json.field "node_id", node_id.try &.to_s(36)
-                  json.field "role", membership.try(&.learners.includes?(addr)) ? "learner" : "voter"
-                  json.field "in_isr", !node_id.nil? && (status.committed_isr.try(&.includes?(node_id)) || false)
-                  json.field "match_index", addr == status.address ? status.last_index : status.match_index[addr]?
-                  json.field "caught_up", (addr == status.address || status.caught_up.includes?(addr))
-                  json.field "leader", addr == status.address
+                  json.field "node_id", id.to_s(36)
+                  json.field "role", membership.try(&.learners.includes?(id)) ? "learner" : "voter"
+                  json.field "in_isr", status.committed_isr.try(&.includes?(id)) || false
+                  json.field "match_index", me ? status.last_index : status.match_index[id]?
+                  json.field "caught_up", (me || status.caught_up.includes?(id))
+                  json.field "leader", me
                 end
               end
             end

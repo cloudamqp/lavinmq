@@ -45,7 +45,8 @@
     tags:
     - cluster
     description: |
-      Add a node to the cluster as a non-voting learner. The learner gets the Raft log and starts replicating broker data,
+      Add a node to the cluster as a non-voting learner. The node must be running, the leader connects to it to learn its
+      clustering id. The learner gets the Raft log and starts replicating broker data,
       but doesn't count towards quorum until it is promoted. The request returns when the change is committed.
       Requires administrator permission.
     summary: Add a cluster member
@@ -60,7 +61,7 @@
       '201':
         description: The learner was added.
       '409':
-        description: Another membership change is pending, or the node is already a member.
+        description: Another membership change is pending, the node is already a member or couldn't be reached.
         content:
           application/json:
             schema:
@@ -77,14 +78,14 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/cluster/members/{address}/promote":
+"/cluster/members/{member}/promote":
   parameters:
   - in: path
-    name: address
+    name: member
     required: true
     schema:
       type: string
-      description: Raft address of the member, host:port. The colon may be URL encoded.
+      description: Clustering id (base 36) or raft address (host:port, the colon may be URL encoded) of the member.
   post:
     tags:
     - cluster
@@ -115,14 +116,14 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/cluster/members/{address}":
+"/cluster/members/{member}":
   parameters:
   - in: path
-    name: address
+    name: member
     required: true
     schema:
       type: string
-      description: Raft address of the member, host:port. The colon may be URL encoded.
+      description: Clustering id (base 36) or raft address (host:port, the colon may be URL encoded) of the member.
   delete:
     tags:
     - cluster

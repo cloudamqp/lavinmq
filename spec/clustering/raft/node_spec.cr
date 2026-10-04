@@ -24,13 +24,48 @@ private class TCPRaftCluster
     end
   end
 
-  def start(addr : String, index = @addrs.index!(addr))
+  def start(addr : String, index = @addrs.index!(addr), id = index + 1, dir = dirs[index],
+            peers = @addrs) : Raft::Node
     server = @servers[addr]? || (@servers[addr] = TCPServer.new("127.0.0.1", addr.split(':').last.to_i))
-    node = @nodes[addr] = Raft::Node.new(addr, @addrs, index + 1, "tcp://#{addr}", Raft::Storage.new(dirs[index]),
+    node = @nodes[addr] = Raft::Node.new(id, addr, peers, "tcp://#{addr}", Raft::Storage.new(dir),
       100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
-    transport = @transports[addr] = Raft::TCPTransport.new(@password, @addrs.reject(addr), ->node.deliver(Raft::Message))
+    transport = @transports[addr] = Raft::TCPTransport.new(@password, id, addr, peers.reject(addr),
+      ->node.deliver(Raft::TransportEvent))
     spawn transport.listen(server)
     node.run(transport)
+    node
+  end
+
+  def address(index : Int32) : String
+    @addrs[index]
+  end
+
+  # Restarts a node on a new port with its data dir. Returns the new address.
+  def move(addr : String) : String
+    index = @addrs.index!(addr)
+    stop(addr)
+    server = TCPServer.new("127.0.0.1", 0)
+    new_addr = "127.0.0.1:#{server.local_address.port}"
+    @addrs[index] = new_addr
+    @servers[new_addr] = server
+    start(new_addr, index)
+    new_addr
+  end
+
+  # Starts a node with a new data dir that isn't part of the cluster.
+  def start_extra(id : Int32, peers : Array(String), dir = new_dir) : Tuple(String, Raft::Node)
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    @servers[addr] = server
+    node = start(addr, 0, id, dir, [addr] + peers)
+    {addr, node}
+  end
+
+  def new_dir : String
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    dirs << dir
+    dir
   end
 
   def stop(addr : String)
@@ -58,22 +93,28 @@ end
 # When stalling, the next replicated entries make the node's fiber block past
 # the election timeout, with a stale message queued ahead of the acks.
 private class StallingTransport < Raft::Transport
-  property node : Raft::Node? = nil
   property stall : Time::Span? = nil
+  @node : Raft::Node? = nil
 
   def initialize(@node_ids : Hash(String, Int32))
   end
 
+  def node=(node : Raft::Node)
+    @node = node
+    @node_ids.each { |addr, id| node.deliver Raft::Connected.new(id, addr) }
+  end
+
   def send(to : String, msg : Raft::Message) : Nil
     node = @node.not_nil!
+    id = @node_ids[to]
     case msg
     when Raft::RequestVote
-      node.deliver Raft::VoteResponse.new(to, msg.term, true, pre_vote: msg.pre_vote)
+      node.deliver Raft::VoteResponse.new(id, msg.term, true, pre_vote: msg.pre_vote)
     when Raft::AppendEntries
-      ack = Raft::AppendResponse.new(to, msg.term, @node_ids[to], true, msg.prev_index + msg.entries.size)
+      ack = Raft::AppendResponse.new(id, msg.term, true, msg.prev_index + msg.entries.size)
       if (stall = @stall) && !msg.entries.empty?
         @stall = nil
-        node.deliver Raft::AppendResponse.new(to, 0, @node_ids[to], false, 0)
+        node.deliver Raft::AppendResponse.new(id, 0, false, 0)
         node.deliver ack
         ts = LibC::Timespec.new(tv_sec: 0, tv_nsec: stall.total_nanoseconds.to_i64)
         LibC.nanosleep(pointerof(ts), nil) # blocks like a slow fsync
@@ -133,8 +174,12 @@ describe Raft::Node do
       wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
       status = leader.status.not_nil!
       status.role.leader?.should be_true
-      status.membership.not_nil!.voters.should eq c.nodes.keys.to_set
+      status.membership.not_nil!.voters.should eq Set{1, 2, 3}
+      status.membership.not_nil!.addresses.values.to_set.should eq c.nodes.keys.to_set
       status.membership.not_nil!.learners.should be_empty
+      status.resolve(c.address(1)).should eq 2
+      status.resolve("2").should eq 2
+      status.resolve("9").should be_nil
       status.committed_isr.should eq Set{1, 2, 3}
       follower = c.nodes.values.find! { |n| n != leader }
       follower.add_learner("127.0.0.1:1").should eq Raft::MembershipError::NotLeader
@@ -159,7 +204,7 @@ describe Raft::Node do
   it "closes without having been run" do
     dir = File.tempname("raft-node-spec")
     Dir.mkdir_p dir
-    node = Raft::Node.new("127.0.0.1:1", ["127.0.0.1:1"], 1, "tcp://127.0.0.1:1", Raft::Storage.new(dir),
+    node = Raft::Node.new(1, "127.0.0.1:1", ["127.0.0.1:1"], "tcp://127.0.0.1:1", Raft::Storage.new(dir),
       100.milliseconds, 20.milliseconds)
     done = Channel(Nil).new
     spawn { node.close; done.close }
@@ -176,7 +221,7 @@ describe Raft::Node do
     dir = File.tempname("raft-node-spec")
     Dir.mkdir_p dir
     transport = StallingTransport.new({"b" => 2, "c" => 3})
-    node = Raft::Node.new("a", ["a", "b", "c"], 1, "tcp://a", Raft::Storage.new(dir),
+    node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
       100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
     transport.node = node
     node.run(transport)
@@ -203,9 +248,9 @@ describe Raft::Node do
     servers = Array.new(2) { TCPServer.new("127.0.0.1", 0) }
     addrs = servers.map { |s| "127.0.0.1:#{s.local_address.port}" }
     nodes = addrs.map_with_index do |addr, i|
-      node = Raft::Node.new(addr, addrs, i + 1, "tcp://#{addr}", Raft::Storage.new(File.join(dir, i.to_s).tap { |d| Dir.mkdir_p d }),
+      node = Raft::Node.new(i + 1, addr, addrs, "tcp://#{addr}", Raft::Storage.new(File.join(dir, i.to_s).tap { |d| Dir.mkdir_p d }),
         100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
-      transport = Raft::TCPTransport.new("password#{i}", addrs.reject(addr), ->node.deliver(Raft::Message))
+      transport = Raft::TCPTransport.new("password#{i}", i + 1, addr, addrs.reject(addr), ->node.deliver(Raft::TransportEvent))
       spawn transport.listen(servers[i])
       node.run(transport)
       node
@@ -217,6 +262,78 @@ describe Raft::Node do
     nodes.try &.each &.close
     FileUtils.rm_rf dir if dir
   end
+
+  it "adds a learner by address, asking it for its clustering id" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      addr, _ = c.start_extra(40, [c.address(0)])
+      leader.add_learner(addr).should be_nil
+      membership = leader.membership.not_nil!
+      membership.learners.should eq Set{40}
+      membership.addresses[40].should eq addr
+      leader.add_learner("127.0.0.1:1").should eq Raft::MembershipError::Unreachable
+    end
+  end
+
+  it "takes a node back at a new address with its data dir" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
+      index = (0..2).find! { |i| c.nodes[c.address(i)] != leader }
+      id = index + 1
+      new_addr = c.move(c.address(index))
+      wait_for(5.seconds) do
+        m = leader.membership
+        !m.nil? && m.addresses[id]? == new_addr && m.voters.includes?(id)
+      end
+      wait_for { c.nodes[new_addr].membership.try(&.addresses[id]?) == new_addr }
+      c.nodes[new_addr].leader_uri.should eq leader.leader_uri
+    end
+  end
+
+  it "ignores a copy of a node's data dir while the original is connected" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      wait_for { c.nodes.values.all? { |n| n.membership.try(&.voters.size) == 3 } }
+      index = (0..2).find! { |i| c.nodes[c.address(i)] != leader }
+      original = c.address(index)
+      copy_dir = c.new_dir
+      FileUtils.cp(File.join(c.dirs[index], ".raft_state"), copy_dir)
+      _, copy = c.start_extra(index + 1, [c.address(0), c.address(1), c.address(2)], copy_dir)
+      sleep 1.second
+      membership = leader.membership.not_nil!
+      membership.addresses[index + 1].should eq original
+      membership.voters.should eq Set{1, 2, 3}
+      copy.leader_uri.should be_nil
+    end
+  end
+end
+
+describe Raft::TCPTransport do
+  it "lets one address at a time connect with a clustering id" do
+    server = TCPServer.new("127.0.0.1", 0)
+    addr = "127.0.0.1:#{server.local_address.port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    transport = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, ->(e : Raft::TransportEvent) { events.send e })
+    spawn transport.listen(server)
+    first = Raft::TCPTransport.new("secret", 2, "first:1", [addr], ->(_e : Raft::TransportEvent) { })
+    events.receive.should eq Raft::Connected.new(2, "first:1")
+    copy = Raft::TCPTransport.new("secret", 2, "copy:1", Array(String).new, ->(_e : Raft::TransportEvent) { })
+    copy.probe(addr).should be_nil
+    myself = Raft::TCPTransport.new("secret", 1, "other:1", Array(String).new, ->(_e : Raft::TransportEvent) { })
+    myself.probe(addr).should be_nil
+    first.close
+    events.receive.should eq Raft::Disconnected.new(2, "first:1")
+    copy.probe(addr).should eq 1
+  ensure
+    transport.try &.close
+    first.try &.close
+    copy.try &.close
+    myself.try &.close
+  end
 end
 
 describe Raft::Storage do
@@ -224,8 +341,7 @@ describe Raft::Storage do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
       storage.load.should be_nil
-      state = Raft::HardState.new(7, "n2", 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})],
-        {"n2" => 2, "n3" => 3})
+      state = Raft::HardState.new(7, 2, 3, 6, Set{1, 2}, [Raft::Entry.new(7, nil), Raft::Entry.new(7, Set{2})])
       storage.save(state)
       storage.load.should eq state
     end
@@ -234,11 +350,11 @@ describe Raft::Storage do
   it "round-trips the membership of the snapshot and of the entries" do
     with_datadir do |dir|
       storage = Raft::Storage.new(dir)
-      members = Raft::Membership.new(Set{"a:1", "b:1", "c:1"}, Set{"d:1"})
+      members = Raft::Membership.new(Set{1, 2, 3}, Set{4}, {1 => "a:1", 2 => "b:1", 3 => "c:1", 4 => "d:1"}, Set{4})
       state = Raft::HardState.new(7, nil, 3, 6, Set{1, 2}, [
         Raft::Entry.new(7, nil),
-        Raft::Entry.new(7, Set{2}, Raft::Membership.new(Set{"a:1", "b:1"}, Set(String).new)),
-      ], {"b:1" => 2}, members)
+        Raft::Entry.new(7, Set{2}, Raft::Membership.new(Set{1, 2}, Set(Int32).new, {1 => "a:1", 2 => "b:1"})),
+      ], members)
       storage.save(state)
       loaded = storage.load.not_nil!
       loaded.should eq state
@@ -263,33 +379,34 @@ end
 describe Raft::Codec do
   it "round-trips every message type" do
     msgs = [
-      Raft::RequestVote.new("a", 3, 42, 9, 2, pre_vote: true, transfer: false),
-      Raft::VoteResponse.new("b", 3, true, pre_vote: false),
-      Raft::AppendEntries.new("a", 3, 2, "tcp://a:5679", 8, 2, [Raft::Entry.new(3, nil), Raft::Entry.new(3, Set{1, 42})], 7),
-      Raft::AppendResponse.new("b", 3, 7, false, 5),
-      Raft::InstallSnapshot.new("a", 3, 2, "tcp://a:5679", 8, 2, Set{42}),
-      Raft::TimeoutNow.new("a", 3),
-      Raft::CatchUp.new("b", 3, 7, 8, 2, Set{42}, [Raft::Entry.new(3, Set{7})]),
+      Raft::RequestVote.new(1, 3, 9, 2, pre_vote: true, transfer: false),
+      Raft::VoteResponse.new(2, 3, true, pre_vote: false),
+      Raft::AppendEntries.new(1, 3, "tcp://a:5679", 8, 2, [Raft::Entry.new(3, nil), Raft::Entry.new(3, Set{1, 42})], 7),
+      Raft::AppendResponse.new(2, 3, false, 5),
+      Raft::InstallSnapshot.new(1, 3, "tcp://a:5679", 8, 2, Set{42}),
+      Raft::TimeoutNow.new(1, 3),
+      Raft::CatchUp.new(2, 3, 8, 2, Set{42}, [Raft::Entry.new(3, Set{7})]),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
   end
 
   it "round-trips the membership" do
-    members = Raft::Membership.new(Set{"a:5680", "b:5680"}, Set{"c:5680"})
-    entries = [Raft::Entry.new(3, nil, members), Raft::Entry.new(3, Set{1}, Raft::Membership.new(Set{"a:5680"}, Set(String).new))]
+    members = Raft::Membership.new(Set{1, 2}, Set{3}, {1 => "a:5680", 2 => "b:5680", 3 => "c:5680"}, Set{3})
+    entries = [Raft::Entry.new(3, nil, members), Raft::Entry.new(3, Set{1}, Raft::Membership.new(Set{1}, Set(Int32).new, {1 => "a:5680"}))]
     msgs = [
-      Raft::AppendEntries.new("a", 3, 2, "tcp://a:5679", 8, 2, entries, 7),
-      Raft::InstallSnapshot.new("a", 3, 2, "tcp://a:5679", 8, 2, Set{42}, members),
-      Raft::CatchUp.new("b", 3, 7, 8, 2, nil, entries, members),
+      Raft::AppendEntries.new(1, 3, "tcp://a:5679", 8, 2, entries, 7),
+      Raft::InstallSnapshot.new(1, 3, "tcp://a:5679", 8, 2, Set{42}, members),
+      Raft::CatchUp.new(2, 3, 8, 2, nil, entries, members),
     ] of Raft::Message
     msgs.each { |m| Raft::Codec.decode(Raft::Codec.encode(m)).should eq m }
   end
 
   it "rejects an implausible member count" do
-    bytes = Raft::Codec.encode(Raft::InstallSnapshot.new("a", 3, 2, "u", 8, 2, nil, Raft::Membership.new(Set{"a"}, Set(String).new)))
-    # the voter count follows the membership flag, right after the nil ISR
-    offset = bytes.size - (1 + 4 + 4 + 1 + 4)
-    bytes[offset + 1, 4].copy_from(Bytes[0xff, 0xff, 0xff, 0x7f])
+    membership = Raft::Membership.new(Set{1}, Set(Int32).new, {1 => "a"})
+    bytes = Raft::Codec.encode(Raft::InstallSnapshot.new(1, 3, "u", 8, 2, nil, membership))
+    # the address count is followed by the one address: id, length and "a"
+    offset = bytes.size - (4 + 4 + 4 + 1)
+    bytes[offset, 4].copy_from(Bytes[0xff, 0xff, 0xff, 0x7f])
     expect_raises(IO::Error) { Raft::Codec.decode(bytes) }
   end
 end

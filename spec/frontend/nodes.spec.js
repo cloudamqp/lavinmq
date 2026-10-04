@@ -48,12 +48,12 @@ test.describe("nodes", _ => {
     await expect(rows.nth(1).getByRole('button', { name: 'Make leader' })).toBeVisible()
     await expect(rows.nth(2).getByRole('button', { name: 'Promote' })).toBeVisible()
 
-    const promote = helpers.waitForPathRequest(page, '/api/cluster/members/10.0.0.3:5680/promote', { method: 'POST' })
+    const promote = helpers.waitForPathRequest(page, '/api/cluster/members/ccc/promote', { method: 'POST' })
     await rows.nth(2).getByRole('button', { name: 'Promote' }).click()
     await expect(promote).toBeRequested()
 
     page.once('dialog', dialog => dialog.accept())
-    const remove = helpers.waitForPathRequest(page, '/api/cluster/members/10.0.0.2:5680', { method: 'DELETE' })
+    const remove = helpers.waitForPathRequest(page, '/api/cluster/members/bbb', { method: 'DELETE' })
     await rows.nth(1).getByRole('button', { name: 'Remove' }).click()
     await expect(remove).toBeRequested()
 

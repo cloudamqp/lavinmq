@@ -714,24 +714,24 @@ class LavinMQCtl
     handle_response(resp, 201)
   end
 
-  @[Cmd("Make a learner that has caught up a voting member", "<address>", section: "Cluster")]
+  @[Cmd("Make a learner that has caught up a voting member", "<address|node_id>", section: "Cluster")]
   private def promote_cluster_member
-    address = ARGV.shift?
-    abort @banner unless address
-    resp = http.post "/api/cluster/members/#{URI.encode_www_form(address)}/promote", @headers
+    member = ARGV.shift?
+    abort @banner unless member
+    resp = http.post "/api/cluster/members/#{URI.encode_www_form(member)}/promote", @headers
     handle_response(resp, 200)
   end
 
-  @[Cmd("Remove a node from the cluster", "<address>", section: "Cluster")]
+  @[Cmd("Remove a node from the cluster", "<address|node_id>", section: "Cluster")]
   private def remove_cluster_member
-    address = ARGV.shift?
-    abort @banner unless address
-    resp = http.delete "/api/cluster/members/#{URI.encode_www_form(address)}", @headers
+    member = ARGV.shift?
+    abort @banner unless member
+    resp = http.delete "/api/cluster/members/#{URI.encode_www_form(member)}", @headers
     handle_response(resp, 204)
   end
 
-  @[Cmd("Hand over leadership to a node, the leader restarts as a follower", "[--target=address] [--wait] [--timeout=seconds]", section: "Cluster")]
-  @[Opt("--target=address", "Raft address of the node to hand over to, default any caught up voter", options: "target")]
+  @[Cmd("Hand over leadership to a node, the leader restarts as a follower", "[--target=address|node_id] [--wait] [--timeout=seconds]", section: "Cluster")]
+  @[Opt("--target=address|node_id", "Raft address or clustering id of the node to hand over to, default any caught up voter", options: "target")]
   @[Opt("--wait", "Wait until the target is the leader", options: "wait", value: "true")]
   @[Opt("--timeout=seconds", "How long to wait with --wait (60)", options: "timeout")]
   private def transfer_leadership
