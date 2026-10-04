@@ -108,11 +108,19 @@ module LavinMQ
 
       # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
       # The server returns 503 to signal that the node is a follower and can not handle the request.
+      # With `cluster_status`, GET /api/cluster answers with the JSON it returns, so the
+      # cluster can be inspected also when there's no leader to proxy to.
       # If another node on the same machine already serves the socket the server is
       # skipped and nil is returned, it's only a convenience for lavinmqctl users.
-      def self.follower_internal_socket_http_server : ::HTTP::Server?
+      def self.follower_internal_socket_http_server(cluster_status : Proc(String?)? = nil) : ::HTTP::Server?
         path = Config.instance.control_unix_path
         http_server = ::HTTP::Server.new do |context|
+          if cluster_status && context.request.method == "GET" && context.request.path == "/api/cluster" &&
+             (json = cluster_status.call)
+            context.response.content_type = "application/json"
+            context.response.print json
+            next
+          end
           context.response.status_code = 503
           context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
                                  "Please connect to the leader node by using the --host option."

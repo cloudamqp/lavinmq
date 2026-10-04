@@ -182,6 +182,18 @@ describe Raft::Node do
       status.resolve("9").should be_nil
       status.committed_isr.should eq Set{1, 2, 3}
       follower = c.nodes.values.find! { |n| n != leader }
+      leader_json = JSON.parse(JSON.build { |j| status.to_json(j) })
+      leader_json["leader"].should eq status.address
+      leader_json["local"]?.should be_nil
+      leader_json["members"].as_a.all?(&.["caught_up"].as_bool?).should be_true
+      follower_status = follower.status.not_nil!
+      local = JSON.parse(JSON.build { |j| follower_status.to_json(j) })
+      local["local"].as_bool.should be_true
+      local["role"].should eq "follower"
+      local["node"].should eq follower_status.address
+      local["leader"].should eq status.address
+      local["leader_heard_ago_ms"].as_i64.should be < 1000
+      local["members"].as_a.map(&.["match_index"]).uniq!.should eq [nil]
       follower.add_learner("127.0.0.1:1").should eq Raft::MembershipError::NotLeader
       follower.transfer_leadership.should eq Raft::TransferResult::NotLeader
       follower.member?(1).should be_true

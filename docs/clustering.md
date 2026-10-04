@@ -32,7 +32,7 @@ raft_advertised_address = node1.example.com:5680
 password_file = /etc/lavinmq/clustering_password
 ```
 
-- `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. Without `peers` the node forms a cluster of one.
+- `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. It's required, so that a node left out of the config doesn't silently form a cluster of its own; a single node cluster lists only its own address.
 - `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
 - A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
 
@@ -108,6 +108,21 @@ A leader that can't reach a majority of the peers for `election_timeout` steps d
 | `election_timeout` | `[clustering]` | `1500` | Milliseconds without a leader heartbeat before an election starts |
 | `heartbeat_interval` | `[clustering]` | `250` | Milliseconds between leader heartbeats, at most half the election timeout |
 | `bootstrap` | `[clustering]` | `false` | Let this node become leader before any node has election state, see below |
+
+A node that has lost its election state (`.raft_state`) but kept its clustering id only votes for a candidate that has no election state either, as when a cluster is first bootstrapped. It can't tell whether it already voted in the current term, and voting twice could elect two leaders. It votes normally again once it has the log from a leader.
+
+`lavinmqctl cluster_status` (or `GET /api/cluster`, followers proxy it to the leader) shows the leader, the ISR and how far each member has caught up. When there's no leader, `lavinmqctl cluster_status` run on a node without `--uri` answers over that node's control socket with its own view: its role and term, the leader it last knew of, and the committed ISR and membership it has.
+
+#### Recovering when no ISR member can come back
+
+Only an ISR member can become leader, so if all of them are lost for good, no leader is elected. To recover from the remaining nodes, accepting that messages only the lost nodes had confirmed are gone:
+
+1. Check each remaining node's view with `lavinmqctl cluster_status` and pick the node with the most recent data, e.g. the one that was in the ISR most recently.
+2. Stop all remaining nodes.
+3. Set `peers` on each of them to only the remaining nodes. A bootstrapping node counts every listed address towards the quorum.
+4. Delete `.raft_state` from the data dir of every remaining node, not only the chosen one: nodes with election state wouldn't vote for a node that isn't in their ISR.
+5. Start the chosen node with `--clustering-bootstrap`, then the others. They sync the broker data from it, discarding what they have that it doesn't.
+6. Remove `bootstrap` again, and add replacement nodes as described in [Relocating a replica](#relocating-a-replica).
 
 ### etcd backend
 
