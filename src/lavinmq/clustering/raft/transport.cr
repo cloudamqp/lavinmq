@@ -151,13 +151,19 @@ module LavinMQ::Clustering::Raft
           begin
             id = authenticate_client(socket)
             Log.debug { "Connected to #{peer} (#{id.to_s(36)})" }
-            connected = true # ameba:disable Lint/UselessAssign (read in the rescue below)
+            connected = true
             @handler.call Identified.new(peer, id)
-            while msg = ch.receive?
-              write_frame(socket, msg)
-              socket.flush
+            closed_by_peer = watch_for_close(socket)
+            loop do
+              select
+              when msg = ch.receive?
+                return unless msg
+                write_frame(socket, msg)
+                socket.flush
+              when closed_by_peer.receive?
+                raise IO::Error.new("Closed by peer")
+              end
             end
-            return
           ensure
             socket.close rescue nil
           end
@@ -173,6 +179,22 @@ module LavinMQ::Clustering::Raft
           sleep backoff
         end
       end
+    end
+
+    # The peer never writes after the handshake, so a read returns once it has
+    # closed the connection, e.g. when it restarted. Otherwise that would only
+    # be noticed by losing the next message, and the peer wouldn't see us as
+    # connected meanwhile.
+    private def watch_for_close(socket : TCPSocket) : Channel(Nil)
+      closed = Channel(Nil).new
+      socket.read_timeout = nil
+      spawn(name: "raft outbound close watch") do
+        socket.read_byte
+      rescue IO::Error | Socket::Error
+      ensure
+        closed.close
+      end
+      closed
     end
 
     # Messages queued while disconnected are stale by the time a connection
