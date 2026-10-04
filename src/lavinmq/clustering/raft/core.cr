@@ -233,6 +233,15 @@ module LavinMQ::Clustering::Raft
       @voters.includes?(id)
     end
 
+    # The address the membership lists for this voter when it has moved
+    # since. It doesn't campaign until a leader has made it a learner at its
+    # new address, which takes a quorum of voters at their listed addresses.
+    def moved_from : String?
+      return unless @voters.includes?(@id)
+      listed = latest_membership.try(&.addresses[@id]?) || return
+      listed unless listed == @address
+    end
+
     # How long ago a follower last heard from the leader it knows of. A
     # follower keeps that leader while no new one is elected.
     def leader_heard_ago(now : Time::Instant) : Time::Span?
@@ -627,7 +636,7 @@ module LavinMQ::Clustering::Raft
     private def may_campaign? : Bool
       return false unless @voters.includes?(@id)
       # At a new address the leader first has to make us a learner here
-      return false if (m = latest_membership) && m.addresses[@id]? != @address
+      return false if moved_from
       return false unless in_isr?(latest_isr, @id)
       @bootstrap || last_index > 0
     end

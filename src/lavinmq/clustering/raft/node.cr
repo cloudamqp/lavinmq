@@ -101,10 +101,15 @@ module LavinMQ::Clustering::Raft
     @synced_peers = Set(String).new
     @seeds : Set(String)
     @logged_seeds = false
+    @election_timeout : Time::Span
+    # Since when this voter has been at a new address without a leader
+    @moved_since : Time::Instant? = nil
+    @warned_moved = false
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
                    @tick = 20.milliseconds, bootstrap = false)
+      @election_timeout = election_timeout
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, @storage.load, bootstrap: bootstrap)
       @seeds = seeds.to_set << @address
@@ -418,6 +423,7 @@ module LavinMQ::Clustering::Raft
         end
       end
       log_seeds_if_different(committed)
+      warn_if_stuck_after_move
       callbacks.try do |cbs|
         removed.each do |id|
           Log.info { "Node #{id.to_s(36)} was removed from the cluster" }
@@ -425,6 +431,30 @@ module LavinMQ::Clustering::Raft
         end
       end
       @serving.set(@core.serving_leader?)
+    end
+
+    # A voter at a new address waits for a leader to make it a learner there.
+    # Without a leader for a while, most voters may have moved at once, and
+    # then no leader can be elected.
+    private def warn_if_stuck_after_move : Nil
+      listed = @core.moved_from
+      if listed && @core.leader.nil?
+        since = @moved_since ||= Time.instant
+        if !@warned_moved && Time.instant - since >= @election_timeout * 3
+          @warned_moved = true
+          Log.warn do
+            "This node's raft address #{@address} differs from its address in the cluster membership (#{listed}), " \
+            "so it doesn't campaign until a leader has moved it. If most voters changed address at once, " \
+            "no leader can be elected, see \"Changing a node's address\" in docs/clustering.md"
+          end
+        end
+      else
+        @moved_since = nil
+      end
+      if @warned_moved && listed.nil?
+        @warned_moved = false
+        Log.info { "This node was moved to #{@address} in the cluster membership" }
+      end
     end
 
     private def log_membership_change(before : Membership?, after : Membership?) : Nil

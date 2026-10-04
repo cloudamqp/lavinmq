@@ -799,6 +799,7 @@ describe Raft::Core, "membership" do
     moved = sim.cores.keys.find! { |id| id != leader.id }
     sim.move(moved, "n#{moved}b")
     sim.run_until { leader.committed_membership.not_nil!.addresses[moved] == "n#{moved}b" }
+    sim[moved].moved_from.should be_nil
     membership = leader.committed_membership.not_nil!
     membership.learners.should eq Set{moved}
     membership.relocated.should eq Set{moved}
@@ -809,6 +810,21 @@ describe Raft::Core, "membership" do
     sim.advance(100.milliseconds)
     sim[moved].committed_membership.not_nil!.addresses[moved].should eq "n#{moved}b"
     sim[moved].voter?(moved).should be_true
+  end
+
+  it "can't elect a leader when most voters moved at once" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    a, b = sim.cores.keys.reject(leader.id)
+    sim.crash(a)
+    sim.crash(b)
+    sim.move(a, "n#{a}b")
+    sim.move(b, "n#{b}b")
+    sim[b].moved_from.should eq "n#{b}"
+    sim.advance(3.seconds)
+    sim.leader.should be_nil
+    sim[b].moved_from.should eq "n#{b}"
+    leader.committed_membership.not_nil!.addresses[b].should eq "n#{b}"
   end
 
   it "promotes a relocated node back only once it's in the ISR" do
