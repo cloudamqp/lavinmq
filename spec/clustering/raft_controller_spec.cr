@@ -422,6 +422,20 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  it "refuses to hand over leadership to a voter that stopped answering" do
+    with_controllers do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      gone, other = cluster.controllers.reject(leader)
+      gone.stop
+      sleep 500.milliseconds # longer than the election timeout
+      leader.request_transfer(cluster.address(gone)).as(String).should contain "answered"
+      plan = leader.request_transfer.as(LavinMQ::Clustering::RaftController::Transfer)
+      plan.target.should eq other.id
+    end
+  end
+
   it "takes a follower back at a new raft address with its data dir", tags: "slow" do
     with_controllers(replication: true) do |cluster|
       cluster.start_all

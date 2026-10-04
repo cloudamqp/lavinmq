@@ -38,7 +38,9 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   # Checks that `target` (a clustering id or raft address, or without one any
   # caught up in-sync voter) can take over right now: it must be a voter in
-  # the committed ISR. Returns the accepted transfer, or why not. An accepted
+  # the committed ISR that has answered the leader within the election
+  # timeout, or the leader would stop serving for a handover that can't
+  # happen. Returns the accepted transfer, or why not. An accepted
   # transfer is claimed here, so a concurrent request is refused instead of
   # overriding it, and #step_down has to follow.
   def request_transfer(target : String? = nil) : Transfer | String
@@ -62,10 +64,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       return "#{target} is the leader" if id == status.id
       return "#{target} is not a voter" unless voters.includes?(id)
       return "#{target} is not in the in-sync replica set" unless isr.includes?(id)
+      return "#{target} hasn't answered the leader recently" unless status.responsive.includes?(id)
     else
-      eligible = voters.select { |v| v != status.id && isr.includes?(v) }
+      eligible = voters.select { |v| v != status.id && isr.includes?(v) && status.responsive.includes?(v) }
       id = eligible.find { |v| status.caught_up.includes?(v) } || eligible.first? ||
-           return "No voter is in the in-sync replica set"
+           return "No reachable voter is in the in-sync replica set"
     end
     Transfer.new(id, status.address_of(id) || id.to_s(36), status.term)
   end
