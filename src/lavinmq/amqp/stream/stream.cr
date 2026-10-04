@@ -183,7 +183,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         store = stream_msg_store
         if env = store.read(segment, position)
-          {env, store.lease_segment(segment)}
+          {env, store.lease(env.segment_position)}
         end
       end
     end
@@ -220,7 +220,7 @@ module LavinMQ::AMQP
         stream_msg_store.shift?(consumer).tap do |e|
           # The delivery can suspend in a socket write, during which retention
           # may drop the segment; the lease keeps it mapped until we're done
-          mfile = stream_msg_store.lease_segment(e.segment_position.segment) if e
+          mfile = stream_msg_store.lease(e.segment_position) if e
         end
       end || return false
       begin

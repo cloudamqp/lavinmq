@@ -177,6 +177,14 @@ module LavinMQ
       end
     end
 
+    # Keeps the message's segment mapped, even if it's deleted meanwhile, until
+    # MFile#release_lease. For deliveries that yield the message outside the
+    # @msg_store_lock, e.g. while it's written to a socket.
+    def lease(sp : SegmentPosition) : MFile
+      raise ClosedError.new if @closed
+      @segments[sp.segment].lease
+    end
+
     # Like `#[]`, but the returned message owns all its memory: the record is
     # copied out of the segment's mmap, so the message stays valid after the
     # segment is deleted and unmapped. For messages that outlive the caller's

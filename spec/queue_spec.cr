@@ -609,6 +609,72 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "segment deleted while a message from it is being delivered" do
+    # Three of these fill the first segment, the fourth opens a new one
+    body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+
+    segment_file = ->(q : LavinMQ::AMQP::Queue, sp : LavinMQ::SegmentPosition) do
+      store = q.@msg_store
+      if store.is_a?(LavinMQ::AMQP::PriorityQueue::PriorityMessageStore)
+        store.@stores[sp.priority].@segments[sp.segment]
+      else
+        store.@segments[sp.segment]
+      end
+    end
+
+    # The yield is where a delivery can be suspended in a socket write, so the
+    # spec deletes the segment from inside it
+    ack_last_message_mid_delivery = ->(q : LavinMQ::AMQP::Queue) do
+      4.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+      2.times { q.basic_get(false) { |env| q.ack(env.segment_position) } }
+      mfile = nil
+      q.basic_get(false) do |env|
+        mfile = segment_file.call(q, env.segment_position)
+        # What a client's basic.ack(delivery_tag: 0, multiple: true) does
+        # while the delivery of that message is still being written
+        q.ack(env.segment_position)
+        mfile.try(&.deleted?).should be_true
+        mfile.try(&.closed?).should be_false
+        String.new(env.message.body).should eq body
+      end.should be_true
+      mfile.try(&.closed?).should be_true
+    end
+
+    it "keeps the segment mapped when the message is acked during the delivery" do
+      with_queue do |q|
+        ack_last_message_mid_delivery.call(q)
+      end
+    end
+
+    it "keeps the segment mapped in a priority queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("pq", durable: true, auto_delete: false,
+          arguments: LavinMQ::AMQP::Table.new({"x-max-priority" => 2}))
+        ack_last_message_mid_delivery.call(vhost.queue("pq").as(LavinMQ::AMQP::Queue))
+      end
+    end
+
+    it "keeps the segment mapped when the queue is purged during a no-ack delivery" do
+      with_queue do |q|
+        4.times { q.publish(LavinMQ::Message.new("", q.name, body)) }
+        2.times { q.basic_get(false) { |env| q.ack(env.segment_position) } }
+        mfile = nil
+        q.basic_get(true) do |env|
+          mfile = segment_file.call(q, env.segment_position)
+          # Another consumer moves the read position on to the next segment,
+          # then purge deletes every segment but the read and write ones
+          q.basic_get(true) { }
+          q.purge
+          mfile.try(&.deleted?).should be_true
+          mfile.try(&.closed?).should be_false
+          String.new(env.message.body).should eq body
+        end.should be_true
+        mfile.try(&.closed?).should be_true
+      end
+    end
+  end
+
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
       with_amqp_server do |s|

@@ -168,6 +168,11 @@ module LavinMQ::AMQP
         store_for sp, &.[sp]
       end
 
+      def lease(sp : SegmentPosition) : MFile
+        raise ClosedError.new if @closed
+        store_for sp, &.lease(sp)
+      end
+
       def copy(sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
         store_for sp, &.copy(sp)

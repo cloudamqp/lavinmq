@@ -271,12 +271,6 @@ module LavinMQ::AMQP
       end
     end
 
-    # Keeps the segment mapped while a message from it is being delivered,
-    # even if retention drops it meanwhile. Release with MFile#release_lease.
-    def lease_segment(seg : UInt32) : MFile
-      @segments[seg].lease
-    end
-
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
         release_segment(consumer)
