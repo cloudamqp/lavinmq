@@ -11,7 +11,7 @@ A node never switches backend on its own, `backend` has to be changed by the ope
 
 - **Leader** — accepts all client connections and writes. Replicates data to followers.
 - **Followers** — receive replicated data from the leader. Can be promoted to leader on failover.
-- **Raft backend** — every node takes part in leader election over the raft port (`5680` by default). A majority of the configured peers must be reachable to elect a leader and to change the ISR.
+- **Raft backend** — every node takes part in leader election over the raft port (`5680` by default). A majority of the voting members must be reachable to elect a leader and to change the ISR.
 - **etcd backend** — external coordination service for leader election, ISR tracking, and the shared replication secret.
 
 Only the leader handles client traffic. Followers maintain a synchronized copy of the data.
@@ -27,13 +27,13 @@ backend = raft
 bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
-peers = node1.example.com:5680,node2.example.com:5680,node3.example.com:5680
+seeds = node1.example.com:5680,node2.example.com:5680,node3.example.com:5680
 raft_advertised_address = node1.example.com:5680
 password_file = /etc/lavinmq/clustering_password
 ```
 
-- `peers` lists the raft address of every node, including this one, and must be identical on all nodes. Three or five nodes are recommended: a cluster of `N` nodes keeps working with `(N - 1) / 2` nodes down. It's required, so that a node left out of the config doesn't silently form a cluster of its own; a single node cluster lists only its own address.
-- `raft_advertised_address` is this node's entry in `peers`, `hostname:raft_port` by default.
+- `seeds` are the raft addresses to form or join a cluster with. When a new cluster is started, list every node: the first leader makes them its voters, so the list sets the quorum. A node joining an existing cluster only needs one member. Once a node has the membership from the raft log, that is used, and `seeds` are only read again when starting from scratch. Three or five voters are recommended: a cluster of `N` voters keeps working with `(N - 1) / 2` of them down. `seeds` is required, so that a node left out of the config doesn't silently form a cluster of its own; a single node cluster lists only its own address.
+- `raft_advertised_address` is the address other nodes reach this node's raft port at, `hostname:raft_port` by default.
 - A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
 
   ```sh
@@ -55,7 +55,7 @@ etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
 etcd_prefix = lavinmq
 ```
 
-The raft options (`peers`, `password_file`, `election_timeout`, ...) are ignored with the etcd backend.
+The raft options (`seeds`, `password_file`, `election_timeout`, ...) are ignored with the etcd backend.
 
 See [Configuration](configuration.md) for all clustering options.
 
@@ -111,7 +111,7 @@ If the leader stops sending heartbeats for `election_timeout` (1500 ms by defaul
 
 A new leader starts with an ISR of only itself; followers are added back as they finish syncing from it.
 
-A leader that can't reach a majority of the peers for `election_timeout` steps down and exits (code 3), like when it loses leadership in any other way. A leader shutting down gracefully hands leadership over to a caught up ISR member right away instead.
+A leader that can't reach a majority of the voters for `election_timeout` steps down and exits (code 3), like when it loses leadership in any other way. A leader shutting down gracefully hands leadership over to a caught up ISR member right away instead.
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
@@ -129,7 +129,7 @@ Only an ISR member can become leader, so if all of them are lost for good, no le
 
 1. Check each remaining node's view with `lavinmqctl cluster_status` and pick the node with the most recent data, e.g. the one that was in the ISR most recently.
 2. Stop all remaining nodes.
-3. Set `peers` on each of them to only the remaining nodes. A bootstrapping node counts every listed address towards the quorum.
+3. Set `seeds` on each of them to only the remaining nodes. A bootstrapping node counts every seed towards the quorum.
 4. Delete `.raft_state` from the data dir of every remaining node, not only the chosen one: nodes with election state wouldn't vote for a node that isn't in their ISR.
 5. Start the chosen node with `--clustering-bootstrap`, then the others. They sync the broker data from it, discarding what they have that it doesn't.
 6. Remove `bootstrap` again, and add replacement nodes as described in [Relocating a replica](#relocating-a-replica).
@@ -143,7 +143,7 @@ If the leader fails, etcd coordinates leader election among ISR members. The fir
 The migration needs a short full cluster downtime. All nodes have to switch backend at the same time, a cluster can't run with both.
 
 1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `backend = raft`, `peers`, `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
+2. Add `backend = raft`, `seeds` (every node), `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
 A node without election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until an elected leader has it in the in-sync replica set, i.e. once it has synced from that leader. That includes nodes with an empty data dir: if they could, two replaced nodes could outvote the one that still has the data, and it would then sync their empty state. `bootstrap` overrides that and lets the node become the cluster's first leader. Until the other nodes have synced, the bootstrapped node is the only one that can lead, so if it goes down the cluster waits for it to come back. It only has an effect while the node has no election state, but remove it once the cluster is up: if that node loses its data dir along with a majority of the others, it could otherwise start a new, empty cluster. A cluster of a single node needs no bootstrap.
@@ -152,7 +152,7 @@ To roll back to etcd, stop all nodes the same way, followers first and the leade
 
 ### Changing the cluster membership
 
-With the raft backend the membership is kept in the Raft log, so nodes are added, promoted and removed at runtime, without rolling out new `peers` lists. `peers` is only a seed: it is used to start a new cluster and to let a joining node find the cluster. If it differs from the committed membership the node logs a warning and uses the membership.
+With the raft backend the membership is kept in the Raft log, so nodes are added, promoted and removed at runtime with the operations below. Editing `seeds` doesn't change the membership: they're only used to start a new cluster and to let a joining node find it. If they differ from the committed membership, the node logs that it uses the membership.
 
 Changes are made one server at a time and only on the leader, and the leader only has one uncommitted change at a time (a second one gets `409`). A node can be:
 
@@ -173,7 +173,7 @@ The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_mem
 
 To move a replica from node A to a new node D:
 
-1. Start D with `peers` listing itself and at least one existing member, the same `password_file`, and no `bootstrap`. It doesn't campaign with an empty log. **Don't** list only D in `peers`, a node that is alone in its `peers` bootstraps a new cluster of its own.
+1. Start D with `seeds` listing at least one existing member, the same `password_file`, and no `bootstrap`. It doesn't campaign with an empty log. **Don't** list only D in `seeds`, a node that is its only seed bootstraps a new cluster of its own.
 2. `lavinmqctl add_cluster_member <D>`. D gets the Raft log and syncs the broker data. `cluster_status` shows `in_isr` for D when it is done.
 3. `lavinmqctl promote_cluster_member <D>`.
 4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A restarts as a follower.

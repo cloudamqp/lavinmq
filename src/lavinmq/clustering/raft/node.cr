@@ -99,15 +99,15 @@ module LavinMQ::Clustering::Raft
     @stopped = Channel(Nil).new
     @transport : Transport? = nil
     @synced_peers = Set(String).new
-    @configured : Set(String)
-    @warned_config = false
+    @seeds : Set(String)
+    @logged_seeds = false
 
-    def initialize(@id : Int32, @address : String, peers : Enumerable(String), uri : String,
+    def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
                    @tick = 20.milliseconds, bootstrap = false)
-      @core = Core.new(@id, @address, peers, uri, election_timeout, heartbeat_interval,
+      @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, @storage.load, bootstrap: bootstrap)
-      @configured = peers.to_set << @address
+      @seeds = seeds.to_set << @address
       @committed_isr = @core.committed_isr
       @membership = @core.latest_membership
       @committed_membership = @core.committed_membership
@@ -417,7 +417,7 @@ module LavinMQ::Clustering::Raft
         else
         end
       end
-      warn_if_config_differs(committed)
+      log_seeds_if_different(committed)
       callbacks.try do |cbs|
         removed.each do |id|
           Log.info { "Node #{id.to_s(36)} was removed from the cluster" }
@@ -436,14 +436,16 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    private def warn_if_config_differs(membership : Membership?) : Nil
-      return if @warned_config || membership.nil?
-      @warned_config = true
-      return if membership.addresses.values.to_set == @configured
-      Log.warn do
-        "Configured peers (#{@configured.to_a.sort.join(", ")}) differ from the cluster membership " \
-        "(voters: #{describe(membership, membership.voters)}; learners: #{describe(membership, membership.learners)}). " \
-        "The membership in the raft log is used, peers is only a seed for joining nodes."
+    # Seeds that differ from the membership are normal, e.g. on a node that
+    # joined through one member, but worth knowing about.
+    private def log_seeds_if_different(membership : Membership?) : Nil
+      return if @logged_seeds || membership.nil?
+      @logged_seeds = true
+      return if membership.addresses.values.to_set == @seeds
+      Log.info do
+        "Using the cluster membership from the raft log (voters: #{describe(membership, membership.voters)}; " \
+        "learners: #{describe(membership, membership.learners)}), the configured seeds " \
+        "(#{@seeds.to_a.sort.join(", ")}) are only used to form or join a cluster"
       end
     end
 

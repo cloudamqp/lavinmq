@@ -19,7 +19,7 @@ private def with_cluster_api(&)
     config.clustering_bind = "127.0.0.1"
     config.clustering_raft_port = port
     config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
-    config.clustering_peers = "127.0.0.1:#{port}"
+    config.clustering_seeds = "127.0.0.1:#{port}"
     config.clustering_secret = "cluster-api-spec"
     config.clustering_election_timeout = 300
     config.clustering_heartbeat_interval = 50

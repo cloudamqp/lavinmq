@@ -119,9 +119,9 @@ module LavinMQ::Clustering::Raft
     @snapshot_isr : Set(Int32)? = nil
     @snapshot_membership : Membership? = nil
     @entries = Array(Entry).new
-    # The configured peers, used until the log has a membership
+    # The configured seeds, used until the log has a membership
     @seed_addresses : Array(String)
-    # The clustering ids of the configured peers that we know of
+    # The clustering ids of the configured seeds that we know of
     @seed_ids = Hash(String, Int32).new
     # Peers connected to us right now, with the address they advertise
     @live = Hash(Int32, String).new
@@ -205,7 +205,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # The membership of the latest entry in the log, committed or not. It's
-    # nil until a leader has seeded it from its configured peers.
+    # nil until a leader has made it from its seeds.
     def latest_membership : Membership?
       @entries.reverse_each { |e| e.membership.try { |m| return m } }
       @snapshot_membership
@@ -255,7 +255,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # Where to send to a node: where it's connected from, else where the
-    # membership, a pending removal or the configured peers say it is.
+    # membership, a pending removal or the configured seeds say it is.
     def address_of(id : Int32) : String?
       @live[id]? || latest_membership.try(&.addresses[id]?) || @departing[id]?.try(&.address) ||
         @seed_ids.key_for?(id)
@@ -264,7 +264,7 @@ module LavinMQ::Clustering::Raft
     # The addresses to keep connections to: every member, the nodes being told
     # they were removed, the leader even if we don't know yet that it's a
     # member (a node joining with an empty log can only answer the leader that
-    # way), and the configured peers until there's a membership.
+    # way), and the configured seeds until there's a membership.
     def connect_to : Set(String)
       addrs = Set(String).new
       @peers.each { |p| address_of(p).try { |a| addrs << a } }
@@ -291,7 +291,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # The node at `address` has clustering id `id`. Only matters for
-    # configured peers, until there's a membership.
+    # seeds, until there's a membership.
     def identified(address : String, id : Int32) : Nil
       return if id == @id || !@seed_addresses.includes?(address) || @seed_ids[address]? == id
       @seed_ids[address] = id
@@ -306,7 +306,7 @@ module LavinMQ::Clustering::Raft
       @role.leader? && @commit_index >= @term_start_index
     end
 
-    # Before there's a membership every configured peer is a voter, also the
+    # Before there's a membership every seed is a voter, also the
     # ones whose id we don't know yet and so can't count.
     def quorum : Int32
       voter_count = latest_membership ? @voters.size : @seed_addresses.size + 1
@@ -722,7 +722,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # Leader housekeeping that is itself a membership change, so one at a
-    # time: seed the membership once every configured peer's id is known,
+    # time: seed the membership once every seed's id is known,
     # make a member that connected from a new address a learner there, and
     # promote such a relocated member back once it's eligible.
     private def manage_membership : Nil
@@ -774,7 +774,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # Whether a member isn't connected from elsewhere than the membership (or
-    # before there is one, the configured peers) says it is. Only then do its
+    # before there is one, the configured seeds) says it is. Only then do its
     # acks and votes count. Not being connected right now is fine: messages
     # only arrive over a connection, and a peer that restarted may not have
     # reconnected to us yet. Non-members, like a removed node acking its
@@ -845,7 +845,7 @@ module LavinMQ::Clustering::Raft
     end
 
     # Recompute who we talk to and who counts after the log or snapshot changed.
-    # Without a membership in the log the configured peers are all voters.
+    # Without a membership in the log the configured seeds are all voters.
     private def refresh_membership : Nil
       if m = latest_membership
         @voters = m.voters.dup

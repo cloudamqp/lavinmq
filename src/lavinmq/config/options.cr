@@ -431,17 +431,17 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND", ->parse_clustering_backend(String))]
       property clustering_backend = ClusteringBackend::Etcd
 
-      @[CliOpt("", "--clustering-peers=ADDRESSES", "Comma separated host:port raft addresses of all cluster nodes, including this one, raft backend only", section: "clustering")]
-      @[IniOpt(ini_name: peers, section: "clustering")]
-      @[EnvOpt("LAVINMQ_CLUSTERING_PEERS")]
-      property clustering_peers = ""
+      @[CliOpt("", "--clustering-seeds=ADDRESSES", "Comma separated host:port raft addresses to form or join a cluster with: all nodes of a new cluster, or any member when joining, raft backend only", section: "clustering")]
+      @[IniOpt(ini_name: seeds, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_SEEDS")]
+      property clustering_seeds = ""
 
       @[CliOpt("", "--clustering-raft-port=PORT", "Listen for leader election traffic on this port, raft backend only (default: 5680)", section: "clustering")]
       @[IniOpt(ini_name: raft_port, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
       property clustering_raft_port = 5680
 
-      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "This node's host:port as listed in the peers, raft backend only (default: hostname:raft_port)", section: "clustering")]
+      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "The host:port other nodes reach this node's raft port at, raft backend only (default: hostname:raft_port)", section: "clustering")]
       @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")]
       property clustering_raft_advertised_address : String? = nil
