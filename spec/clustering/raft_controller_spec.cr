@@ -395,6 +395,9 @@ describe LavinMQ::Clustering::RaftController do
       a.on_step_down { |_| spawn(name: "step down spec") { a.stop } }
       plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
       plan.target.should eq d_addr
+      # A second request before the step down can't override the accepted one
+      a.request_transfer("127.0.0.1:1").as(String).should contain "already in progress"
+      a.request_transfer(d_addr).as(String).should contain "already in progress"
       a.step_down(plan.target)
       cluster.next_leader(10.seconds).should eq d
 

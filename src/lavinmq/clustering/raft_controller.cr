@@ -14,6 +14,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   @transport : Raft::TCPTransport? = nil
   @step_down : (String ->)? = nil
   @transfer_target : String? = nil
+  @transfer_lock = Mutex.new
   @stop_signal = Channel(Nil).new
   # Closed by the follower monitor once this node is a serving leader, so
   # only that fiber decides between replicating and promoting.
@@ -37,9 +38,19 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Checks that `target` (a raft address, or without one any caught up
   # in-sync voter) can take over right now: it must be a voter in the
   # committed ISR with a known clustering id. Returns the accepted transfer,
-  # or why not. Nothing changes until #step_down.
-  # ameba:disable Metrics/CyclomaticComplexity
+  # or why not. An accepted transfer is claimed here, so a concurrent request
+  # is refused instead of overriding it, and #step_down has to follow.
   def request_transfer(target : String? = nil) : Transfer | String
+    @transfer_lock.synchronize do
+      return "A leadership transfer is already in progress" if @transfer_target
+      plan = check_transfer(target)
+      @transfer_target = plan.target if plan.is_a?(Transfer)
+      plan
+    end
+  end
+
+  # ameba:disable Metrics/CyclomaticComplexity
+  private def check_transfer(target : String?) : Transfer | String
     status = @node.status
     return "This node is not the leader" if status.nil? || !status.role.leader? || @stopping
     return "The leader hasn't committed an entry in its term yet" unless @node.serving.value
@@ -66,7 +77,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # Gracefully step down in favour of `target`: stop serving, hand over
   # leadership and restart as a follower, see Launcher#step_down.
   def step_down(target : String) : Nil
-    @transfer_target = target
     if callback = @step_down
       callback.call(target)
     else
