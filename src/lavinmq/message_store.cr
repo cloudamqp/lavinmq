@@ -113,7 +113,20 @@ module LavinMQ
       end
     end
 
-    def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+    def shift?(consumer = nil) : Envelope?
+      shift_with_segment?(consumer).try &.first
+    end
+
+    # Like #shift?, but also leases the message's segment, see #lease
+    def shift_leased?(consumer = nil) : Tuple(Envelope, MFile)?
+      if shifted = shift_with_segment?(consumer)
+        env, segment = shifted
+        {env, segment.lease}
+      end
+    end
+
+    # The shifted message and the segment it's read from
+    private def shift_with_segment?(consumer) : Tuple(Envelope, MFile)? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
         begin
@@ -122,7 +135,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true)
+          return {Envelope.new(sp, msg, redelivered: true), segment}
         rescue ex
           # sp has already been removed from @requeued; drop its accounting too
           # so @size/@bytesize don't leak when the segment is gone or the
@@ -155,7 +168,7 @@ module LavinMQ
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
-        return Envelope.new(sp, msg, redelivered: false)
+        return {Envelope.new(sp, msg, redelivered: false), rfile}
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next

@@ -163,14 +163,19 @@ module LavinMQ::AMQP
         end
       end
 
+      def shift_leased?(consumer = nil) : Tuple(Envelope, MFile)?
+        raise ClosedError.new if @closed
+        @stores.reverse_each do |s|
+          if shifted = s.shift_leased?(consumer)
+            @empty.set true if size.zero?
+            return shifted
+          end
+        end
+      end
+
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
         store_for sp, &.[sp]
-      end
-
-      def lease(sp : SegmentPosition) : MFile
-        raise ClosedError.new if @closed
-        store_for sp, &.lease(sp)
       end
 
       def copy(sp : SegmentPosition) : BytesMessage

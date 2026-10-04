@@ -926,15 +926,11 @@ module LavinMQ::AMQP
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-        mfile = nil
-        env = @msg_store_lock.synchronize do
-          @msg_store.shift?.tap do |e|
-            # The delivery can suspend in a socket write, during which the
-            # message can be acked or purged and its segment deleted; the lease
-            # keeps the segment mapped until we're done with the message
-            mfile = @msg_store.lease(e.segment_position) if e
-          end
-        end || break
+        # The delivery can suspend in a socket write, during which the message
+        # can be acked or purged and its segment deleted; the lease keeps the
+        # segment mapped until we're done with the message
+        shifted = @msg_store_lock.synchronize { @msg_store.shift_leased? } || break
+        env = shifted[0]
         begin
           if has_expired?(env.message) # guarantee to not deliver expired messages
             expire_msg(env, :expired)
@@ -962,7 +958,7 @@ module LavinMQ::AMQP
           @message_ttl_change.try_send? nil
           return true
         ensure
-          mfile.try &.release_lease
+          shifted[1].release_lease
         end
       end
       false
