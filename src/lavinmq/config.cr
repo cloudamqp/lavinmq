@@ -112,6 +112,12 @@ module LavinMQ
       if @clustering_heartbeat_interval * 2 > @clustering_election_timeout
         raise Error.new("clustering heartbeat_interval must be at most half the election_timeout")
       end
+      # Without it a node would silently form a cluster of its own, e.g. when
+      # it's left out of one node's config
+      if @clustering_peers.strip.empty?
+        raise Error.new("clustering peers is required with the raft backend: the raft address of every node, " \
+                        "including this one (#{clustering_raft_address} alone for a single node cluster)")
+      end
       peers = clustering_peer_addresses
       peers.each do |peer|
         host, sep, port = peer.rpartition(':')
@@ -143,8 +149,8 @@ module LavinMQ
       @clustering_raft_advertised_address || "#{System.hostname}:#{@clustering_raft_port}"
     end
 
-    # Every voting member, including this node. Without a peer list the node
-    # forms a cluster of one.
+    # Every node, including this one. Required with the raft backend, see
+    # validate_raft_clustering!.
     def clustering_peer_addresses : Array(String)
       peers = @clustering_peers.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
       peers.empty? ? [clustering_raft_address] : peers.uniq

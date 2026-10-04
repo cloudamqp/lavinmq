@@ -688,8 +688,15 @@ class LavinMQCtl
       output status
       return
     end
-    @io.puts "Leader: #{status["leader"]} (term #{status["term"]})" unless quiet?
-    @io.puts "In-sync replicas: #{status["isr"].as_a.join(", ")}" unless quiet?
+    unless quiet?
+      heard = status["leader_heard_ago_ms"]?.try(&.as_i64?).try { |ms| ", last heard from #{(ms / 1000).round(1)}s ago" }
+      @io.puts "Leader: #{status["leader"].as_s? || "none"} (term #{status["term"]}#{heard})"
+      if status["local"]?.try(&.as_bool?)
+        # Answered by this node over the control socket, not by the leader
+        @io.puts "This node: #{status["node"]} (#{status["role"]}), its own view; only the leader knows how far members have caught up"
+      end
+      @io.puts "In-sync replicas: #{status["isr"].as_a.join(", ")}"
+    end
     members = status["members"].as_a.map do |m|
       {address: m["address"].to_s, node_id: m["node_id"].to_s, role: m["role"].to_s, in_isr: m["in_isr"].to_s,
        match_index: m["match_index"].to_s, caught_up: m["caught_up"].to_s, leader: m["leader"].to_s}

@@ -13,6 +13,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   record Transfer, target : Int32, address : String, term : Int64
 
   @transport : Raft::TCPTransport? = nil
+  # Serves lavinmqctl this node's view of the cluster until it leads
+  @control_server : ::HTTP::Server? = nil
   @step_down : (String ->)? = nil
   @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
@@ -94,6 +96,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     return if @stopped
     ensure_in_isr!
     @repli_client.try &.close
+    # The leader's HTTP server binds the control socket when it starts
+    close_control_server
     # No follower is replicating from this node yet, so none of them can be
     # trusted to have what it's about to confirm. They rejoin the ISR as they
     # finish syncing.
@@ -116,10 +120,21 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     return if @stopped
     @stopped = @stopping = true
     @repli_client.try &.close
+    close_control_server
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
     @stop_signal.close
     @node.close
+  end
+
+  private def local_status : String?
+    status = @node.status || return
+    JSON.build { |json| status.to_json(json) }
+  end
+
+  private def close_control_server : Nil
+    @control_server.try &.close
+    @control_server = nil
   end
 
   private def exit_on_leadership_loss : Nil
@@ -153,6 +168,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       ->@node.deliver(Raft::TransportEvent))
     spawn(transport.listen(server), name: "Raft listener")
     @node.run(transport)
+    @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status)
   rescue ex : Socket::BindError
     abort "Error: #{ex.message}"
   end
@@ -211,6 +227,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     Log.info { "Leader: #{uri}" }
     @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
     r.member_check = -> { @node.self_member? }
+    r.serve_control_socket = false
     spawn r.follow(uri), name: "Clustering client #{uri}"
     SystemD.notify_ready
     nil

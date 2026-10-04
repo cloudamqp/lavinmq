@@ -126,6 +126,25 @@ describe "control socket" do
       File.delete?(socket_path) if socket_path
     end
 
+    it "answers GET /api/cluster with the given cluster status" do
+      config = LavinMQ::Config.instance
+      original_path = config.control_unix_path
+      socket_path = File.tempname("lavinmqctl-spec", ".sock")
+      config.control_unix_path = socket_path
+      server = LavinMQ::HTTP::Server.follower_internal_socket_http_server(-> { %({"leader":null}).as(String?) })
+      server.should_not be_nil
+      client = HTTP::Client.new(UNIXSocket.new(socket_path))
+      response = client.get("/api/cluster")
+      response.status_code.should eq 200
+      response.body.should eq %({"leader":null})
+      client.get("/api/queues").status_code.should eq 503
+    ensure
+      client.try &.close
+      server.try &.close
+      config.control_unix_path = original_path if config && original_path
+      File.delete?(socket_path) if socket_path
+    end
+
     it "binds when alone on the machine" do
       config = LavinMQ::Config.instance
       original_path = config.control_unix_path

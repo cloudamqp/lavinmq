@@ -233,6 +233,13 @@ module LavinMQ::Clustering::Raft
       @voters.includes?(id)
     end
 
+    # How long ago a follower last heard from the leader it knows of. A
+    # follower keeps that leader while no new one is elected.
+    def leader_heard_ago(now : Time::Instant) : Time::Span?
+      return if @role.leader?
+      @last_heard_leader.try { |heard| now - heard }
+    end
+
     # Whether a peer has answered this leader within the election timeout,
     # i.e. is up and reachable.
     def responsive?(id : Int32) : Bool
@@ -445,7 +452,8 @@ module LavinMQ::Clustering::Raft
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
       up_to_date = log_up_to_date?(msg.last_log_index, msg.last_log_term)
       candidate_in_isr = in_isr?(latest_isr, msg.from)
-      eligible = up_to_date && candidate_in_isr && @voters.includes?(msg.from) && at_home?(msg.from)
+      eligible = up_to_date && candidate_in_isr && @voters.includes?(msg.from) && at_home?(msg.from) &&
+                 may_vote_for_log?(msg.last_log_index)
       sticky = !msg.transfer && leader_recent?(now)
       if msg.pre_vote
         granted = msg.term > @term && !sticky && eligible
@@ -784,6 +792,16 @@ module LavinMQ::Clustering::Raft
 
     private def in_isr?(isr : Set(Int32)?, node_id : Int32) : Bool
       isr.nil? || isr.includes?(node_id)
+    end
+
+    # Without a log we can't tell whether we already voted in this term: our
+    # raft state may have been lost while the clustering id was kept. Voting
+    # again could elect a second leader, so only vote for candidates without a
+    # log either, as when a cluster is first bootstrapped. A candidate with a
+    # log is in the ISR, so it replicated from a leader, and the other voters
+    # that did too have a log.
+    private def may_vote_for_log?(candidate_last_index : Int64) : Bool
+      last_index > 0 || candidate_last_index == 0
     end
 
     private def log_up_to_date?(index : Int64, term : Int64) : Bool

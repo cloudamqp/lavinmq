@@ -1,3 +1,4 @@
+require "json"
 require "./core"
 require "./storage"
 require "./transport"
@@ -11,7 +12,7 @@ module LavinMQ::Clustering::Raft
     leader : Int32?, leader_uri : String?,
     membership : Membership?, committed_membership : Membership?,
     match_index : Hash(Int32, Int64), last_index : Int64, caught_up : Set(Int32),
-    responsive : Set(Int32), committed_isr : Set(Int32)? do
+    responsive : Set(Int32), committed_isr : Set(Int32)?, leader_heard_ago : Time::Span? = nil do
     # The member a clustering id (base 36, as shown) or a raft address refers to
     def resolve(ref : String) : Int32?
       members = membership.try(&.addresses) || {@id => @address}
@@ -23,6 +24,42 @@ module LavinMQ::Clustering::Raft
 
     def address_of(id : Int32) : String?
       membership.try(&.addresses[id]?) || (@address if id == @id)
+    end
+
+    # As served by /api/cluster. A node that isn't the leader only shows its
+    # own view (`local`): the leader it knows of, if any, and no progress.
+    def to_json(json : JSON::Builder) : Nil
+      leading = role.leader?
+      json.object do
+        json.field "leader", leader.try { |l| address_of(l) || l.to_s(36) }
+        json.field "term", term
+        unless leading
+          json.field "local", true
+          json.field "node", address
+          json.field "role", role.to_s.downcase
+          json.field "leader_heard_ago_ms", leader_heard_ago.try(&.total_milliseconds.to_i64)
+        end
+        json.field "isr" do
+          json.array { committed_isr.try &.each { |id| json.string id.to_s(36) } }
+        end
+        json.field "members" do
+          json.array do
+            addresses = membership.try(&.addresses) || {id => address}
+            addresses.to_a.sort_by!(&.[1]).each do |member, addr|
+              me = member == id
+              json.object do
+                json.field "address", addr
+                json.field "node_id", member.to_s(36)
+                json.field "role", membership.try(&.learners.includes?(member)) ? "learner" : "voter"
+                json.field "in_isr", committed_isr.try(&.includes?(member)) || false
+                json.field "match_index", leading ? (me ? last_index : match_index[member]?) : nil
+                json.field "caught_up", leading ? (me || caught_up.includes?(member)) : nil
+                json.field "leader", member == leader
+              end
+            end
+          end
+        end
+      end
     end
   end
 
@@ -286,7 +323,7 @@ module LavinMQ::Clustering::Raft
       end
       Status.new(@id, @address, @core.role, @core.term, @core.leader, @core.leader_uri,
         @core.latest_membership, @core.committed_membership, match_index,
-        @core.last_index, caught_up, responsive, @core.committed_isr)
+        @core.last_index, caught_up, responsive, @core.committed_isr, @core.leader_heard_ago(Time.instant))
     end
 
     private def flush : Nil

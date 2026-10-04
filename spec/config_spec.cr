@@ -404,7 +404,8 @@ describe LavinMQ::Config do
         File.write(path, "file-secret\n")
         File.chmod(path, 0o600)
         config = LavinMQ::Config.new(IO::Memory.new)
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1",
+                      "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
         config.clustering_secret.should eq "file-secret"
       end
     end
@@ -457,10 +458,14 @@ describe LavinMQ::Config do
       File.delete?(password_file) if password_file
     end
 
-    it "defaults to a single node cluster" do
+    it "requires the peers to be configured" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
+      expect_raises(LavinMQ::Config::Error, /peers is required.*a:1 alone/) do
+        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
+      end
+      config = LavinMQ::Config.new
+      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1", "--clustering-raft-advertised-address=a:1"])
       config.clustering_peer_addresses.should eq ["a:1"]
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
@@ -484,7 +489,7 @@ describe LavinMQ::Config do
     it "parses the backend case insensitively" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-raft-advertised-address=a:1"])
+      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-peers=a:1", "--clustering-raft-advertised-address=a:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")

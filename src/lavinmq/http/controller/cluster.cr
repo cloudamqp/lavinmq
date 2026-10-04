@@ -16,7 +16,7 @@ module LavinMQ
           cluster = require_cluster(context)
           status = require_status(context, cluster)
           JSON.build(context.response) do |json|
-            write_status(json, status)
+            status.to_json(json)
           end
           context
         end
@@ -112,34 +112,6 @@ module LavinMQ
         end
         context.response.status_code = success
         context
-      end
-
-      private def write_status(json : JSON::Builder, status : Clustering::Raft::Status) : Nil
-        membership = status.membership
-        json.object do
-          json.field "leader", status.address
-          json.field "term", status.term
-          json.field "isr" do
-            json.array { status.committed_isr.try &.each { |id| json.string id.to_s(36) } }
-          end
-          json.field "members" do
-            json.array do
-              addresses = membership.try(&.addresses) || {status.id => status.address}
-              addresses.to_a.sort_by!(&.[1]).each do |id, addr|
-                me = id == status.id
-                json.object do
-                  json.field "address", addr
-                  json.field "node_id", id.to_s(36)
-                  json.field "role", membership.try(&.learners.includes?(id)) ? "learner" : "voter"
-                  json.field "in_isr", status.committed_isr.try(&.includes?(id)) || false
-                  json.field "match_index", me ? status.last_index : status.match_index[id]?
-                  json.field "caught_up", (me || status.caught_up.includes?(id))
-                  json.field "leader", me
-                end
-              end
-            end
-          end
-        end
       end
     end
   end

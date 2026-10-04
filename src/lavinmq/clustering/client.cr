@@ -36,6 +36,9 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
+      # Whether to serve the lavinmqctl socket while following, unless the
+      # controller already does
+      property? serve_control_socket = true
       getter streamed_bytes = 0_u64
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
@@ -113,7 +116,9 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
+        if @serve_control_socket && !local_leader_host?(host)
+          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server
+        end
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
