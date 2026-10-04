@@ -139,6 +139,9 @@ module LavinMQ::Clustering::Raft
     @next_index = Hash(Int32, Int64).new
     @match_index = Hash(Int32, Int64).new
     @last_ack = Hash(Int32, Time::Instant).new
+    # When each peer last answered this leader. Unlike @last_ack it isn't
+    # seeded when becoming leader.
+    @answered = Hash(Int32, Time::Instant).new
     @term_start_index = 0i64
     @election_deadline : Time::Instant
     @heartbeat_due : Time::Instant
@@ -228,6 +231,14 @@ module LavinMQ::Clustering::Raft
 
     def voter?(id : Int32) : Bool
       @voters.includes?(id)
+    end
+
+    # Whether a peer has answered this leader within the election timeout,
+    # i.e. is up and reachable.
+    def responsive?(id : Int32) : Bool
+      return false unless @role.leader?
+      answered = @answered[id]? || return false
+      @now - answered < @election_timeout
     end
 
     # Followers that lag at most this far behind the leader's log count as
@@ -413,7 +424,7 @@ module LavinMQ::Clustering::Raft
     end
 
     private def transfer_eligible?(peer : Int32) : Bool
-      return false unless @voters.includes?(peer) && @peers.includes?(peer) && at_home?(peer)
+      return false unless @voters.includes?(peer) && @peers.includes?(peer) && at_home?(peer) && responsive?(peer)
       isr = latest_isr
       !isr.nil? && isr.includes?(peer)
     end
@@ -565,6 +576,7 @@ module LavinMQ::Clustering::Raft
       # Its acks, also stale ones later, mustn't count as that member's
       return unless at_home?(msg.from)
       @last_ack[msg.from] = now
+      @answered[msg.from] = now
       if msg.success
         if msg.match_index > (@match_index[msg.from]? || 0i64)
           @match_index[msg.from] = msg.match_index
@@ -666,6 +678,7 @@ module LavinMQ::Clustering::Raft
       @leader_uri = @uri
       @transfer_target = nil
       @departing.clear
+      @answered.clear
       @peers.each do |p|
         @next_index[p] = last_index + 1
         @match_index[p] = 0i64
@@ -827,6 +840,7 @@ module LavinMQ::Clustering::Raft
       @next_index.reject! { |p, _| !tracked?(p) }
       @match_index.reject! { |p, _| !tracked?(p) }
       @last_ack.reject! { |p, _| !tracked?(p) }
+      @answered.reject! { |p, _| !tracked?(p) }
       @peers.each do |p|
         next if @next_index.has_key?(p)
         @next_index[p] = last_index + 1

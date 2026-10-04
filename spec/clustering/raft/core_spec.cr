@@ -803,6 +803,18 @@ describe Raft::Core, "leadership transfer" do
     sim.leader.should be old
   end
 
+  it "refuses a target that has stopped answering" do
+    sim = SimCluster.new(3)
+    old = sim.elect(Set{1, 2, 3})
+    target = sim.cores.keys.find! { |id| id != old.id }
+    sim.isolated << target
+    sim.advance(SimCluster::ELECTION * 2)
+    old.role.leader?.should be_true
+    old.transfer_leadership(target).should eq Raft::TransferResult::NotEligible
+    old.transfer_leadership.should eq Raft::TransferResult::Sent # to the other one
+    sim.isolated.delete(target)
+  end
+
   it "refuses a target outside the ISR, a learner and an unknown node" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }

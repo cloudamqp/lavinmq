@@ -6,12 +6,12 @@ require "../../logger"
 
 module LavinMQ::Clustering::Raft
   # A snapshot of the cluster as this node sees it, see Node#status. Only
-  # the leader knows `match_index` and `caught_up`.
+  # the leader knows `match_index`, `caught_up` and `responsive`.
   record Status, id : Int32, address : String, role : Role, term : Int64,
     leader : Int32?, leader_uri : String?,
     membership : Membership?, committed_membership : Membership?,
     match_index : Hash(Int32, Int64), last_index : Int64, caught_up : Set(Int32),
-    committed_isr : Set(Int32)? do
+    responsive : Set(Int32), committed_isr : Set(Int32)? do
     # The member a clustering id (base 36, as shown) or a raft address refers to
     def resolve(ref : String) : Int32?
       members = membership.try(&.addresses) || {@id => @address}
@@ -276,15 +276,17 @@ module LavinMQ::Clustering::Raft
     private def build_status : Status
       match_index = Hash(Int32, Int64).new
       caught_up = Set(Int32).new
+      responsive = Set(Int32).new
       if @core.role.leader?
         @core.peers.each do |p|
           match_index[p] = @core.match_index(p)
           caught_up << p if @core.caught_up?(p)
+          responsive << p if @core.responsive?(p)
         end
       end
       Status.new(@id, @address, @core.role, @core.term, @core.leader, @core.leader_uri,
         @core.latest_membership, @core.committed_membership, match_index,
-        @core.last_index, caught_up, @core.committed_isr)
+        @core.last_index, caught_up, responsive, @core.committed_isr)
     end
 
     private def flush : Nil
