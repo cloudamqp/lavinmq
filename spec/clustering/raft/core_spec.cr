@@ -716,6 +716,51 @@ describe Raft::Core, "membership" do
     leader.committed_isr.should eq Set{1, 2, 3} - Set{removed}
   end
 
+  it "keeps the membership in its log when peers no longer lists the other nodes" do
+    now = Time.instant
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    core = Raft::Core.new(1, "n1", ["n1"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1), bootstrap: true)
+    core.quorum.should eq 2
+    core.connect_to.should eq Set{"n2", "n3"}
+    now += 1.second
+    core.tick(now)
+    core.role.leader?.should be_false
+    core.take_outbox.map(&.[0]).to_set.should eq Set{2, 3}
+  end
+
+  it "never elects two leaders while joining nodes list more peers than the members" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    seeds = (1..5).map { |i| "n#{i}" }
+    4.upto(5) do |id|
+      sim.cores[id] = Raft::Core.new(id, "n#{id}", seeds, "tcp://n#{id}:5679", SimCluster::ELECTION,
+        SimCluster::HEARTBEAT, sim.now, nil, Random.new(id))
+    end
+    sim.crash(leader.id)
+    leaders = Hash(Int64, Int32).new
+    sim.run_until do
+      sim.leaders.each { |l| (leaders[l.term] ||= l.id).should eq l.id }
+      sim.leader.try(&.serving_leader?) && sim.leader.not_nil!.term > leader.term
+    end
+    sim.leader.not_nil!.id.should be <= 3
+    sim[4].role.leader?.should be_false
+    sim[5].role.leader?.should be_false
+  end
+
+  it "doesn't count votes from a node that replaced a voter with an empty data dir" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    dead, alive = sim.cores.keys.reject(leader.id)
+    sim.crash(dead)
+    # Same address, but an empty data dir and so a new clustering id
+    sim.join(9, [leader.id, alive], address: "n#{dead}")
+    sim.crash(leader.id)
+    sim.advance(3.seconds)
+    sim.leader.should be_nil
+    sim[9].role.leader?.should be_false
+  end
+
   it "makes a voter that moved a learner at its new address, then promotes it back" do
     sim = SimCluster.new(3)
     leader = sim.elect(Set{1, 2, 3})
