@@ -63,14 +63,14 @@ private class ControllerCluster
     # A port picked by free_port can be taken by another process before it's
     # bound, so don't let a node join someone else's cluster
     @password = Random::Secure.hex(16)
-    peers = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
+    seeds = ports.map { |p| "127.0.0.1:#{p}" }.join(',')
     ports.each do |port|
-      add_node(port, peers, bootstrap == @dirs.size)
+      add_node(port, seeds, bootstrap == @dirs.size)
     end
   end
 
   # A node that isn't started yet. Doesn't bootstrap unless told to.
-  def add_node(port : Int32, peers : String, bootstrap = false) : LavinMQ::Clustering::RaftController
+  def add_node(port : Int32, seeds : String, bootstrap = false) : LavinMQ::Clustering::RaftController
     dir = File.tempname("lavinmq", "controller-spec")
     Dir.mkdir_p dir
     @dirs << dir
@@ -82,7 +82,7 @@ private class ControllerCluster
     config.clustering_bind = "127.0.0.1"
     config.clustering_raft_port = port
     config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
-    config.clustering_peers = peers
+    config.clustering_seeds = seeds
     config.clustering_secret = @password
     config.clustering_election_timeout = @election_timeout
     config.clustering_heartbeat_interval = @election_timeout // 6
@@ -367,10 +367,10 @@ describe LavinMQ::Clustering::RaftController do
       a_addr = cluster.address(a)
       wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
 
-      # A new node starts with itself and an existing member as peers. It
-      # doesn't campaign, and doesn't get anything until it's added.
+      # A new node starts with an existing member as its seed. It doesn't
+      # campaign, and doesn't get anything until it's added.
       port = free_port
-      d = cluster.add_node(port, "127.0.0.1:#{port},#{a_addr}")
+      d = cluster.add_node(port, a_addr)
       cluster.start(d)
       d_addr = cluster.address(d)
       sleep 100.milliseconds

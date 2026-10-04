@@ -114,20 +114,15 @@ module LavinMQ
       end
       # Without it a node would silently form a cluster of its own, e.g. when
       # it's left out of one node's config
-      if @clustering_peers.strip.empty?
-        raise Error.new("clustering peers is required with the raft backend: the raft address of every node, " \
-                        "including this one (#{clustering_raft_address} alone for a single node cluster)")
+      if @clustering_seeds.strip.empty?
+        raise Error.new("clustering seeds is required with the raft backend: the raft addresses of the nodes to form " \
+                        "or join a cluster with (#{clustering_raft_address} alone for a single node cluster)")
       end
-      peers = clustering_peer_addresses
-      peers.each do |peer|
-        host, sep, port = peer.rpartition(':')
+      clustering_seed_addresses.each do |seed|
+        host, sep, port = seed.rpartition(':')
         if sep.empty? || host.empty? || port.to_u16?.nil?
-          raise Error.new("clustering peer '#{peer}' must be host:port")
+          raise Error.new("clustering seed '#{seed}' must be host:port")
         end
-      end
-      unless peers.includes?(clustering_raft_address)
-        raise Error.new("clustering peers (#{peers.join(", ")}) must include this node's raft address #{clustering_raft_address}, " \
-                        "set raft_advertised_address in [clustering] if it differs")
       end
     end
 
@@ -149,11 +144,13 @@ module LavinMQ
       @clustering_raft_advertised_address || "#{System.hostname}:#{@clustering_raft_port}"
     end
 
-    # Every node, including this one. Required with the raft backend, see
-    # validate_raft_clustering!.
-    def clustering_peer_addresses : Array(String)
-      peers = @clustering_peers.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
-      peers.empty? ? [clustering_raft_address] : peers.uniq
+    # Raft addresses to form or join a cluster with. A new cluster's first
+    # leader makes them its voters, a joining node finds the cluster through
+    # them. Once there's a membership in the raft log it's used instead.
+    # Required with the raft backend, see validate_raft_clustering!.
+    def clustering_seed_addresses : Array(String)
+      seeds = @clustering_seeds.split(',', remove_empty: true).map(&.strip).reject(&.empty?)
+      seeds.empty? ? [clustering_raft_address] : seeds.uniq
     end
 
     private def parse_config_from_cli(argv)

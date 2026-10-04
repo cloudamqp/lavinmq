@@ -119,9 +119,9 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `backend` | `--clustering-backend` | `LAVINMQ_CLUSTERING_BACKEND` | String | `etcd` | Leader election backend, `raft` (built in, recommended for new clusters) or `etcd` |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated), etcd backend only |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix, etcd backend only |
-| `peers` | `--clustering-peers` | `LAVINMQ_CLUSTERING_PEERS` | String | (this node) | Raft `host:port` of every node, including this one (comma-separated), raft backend only |
+| `seeds` | `--clustering-seeds` | `LAVINMQ_CLUSTERING_SEEDS` | String | (required) | Raft `host:port` addresses (comma-separated) to form or join a cluster with: every node of a new cluster, or any member when joining. Raft backend only |
 | `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Port for leader election traffic, bound on `bind`, raft backend only |
-| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | `hostname:raft_port` | This node's entry in `peers`, raft backend only |
+| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | `hostname:raft_port` | The `host:port` other nodes reach this node's raft port at, raft backend only |
 | `password_file` | `--clustering-password-file` | `LAVINMQ_CLUSTERING_PASSWORD_FILE` | String | (empty) | File with the shared secret authenticating nodes to each other, at most 255 bytes. Must not be accessible by group or others. Required, raft backend only |
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts, raft backend only |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats, raft backend only |

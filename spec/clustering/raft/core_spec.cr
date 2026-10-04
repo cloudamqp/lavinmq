@@ -510,7 +510,7 @@ describe Raft::Core do
 end
 
 describe Raft::Core, "membership" do
-  it "seeds the membership from the configured peers when the first leader is elected" do
+  it "makes the membership from the seeds when the first leader is elected" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }
     sim.advance(100.milliseconds)

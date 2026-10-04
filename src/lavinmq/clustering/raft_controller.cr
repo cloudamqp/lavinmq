@@ -25,7 +25,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def initialize(config : Config)
     super(config)
-    @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_peer_addresses,
+    @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
       bootstrap: may_bootstrap?)
@@ -163,7 +163,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   private def start_node : Nil
     server = TCPServer.new(@config.clustering_bind, @config.clustering_raft_port)
     address = @config.clustering_raft_address
-    peers = @config.clustering_peer_addresses.reject(address)
+    peers = @config.clustering_seed_addresses.reject(address)
     transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
       ->@node.deliver(Raft::TransportEvent))
     spawn(transport.listen(server), name: "Raft listener")
@@ -174,11 +174,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   end
 
   # Whether this node may win an election before it has any raft state: when
-  # it's the only node, or when the operator says it has the latest data. An
+  # it's the only seed, or when the operator says it has the latest data. An
   # empty data dir isn't enough, a majority of new nodes would then elect one
   # of themselves and wipe the data of the nodes that have it.
   private def may_bootstrap? : Bool
-    @config.clustering_bootstrap? || @config.clustering_peer_addresses.size == 1
+    @config.clustering_bootstrap? || @config.clustering_seed_addresses.all?(@config.clustering_raft_address)
   end
 
   # Switch leader to replicate from whenever the leader changes, until this

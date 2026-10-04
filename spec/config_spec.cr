@@ -187,7 +187,7 @@ describe LavinMQ::Config do
           backend = raft
           etcd_endpoints = localhost:2380,localhost:2381
           etcd_prefix = test-lavinmq
-          peers = node1:5690,node2:5690,node3:5690
+          seeds = node1:5690,node2:5690,node3:5690
           raft_port = 5690
           raft_advertised_address = node1:5690
           election_timeout = 2000
@@ -282,7 +282,7 @@ describe LavinMQ::Config do
     config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
     config.clustering_etcd_prefix.should eq "test-lavinmq"
-    config.clustering_peer_addresses.should eq ["node1:5690", "node2:5690", "node3:5690"]
+    config.clustering_seed_addresses.should eq ["node1:5690", "node2:5690", "node3:5690"]
     config.clustering_raft_port.should eq 5690
     config.clustering_raft_address.should eq "node1:5690"
     config.clustering_election_timeout.should eq 2000
@@ -339,7 +339,7 @@ describe LavinMQ::Config do
       "--clustering-backend=raft",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
       "--clustering-etcd-prefix=cli-prefix",
-      "--clustering-peers=cli1:5680,cli2:5680",
+      "--clustering-seeds=cli1:5680,cli2:5680",
       "--clustering-raft-advertised-address=cli2:5680",
       "--clustering-election-timeout=3000",
       "--clustering-heartbeat-interval=300",
@@ -387,7 +387,7 @@ describe LavinMQ::Config do
     config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
     config.clustering_etcd_prefix.should eq "cli-prefix"
-    config.clustering_peer_addresses.should eq ["cli1:5680", "cli2:5680"]
+    config.clustering_seed_addresses.should eq ["cli1:5680", "cli2:5680"]
     config.clustering_raft_address.should eq "cli2:5680"
     config.clustering_election_timeout.should eq 3000
     config.clustering_heartbeat_interval.should eq 300
@@ -404,7 +404,7 @@ describe LavinMQ::Config do
         File.write(path, "file-secret\n")
         File.chmod(path, 0o600)
         config = LavinMQ::Config.new(IO::Memory.new)
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1",
+        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
                       "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
         config.clustering_secret.should eq "file-secret"
       end
@@ -436,37 +436,36 @@ describe LavinMQ::Config do
       end
     end
 
-    it "requires the peers to include this node" do
+    it "accepts seeds without this node, as when joining through a member" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      expect_raises(LavinMQ::Config::Error, /must include this node/) do
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
-      end
+      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
+      config.clustering_seed_addresses.should eq ["a:1", "b:1"]
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
       File.delete?(password_file) if password_file
     end
 
-    it "rejects a peer without a port" do
+    it "rejects a seed without a port" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
       expect_raises(LavinMQ::Config::Error, /must be host:port/) do
-        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1,b", "--clustering-raft-advertised-address=a:1"])
+        config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1,b", "--clustering-raft-advertised-address=a:1"])
       end
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
       File.delete?(password_file) if password_file
     end
 
-    it "requires the peers to be configured" do
+    it "requires the seeds to be configured" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      expect_raises(LavinMQ::Config::Error, /peers is required.*a:1 alone/) do
+      expect_raises(LavinMQ::Config::Error, /seeds is required.*a:1 alone/) do
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1"])
       end
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-peers=a:1", "--clustering-raft-advertised-address=a:1"])
-      config.clustering_peer_addresses.should eq ["a:1"]
+      config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
+      config.clustering_seed_addresses.should eq ["a:1"]
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
       File.delete?(password_file) if password_file
@@ -482,14 +481,14 @@ describe LavinMQ::Config do
 
     it "doesn't apply the raft requirements to the etcd backend" do
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=etcd", "--clustering-peers=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
+      config.parse(["--clustering", "--clustering-backend=etcd", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Etcd
     end
 
     it "parses the backend case insensitively" do
       ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
       config = LavinMQ::Config.new
-      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-peers=a:1", "--clustering-raft-advertised-address=a:1"])
+      config.parse(["--clustering", "--clustering-backend=Raft", "--clustering-seeds=a:1", "--clustering-raft-advertised-address=a:1"])
       config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     ensure
       ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
@@ -537,7 +536,7 @@ describe LavinMQ::Config do
     ENV["LAVINMQ_CLUSTERING_BACKEND"] = "raft"
     ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"] = "env-etcd:2379"
     ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"] = "env-prefix"
-    ENV["LAVINMQ_CLUSTERING_PEERS"] = "env1:5680"
+    ENV["LAVINMQ_CLUSTERING_SEEDS"] = "env1:5680"
     ENV["LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS"] = "env1:5680"
     ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file("env-secret")
     ENV["LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS"] = "2048"
@@ -568,7 +567,7 @@ describe LavinMQ::Config do
     config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
     config.clustering_etcd_endpoints.should eq "env-etcd:2379"
     config.clustering_etcd_prefix.should eq "env-prefix"
-    config.clustering_peer_addresses.should eq ["env1:5680"]
+    config.clustering_seed_addresses.should eq ["env1:5680"]
     config.clustering_secret.should eq "env-secret"
     config.clustering_port.should eq 5681
     config.control_unix_path.should eq "/tmp/lavinmqctl-env.sock"
@@ -595,7 +594,7 @@ describe LavinMQ::Config do
     ENV.delete("LAVINMQ_CLUSTERING_BACKEND")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")
     ENV.delete("LAVINMQ_CLUSTERING_ETCD_PREFIX")
-    ENV.delete("LAVINMQ_CLUSTERING_PEERS")
+    ENV.delete("LAVINMQ_CLUSTERING_SEEDS")
     ENV.delete("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")
     ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
     File.delete?(password_file) if password_file
