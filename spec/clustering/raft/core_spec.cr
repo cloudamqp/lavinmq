@@ -368,6 +368,26 @@ describe Raft::Core do
     leader.commit_index.should be < index
   end
 
+  it "keeps leading while a voter that hasn't reconnected to it is quiet" do
+    now = Time.instant
+    state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
+    core = Raft::Core.new(1, "n1", ["n1", "n2", "n3"], "u1", SimCluster::ELECTION, SimCluster::HEARTBEAT,
+      now, state, Random.new(1))
+    # Only n2 is connected, like after this node restarted and n3, which had
+    # nothing to send, hasn't noticed yet
+    core.connected(2, "n2", now)
+    now += 1.second
+    core.tick(now)
+    core.step(Raft::VoteResponse.new(2, 2, true, pre_vote: true), now)
+    core.step(Raft::VoteResponse.new(2, 2, true, pre_vote: false), now)
+    core.role.leader?.should be_true
+    # n2 goes away, as the old leader does after a transfer
+    core.disconnected(2, "n2")
+    now += SimCluster::ELECTION / 2
+    core.tick(now)
+    core.role.leader?.should be_true
+  end
+
   it "hands leadership over to a caught up in-sync peer" do
     sim = SimCluster.new(3)
     sim.run_until { sim.leader.try &.serving_leader? }

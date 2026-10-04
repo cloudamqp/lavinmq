@@ -334,6 +334,31 @@ describe Raft::TCPTransport do
     copy.try &.close
     myself.try &.close
   end
+
+  it "reconnects to a peer that restarted without anything to send" do
+    server = TCPServer.new("127.0.0.1", 0)
+    port = server.local_address.port
+    addr = "127.0.0.1:#{port}"
+    events = Channel(Raft::TransportEvent).new(16)
+    handler = ->(e : Raft::TransportEvent) { events.send e }
+    peer = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, handler)
+    spawn peer.listen(server)
+    client = Raft::TCPTransport.new("secret", 2, "client:1", [addr], ->(_e : Raft::TransportEvent) { })
+    events.receive.should eq Raft::Connected.new(2, "client:1")
+    peer.close
+    events.receive.should eq Raft::Disconnected.new(2, "client:1")
+    restarted = Raft::TCPTransport.new("secret", 1, addr, Array(String).new, handler)
+    spawn restarted.listen(TCPServer.new("127.0.0.1", port, reuse_port: true))
+    select
+    when event = events.receive
+      event.should eq Raft::Connected.new(2, "client:1")
+    when timeout(3.seconds)
+      fail "didn't reconnect"
+    end
+  ensure
+    client.try &.close
+    restarted.try &.close
+  end
 end
 
 describe Raft::Storage do

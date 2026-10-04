@@ -562,6 +562,8 @@ module LavinMQ::Clustering::Raft
         return
       end
       return unless @role.leader? && msg.term == @term
+      # Its acks, also stale ones later, mustn't count as that member's
+      return unless at_home?(msg.from)
       @last_ack[msg.from] = now
       if msg.success
         if msg.match_index > (@match_index[msg.from]? || 0i64)
@@ -750,13 +752,18 @@ module LavinMQ::Clustering::Raft
       @seed_ids.size == @seed_addresses.size
     end
 
-    # Whether a peer is connected from where the membership (or before there
-    # is one, the configured peers) says it is, so its acks and votes count.
+    # Whether a member isn't connected from elsewhere than the membership (or
+    # before there is one, the configured peers) says it is. Only then do its
+    # acks and votes count. Not being connected right now is fine: messages
+    # only arrive over a connection, and a peer that restarted may not have
+    # reconnected to us yet. Non-members, like a removed node acking its
+    # removal, have no address to be at.
     private def at_home?(id : Int32) : Bool
       return true if id == @id
-      address = @live[id]? || return false
+      address = @live[id]? || return true
       if m = latest_membership
-        m.addresses[id]? == address
+        expected = m.addresses[id]? || return true
+        expected == address
       else
         @seed_addresses.includes?(address)
       end
