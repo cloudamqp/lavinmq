@@ -193,7 +193,10 @@ module LavinMQ::Clustering::Raft
         @logged_conflict = conflict
         if conflict
           own = conflict.holder == @core.id ? " and not campaigning" : ""
-          Log.error { "#{conflict}: ignoring #{conflict.addr}#{own}, delete .clustering_id on the copied node" }
+          Log.error do
+            "#{conflict}: ignoring #{conflict.addr}#{own}, delete .clustering_id on the copied node, " \
+            "or if a node changed address, update the peer list and restart"
+          end
         else
           Log.info { "Clustering id conflict resolved" }
         end
