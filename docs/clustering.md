@@ -33,7 +33,7 @@ password_file = /etc/lavinmq/clustering_password
 ```
 
 - `seeds` are the raft addresses to form or join a cluster with. When a new cluster is started, list every node: the first leader makes them its voters, so the list sets the quorum. A node joining an existing cluster only needs one member. Once a node has the membership from the raft log, that is used, and `seeds` are only read again when starting from scratch. Three or five voters are recommended: a cluster of `N` voters keeps working with `(N - 1) / 2` of them down. `seeds` is required, so that a node left out of the config doesn't silently form a cluster of its own; a single node cluster lists only its own address.
-- `raft_advertised_address` is the address other nodes reach this node's raft port at, `hostname:raft_port` by default. Set it to a stable name: the default changes when the hostname does, e.g. for recreated containers, and if that happens to most nodes at once the cluster can't elect a leader (see [Changing a node's address](#changing-a-nodes-address)).
+- `raft_advertised_address` is the address other nodes reach this node's raft port at, `hostname:raft_port` by default. Set it to a stable name: the default changes when the hostname does, e.g. for recreated containers, and if that happens to most nodes at once the cluster is without a leader for a few election timeouts (see [Changing a node's address](#changing-a-nodes-address)).
 - A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
 
   ```sh
@@ -183,13 +183,9 @@ To move a replica from node A to a new node D:
 
 To give a node a new address but keep its data dir, restart it with the new `raft_advertised_address`. When it connects from there, the leader makes it a learner at the new address and promotes it back once it has synced and caught up again. Meanwhile the cluster has one voter less: in a three node cluster the other two must both be up. A node at a new address doesn't campaign until the leader has moved it.
 
-Change addresses one node at a time, and wait until `cluster_status` shows the node as a voter again before moving the next. Moving a voter takes a majority of the voters at their old addresses, so if most of them come back at new addresses together, e.g. after changing `raft_port` on every node or when the hostnames change and `raft_advertised_address` isn't set, no leader can be elected. The moved nodes then log a warning that their address differs from the one in the cluster membership. To recover:
+Moving a voter takes a majority of the voters at their old addresses, so if most of them come back at new addresses together, e.g. after changing `raft_port` on every node or when the hostnames change and `raft_advertised_address` isn't set, no leader can be elected the normal way. After three election timeouts without a leader the nodes count each other's votes wherever they are and log a warning that they do. The leader elected then records the new addresses in the membership, without demoting anyone, and the normal rules apply again. Until then the cluster is unavailable, about four election timeouts (6 s by default) plus the election itself, so prefer moving one node at a time.
 
-1. Stop all nodes.
-2. Set `seeds` on each node to the new addresses.
-3. Delete `.raft_state` from the data dir of every node.
-4. Start the former leader, or the node with the most recent data, with `--clustering-bootstrap`, and the others normally. They sync from it.
-5. Remove `bootstrap` again.
+That shortcut trusts that a node connecting from a new address with a known clustering id is that node, moved, and not a copy of its data dir running next to the original. Never run a node and a copy of it at the same time; with a leader around the copy is refused, but without one for long enough both could be counted. If the cluster still doesn't elect a leader, for example because the nodes in the ISR are gone, see [Recovering when no ISR member can come back](#recovering-when-no-isr-member-can-come-back).
 
 Copying a data dir to start another node also copies its clustering id. While the original is connected, the copy is refused with a log about a clustering id conflict. Delete `.clustering_id` on the copy to give it an id of its own. If the original is down, the copy is taken for the node having moved, and the original is refused when it comes back.
 

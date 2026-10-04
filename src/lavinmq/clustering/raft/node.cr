@@ -102,9 +102,7 @@ module LavinMQ::Clustering::Raft
     @seeds : Set(String)
     @logged_seeds = false
     @election_timeout : Time::Span
-    # Since when this voter has been at a new address without a leader
-    @moved_since : Time::Instant? = nil
-    @warned_moved = false
+    @logged_trust_moved = false
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
@@ -423,7 +421,7 @@ module LavinMQ::Clustering::Raft
         end
       end
       log_seeds_if_different(committed)
-      warn_if_stuck_after_move
+      log_trust_moved
       callbacks.try do |cbs|
         removed.each do |id|
           Log.info { "Node #{id.to_s(36)} was removed from the cluster" }
@@ -433,27 +431,21 @@ module LavinMQ::Clustering::Raft
       @serving.set(@core.serving_leader?)
     end
 
-    # A voter at a new address waits for a leader to make it a learner there.
-    # Without a leader for a while, most voters may have moved at once, and
-    # then no leader can be elected.
-    private def warn_if_stuck_after_move : Nil
-      listed = @core.moved_from
-      if listed && @core.leader.nil?
-        since = @moved_since ||= Time.instant
-        if !@warned_moved && Time.instant - since >= @election_timeout * 3
-          @warned_moved = true
-          Log.warn do
-            "This node's raft address #{@address} differs from its address in the cluster membership (#{listed}), " \
-            "so it doesn't campaign until a leader has moved it. If most voters changed address at once, " \
-            "no leader can be elected, see \"Changing a node's address\" in docs/clustering.md"
-          end
+    # Voters at other addresses than the membership lists are only counted
+    # after a long time without a leader, see Core#trusting_moved?.
+    private def log_trust_moved : Nil
+      trusting = @core.trusting_moved?
+      return if trusting == @logged_trust_moved
+      @logged_trust_moved = trusting
+      if trusting
+        moved = @core.moved_from.try { |from| ", including this node, which the membership lists at #{from}" } || ""
+        Log.warn do
+          "No leader for #{@election_timeout * Core::MOVED_TRUST_AFTER}: counting voters at other addresses " \
+          "than the cluster membership lists#{moved}. The leader elected records the new addresses, " \
+          "see \"Changing a node's address\" in docs/clustering.md"
         end
       else
-        @moved_since = nil
-      end
-      if @warned_moved && listed.nil?
-        @warned_moved = false
-        Log.info { "This node was moved to #{@address} in the cluster membership" }
+        Log.info { "Leader found, counting only voters at their listed addresses again" }
       end
     end
 
