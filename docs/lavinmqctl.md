@@ -100,10 +100,10 @@ Run against the leader, or any node with `--uri`, followers proxy the requests t
 | Command | Description |
 |---------|-------------|
 | `cluster_status` | Show the leader and the members: role, whether in the ISR, how far they have caught up (with the etcd backend: the followers) |
-| `add_cluster_member <address>` | Add a node as a non-voting learner |
-| `promote_cluster_member <address>` | Make a learner that is in the ISR and has caught up a voter |
-| `remove_cluster_member <address>` | Remove a node from the cluster |
-| `transfer_leadership [--target=<address>] [--wait] [--timeout=<seconds>]` | Hand over leadership. `--wait` waits until the target is the serving leader, use `--uri` with a node that stays up |
+| `add_cluster_member <address>` | Add a running node, by its raft address, as a non-voting learner |
+| `promote_cluster_member <address\|node_id>` | Make a learner that is in the ISR and has caught up a voter |
+| `remove_cluster_member <address\|node_id>` | Remove a node from the cluster |
+| `transfer_leadership [--target=<address\|node_id>] [--wait] [--timeout=<seconds>]` | Hand over leadership. `--wait` waits until the target is the serving leader, use `--uri` with a node that stays up |
 
 ### Server Control
 

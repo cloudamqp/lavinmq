@@ -8,12 +8,13 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   getter coordinator : RaftCoordinator
   getter node : Raft::Node
 
-  # Accepted leadership transfer: who, and in which term
-  record Transfer, target : String, term : Int64
+  # Accepted leadership transfer: who (clustering id and raft address), and
+  # in which term
+  record Transfer, target : Int32, address : String, term : Int64
 
   @transport : Raft::TCPTransport? = nil
   @step_down : (String ->)? = nil
-  @transfer_target : String? = nil
+  @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
   @stop_signal = Channel(Nil).new
   # Closed by the follower monitor once this node is a serving leader, so
@@ -22,8 +23,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   def initialize(config : Config)
     super(config)
-    @node = Raft::Node.new(@config.clustering_raft_address, @config.clustering_peer_addresses,
-      @id, @advertised_uri, Raft::Storage.new(@config.data_dir),
+    @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_peer_addresses,
+      @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
       bootstrap: may_bootstrap?)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
@@ -35,11 +36,11 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @step_down = block
   end
 
-  # Checks that `target` (a raft address, or without one any caught up
-  # in-sync voter) can take over right now: it must be a voter in the
-  # committed ISR with a known clustering id. Returns the accepted transfer,
-  # or why not. An accepted transfer is claimed here, so a concurrent request
-  # is refused instead of overriding it, and #step_down has to follow.
+  # Checks that `target` (a clustering id or raft address, or without one any
+  # caught up in-sync voter) can take over right now: it must be a voter in
+  # the committed ISR. Returns the accepted transfer, or why not. An accepted
+  # transfer is claimed here, so a concurrent request is refused instead of
+  # overriding it, and #step_down has to follow.
   def request_transfer(target : String? = nil) : Transfer | String
     @transfer_lock.synchronize do
       return "A leadership transfer is already in progress" if @transfer_target
@@ -57,30 +58,25 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     voters = status.membership.try(&.voters) || return "The cluster has no membership yet"
     isr = status.committed_isr || return "The cluster has no in-sync replica set yet"
     if target
-      return "#{target} is the leader" if target == status.address
-      return "#{target} is not a voter" unless voters.includes?(target)
-      return "#{target} is not in the in-sync replica set" unless transfer_eligible?(status, voters, isr, target)
+      id = status.resolve(target) || return "#{target} is not a member"
+      return "#{target} is the leader" if id == status.id
+      return "#{target} is not a voter" unless voters.includes?(id)
+      return "#{target} is not in the in-sync replica set" unless isr.includes?(id)
     else
-      target = voters.find { |a| transfer_eligible?(status, voters, isr, a) && status.caught_up.includes?(a) } ||
-               voters.find { |a| transfer_eligible?(status, voters, isr, a) } ||
-               return "No voter is in the in-sync replica set"
+      eligible = voters.select { |v| v != status.id && isr.includes?(v) }
+      id = eligible.find { |v| status.caught_up.includes?(v) } || eligible.first? ||
+           return "No voter is in the in-sync replica set"
     end
-    Transfer.new(target, status.term)
-  end
-
-  private def transfer_eligible?(status : Raft::Status, voters : Set(String), isr : Set(Int32), addr : String) : Bool
-    return false if addr == status.address || !voters.includes?(addr)
-    id = status.node_id_of(addr)
-    !id.nil? && isr.includes?(id)
+    Transfer.new(id, status.address_of(id) || id.to_s(36), status.term)
   end
 
   # Gracefully step down in favour of `target`: stop serving, hand over
   # leadership and restart as a follower, see Launcher#step_down.
-  def step_down(target : String) : Nil
+  def step_down(target : Transfer) : Nil
     if callback = @step_down
-      callback.call(target)
+      callback.call(target.address)
     else
-      Log.warn { "No step down handler registered, can't hand over leadership to #{target}" }
+      Log.warn { "No step down handler registered, can't hand over leadership to #{target.address}" }
     end
   end
 
@@ -148,8 +144,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
 
   private def start_node : Nil
     server = TCPServer.new(@config.clustering_bind, @config.clustering_raft_port)
-    peers = @config.clustering_peer_addresses.reject(@config.clustering_raft_address)
-    transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, peers, ->@node.deliver(Raft::Message))
+    address = @config.clustering_raft_address
+    peers = @config.clustering_peer_addresses.reject(address)
+    transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
+      ->@node.deliver(Raft::TransportEvent))
     spawn(transport.listen(server), name: "Raft listener")
     @node.run(transport)
   rescue ex : Socket::BindError

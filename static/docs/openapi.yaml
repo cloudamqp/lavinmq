@@ -266,10 +266,10 @@ paths:
     "$ref": "./paths/cluster.yaml#/~1cluster"
   "/cluster/members":
     "$ref": "./paths/cluster.yaml#/~1cluster~1members"
-  "/cluster/members/{address}":
-    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{address}"
-  "/cluster/members/{address}/promote":
-    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{address}~1promote"
+  "/cluster/members/{member}":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{member}"
+  "/cluster/members/{member}/promote":
+    "$ref": "./paths/cluster.yaml#/~1cluster~1members~1{member}~1promote"
   "/cluster/transfer-leadership":
     "$ref": "./paths/cluster.yaml#/~1cluster~1transfer-leadership"
   "/nodes":

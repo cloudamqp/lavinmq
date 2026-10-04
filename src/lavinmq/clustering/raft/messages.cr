@@ -1,14 +1,18 @@
 module LavinMQ::Clustering::Raft
-  # The cluster configuration, as raft addresses. Voters count towards
-  # quorum, commit and elections. Learners only receive the log, they are
-  # added first and promoted once they've caught up.
-  record Membership, voters : Set(String), learners : Set(String) do
-    def members : Set(String)
+  # The cluster configuration. Nodes are known by their clustering id, the
+  # address is where to reach them, so a node that moves keeps its identity.
+  # Voters count towards quorum, commit and elections. Learners only receive
+  # the log, they are added first and promoted once they've caught up.
+  # `relocated` are learners that were voters until they showed up at a new
+  # address, the leader promotes them back once they're eligible.
+  record Membership, voters : Set(Int32), learners : Set(Int32), addresses : Hash(Int32, String),
+    relocated = Set(Int32).new do
+    def members : Set(Int32)
       voters | learners
     end
 
-    def includes?(addr : String) : Bool
-      voters.includes?(addr) || learners.includes?(addr)
+    def includes?(id : Int32) : Bool
+      voters.includes?(id) || learners.includes?(id)
     end
   end
 
@@ -19,29 +23,29 @@ module LavinMQ::Clustering::Raft
   # compaction is trivial.
   record Entry, term : Int64, isr : Set(Int32)?, membership : Membership? = nil
 
-  # `from` is the sender's raft address. Messages are one-way: replies are
+  # `from` is the sender's clustering id. Messages are one-way: replies are
   # sent back as their own message over the sender's outbound connection.
-  record RequestVote, from : String, term : Int64, node_id : Int32,
+  record RequestVote, from : Int32, term : Int64,
     last_log_index : Int64, last_log_term : Int64, pre_vote : Bool, transfer : Bool
 
-  record VoteResponse, from : String, term : Int64, granted : Bool, pre_vote : Bool
+  record VoteResponse, from : Int32, term : Int64, granted : Bool, pre_vote : Bool
 
-  record AppendEntries, from : String, term : Int64, node_id : Int32, leader_uri : String,
+  record AppendEntries, from : Int32, term : Int64, leader_uri : String,
     prev_index : Int64, prev_term : Int64, entries : Array(Entry), commit : Int64
 
   # On failure match_index is a hint of the follower's last index.
-  record AppendResponse, from : String, term : Int64, node_id : Int32, success : Bool, match_index : Int64
+  record AppendResponse, from : Int32, term : Int64, success : Bool, match_index : Int64
 
-  record InstallSnapshot, from : String, term : Int64, node_id : Int32, leader_uri : String,
+  record InstallSnapshot, from : Int32, term : Int64, leader_uri : String,
     index : Int64, snapshot_term : Int64, isr : Set(Int32)?, membership : Membership? = nil
 
   # Sent by a leader shutting down gracefully, so an up-to-date follower
   # campaigns at once instead of waiting out its election timeout.
-  record TimeoutNow, from : String, term : Int64
+  record TimeoutNow, from : Int32, term : Int64
 
   # A voter's whole log, sent to an in-ISR candidate whose log is older, see
   # Core#handle_catch_up.
-  record CatchUp, from : String, term : Int64, node_id : Int32,
+  record CatchUp, from : Int32, term : Int64,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?, entries : Array(Entry),
     snapshot_membership : Membership? = nil
 
@@ -60,24 +64,22 @@ module LavinMQ::Clustering::Raft
       case msg
       in RequestVote
         io.write_byte 1u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
-        io.write_bytes msg.node_id, Format
         io.write_bytes msg.last_log_index, Format
         io.write_bytes msg.last_log_term, Format
         io.write_byte msg.pre_vote ? 1u8 : 0u8
         io.write_byte msg.transfer ? 1u8 : 0u8
       in VoteResponse
         io.write_byte 2u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
         io.write_byte msg.granted ? 1u8 : 0u8
         io.write_byte msg.pre_vote ? 1u8 : 0u8
       in AppendEntries
         io.write_byte 3u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
-        io.write_bytes msg.node_id, Format
         write_str io, msg.leader_uri
         io.write_bytes msg.prev_index, Format
         io.write_bytes msg.prev_term, Format
@@ -85,16 +87,14 @@ module LavinMQ::Clustering::Raft
         write_entries io, msg.entries
       in AppendResponse
         io.write_byte 4u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
-        io.write_bytes msg.node_id, Format
         io.write_byte msg.success ? 1u8 : 0u8
         io.write_bytes msg.match_index, Format
       in InstallSnapshot
         io.write_byte 5u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
-        io.write_bytes msg.node_id, Format
         write_str io, msg.leader_uri
         io.write_bytes msg.index, Format
         io.write_bytes msg.snapshot_term, Format
@@ -102,13 +102,12 @@ module LavinMQ::Clustering::Raft
         write_membership io, msg.membership
       in TimeoutNow
         io.write_byte 6u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
       in CatchUp
         io.write_byte 7u8
-        write_str io, msg.from
+        io.write_bytes msg.from, Format
         io.write_bytes msg.term, Format
-        io.write_bytes msg.node_id, Format
         io.write_bytes msg.snapshot_index, Format
         io.write_bytes msg.snapshot_term, Format
         write_isr io, msg.snapshot_isr
@@ -121,32 +120,30 @@ module LavinMQ::Clustering::Raft
     def decode(bytes : Bytes) : Message
       io = IO::Memory.new(bytes, writable: false)
       type = io.read_byte || raise IO::EOFError.new
-      from = read_str(io)
+      from = io.read_bytes Int32, Format
       term = io.read_bytes Int64, Format
       case type
       when 1
-        RequestVote.new(from, term, io.read_bytes(Int32, Format), io.read_bytes(Int64, Format),
-          io.read_bytes(Int64, Format), read_bool(io), read_bool(io))
+        RequestVote.new(from, term, io.read_bytes(Int64, Format), io.read_bytes(Int64, Format),
+          read_bool(io), read_bool(io))
       when 2
         VoteResponse.new(from, term, read_bool(io), read_bool(io))
       when 3
-        node_id = io.read_bytes Int32, Format
         leader_uri = read_str(io)
         prev_index = io.read_bytes Int64, Format
         prev_term = io.read_bytes Int64, Format
         commit = io.read_bytes Int64, Format
-        AppendEntries.new(from, term, node_id, leader_uri, prev_index, prev_term, read_entries(io, bytes.size), commit)
+        AppendEntries.new(from, term, leader_uri, prev_index, prev_term, read_entries(io, bytes.size), commit)
       when 4
-        AppendResponse.new(from, term, io.read_bytes(Int32, Format), read_bool(io), io.read_bytes(Int64, Format))
+        AppendResponse.new(from, term, read_bool(io), io.read_bytes(Int64, Format))
       when 5
-        node_id = io.read_bytes Int32, Format
         leader_uri = read_str(io)
-        InstallSnapshot.new(from, term, node_id, leader_uri, io.read_bytes(Int64, Format),
+        InstallSnapshot.new(from, term, leader_uri, io.read_bytes(Int64, Format),
           io.read_bytes(Int64, Format), read_isr(io), read_membership(io))
       when 6
         TimeoutNow.new(from, term)
       when 7
-        CatchUp.new(from, term, io.read_bytes(Int32, Format), io.read_bytes(Int64, Format),
+        CatchUp.new(from, term, io.read_bytes(Int64, Format),
           io.read_bytes(Int64, Format), read_isr(io), read_entries(io, bytes.size), read_membership(io))
       else
         raise IO::Error.new("Unknown raft message type #{type}")
@@ -177,13 +174,30 @@ module LavinMQ::Clustering::Raft
         return
       end
       io.write_byte 1u8
-      write_addrs io, membership.voters
-      write_addrs io, membership.learners
+      write_isr io, membership.voters
+      write_isr io, membership.learners
+      write_isr io, membership.relocated
+      io.write_bytes membership.addresses.size, Format
+      membership.addresses.each do |id, addr|
+        io.write_bytes id, Format
+        write_str io, addr
+      end
     end
 
     def read_membership(io) : Membership?
       return unless read_bool(io)
-      Membership.new(read_addrs(io), read_addrs(io))
+      voters = read_ids(io)
+      learners = read_ids(io)
+      relocated = read_ids(io)
+      size = io.read_bytes Int32, Format
+      raise IO::Error.new("Invalid member count #{size}") unless 0 <= size <= MAX_FRAME // 8
+      addresses = Hash(Int32, String).new(initial_capacity: size)
+      size.times { addresses[io.read_bytes(Int32, Format)] = read_str(io) }
+      Membership.new(voters, learners, addresses, relocated)
+    end
+
+    private def read_ids(io) : Set(Int32)
+      read_isr(io) || raise IO::Error.new("Missing member ids")
     end
 
     def write_entries(io, entries : Array(Entry)) : Nil
@@ -202,19 +216,6 @@ module LavinMQ::Clustering::Raft
       Array(Entry).new(count) do
         Entry.new(io.read_bytes(Int64, Format), read_isr(io), read_membership(io))
       end
-    end
-
-    private def write_addrs(io, addrs : Set(String)) : Nil
-      io.write_bytes addrs.size, Format
-      addrs.each { |a| write_str io, a }
-    end
-
-    private def read_addrs(io) : Set(String)
-      size = io.read_bytes Int32, Format
-      raise IO::Error.new("Invalid member count #{size}") unless 0 <= size <= MAX_FRAME // 4
-      set = Set(String).new(size)
-      size.times { set << read_str(io) }
-      set
     end
 
     def write_str(io, str : String) : Nil

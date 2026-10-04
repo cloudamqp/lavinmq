@@ -282,7 +282,7 @@ const clusterDataSource = new (class extends DataSource {
 })()
 const clusterTableOpts = {
   dataSource: clusterDataSource,
-  keyColumns: ['address'],
+  keyColumns: ['node_id'],
   countId: 'cluster-members-count'
 }
 const clusterRequest = (method, path, body) => {
@@ -301,7 +301,7 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
     buttons.append(DOM.button.edit({
       text: 'Promote',
       click: () => {
-        clusterRequest('POST', HTTP.url`api/cluster/members/${item.address}/promote`)
+        clusterRequest('POST', HTTP.url`api/cluster/members/${item.node_id}/promote`)
           .then(() => DOM.toast(`Promoted ${item.address}`)).catch(() => {})
       }
     }))
@@ -310,7 +310,7 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
       text: 'Make leader',
       click: () => {
         if (!window.confirm(`Hand over leadership to ${item.address}? The current leader stops serving and restarts as a follower.`)) return
-        clusterRequest('POST', 'api/cluster/transfer-leadership', { target: item.address })
+        clusterRequest('POST', 'api/cluster/transfer-leadership', { target: item.node_id })
           .then(() => DOM.toast(`Handing over leadership to ${item.address}`)).catch(() => {})
       }
     }))
@@ -320,7 +320,7 @@ Table.renderTable('cluster-members', clusterTableOpts, (tr, item, firstRender) =
       text: 'Remove',
       click: () => {
         if (!window.confirm(`Remove ${item.address} from the cluster? Shut the node down afterwards.`)) return
-        clusterRequest('DELETE', HTTP.url`api/cluster/members/${item.address}`)
+        clusterRequest('DELETE', HTTP.url`api/cluster/members/${item.node_id}`)
           .then(() => DOM.toast(`Removed ${item.address}`)).catch(() => {})
       }
     }))

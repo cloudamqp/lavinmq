@@ -1,5 +1,6 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/controller"
+require "../../src/lavinmq/clustering/raft/transport"
 
 private def free_port : Int32
   s = TCPServer.new("127.0.0.1", 0)
@@ -83,6 +84,7 @@ describe LavinMQ::HTTP::ClusterController do
       members = body["members"].as_a
       members.size.should eq 1
       members[0]["address"].as_s.should eq addr
+      members[0]["node_id"].as_s.should_not be_empty
       members[0]["role"].as_s.should eq "voter"
       members[0]["leader"].as_bool.should be_true
       members[0]["caught_up"].as_bool.should be_true
@@ -91,17 +93,30 @@ describe LavinMQ::HTTP::ClusterController do
 
   it "adds and removes a learner, and refuses the impossible with 409" do
     with_cluster_api do |http, addr|
+      # Something answering the raft handshake, as clustering id 77 ("25")
+      server = TCPServer.new("127.0.0.1", 0)
+      learner = "127.0.0.1:#{server.local_address.port}"
+      transport = LavinMQ::Clustering::Raft::TCPTransport.new("cluster-api-spec", 77, learner, Array(String).new,
+        ->(_e : LavinMQ::Clustering::Raft::TransportEvent) { })
+      spawn transport.listen(server)
+
       http.post("/api/cluster/members", body: "{}").status_code.should eq 400
-      http.post("/api/cluster/members", body: %({"address":"127.0.0.1:1"})).status_code.should eq 201
-      http.post("/api/cluster/members", body: %({"address":"127.0.0.1:1"})).status_code.should eq 409
+      http.post("/api/cluster/members", body: %({"address":"127.0.0.1:1"})).status_code.should eq 409 # unreachable
+      http.post("/api/cluster/members", body: %({"address":"#{learner}"})).status_code.should eq 201
+      http.post("/api/cluster/members", body: %({"address":"#{learner}"})).status_code.should eq 409
       members = JSON.parse(http.get("/api/cluster").body)["members"].as_a
-      members.find! { |m| m["address"] == "127.0.0.1:1" }["role"].as_s.should eq "learner"
+      member = members.find! { |m| m["address"] == learner }
+      member["role"].as_s.should eq "learner"
+      member["node_id"].as_s.should eq "25"
       # not in the ISR (never seen)
-      http.post("/api/cluster/members/127.0.0.1:1/promote").status_code.should eq 409
-      http.post("/api/cluster/members/127.0.0.1:9/promote").status_code.should eq 409
-      http.delete("/api/cluster/members/127.0.0.1:1").status_code.should eq 204
-      http.delete("/api/cluster/members/127.0.0.1:1").status_code.should eq 404
+      http.post("/api/cluster/members/#{URI.encode_www_form(learner)}/promote").status_code.should eq 409
+      http.post("/api/cluster/members/25/promote").status_code.should eq 409
+      http.post("/api/cluster/members/127.0.0.1:9/promote").status_code.should eq 404
+      http.delete("/api/cluster/members/25").status_code.should eq 204
+      http.delete("/api/cluster/members/25").status_code.should eq 404
       http.delete("/api/cluster/members/#{URI.encode_www_form(addr)}").status_code.should eq 409 # the leader
+    ensure
+      transport.try &.close
     end
   end
 

@@ -7,17 +7,10 @@ module LavinMQ::Clustering::Raft
     Leader
   end
 
-  record IdConflict, addr : String, holder : String, node_id : Int32 do
-    def to_s(io : IO) : Nil
-      io << addr << " and " << holder << " both have clustering id " << node_id.to_s(36)
-    end
-  end
-
   # What must be on disk before any message produced alongside it is sent.
-  record HardState, term : Int64, voted_for : String?,
+  record HardState, term : Int64, voted_for : Int32?,
     snapshot_index : Int64, snapshot_term : Int64, snapshot_isr : Set(Int32)?,
-    entries : Array(Entry), peer_node_ids = Hash(String, Int32).new,
-    snapshot_membership : Membership? = nil
+    entries : Array(Entry), snapshot_membership : Membership? = nil
 
   enum TransferResult
     # TimeoutNow was sent to the target
@@ -25,7 +18,7 @@ module LavinMQ::Clustering::Raft
     # The target is behind, TimeoutNow is sent when it has caught up
     Pending
     NotLeader
-    # Not a voter in the ISR that we know the id of
+    # Not a voter in the ISR, or not reachable where the membership says
     NotEligible
   end
 
@@ -41,6 +34,9 @@ module LavinMQ::Clustering::Raft
     IsLeader
     NotInIsr
     NotCaughtUp
+    AddressInUse
+    # The node couldn't be reached to learn its clustering id
+    Unreachable
     # Leadership was lost before the change was committed, it may still be
     # committed by the next leader
     Lost
@@ -56,6 +52,8 @@ module LavinMQ::Clustering::Raft
       in IsLeader      then "The leader can't be removed, transfer leadership first"
       in NotInIsr      then "Not in the in-sync replica set yet"
       in NotCaughtUp   then "Not caught up with the leader's log yet"
+      in AddressInUse  then "Another member has that address"
+      in Unreachable   then "Couldn't reach the node, start it first"
       in Lost          then "Leadership was lost before the change was committed"
       end
     end
@@ -89,6 +87,13 @@ module LavinMQ::Clustering::Raft
   #   at a time, and only once its term's no-op is committed. Removing a node
   #   also takes it out of the ISR in the same entry, so a removed node that
   #   missed the entry still can't win a vote.
+  # - Nodes are known by clustering id, their addresses are data in the
+  #   membership. A voter only counts (acks, votes, candidacy) while it's
+  #   connected from the address the membership lists for it. When it shows
+  #   up elsewhere the leader makes it a learner at the new address, a
+  #   single-server removal, and promotes it back once it's in the ISR and
+  #   caught up. So a copied data dir running next to the original is never
+  #   counted as the same voter twice.
   # - Pre-vote, so a node rejoining after a partition doesn't inflate the
   #   term and depose a healthy leader.
   # - Leader stickiness: votes are refused while a leader was heard from
@@ -96,22 +101,18 @@ module LavinMQ::Clustering::Raft
   #   hasn't heard from a majority for that long (check-quorum). Together
   #   they bound how long a deposed leader can believe it still leads.
   class Core
-    getter id : String
-    getter node_id : Int32
+    private record Departing, index : Int64, deadline : Time::Instant, address : String
+
+    getter id : Int32
+    getter address : String
     getter term = 0i64
-    getter voted_for : String? = nil
+    getter voted_for : Int32? = nil
     getter role = Role::Follower
-    getter leader : String? = nil
+    getter leader : Int32? = nil
     getter leader_uri : String? = nil
     getter commit_index = 0i64
-    getter outbox = Array(Tuple(String, Message)).new
+    getter outbox = Array(Tuple(Int32, Message)).new
     getter? dirty = false
-    # Set when two raft addresses claim the same clustering id, e.g. after a
-    # data dir was copied. ISR eligibility is by id, so the address that
-    # claimed it last is never followed, voted for or counted, and when the id
-    # is this node's own it doesn't campaign either. Cleared once one of them
-    # reports another id.
-    getter id_conflict : IdConflict? = nil
 
     @snapshot_index = 0i64
     @snapshot_term = 0i64
@@ -119,33 +120,35 @@ module LavinMQ::Clustering::Raft
     @snapshot_membership : Membership? = nil
     @entries = Array(Entry).new
     # The configured peers, used until the log has a membership
-    @seed_peers : Array(String)
+    @seed_addresses : Array(String)
+    # The clustering ids of the configured peers that we know of
+    @seed_ids = Hash(String, Int32).new
+    # Peers connected to us right now, with the address they advertise
+    @live = Hash(Int32, String).new
     # Everyone but ourselves that the latest membership lists, voters and learners
-    @peers = Array(String).new
-    @voters = Set(String).new
-    @transfer_target : Tuple(String, Time::Instant)? = nil
-    # Nodes this leader removed that haven't acked the removal yet, with its
-    # index and when to give up. Without that they'd never find out and keep
-    # waiting for a leader.
-    @departing = Hash(String, Tuple(Int64, Time::Instant)).new
+    @peers = Array(Int32).new
+    @voters = Set(Int32).new
+    @transfer_target : Tuple(Int32, Time::Instant)? = nil
+    # Nodes this leader removed that haven't acked the removal yet. Without
+    # that they'd never find out and keep waiting for a leader.
+    @departing = Hash(Int32, Departing).new
     @now : Time::Instant
-    @votes = Set(String).new
-    @pre_votes = Set(String).new
+    @votes = Set(Int32).new
+    @pre_votes = Set(Int32).new
     @pre_voting = false
-    @next_index = Hash(String, Int64).new
-    @match_index = Hash(String, Int64).new
-    @last_ack = Hash(String, Time::Instant).new
-    @peer_node_ids = Hash(String, Int32).new
+    @next_index = Hash(Int32, Int64).new
+    @match_index = Hash(Int32, Int64).new
+    @last_ack = Hash(Int32, Time::Instant).new
     @term_start_index = 0i64
     @election_deadline : Time::Instant
     @heartbeat_due : Time::Instant
     @last_heard_leader : Time::Instant? = nil
 
-    def initialize(@id : String, peers : Enumerable(String), @node_id : Int32, @uri : String,
+    def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
                    now : Time::Instant, state : HardState? = nil, @random : Random = Random.new,
                    @bootstrap = false)
-      @seed_peers = peers.reject(@id).uniq!
+      @seed_addresses = seeds.reject(@address).uniq!
       @now = now
       if state
         @term = state.term
@@ -155,7 +158,6 @@ module LavinMQ::Clustering::Raft
         @snapshot_isr = state.snapshot_isr
         @snapshot_membership = state.snapshot_membership
         @entries = state.entries.dup
-        @peer_node_ids = state.peer_node_ids.dup
         @commit_index = @snapshot_index
       end
       @election_deadline = now + randomized_election_timeout
@@ -164,7 +166,7 @@ module LavinMQ::Clustering::Raft
     end
 
     def hard_state : HardState
-      HardState.new(@term, @voted_for, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup, @peer_node_ids.dup,
+      HardState.new(@term, @voted_for, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup,
         @snapshot_membership)
     end
 
@@ -172,9 +174,9 @@ module LavinMQ::Clustering::Raft
       @dirty = false
     end
 
-    def take_outbox : Array(Tuple(String, Message))
+    def take_outbox : Array(Tuple(Int32, Message))
       msgs = @outbox
-      @outbox = Array(Tuple(String, Message)).new
+      @outbox = Array(Tuple(Int32, Message)).new
       msgs
     end
 
@@ -210,33 +212,74 @@ module LavinMQ::Clustering::Raft
       @snapshot_membership
     end
 
-    # The clustering ids peers have reported, by raft address. Don't mutate.
-    def peer_node_ids : Hash(String, Int32)
-      @peer_node_ids
-    end
-
     # Everyone but ourselves in the latest membership, learners included
-    def peers : Array(String)
+    def peers : Array(Int32)
       @peers
     end
 
     # Removed nodes that are still being told so
-    def departing : Array(String)
+    def departing : Array(Int32)
       @departing.keys
     end
 
-    def match_index(addr : String) : Int64
-      @match_index[addr]? || 0i64
+    def match_index(id : Int32) : Int64
+      @match_index[id]? || 0i64
     end
 
-    def voter?(addr : String) : Bool
-      @voters.includes?(addr)
+    def voter?(id : Int32) : Bool
+      @voters.includes?(id)
     end
 
     # Followers that lag at most this far behind the leader's log count as
     # caught up.
-    def caught_up?(addr : String) : Bool
-      @role.leader? && match_index(addr) >= last_index
+    def caught_up?(id : Int32) : Bool
+      @role.leader? && match_index(id) >= last_index
+    end
+
+    # Where to send to a node: where it's connected from, else where the
+    # membership, a pending removal or the configured peers say it is.
+    def address_of(id : Int32) : String?
+      @live[id]? || latest_membership.try(&.addresses[id]?) || @departing[id]?.try(&.address) ||
+        @seed_ids.key_for?(id)
+    end
+
+    # The addresses to keep connections to: every member, the nodes being told
+    # they were removed, the leader even if we don't know yet that it's a
+    # member (a node joining with an empty log can only answer the leader that
+    # way), and the configured peers until there's a membership.
+    def connect_to : Set(String)
+      addrs = Set(String).new
+      @peers.each { |p| address_of(p).try { |a| addrs << a } }
+      @departing.each_value { |d| addrs << d.address }
+      @leader.try { |l| address_of(l).try { |a| addrs << a } }
+      @seed_addresses.each { |a| addrs << a } unless latest_membership
+      addrs.delete(@address)
+      addrs
+    end
+
+    # A peer connected to us, advertising `address`. Every message from it
+    # arrives over such a connection, and only one address per id is
+    # connected at a time.
+    def connected(id : Int32, address : String, now : Time::Instant) : Nil
+      @now = now
+      return if id == @id
+      @live[id] = address
+      identified(address, id)
+      manage_membership
+    end
+
+    def disconnected(id : Int32, address : String) : Nil
+      @live.delete(id) if @live[id]? == address
+    end
+
+    # The node at `address` has clustering id `id`. Only matters for
+    # configured peers, until there's a membership.
+    def identified(address : String, id : Int32) : Nil
+      return if id == @id || !@seed_addresses.includes?(address) || @seed_ids[address]? == id
+      @seed_ids[address] = id
+      return if latest_membership
+      refresh_membership
+      manage_membership
     end
 
     # Leader whose no-op of this term is committed, i.e. it has applied every
@@ -245,8 +288,11 @@ module LavinMQ::Clustering::Raft
       @role.leader? && @commit_index >= @term_start_index
     end
 
+    # Before there's a membership every configured peer is a voter, also the
+    # ones whose id we don't know yet and so can't count.
     def quorum : Int32
-      @voters.size // 2 + 1
+      voter_count = latest_membership ? @voters.size : @seed_addresses.size + 1
+      voter_count // 2 + 1
     end
 
     # Append an ISR change. Returns its index, or nil when not the leader.
@@ -255,8 +301,9 @@ module LavinMQ::Clustering::Raft
     def propose(isr : Set(Int32), now : Time::Instant) : Int64?
       return unless @role.leader?
       @now = now
-      members = latest_membership.try(&.members)
-      isr = isr.reject { |id| (addr = @peer_node_ids.key_for?(id)) && members && !members.includes?(addr) && addr != @id }.to_set
+      if m = latest_membership
+        isr = isr.select { |id| m.includes?(id) }.to_set
+      end
       append Entry.new(@term, isr)
       advance_commit
       broadcast_append
@@ -268,43 +315,52 @@ module LavinMQ::Clustering::Raft
     # still leader in the same term. Only one change can be in flight, and only
     # once the leader has committed an entry in its term, otherwise two leaders
     # could each add a server and form disjoint majorities.
+    # A learner is added with the address to reach it at.
     # ameba:disable Metrics/CyclomaticComplexity
-    def propose_membership(change : MembershipChange, addr : String, now : Time::Instant) : Int64 | MembershipError
+    def propose_membership(change : MembershipChange, id : Int32, now : Time::Instant,
+                           address : String? = nil) : Int64 | MembershipError
       return MembershipError::NotLeader unless @role.leader?
       @now = now
       return MembershipError::NotServing unless serving_leader?
-      return MembershipError::Pending if @entries.any?(&.membership)
+      return MembershipError::Pending if membership_pending?
       current = latest_membership || return MembershipError::NotServing
       voters = current.voters.dup
       learners = current.learners.dup
+      addresses = current.addresses.dup
+      relocated = current.relocated.dup
       isr = nil
+      departing_address = nil
       case change
       in .add_learner?
-        return MembershipError::AlreadyMember if current.includes?(addr)
-        learners << addr
+        address || raise ArgumentError.new("A learner needs an address")
+        return MembershipError::AlreadyMember if current.includes?(id)
+        return MembershipError::AddressInUse if addresses.values.includes?(address)
+        learners << id
+        addresses[id] = address
       in .promote?
-        return MembershipError::NotLearner unless learners.includes?(addr)
-        node_id = @peer_node_ids[addr]?
-        return MembershipError::NotInIsr unless node_id && committed_isr.try(&.includes?(node_id))
-        return MembershipError::NotCaughtUp unless caught_up?(addr)
-        learners.delete(addr)
-        voters << addr
+        return MembershipError::NotLearner unless learners.includes?(id)
+        return MembershipError::NotInIsr unless committed_isr.try(&.includes?(id))
+        return MembershipError::NotCaughtUp unless caught_up?(id)
+        learners.delete(id)
+        relocated.delete(id)
+        voters << id
       in .remove?
-        return MembershipError::IsLeader if addr == @id
-        return MembershipError::UnknownMember unless current.includes?(addr)
-        voters.delete(addr)
-        learners.delete(addr)
-        if (node_id = @peer_node_ids[addr]?) && (latest = latest_isr)
-          isr = latest.dup.tap &.delete(node_id)
-        end
+        return MembershipError::IsLeader if id == @id
+        return MembershipError::UnknownMember unless current.includes?(id)
+        departing_address = address_of(id)
+        voters.delete(id)
+        learners.delete(id)
+        relocated.delete(id)
+        addresses.delete(id)
+        isr = latest_isr.try &.dup.tap &.delete(id)
       end
-      next_index = @next_index[addr]?
-      match_index = @match_index[addr]?
-      append Entry.new(@term, isr, Membership.new(voters, learners))
-      if change.remove?
-        @departing[addr] = {last_index, now + @election_timeout * 5}
-        @next_index[addr] = next_index || last_index
-        @match_index[addr] = match_index || 0i64
+      next_index = @next_index[id]?
+      match_index = @match_index[id]?
+      append Entry.new(@term, isr, Membership.new(voters, learners, addresses, relocated))
+      if departing_address
+        @departing[id] = Departing.new(last_index, now + @election_timeout * 5, departing_address)
+        @next_index[id] = next_index || last_index
+        @match_index[id] = match_index || 0i64
       end
       advance_commit
       broadcast_append
@@ -322,6 +378,7 @@ module LavinMQ::Clustering::Raft
           become_follower(@term, nil)
           return
         end
+        manage_membership
         if now >= @heartbeat_due
           @heartbeat_due = now + @heartbeat_interval
           broadcast_append
@@ -335,7 +392,7 @@ module LavinMQ::Clustering::Raft
     # Hand leadership to `target`, a voter in the ISR, or without one to any
     # fully caught up such peer. A target that's behind gets TimeoutNow as soon
     # as it has caught up, but no later than an election timeout from now.
-    def transfer_leadership(target : String? = nil) : TransferResult
+    def transfer_leadership(target : Int32? = nil) : TransferResult
       return TransferResult::NotLeader unless @role.leader?
       if target
         return TransferResult::NotEligible unless transfer_eligible?(target)
@@ -355,11 +412,10 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    private def transfer_eligible?(peer : String) : Bool
-      return false unless @voters.includes?(peer) && @peers.includes?(peer)
-      return false unless node_id = @peer_node_ids[peer]?
+    private def transfer_eligible?(peer : Int32) : Bool
+      return false unless @voters.includes?(peer) && @peers.includes?(peer) && at_home?(peer)
       isr = latest_isr
-      !isr.nil? && isr.includes?(node_id)
+      !isr.nil? && isr.includes?(peer)
     end
 
     def step(msg : Message, now : Time::Instant) : Nil
@@ -376,13 +432,9 @@ module LavinMQ::Clustering::Raft
     end
 
     private def handle_request_vote(msg : RequestVote, now : Time::Instant) : Nil
-      unless claim_node_id(msg.from, msg.node_id)
-        send msg.from, VoteResponse.new(@id, msg.pre_vote ? msg.term : @term, false, pre_vote: msg.pre_vote)
-        return
-      end
       up_to_date = log_up_to_date?(msg.last_log_index, msg.last_log_term)
-      candidate_in_isr = in_isr?(latest_isr, msg.node_id)
-      eligible = up_to_date && candidate_in_isr
+      candidate_in_isr = in_isr?(latest_isr, msg.from)
+      eligible = up_to_date && candidate_in_isr && @voters.includes?(msg.from) && at_home?(msg.from)
       sticky = !msg.transfer && leader_recent?(now)
       if msg.pre_vote
         granted = msg.term > @term && !sticky && eligible
@@ -391,7 +443,7 @@ module LavinMQ::Clustering::Raft
         handle_vote(msg, eligible, sticky, now)
       end
       if candidate_in_isr && !up_to_date
-        send msg.from, CatchUp.new(@id, @term, @node_id, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup,
+        send msg.from, CatchUp.new(@id, @term, @snapshot_index, @snapshot_term, @snapshot_isr, @entries.dup,
           @snapshot_membership)
       end
     end
@@ -417,7 +469,7 @@ module LavinMQ::Clustering::Raft
     private def handle_vote_response(msg : VoteResponse, now : Time::Instant) : Nil
       if msg.pre_vote
         return unless @pre_voting && msg.granted && msg.term == @term + 1
-        return unless @voters.includes?(msg.from)
+        return unless @voters.includes?(msg.from) && at_home?(msg.from)
         @pre_votes << msg.from
         start_election(now, transfer: false) if @pre_votes.size >= quorum
         return
@@ -427,26 +479,25 @@ module LavinMQ::Clustering::Raft
         return
       end
       return unless @role.candidate? && msg.term == @term && msg.granted
-      return unless @voters.includes?(msg.from)
+      return unless @voters.includes?(msg.from) && at_home?(msg.from)
       @votes << msg.from
       become_leader(now) if @votes.size >= quorum
     end
 
     private def handle_append_entries(msg : AppendEntries, now : Time::Instant) : Nil
-      return unless claim_node_id(msg.from, msg.node_id)
       if msg.term < @term
-        send msg.from, AppendResponse.new(@id, @term, @node_id, false, last_index)
+        send msg.from, AppendResponse.new(@id, @term, false, last_index)
         return
       end
       accept_leader(msg.term, msg.from, msg.leader_uri, now)
       if msg.prev_index > last_index
-        send msg.from, AppendResponse.new(@id, @term, @node_id, false, last_index)
+        send msg.from, AppendResponse.new(@id, @term, false, last_index)
         return
       end
       if msg.prev_index >= @snapshot_index && term_at(msg.prev_index) != msg.prev_term
         # Conflicting entries are never committed, drop them
         truncate_from(msg.prev_index)
-        send msg.from, AppendResponse.new(@id, @term, @node_id, false, msg.prev_index - 1)
+        send msg.from, AppendResponse.new(@id, @term, false, msg.prev_index - 1)
         return
       end
       merge_entries(msg.prev_index, msg.entries)
@@ -454,25 +505,23 @@ module LavinMQ::Clustering::Raft
       if msg.commit > @commit_index
         commit_to Math.min(msg.commit, match)
       end
-      send msg.from, AppendResponse.new(@id, @term, @node_id, true, match)
+      send msg.from, AppendResponse.new(@id, @term, true, match)
     end
 
     private def handle_install_snapshot(msg : InstallSnapshot, now : Time::Instant) : Nil
-      return unless claim_node_id(msg.from, msg.node_id)
       if msg.term < @term
-        send msg.from, AppendResponse.new(@id, @term, @node_id, false, last_index)
+        send msg.from, AppendResponse.new(@id, @term, false, last_index)
         return
       end
       accept_leader(msg.term, msg.from, msg.leader_uri, now)
       install_snapshot(msg.index, msg.snapshot_term, msg.isr, msg.membership)
-      send msg.from, AppendResponse.new(@id, @term, @node_id, true, msg.index)
+      send msg.from, AppendResponse.new(@id, @term, true, msg.index)
     end
 
     # Adopts a voter's log when it's more up to date than ours. That never
     # drops a committed entry: a log with a later last term holds every entry
     # committed before that term, one with the same last term extends ours.
     private def handle_catch_up(msg : CatchUp, now : Time::Instant) : Nil
-      return unless claim_node_id(msg.from, msg.node_id)
       become_follower(msg.term, nil) if msg.term > @term
       return if leader_recent?(now)
       last = msg.snapshot_index + msg.entries.size
@@ -513,7 +562,6 @@ module LavinMQ::Clustering::Raft
         return
       end
       return unless @role.leader? && msg.term == @term
-      return unless claim_node_id(msg.from, msg.node_id)
       @last_ack[msg.from] = now
       if msg.success
         if msg.match_index > (@match_index[msg.from]? || 0i64)
@@ -522,7 +570,7 @@ module LavinMQ::Clustering::Raft
         end
         @next_index[msg.from] = Math.max(@next_index[msg.from]? || 1i64, msg.match_index + 1)
         send_append(msg.from) if @next_index[msg.from] <= last_index
-        if (d = @departing[msg.from]?) && msg.match_index >= d[0]
+        if (d = @departing[msg.from]?) && msg.match_index >= d.index
           @departing.delete(msg.from)
           refresh_membership
         end
@@ -543,7 +591,7 @@ module LavinMQ::Clustering::Raft
       start_election(now, transfer: true)
     end
 
-    private def accept_leader(term : Int64, leader : String, uri : String, now : Time::Instant) : Nil
+    private def accept_leader(term : Int64, leader : Int32, uri : String, now : Time::Instant) : Nil
       if term > @term || !@role.follower?
         become_follower(term, leader)
       end
@@ -555,9 +603,10 @@ module LavinMQ::Clustering::Raft
     end
 
     private def may_campaign? : Bool
-      return false if @id_conflict.try(&.holder) == @id
       return false unless @voters.includes?(@id)
-      return false unless in_isr?(latest_isr, @node_id)
+      # At a new address the leader first has to make us a learner here
+      return false if (m = latest_membership) && m.addresses[@id]? != @address
+      return false unless in_isr?(latest_isr, @id)
       @bootstrap || last_index > 0
     end
 
@@ -571,7 +620,7 @@ module LavinMQ::Clustering::Raft
         return
       end
       voting_peers.each do |p|
-        send p, RequestVote.new(@id, @term + 1, @node_id, last_index, last_term, pre_vote: true, transfer: false)
+        send p, RequestVote.new(@id, @term + 1, last_index, last_term, pre_vote: true, transfer: false)
       end
     end
 
@@ -591,11 +640,11 @@ module LavinMQ::Clustering::Raft
         return
       end
       voting_peers.each do |p|
-        send p, RequestVote.new(@id, @term, @node_id, last_index, last_term, pre_vote: false, transfer: transfer)
+        send p, RequestVote.new(@id, @term, last_index, last_term, pre_vote: false, transfer: transfer)
       end
     end
 
-    private def become_follower(term : Int64, leader : String?) : Nil
+    private def become_follower(term : Int64, leader : Int32?) : Nil
       if term > @term
         @term = term
         @voted_for = nil
@@ -621,7 +670,8 @@ module LavinMQ::Clustering::Raft
         @last_ack[p] = now
       end
       # Seed what a previous leader hasn't, like the first leader's ISR
-      append Entry.new(@term, latest_isr ? nil : Set{@node_id}, latest_membership ? nil : seed_membership)
+      seed = seed_membership if latest_membership.nil? && seeds_identified?
+      append Entry.new(@term, latest_isr ? nil : Set{@id}, seed)
       @term_start_index = last_index
       advance_commit
       @heartbeat_due = now + @heartbeat_interval
@@ -630,7 +680,7 @@ module LavinMQ::Clustering::Raft
 
     private def lost_quorum?(now : Time::Instant) : Bool
       acked = self_vote
-      voting_peers.each do |p|
+      counted_peers.each do |p|
         if last = @last_ack[p]?
           acked += 1 if now - last < @election_timeout
         end
@@ -648,28 +698,68 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    # Remembers the clustering id a peer reported. Returns false, and the
-    # message must be ignored, when another member already holds that id. An
-    # address that has left the cluster gives its id up, the node may have
-    # moved to a new address with its data dir.
-    private def claim_node_id(addr : String, node_id : Int32) : Bool
-      holder = node_id == @node_id ? @id : @peer_node_ids.key_for?(node_id)
-      if holder && holder != addr
-        if holder == @id || tracked?(holder)
-          @id_conflict = IdConflict.new(addr, holder, node_id)
-          return false
-        end
-        @peer_node_ids.delete(holder)
-        @id_conflict = nil if @id_conflict.try(&.node_id) == node_id
+    # Leader housekeeping that is itself a membership change, so one at a
+    # time: seed the membership once every configured peer's id is known,
+    # make a member that connected from a new address a learner there, and
+    # promote such a relocated member back once it's eligible.
+    private def manage_membership : Nil
+      return if !serving_leader? || membership_pending?
+      unless m = latest_membership
+        append_membership(seed_membership) if seeds_identified?
+        return
       end
-      if (c = @id_conflict) && addr.in?(c.addr, c.holder) && node_id != c.node_id
-        @id_conflict = nil
+      @live.each do |id, address|
+        next if !m.includes?(id) || m.addresses[id]? == address
+        relocate(m, id, address)
+        return
       end
-      if @peer_node_ids[addr]? != node_id
-        @peer_node_ids[addr] = node_id
-        @dirty = true
+      m.relocated.each do |id|
+        next unless m.learners.includes?(id) && committed_isr.try(&.includes?(id)) && caught_up?(id)
+        propose_membership(MembershipChange::Promote, id, @now)
+        return
       end
-      true
+    end
+
+    # Demoting a voter is a single-server removal, so a majority of the old
+    # voters always overlaps one of the new, even if the node at the old
+    # address is still running from a copy of the data dir.
+    private def relocate(m : Membership, id : Int32, address : String) : Nil
+      voters = m.voters.dup
+      learners = m.learners.dup
+      relocated = m.relocated.dup
+      if voters.delete(id)
+        learners << id
+        relocated << id
+      end
+      addresses = m.addresses.dup
+      addresses[id] = address
+      append_membership Membership.new(voters, learners, addresses, relocated)
+    end
+
+    private def append_membership(membership : Membership) : Nil
+      append Entry.new(@term, nil, membership)
+      advance_commit
+      broadcast_append
+    end
+
+    private def membership_pending? : Bool
+      @entries.any?(&.membership)
+    end
+
+    private def seeds_identified? : Bool
+      @seed_ids.size == @seed_addresses.size
+    end
+
+    # Whether a peer is connected from where the membership (or before there
+    # is one, the configured peers) says it is, so its acks and votes count.
+    private def at_home?(id : Int32) : Bool
+      return true if id == @id
+      address = @live[id]? || return false
+      if m = latest_membership
+        m.addresses[id]? == address
+      else
+        @seed_addresses.includes?(address)
+      end
     end
 
     private def in_isr?(isr : Set(Int32)?, node_id : Int32) : Bool
@@ -686,18 +776,23 @@ module LavinMQ::Clustering::Raft
     end
 
     private def expire_departing(now : Time::Instant) : Nil
-      expired = @departing.select { |_, d| now >= d[1] }.keys
+      expired = @departing.select { |_, d| now >= d.deadline }.keys
       return if expired.empty?
-      expired.each { |addr| @departing.delete(addr) }
+      expired.each { |id| @departing.delete(id) }
       refresh_membership
     end
 
-    private def tracked?(addr : String) : Bool
-      @peers.includes?(addr) || @departing.has_key?(addr)
+    private def tracked?(id : Int32) : Bool
+      @peers.includes?(id) || @departing.has_key?(id)
     end
 
-    private def voting_peers : Array(String)
+    private def voting_peers : Array(Int32)
       @peers.select { |p| @voters.includes?(p) }
+    end
+
+    # The voters whose acks count
+    private def counted_peers : Array(Int32)
+      @peers.select { |p| @voters.includes?(p) && at_home?(p) }
     end
 
     # Our own vote, if we're a voter
@@ -706,7 +801,9 @@ module LavinMQ::Clustering::Raft
     end
 
     private def seed_membership : Membership
-      Membership.new((@seed_peers + [@id]).to_set, Set(String).new)
+      addresses = {@id => @address}
+      @seed_ids.each { |addr, id| addresses[id] = @live[id]? || addr }
+      Membership.new(addresses.keys.to_set, Set(Int32).new, addresses)
     end
 
     # Recompute who we talk to and who counts after the log or snapshot changed.
@@ -716,8 +813,8 @@ module LavinMQ::Clustering::Raft
         @voters = m.voters.dup
         @peers = m.members.reject(@id)
       else
-        @voters = (@seed_peers + [@id]).to_set
-        @peers = @seed_peers.dup
+        @voters = @seed_ids.values.to_set << @id
+        @peers = @seed_ids.values.uniq!.reject(@id)
       end
       # Forget what we knew about peers that left, they may come back as new
       @next_index.reject! { |p, _| !tracked?(p) }
@@ -731,23 +828,23 @@ module LavinMQ::Clustering::Raft
       end
     end
 
-    private def send_append(peer : String) : Nil
+    private def send_append(peer : Int32) : Nil
       next_index = @next_index[peer]? || last_index + 1
       if next_index <= @snapshot_index
-        send peer, InstallSnapshot.new(@id, @term, @node_id, @uri, @snapshot_index, @snapshot_term, @snapshot_isr,
+        send peer, InstallSnapshot.new(@id, @term, @uri, @snapshot_index, @snapshot_term, @snapshot_isr,
           @snapshot_membership)
         return
       end
       prev = next_index - 1
       entries = @entries[(next_index - @snapshot_index - 1).to_i..]? || Array(Entry).new
-      send peer, AppendEntries.new(@id, @term, @node_id, @uri, prev, term_at(prev), entries, @commit_index)
+      send peer, AppendEntries.new(@id, @term, @uri, prev, term_at(prev), entries, @commit_index)
     end
 
     private def advance_commit : Nil
       n = last_index
       while n > @commit_index
         break if term_at(n) != @term # only entries of the current term are committed by counting
-        replicated = self_vote + voting_peers.count { |p| (@match_index[p]? || 0i64) >= n }
+        replicated = self_vote + counted_peers.count { |p| (@match_index[p]? || 0i64) >= n }
         if replicated >= quorum
           commit_to n
           return
@@ -797,7 +894,7 @@ module LavinMQ::Clustering::Raft
       refresh_membership if reverted
     end
 
-    private def send(to : String, msg : Message) : Nil
+    private def send(to : Int32, msg : Message) : Nil
       @outbox << {to, msg}
     end
 

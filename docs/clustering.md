@@ -134,6 +134,8 @@ Changes are made one server at a time and only on the leader, and the leader onl
 - a **learner**: it gets the Raft log and replicates broker data like a follower, so it can end up in the ISR, but it doesn't vote, count towards commit or quorum, or campaign. Adding one doesn't change the quorum.
 - a **voter**: a promoted learner. It can only be promoted once it is in the ISR (has the broker data) and has caught up in the Raft log.
 
+Nodes are identified by the `.clustering_id` in their data dir, the membership records where to reach each of them. `add_cluster_member` takes the new node's raft address and asks the node for its id, so the node must be running. The other operations take either the address or the id (as shown by `cluster_status`).
+
 Removing a node also removes it from the ISR in the same entry, so a removed node that missed it can still never win an election. The leader can't be removed, transfer leadership first. Non-members are refused when they try to replicate broker data, and a removed node's replication connection is closed.
 
 The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_member`, `promote_cluster_member`, `remove_cluster_member`, `transfer_leadership`) and in the HTTP API under `/api/cluster` (administrator only, see the OpenAPI docs). With the etcd backend they return `400`.
@@ -152,7 +154,11 @@ To move a replica from node A to a new node D:
 4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A restarts as a follower.
 5. `lavinmqctl remove_cluster_member <A>`, then shut A down and wipe its data dir before reusing it. A removed node logs that it isn't a member and keeps retrying until it is stopped.
 
-To give a node a new address but keep its data dir, shut it down and `lavinmqctl remove_cluster_member <old address>`, then `add_cluster_member <new address>`, start it with its new `raft_advertised_address`, and promote it once it's in the ISR. Nodes are also known by the `.clustering_id` in their data dir, so it's taken back as the same node and only syncs what changed. Until the removal has been acknowledged or given up on (5 election timeouts), the new address is refused as a clustering id conflict.
+### Changing a node's address
+
+To give a node a new address but keep its data dir, restart it with the new `raft_advertised_address`. When it connects from there, the leader makes it a learner at the new address and promotes it back once it has synced and caught up again. Meanwhile the cluster has one voter less: in a three node cluster the other two must both be up. A node at a new address doesn't campaign until the leader has moved it.
+
+Copying a data dir to start another node also copies its clustering id. While the original is connected, the copy is refused with a log about a clustering id conflict. Delete `.clustering_id` on the copy to give it an id of its own. If the original is down, the copy is taken for the node having moved, and the original is refused when it comes back.
 
 ### Leader Election Hooks
 
