@@ -91,9 +91,12 @@ module LavinMQ::AMQP
     end
 
     # Readahead for reading a full segment, which can still be advised random
-    # from when it was written (see MessageStore#random_access_for_sync)
+    # from when it was written (see MessageStore#random_access_for_sync).
+    # Normal rather than sequential advice: several consumers can read the
+    # same segment, and the kernel evicts pages read through a sequential
+    # mapping early, possibly before the next consumer has read them.
     private def read_ahead(mfile : MFile) : Nil
-      mfile.advise(MFile::Advice::Sequential) unless mfile == @wfile
+      mfile.advise(MFile::Advice::Normal) unless mfile == @wfile
     end
 
     def release_segment(consumer : StreamConsumer) : Nil
@@ -301,7 +304,7 @@ module LavinMQ::AMQP
     # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
       if @segment_readers.has_key?(seg)
-        mfile.advise(MFile::Advice::Sequential)
+        mfile.advise(MFile::Advice::Normal) # see #read_ahead, still @wfile here
       else
         mfile.dontneed
       end
