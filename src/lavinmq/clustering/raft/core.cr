@@ -100,8 +100,21 @@ module LavinMQ::Clustering::Raft
   #   within the minimum election timeout, and a leader steps down when it
   #   hasn't heard from a majority for that long (check-quorum). Together
   #   they bound how long a deposed leader can believe it still leads.
+  # - Members are identified by clustering id, but a voter only counts while
+  #   connected from the address the membership lists for it, so a copied
+  #   data dir can't vote twice. A leader moves a voter that connects from
+  #   elsewhere. When most voters move at once no leader can do that, so
+  #   after MOVED_TRUST_AFTER election timeouts without a leader the voters
+  #   count each other wherever they are, and the leader elected records the
+  #   new addresses. That trusts that a node at a new address is a move and
+  #   not a copy running next to the original.
   class Core
     private record Departing, index : Int64, deadline : Time::Instant, address : String
+
+    # Election timeouts without a leader before voters at new addresses are
+    # trusted, see at_home?. Long enough that a normal election has had
+    # every chance to finish first.
+    MOVED_TRUST_AFTER = 3
 
     getter id : Int32
     getter address : String
@@ -146,6 +159,14 @@ module LavinMQ::Clustering::Raft
     @election_deadline : Time::Instant
     @heartbeat_due : Time::Instant
     @last_heard_leader : Time::Instant? = nil
+    # When this node last stopped having a leader: startup, or stepping
+    # down. With @last_heard_leader it says how long we've been without one.
+    @leaderless_since : Time::Instant
+    # Set after MOVED_TRUST_AFTER election timeouts without a leader: voters
+    # at other addresses than the membership lists are counted and a moved
+    # node campaigns, see at_home?. Cleared on hearing from a leader, and by
+    # a leader once it has recorded the new addresses.
+    @trust_moved = false
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), @uri : String,
                    @election_timeout : Time::Span, @heartbeat_interval : Time::Span,
@@ -153,6 +174,7 @@ module LavinMQ::Clustering::Raft
                    @bootstrap = false)
       @seed_addresses = seeds.reject(@address).uniq!
       @now = now
+      @leaderless_since = now
       if state
         @term = state.term
         @voted_for = state.voted_for
@@ -247,6 +269,21 @@ module LavinMQ::Clustering::Raft
     def leader_heard_ago(now : Time::Instant) : Time::Span?
       return if @role.leader?
       @last_heard_leader.try { |heard| now - heard }
+    end
+
+    # How long this node has been without a leader: since it last heard from
+    # one, started, or stepped down, whichever is latest.
+    def leaderless_for(now : Time::Instant) : Time::Span
+      return Time::Span.zero if @role.leader?
+      since = @leaderless_since
+      @last_heard_leader.try { |heard| since = heard if heard > since }
+      now - since
+    end
+
+    # Whether voters at other addresses than the membership lists are being
+    # counted, because there has been no leader for a long time.
+    def trusting_moved? : Bool
+      @trust_moved
     end
 
     # Whether a peer has answered this leader within the election timeout,
@@ -410,9 +447,12 @@ module LavinMQ::Clustering::Raft
           @heartbeat_due = now + @heartbeat_interval
           broadcast_append
         end
-      elsif now >= @election_deadline
-        @election_deadline = now + randomized_election_timeout
-        start_pre_vote(now)
+      else
+        @trust_moved = true if leaderless_for(now) >= @election_timeout * MOVED_TRUST_AFTER
+        if now >= @election_deadline
+          @election_deadline = now + randomized_election_timeout
+          start_pre_vote(now)
+        end
       end
     end
 
@@ -630,13 +670,15 @@ module LavinMQ::Clustering::Raft
       @leader = leader
       @leader_uri = uri
       @last_heard_leader = now
+      @trust_moved = false
       @election_deadline = now + randomized_election_timeout
     end
 
     private def may_campaign? : Bool
       return false unless @voters.includes?(@id)
-      # At a new address the leader first has to make us a learner here
-      return false if moved_from
+      # At a new address the leader first has to make us a learner here,
+      # unless there has been no leader to do so for a long time
+      return false if moved_from && !@trust_moved
       return false unless in_isr?(latest_isr, @id)
       @bootstrap || last_index > 0
     end
@@ -681,6 +723,7 @@ module LavinMQ::Clustering::Raft
         @voted_for = nil
         @dirty = true
       end
+      @leaderless_since = @now if @role.leader?
       @role = Role::Follower
       @pre_voting = false
       @transfer_target = nil
@@ -702,8 +745,16 @@ module LavinMQ::Clustering::Raft
         @last_ack[p] = now
       end
       # Seed what a previous leader hasn't, like the first leader's ISR
-      seed = seed_membership if latest_membership.nil? && seeds_identified?
-      append Entry.new(@term, latest_isr ? nil : Set{@id}, seed)
+      membership = if latest_membership.nil?
+                     seed_membership if seeds_identified?
+                   elsif @trust_moved
+                     # Elected by counting voters at new addresses: record them
+                     # in the first entry, so everyone is at home again and the
+                     # normal rules apply from here on
+                     moved_addresses_membership
+                   end
+      @trust_moved = false
+      append Entry.new(@term, latest_isr ? nil : Set{@id}, membership)
       @term_start_index = last_index
       advance_commit
       @heartbeat_due = now + @heartbeat_interval
@@ -768,6 +819,17 @@ module LavinMQ::Clustering::Raft
       append_membership Membership.new(voters, learners, addresses, relocated)
     end
 
+    # The membership with the current addresses of this node and of the
+    # connected members, roles unchanged. Nil when nothing has moved.
+    private def moved_addresses_membership : Membership?
+      m = latest_membership || return
+      addresses = m.addresses.dup
+      addresses[@id] = @address if m.includes?(@id)
+      @live.each { |id, address| addresses[id] = address if m.includes?(id) }
+      return if addresses == m.addresses
+      Membership.new(m.voters, m.learners, addresses, m.relocated)
+    end
+
     private def append_membership(membership : Membership) : Nil
       append Entry.new(@term, nil, membership)
       advance_commit
@@ -787,9 +849,10 @@ module LavinMQ::Clustering::Raft
     # acks and votes count. Not being connected right now is fine: messages
     # only arrive over a connection, and a peer that restarted may not have
     # reconnected to us yet. Non-members, like a removed node acking its
-    # removal, have no address to be at.
+    # removal, have no address to be at. After a long time without a leader
+    # everyone counts, see @trust_moved.
     private def at_home?(id : Int32) : Bool
-      return true if id == @id
+      return true if id == @id || @trust_moved
       address = @live[id]? || return true
       if m = latest_membership
         expected = m.addresses[id]? || return true

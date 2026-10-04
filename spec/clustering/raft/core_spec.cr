@@ -152,10 +152,11 @@ private class SimCluster
   end
 end
 
-# Whether the core starts a (pre-)vote once its election timeout has passed.
-private def campaigns?(core : Raft::Core, now : Time::Instant) : Bool
+# Whether the core starts a (pre-)vote once its election timeout has passed,
+# `after` the given time without a leader.
+private def campaigns?(core : Raft::Core, now : Time::Instant, after = 1.second) : Bool
   core.take_outbox
-  core.tick(now + 1.second)
+  core.tick(now + after)
   core.take_outbox.any?(&.[1].is_a?(Raft::RequestVote))
 end
 
@@ -375,11 +376,15 @@ describe Raft::Core do
     reply.as(Raft::VoteResponse).granted.should be_true
   end
 
-  it "doesn't campaign from another address than the membership lists for it" do
+  it "doesn't campaign from another address than the membership lists for it, until long without a leader" do
     now = Time.instant
     state = Raft::HardState.new(1, nil, 1, 1, nil, [] of Raft::Entry, three_voters)
     moved = Raft::Core.new(2, "n2b", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, state)
-    campaigns?(moved, now).should be_false
+    # Past its election timeout, but a leader may still move it
+    campaigns?(moved, now, 100.milliseconds * (Raft::Core::MOVED_TRUST_AFTER - 0.5)).should be_false
+    moved.trusting_moved?.should be_false
+    campaigns?(moved, now).should be_true
+    moved.trusting_moved?.should be_true
     home = Raft::Core.new(2, "n2", ["n1", "n2", "n3"], "u2", 100.milliseconds, 20.milliseconds, now, state)
     campaigns?(home, now).should be_true
   end
@@ -812,7 +817,7 @@ describe Raft::Core, "membership" do
     sim[moved].voter?(moved).should be_true
   end
 
-  it "can't elect a leader when most voters moved at once" do
+  it "elects a leader that records the new addresses when most voters moved at once" do
     sim = SimCluster.new(3)
     leader = sim.elect(Set{1, 2, 3})
     a, b = sim.cores.keys.reject(leader.id)
@@ -821,10 +826,56 @@ describe Raft::Core, "membership" do
     sim.move(a, "n#{a}b")
     sim.move(b, "n#{b}b")
     sim[b].moved_from.should eq "n#{b}"
-    sim.advance(3.seconds)
+    # The leader can't commit a relocation and steps down, and nobody trusts
+    # the moved voters until there has been no leader for a while
+    sim.advance(SimCluster::ELECTION * 2)
     sim.leader.should be_nil
-    sim[b].moved_from.should eq "n#{b}"
-    leader.committed_membership.not_nil!.addresses[b].should eq "n#{b}"
+    sim.cores.each_value(&.trusting_moved?.should(be_false))
+    sim.run_until(3.seconds) { sim.leader.try &.serving_leader? }
+    sim.run_until do
+      m = sim.leader.not_nil!.committed_membership.not_nil!
+      m.addresses[a] == "n#{a}b" && m.addresses[b] == "n#{b}b"
+    end
+    sim.advance(SimCluster::ELECTION)
+    membership = sim.leader.not_nil!.committed_membership.not_nil!
+    membership.voters.should eq Set{1, 2, 3}
+    membership.learners.should be_empty
+    sim.cores.each_value do |c|
+      c.moved_from.should be_nil
+      c.trusting_moved?.should be_false
+      c.committed_membership.should eq membership
+    end
+    sim.leaders.size.should eq 1
+  end
+
+  it "elects a leader when every voter moved at once" do
+    sim = SimCluster.new(3)
+    sim.elect(Set{1, 2, 3})
+    sim.cores.keys.each { |id| sim.crash(id) }
+    sim.cores.keys.each { |id| sim.move(id, "n#{id}b") }
+    sim.cores.each { |id, c| c.moved_from.should eq "n#{id}" }
+    sim.advance(SimCluster::ELECTION * 2)
+    sim.leader.should be_nil
+    sim.run_until(3.seconds) { sim.leader.try &.serving_leader? }
+    sim.run_until { sim.cores.each_value.all? { |c| c.committed_membership.try(&.addresses.values.all?(&.ends_with?("b"))) } }
+    sim.cores.each_value do |c|
+      c.moved_from.should be_nil
+      c.committed_membership.not_nil!.voters.should eq Set{1, 2, 3}
+    end
+  end
+
+  it "stops trusting moved voters once there is a leader" do
+    sim = SimCluster.new(3)
+    leader = sim.elect(Set{1, 2, 3})
+    others = sim.cores.keys.reject(leader.id)
+    sim.isolated.concat(others)
+    sim.advance(SimCluster::ELECTION * 5)
+    leader.role.leader?.should be_false
+    sim.cores.each_value(&.trusting_moved?.should(be_true))
+    sim.isolated.clear
+    sim.run_until { sim.leader.try &.serving_leader? }
+    sim.advance(SimCluster::ELECTION)
+    sim.cores.each_value(&.trusting_moved?.should(be_false))
   end
 
   it "promotes a relocated node back only once it's in the ISR" do
