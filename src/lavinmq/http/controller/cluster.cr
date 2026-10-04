@@ -52,10 +52,15 @@ module LavinMQ
           in Clustering::RaftController::Transfer
             # The leader stops serving, including this connection, so the
             # response has to be complete before that.
-            context.response.status_code = 202
-            {target: plan.target, term: plan.term}.to_json(context.response)
-            context.response.close
-            cluster.step_down(plan.target)
+            begin
+              context.response.status_code = 202
+              {target: plan.target, term: plan.term}.to_json(context.response)
+              context.response.close
+            ensure
+              # The transfer is claimed, so it has to proceed even if the
+              # client went away, or no later transfer could be requested
+              cluster.step_down(plan.target)
+            end
           in String
             halt(context, 409, {error: "conflict", reason: plan})
           end
