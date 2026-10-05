@@ -20,7 +20,7 @@ module MqttSpecs
             with_client_io(server) do |io|
               resp = connect io, username: "foo", password: "bar".to_slice
               resp = resp.should be_a(MQTT::Protocol::Connack)
-              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
+              resp.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::NotAuthorized
             end
           end
         end
@@ -33,7 +33,7 @@ module MqttSpecs
             with_client_io(server) do |io|
               resp = connect io, username: "foo", password: "bar".to_slice
               resp = resp.should be_a(MQTT::Protocol::Connack)
-              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+              resp.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             end
           end
         end
@@ -46,7 +46,7 @@ module MqttSpecs
             with_client_io(server) do |io|
               resp = connect io, username: "new:foo", password: "bar".to_slice
               resp = resp.should be_a(MQTT::Protocol::Connack)
-              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
+              resp.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::NotAuthorized
             end
           end
         end
@@ -59,7 +59,7 @@ module MqttSpecs
             with_client_io(server) do |io|
               resp = connect io, username: "new:foo", password: "bar".to_slice
               resp = resp.should be_a(MQTT::Protocol::Connack)
-              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+              resp.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             end
           end
         end

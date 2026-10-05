@@ -40,12 +40,12 @@ module MqttSpecs
           connack = connect(io, version: MQTT::Protocol::Version::V5).as(MQTT::Protocol::Connack)
           props = connack.properties
           # Absent means 2, and 2 may not be sent (3.2.2.3.4).
-          props.maximum_qos.should be_nil
-          props.retain_available.should be_true
-          props.wildcard_subscription_available.should be_true
+          props.maximum_qos?.should be_nil
+          props.retain_available?.should be_true
+          props.wildcard_subscription_available?.should be_true
           props.topic_alias_maximum.should eq(0u16)
-          props.subscription_identifier_available.should be_false
-          props.shared_subscription_available.should be_false
+          props.subscription_identifier_available?.should be_false
+          props.shared_subscription_available?.should be_false
           props.maximum_packet_size.should eq(LavinMQ::Config.instance.mqtt_max_packet_size)
         end
       end
@@ -82,6 +82,20 @@ module MqttSpecs
             server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first?.try(&.client_id)
           end
           registered.should eq(assigned)
+        end
+      end
+    end
+
+    it "assigns a client id when Clean Start is 0 too (§3.1.3.1)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          # v3.1.1 rejects an empty client id without Clean Session
+          # [MQTT-3.1.3-8 v3.1.1]; v5 dropped that condition.
+          connack = connect(io, version: MQTT::Protocol::Version::V5,
+            client_id: "", clean_session: false).as(MQTT::Protocol::Connack)
+          connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
+          connack.properties.assigned_client_identifier.should_not be_nil
         end
       end
     end

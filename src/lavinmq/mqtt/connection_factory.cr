@@ -32,10 +32,11 @@ module LavinMQ
           logger.trace { "recv #{packet.inspect}" }
           # Enhanced authentication (the AUTH-packet flow) is not supported;
           # reject before username/password auth so the reason is accurate. v5
-          # only - v3 has no properties. [MQTT-4.12.0-1]
+          # only - v3 has no properties, and BadAuthenticationMethod has no v3
+          # return code, which a v3 IO would refuse to encode. [MQTT-4.12.0-1]
           if packet.properties.authentication_method
             logger.warn { "Enhanced authentication requested but not supported" }
-            reject_connack(io, packet, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+            connack(io, packet, false, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
             return socket.close
           end
           user, broker = authenticate(packet, connection_info)
@@ -60,12 +61,12 @@ module LavinMQ
             return socket.close
           end
           broker.run_client(io, connection_info, user, packet) do |session_present|
-            connack io, packet, session_present, Protocol::Connack::ReturnCode::Accepted, properties
+            connack io, packet, session_present, Protocol::Connack::ReasonCode::Success, properties
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
           if io
-            connack io, packet, false, Protocol::Connack::ReturnCode.new(ex.return_code)
+            connack io, packet, false, ex.reason_code
           end
           socket.close
         rescue ::IO::EOFError
@@ -76,23 +77,13 @@ module LavinMQ
         end
       end
 
-      # Send a v5 CONNACK carrying a reason code that has no v3 return-code
-      # equivalent (e.g. BadAuthenticationMethod 0x8C). v5-only by construction.
-      private def reject_connack(io : Protocol::IO, connect : Protocol::Connect,
-                                 reason : Protocol::Connack::ReasonCode)
-        write_connack(io, connect, Protocol::Connack.new(false, reason))
-      end
-
-      # `connect` is nil when the CONNECT itself failed to decode, and then
-      # there is no Maximum Packet Size to honour.
+      # A v3 IO writes the v3 return code for `reason`, and raises for one that
+      # has none. `connect` is nil when the CONNECT itself failed to decode, and
+      # then there is no Maximum Packet Size to honour.
       private def connack(io : Protocol::IO, connect : Protocol::Connect?, session_present : Bool,
-                          return_code : Protocol::Connack::ReturnCode,
+                          reason : Protocol::Connack::ReasonCode,
                           properties = Protocol::ConnackProperties.new)
-        reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
-        write_connack(io, connect, Protocol::Connack.new(session_present, reason, properties))
-      end
-
-      private def write_connack(io : Protocol::IO, connect : Protocol::Connect?, connack : Protocol::Connack)
+        connack = Protocol::Connack.new(session_present, reason, properties)
         # Not sent at all rather than sent oversized [MQTT-3.1.2-24]; the
         # caller closes the socket either way.
         return if connect && too_large?(io, connect, connack)

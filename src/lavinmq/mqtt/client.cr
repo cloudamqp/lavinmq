@@ -624,10 +624,10 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : Protocol::Unsubscribe)
-        reason_codes = @broker.unsubscribe(self, packet.topics)
+        reason_codes = @broker.unsubscribe(self, packet.topic_filters)
         # v5 UNSUBACK carries a reason code per topic filter; the shard drops
         # the payload on v3, so no version branch is needed here.
-        send(Protocol::UnsubAck.new(packet.packet_id, reason_codes))
+        send(Protocol::UnsubAck.new(reason_codes, packet.packet_id))
       end
 
       def details_tuple
@@ -700,7 +700,9 @@ module LavinMQ
       # anyway.
       private def will_properties(will : Protocol::WillProperties) : Protocol::PublishProperties
         properties = Protocol::PublishProperties.new
-        properties.payload_format_indicator = will.payload_format_indicator
+        # Only a 1 is set: assigning the reader's `false` default would put an
+        # explicit 0 on the wire.
+        properties.payload_format_indicator = true if will.payload_format_indicator?
         properties.message_expiry_interval = will.message_expiry_interval
         properties.content_type = will.content_type
         properties.response_topic = will.response_topic

@@ -66,10 +66,6 @@ subscription tree.
 - Low-severity conformance gaps: **O1** zero-entry SUBSCRIBE /
   UNSUBSCRIBE / SUBACK accepted at decode; **O2** AUTH accepted on a v3
   connection; **O3** some receiver-side property value validations missing.
-- **Retain Handling 3** is a Protocol Error (3.8.3.1), so v5 wants a DISCONNECT.
-  The shard raises `ArgumentError` in the `TopicFilter` constructor and
-  `Subscribe.from_io` maps it to `Error::PacketDecode`, the just-close case, so
-  the client gets no reason code. Belongs with O1/O2/O3.
 - Test gaps: **N5** no malformed property-*value* test (the UTF-8 / NUL
   validation branch has zero coverage); **N6** the `consumed != total`
   intra-section property guard is untested; **U2** v3 CONNACK return-code byte
@@ -115,6 +111,8 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
 
 - **B** subscription options, **D** session expiry, **E**'s will properties, and
   all of **J** are done.
+- **Retain Handling 3** is a Protocol Error in the shard since
+  `84codes/mqtt-protocol.cr#19`, so a v5 client gets DISCONNECT `0x82`.
 - **N** the outbound window is the lower of the client's Receive Maximum and
   `Config#max_inflight_messages`.
 - **I** Maximum Packet Size is enforced on every outbound packet, in `Client#send`

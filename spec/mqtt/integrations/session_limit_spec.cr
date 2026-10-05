@@ -12,11 +12,11 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "a").should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
 
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "b").should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
             io2.should be_closed
           end
         end
@@ -41,7 +41,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "b").should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
       end
     end
@@ -59,10 +59,10 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "a", clean_session: false).should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           ack = subscribe(io, topic_filters: mk_topic_filters({"e/f", 0}))
             .should be_a(MQTT::Protocol::SubAck)
-          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0]
+          ack.reason_codes.should eq [MQTT::Protocol::SubAck::ReasonCode::GrantedQos0]
         end
       end
     end
@@ -77,7 +77,7 @@ module MqttSpecs
 
           with_client_io(server) do |io2|
             connack = connect(io2, client_id: "a", clean_session: true).should be_a(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             io.should be_closed
           end
         end
@@ -92,7 +92,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "a").should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
 
         vhost.sessions_size.should eq 0
@@ -112,7 +112,7 @@ module MqttSpecs
 
         with_client_io(server) do |io|
           connack = connect(io, client_id: "b", clean_session: true).should be_a(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
         end
       end
     end

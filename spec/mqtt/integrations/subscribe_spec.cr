@@ -103,7 +103,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos0
-          suback.reason_codes.first.should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQoS0)
+          suback.reason_codes.first.should eq(MQTT::Protocol::SubAck::ReasonCode::GrantedQos0)
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -118,7 +118,7 @@ module MqttSpecs
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
-          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS1])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos1])
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -142,7 +142,7 @@ module MqttSpecs
           suback = subscribe(io, topic_filters: topic_filters)
           suback.should be_a(MQTT::Protocol::SubAck)
           suback = suback.as(MQTT::Protocol::SubAck)
-          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS2])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos2])
 
           # Published at qos 2 from a second connection, so that the grant is
           # what decides the delivery qos rather than the publish capping it

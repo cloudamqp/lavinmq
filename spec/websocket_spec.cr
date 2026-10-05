@@ -101,12 +101,12 @@ describe "Websocket support" do
           websocket = ::HTTP::WebSocket.new(http.addr.address, path: "", port: http.addr.port, headers: headers)
 
           connect = MQTT::Protocol::Connect.new(
-            client_id: "client_id",
-            clean_session: false,
-            keepalive: 30u16,
+            "client_id",
+            clean_start: false,
+            keep_alive: 30u16,
             username: "guest",
             password: "guest".to_slice,
-            will: nil,
+            version: MQTT::Protocol::Version::V3_1_1,
           )
 
           ch = Channel(Nil).new
@@ -169,12 +169,12 @@ describe "Websocket support" do
             websocket = ::HTTP::WebSocket.new(http.addr.address, path: "", port: http.addr.port, headers: headers)
 
             connect = MQTT::Protocol::Connect.new(
-              client_id: "client_id",
-              clean_session: false,
-              keepalive: 30u16,
+              "client_id",
+              clean_start: false,
+              keep_alive: 30u16,
               username: "guest",
               password: "guest".to_slice,
-              will: nil,
+              version: MQTT::Protocol::Version::V3_1_1,
             )
 
             ch = Channel(Nil).new
@@ -228,12 +228,12 @@ describe "Websocket support" do
             websocket = ::HTTP::WebSocket.new(http.addr.address, path: "", port: http.addr.port, headers: headers)
 
             connect = MQTT::Protocol::Connect.new(
-              client_id: "client_id",
-              clean_session: false,
-              keepalive: 30u16,
+              "client_id",
+              clean_start: false,
+              keep_alive: 30u16,
               username: "guest",
               password: "guest".to_slice,
-              will: nil,
+              version: MQTT::Protocol::Version::V3_1_1,
             )
 
             ch = Channel(MQTT::Protocol::Packet).new
@@ -248,7 +248,7 @@ describe "Websocket support" do
             select
             when pkt = ch.receive
               pkt.should be_a MQTT::Protocol::Connack
-              pkt.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+              pkt.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             when timeout(1.second)
               websocket.close
               fail("no response?")

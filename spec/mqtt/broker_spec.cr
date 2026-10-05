@@ -6,12 +6,12 @@ module MqttSpecs
 
   def self.connect_packet(client_id, clean_session = true)
     MQTT::Protocol::Connect.new(
-      client_id: client_id,
-      clean_session: clean_session,
-      keepalive: 60u16,
+      client_id,
+      clean_start: clean_session,
+      keep_alive: 60u16,
       username: "guest",
       password: nil,
-      will: nil,
+      version: MQTT::Protocol::Version::V3_1_1,
     )
   end
 

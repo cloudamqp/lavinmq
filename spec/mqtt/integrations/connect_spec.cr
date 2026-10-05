@@ -220,7 +220,7 @@ module MqttSpecs
               connack = connect(io)
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
             end
           end
         end
@@ -233,7 +233,7 @@ module MqttSpecs
 
         #       connack.should be_a(MQTT::Protocol::Connack)
         #       connack = connack.as(MQTT::Protocol::Connack)
-        #       connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::NotAuthorized)
+        #       connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::NotAuthorized)
         #       # Verify that connection is closed [MQTT-3.1.4-1]
         #       io.should be_closed
         #     end
@@ -256,7 +256,7 @@ module MqttSpecs
 
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::UnacceptableProtocolVersion)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::UnsupportedProtocolVersion)
               # Verify that connection is closed [MQTT-3.1.4-1]
               io.should be_closed
             end
@@ -267,12 +267,12 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
-                client_id: "client_id",
-                clean_session: true,
-                keepalive: 30u16,
+                "client_id",
+                clean_start: true,
+                keep_alive: 30u16,
                 username: "valid_user",
                 password: "valid_password".to_slice,
-                will: nil
+                version: MQTT::Protocol::Version::V3_1_1,
               ).to_slice
               connect[0] = 'x'.ord.to_u8
               io.write_bytes_raw connect
@@ -296,7 +296,7 @@ module MqttSpecs
               connack = connect(io, client_id: "", clean_session: true)
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
               io.should_not be_closed
             end
           end
@@ -311,7 +311,7 @@ module MqttSpecs
               connack = connect(io, client_id: "a")
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::IdentifierRejected)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::ClientIdentifierNotValid)
               io.should be_closed
             end
           end
@@ -323,7 +323,7 @@ module MqttSpecs
               connack = connect(io, client_id: "", clean_session: false)
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::IdentifierRejected)
+              connack.reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::ClientIdentifierNotValid)
               io.should be_closed
             end
           end
@@ -337,12 +337,12 @@ module MqttSpecs
               # username+password CONNECT and clear the username flag (bit 7),
               # leaving the password flag set.
               connect = MQTT::Protocol::Connect.new(
-                client_id: "client_id",
-                clean_session: true,
-                keepalive: 30u16,
+                "client_id",
+                clean_start: true,
+                keep_alive: 30u16,
                 username: "valid_user",
                 password: "valid_password".to_slice,
-                will: nil
+                version: MQTT::Protocol::Version::V3_1_1,
               ).to_slice
               connect[9] &= 0b0111_1111
               io.write_bytes_raw connect
@@ -380,12 +380,12 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               MQTT::Protocol::Connect.new(
-                client_id: "client\u0000_id",
-                clean_session: true,
-                keepalive: 30u16,
+                "client\u0000_id",
+                clean_start: true,
+                keep_alive: 30u16,
                 username: "valid_user",
                 password: "valid_user".to_slice,
-                will: nil
+                version: MQTT::Protocol::Version::V3_1_1,
               ).to_io(io)
 
               io.should be_closed
@@ -397,12 +397,12 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
-                client_id: "client_id",
-                clean_session: true,
-                keepalive: 30u16,
+                "client_id",
+                clean_start: true,
+                keep_alive: 30u16,
                 username: "valid_user",
                 password: "valid_password".to_slice,
-                will: nil
+                version: MQTT::Protocol::Version::V3_1_1,
               ).to_slice
 
               # This will overwrite the last "T" in MQTT
@@ -411,7 +411,7 @@ module MqttSpecs
 
               packet = MQTT::Protocol::Packet.from_io(io)
               packet.should be_a(MQTT::Protocol::Connack)
-              packet.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::UnacceptableProtocolVersion)
+              packet.as(MQTT::Protocol::Connack).reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::UnsupportedProtocolVersion)
               io.should be_closed
             end
           end
@@ -421,12 +421,12 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
-                client_id: "client_id",
-                clean_session: true,
-                keepalive: 30u16,
+                "client_id",
+                clean_start: true,
+                keep_alive: 30u16,
                 username: "valid_user",
                 password: "valid_password".to_slice,
-                will: nil
+                version: MQTT::Protocol::Version::V3_1_1,
               ).to_slice
               connect[9] |= 0b0000_0001
               io.write_bytes_raw connect

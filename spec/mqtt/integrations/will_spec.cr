@@ -227,7 +227,7 @@ module MqttSpecs
           pub = read_packet(sub).as(MQTT::Protocol::Publish)
           pub.topic.should eq "will/t"
           String.new(pub.payload).should eq "bye"
-          pub.properties.payload_format_indicator.should be_true
+          pub.properties.payload_format_indicator?.should be_true
           pub.properties.message_expiry_interval.should eq 120u32
           pub.properties.content_type.should eq "text/plain"
           pub.properties.response_topic.should eq "reply/here"

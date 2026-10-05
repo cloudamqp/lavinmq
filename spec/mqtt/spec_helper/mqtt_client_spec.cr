@@ -26,16 +26,15 @@ module MqttHelpers
       clean_session = true,
       **args,
     )
-      connect_args = {
-        client_id:     client_id,
-        clean_session: clean_session,
-        keepalive:     keepalive,
-        will:          will,
-        username:      username,
-        password:      password.to_slice,
-      }.merge(args)
-      @client_id = connect_args.fetch(:client_id, "").to_s
-      MQTT::Protocol::Connect.new(**connect_args).to_io(@io)
+      @client_id = client_id
+      MQTT::Protocol::Connect.new(client_id, **{
+        clean_start: clean_session,
+        keep_alive:  keepalive,
+        will:        will,
+        username:    username,
+        password:    password.to_slice,
+        version:     MQTT::Protocol::Version::V3_1_1,
+      }.merge(args)).to_io(@io)
       read_packet if expect_response
     end
 

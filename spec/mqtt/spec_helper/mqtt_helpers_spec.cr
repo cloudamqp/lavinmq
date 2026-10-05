@@ -66,14 +66,17 @@ module MqttHelpers
     end
   end
 
-  def connect(io, expect_response = true, **args)
-    MQTT::Protocol::Connect.new(**{
-      client_id:     "client_id",
-      clean_session: false,
-      keepalive:     30u16,
-      username:      "guest",
-      password:      "guest".to_slice,
-      will:          nil,
+  # Takes the v3 names for the two fields the shard renamed, so the specs read
+  # in the version most of them test. Defaults to 3.1.1, where the shard
+  # defaults to 5.0.
+  def connect(io, expect_response = true, *, client_id = "client_id",
+              clean_session = false, keepalive = 30u16, **args)
+    MQTT::Protocol::Connect.new(client_id, **{
+      clean_start: clean_session,
+      keep_alive:  keepalive,
+      username:    "guest",
+      password:    "guest".to_slice,
+      version:     MQTT::Protocol::Version::V3_1_1,
     }.merge(args)).to_io(io)
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
@@ -98,10 +101,10 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
 
-  def subtopic(topic : String, qos = 0, no_local = false,
-               retain_as_published = false, retain_handling = 0)
+  def subtopic(topic : String, qos = 0, no_local = false, retain_as_published = false,
+               retain_handling : MQTT::Protocol::Subscribe::RetainHandling = :send_on_subscribe)
     MQTT::Protocol::Subscribe::TopicFilter.new(topic, qos.to_u8,
-      no_local, retain_as_published, retain_handling.to_u8)
+      no_local, retain_as_published, retain_handling)
   end
 
   def publish_packet(**args) : MQTT::Protocol::Publish

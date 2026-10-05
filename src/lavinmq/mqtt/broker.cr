@@ -42,13 +42,11 @@ module LavinMQ
         @vhost.mqtt_permission_service
       end
 
-      # v3 has no expiry property, so its clean-session bit carries both meanings:
-      # 1 ends the session with the connection, 0 keeps it forever, which is what
-      # LavinMQ has always done. v5 reads the property, absent meaning 0
-      # (§3.1.2.11.2).
+      # v5 reads the property, absent meaning 0 (§3.1.2.11.2). The shard gives a
+      # v3 CONNECT the same reading of its Clean Session bit: 1 ends the session
+      # with the connection, 0 keeps it forever, as LavinMQ has always done.
       private def session_expiry_interval(packet : Protocol::Connect) : UInt32
-        return packet.clean_session? ? 0u32 : UInt32::MAX unless packet.version.v5?
-        packet.properties.session_expiry_interval || 0u32
+        packet.properties.session_expiry_interval
       end
 
       # A reconnecting client_id displaces the existing connection in
@@ -101,7 +99,7 @@ module LavinMQ
         # (3.1.4). Clean Start and the interval are separate inputs: the first
         # decides whether to discard, the second how long the session this
         # connection ends up with will outlive it.
-        if existing && (packet.clean_session? || existing.auto_delete?)
+        if existing && (packet.clean_start? || existing.auto_delete?)
           existing.delete
           existing = nil
         end
@@ -125,7 +123,7 @@ module LavinMQ
           self,
           session,
           client_id: client_id,
-          keepalive: packet.keepalive,
+          keepalive: packet.keep_alive,
           will: packet.will,
           max_packet_size: packet.properties.maximum_packet_size,
           receive_maximum: packet.properties.receive_maximum,
@@ -185,11 +183,11 @@ module LavinMQ
       # Four body locations agree against it - §3.3.1.3's definition of that
       # statement, §3.8.3.1's list of the three values, and §3.8.4's separate
       # new-vs-replaced rules - so the body governs.
-      private def replay_retained?(retain_handling : UInt8, new_subscription : Bool) : Bool
+      private def replay_retained?(retain_handling : Protocol::Subscribe::RetainHandling, new_subscription : Bool) : Bool
         case retain_handling
-        when 0 then true             # always send at subscribe
-        when 1 then new_subscription # only for a subscription that did not exist
-        else        false            # 2: never send at subscribe
+        in .send_on_subscribe?        then true
+        in .send_on_new_subscription? then new_subscription
+        in .do_not_send?              then false
         end
       end
 
