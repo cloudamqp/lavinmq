@@ -1,4 +1,3 @@
-require "../exchange"
 require "./consts"
 require "./subscription_tree"
 require "./session"
@@ -77,18 +76,6 @@ module LavinMQ
         @tree.each_entry do |session, qos, topic_filter|
           block.call(session, topic_filter, qos)
         end
-      end
-
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        subscribe(destination, routing_key, MQTT.qos(arguments))
-      end
-
-      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        unsubscribe(destination, routing_key)
-      end
-
-      def bind(_destination : LavinMQ::AMQP::Destination, _rk : String, _args = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(name)
       end
 
       def details_tuple
