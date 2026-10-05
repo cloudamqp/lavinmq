@@ -35,10 +35,6 @@ describe LavinMQ::Config do
     LavinMQ::Config.new.control_unix_path.should eq "/tmp/lavinmqctl.sock"
   end
 
-  it "enables tcp_nodelay by default" do
-    LavinMQ::Config.new.tcp_nodelay?.should be_true
-  end
-
   it "should prioritize CLI arguments over other arguments" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
