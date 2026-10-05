@@ -21,8 +21,7 @@ module LavinMQ
       def declare(client : Client) : Session?
         session = self[client.client_id]? || begin
           return if @vhost.queue_limit_reached?
-          @vhost.mqtt.declare_session(name(client.client_id), client.clean_session?) ||
-            self[client.client_id]
+          @vhost.mqtt.declare_session(name(client.client_id), client.clean_session?) || self[client.client_id]
         end
         session.client = client
         session
