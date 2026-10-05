@@ -51,15 +51,12 @@ module LavinMQ::AMQP
       end
       result = @primary_queue.publish_internal(Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body)))
-      return redelay(env) if result.overflow?
-      unless result.ok?
-        @log.warn { "Dropping retried message #{sp}: primary queue #{@primary_queue.name} returned #{result}" }
-      end
+      return redelay(env) unless result.ok?
       delete_message sp
     end
 
-    # The primary queue is full with overflow=reject-publish; delay the message
-    # again for one more backoff period instead of losing it
+    # The primary queue is full with overflow=reject-publish, or closed; delay
+    # the message again for one more backoff period instead of losing it
     private def redelay(env : Envelope) : Nil
       sp = env.segment_position
       msg = env.message
@@ -71,9 +68,9 @@ module LavinMQ::AMQP
       redelayed = Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       if delay(redelayed)
-        @log.info { "Primary queue #{@primary_queue.name} full, delaying message #{sp} for another #{backoff}ms" }
+        @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
       else
-        @log.warn { "Dropping retried message #{sp}: primary queue full and retry queue closed" }
+        @log.warn { "Dropping retried message #{sp}: primary queue unavailable and retry queue closed" }
       end
       delete_message sp
     end
