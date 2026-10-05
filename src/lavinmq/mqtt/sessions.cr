@@ -8,11 +8,11 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.session?(name(client_id))
+        @vhost.mqtt.session?(name(client_id))
       end
 
       def [](client_id : String) : Session
-        @vhost.session(name(client_id))
+        @vhost.mqtt.session(name(client_id))
       end
 
       # Returns nil if creating the session would exceed the vhost's max-queues

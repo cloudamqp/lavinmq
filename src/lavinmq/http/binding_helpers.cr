@@ -9,7 +9,7 @@ module LavinMQ
         # than in the exchange hierarchy.
         arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
         vhost.each_exchange { |e| arr.concat e.bindings_details }
-        arr.concat vhost.mqtt_exchange.bindings_details
+        arr.concat vhost.mqtt.exchange.bindings_details
         arr
       end
 

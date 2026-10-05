@@ -218,7 +218,7 @@ module LavinMQ
       # mqtt.default is not in `vhost.exchanges`, so `exchange` can't find it.
       # Read-only: `MQTTExchangeController` refuses the routes that change it.
       private def binding_source(context, params, vhost, key = "name")
-        return vhost.mqtt_exchange if params[key] == MQTT::EXCHANGE
+        return vhost.mqtt.exchange if params[key] == MQTT::EXCHANGE
         exchange(context, params, vhost, key)
       end
     end

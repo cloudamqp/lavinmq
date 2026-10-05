@@ -67,9 +67,9 @@ describe "MQTT definitions migration" do
     with_amqp_server do |s|
       v = s.vhosts["mqttmig"]
 
-      session = v.session?("mqtt.migrated")
+      session = v.mqtt.session?("mqtt.migrated")
       session = session.should_not be_nil
-      subscriptions = v.session_subscriptions(session)
+      subscriptions = v.mqtt.subscriptions(session)
       subscriptions.map(&.routing_key).sort!.should eq ["a/b", "c/#"]
       subscriptions.find! { |sub| sub.routing_key == "a/b" }.binding_key.qos.should eq 1u8
       subscriptions.find! { |sub| sub.routing_key == "c/#" }.binding_key.qos.should eq 0u8
@@ -96,9 +96,9 @@ describe "MQTT definitions migration" do
       # definitions.mqtt is authoritative from here on
       restart_server(s)
       v = s.vhosts["mqttmig"]
-      reloaded = v.session?("mqtt.migrated")
+      reloaded = v.mqtt.session?("mqtt.migrated")
       reloaded = reloaded.should_not be_nil
-      v.session_subscriptions(reloaded).map(&.routing_key).sort!.should eq ["a/b", "c/#"]
+      v.mqtt.subscriptions(reloaded).map(&.routing_key).sort!.should eq ["a/b", "c/#"]
       v.exchange?("keepx").should_not be_nil
       v.queue?("keepq").should_not be_nil
     end
@@ -116,16 +116,16 @@ describe "MQTT definitions migration" do
     FileUtils.cp File.join(vhost_dir, "definitions.amqp"), legacy
 
     with_amqp_server do |s|
-      s.vhosts["mqttmig"].sessions_size.should eq 1
+      s.vhosts["mqttmig"].mqtt.sessions_size.should eq 1
 
       # Put the pre-migration file back, as a crash mid-migration would leave it
       FileUtils.cp legacy, File.join(vhost_dir, "definitions.amqp")
       restart_server(s)
 
       v = s.vhosts["mqttmig"]
-      v.sessions_size.should eq 1
-      session = v.session("mqtt.migrated")
-      subscriptions = v.session_subscriptions(session)
+      v.mqtt.sessions_size.should eq 1
+      session = v.mqtt.session("mqtt.migrated")
+      subscriptions = v.mqtt.subscriptions(session)
       subscriptions.map(&.routing_key).should eq ["a/b"]
       subscriptions.first.binding_key.qos.should eq 1u8
     end
@@ -144,8 +144,8 @@ describe "MQTT definitions migration" do
 
     with_amqp_server do |s|
       v = s.vhosts["mqttmig"]
-      session = v.session("mqtt.migrated")
-      v.session_subscriptions(session).first.binding_key.qos.should eq 0u8
+      session = v.mqtt.session("mqtt.migrated")
+      v.mqtt.subscriptions(session).first.binding_key.qos.should eq 0u8
 
       # The client raises the QoS, so definitions.mqtt now differs from the frame
       v.mqtt.subscribe(session, "a/b", 1u8).should be_true
@@ -155,7 +155,7 @@ describe "MQTT definitions migration" do
       restart_server(s)
 
       v = s.vhosts["mqttmig"]
-      subscriptions = v.session_subscriptions(v.session("mqtt.migrated"))
+      subscriptions = v.mqtt.subscriptions(v.mqtt.session("mqtt.migrated"))
       subscriptions.map(&.routing_key).should eq ["a/b"]
       subscriptions.first.binding_key.qos.should eq 1u8
     end
@@ -194,9 +194,9 @@ describe "MQTT definitions migration" do
       restart_server(s)
 
       v = s.vhosts["/"]
-      v.sessions_size.should eq 1
-      v.session?("mqtt.keep").should_not be_nil
-      subscriptions = v.session_subscriptions(v.session("mqtt.keep"))
+      v.mqtt.sessions_size.should eq 1
+      v.mqtt.session?("mqtt.keep").should_not be_nil
+      subscriptions = v.mqtt.subscriptions(v.mqtt.session("mqtt.keep"))
       subscriptions.map(&.routing_key).should eq ["a/b"]
       subscriptions.first.binding_key.qos.should eq 1u8
     end

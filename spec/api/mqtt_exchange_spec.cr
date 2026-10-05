@@ -32,8 +32,8 @@ describe LavinMQ::HTTP::MQTTExchangeController do
 
       http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub",
         body: %({"routing_key": "a", "arguments": {}}))
-      s.vhosts["/"].mqtt_exchange.binding_count.should eq 0
-      s.vhosts["/"].mqtt_exchange.name.should eq x
+      s.vhosts["/"].mqtt.exchange.binding_count.should eq 0
+      s.vhosts["/"].mqtt.exchange.name.should eq x
     end
   end
 

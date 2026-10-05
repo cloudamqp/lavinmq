@@ -70,10 +70,6 @@ module LavinMQ
         @sessions.size
       end
 
-      def sessions_clear : Nil
-        @sessions.clear
-      end
-
       # Nil if a session already exists under that name, so a caller can tell a
       # fresh declaration from a no-op.
       def declare_session(name : String, clean_session : Bool,
