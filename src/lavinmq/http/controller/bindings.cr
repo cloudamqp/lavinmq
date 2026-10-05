@@ -46,7 +46,7 @@ module LavinMQ
         post "/api/bindings/:vhost/e/:name/q/:queue" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = binding_source(context, params, vhost)
+            e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost.name, e.name)
@@ -89,7 +89,7 @@ module LavinMQ
         delete "/api/bindings/:vhost/e/:name/q/:queue/*props" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            e = binding_source(context, params, vhost)
+            e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost.name, e.name)
@@ -216,8 +216,7 @@ module LavinMQ
       end
 
       # mqtt.default is not in `vhost.exchanges`, so `exchange` can't find it.
-      # Its subscriptions are reachable through the same routes as AMQP
-      # bindings: `bind_queue`/`unbind_queue` still funnel them to the store.
+      # Read-only: `MQTTExchangeController` refuses the routes that change it.
       private def binding_source(context, params, vhost, key = "name")
         return vhost.mqtt_exchange if params[key] == MQTT::EXCHANGE
         exchange(context, params, vhost, key)

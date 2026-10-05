@@ -176,9 +176,7 @@ module LavinMQ
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
-      # while `MQTT::Exchange` overrides this to return `Array(MQTT::SubscriptionDetails)`.
-      abstract def bindings_details
+      abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
 
       # Number of bindings on this exchange. Counted cheaply, without allocating
