@@ -1,4 +1,5 @@
 require "amq-protocol"
+require "./mfile"
 
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
