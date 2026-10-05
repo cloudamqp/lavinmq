@@ -23,12 +23,20 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # only that fiber decides between replicating and promoting.
   @promoted = Channel(Nil).new
 
+  # Raft (the node's event loop and the transport's connections) runs in an
+  # execution context of its own, a thread the broker's fibers don't run on.
+  # Otherwise a busy default context could delay heartbeats past the election
+  # timeout: followers would start elections and the leader would step down on
+  # losing its quorum, while it's only busy. The work in it is small, so one
+  # thread is enough.
+  @raft_context = Fiber::ExecutionContext::Concurrent.new("Raft")
+
   def initialize(config : Config)
     super(config)
     @node = Raft::Node.new(@id, @config.clustering_raft_address, @config.clustering_seed_addresses,
       @advertised_uri, Raft::Storage.new(@config.data_dir),
       @config.clustering_election_timeout.milliseconds, @config.clustering_heartbeat_interval.milliseconds,
-      bootstrap: may_bootstrap?)
+      bootstrap: may_bootstrap?, execution_context: @raft_context)
     @coordinator = RaftCoordinator.new(@node, @config.clustering_secret)
   end
 
@@ -165,8 +173,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     address = @config.clustering_raft_address
     peers = @config.clustering_seed_addresses.reject(address)
     transport = @transport = Raft::TCPTransport.new(@config.clustering_secret, @id, address, peers,
-      ->@node.deliver(Raft::TransportEvent))
-    spawn(transport.listen(server), name: "Raft listener")
+      ->@node.deliver(Raft::TransportEvent), execution_context: @raft_context)
+    @raft_context.spawn(name: "Raft listener") { transport.listen(server) }
     @node.run(transport)
     @control_server = HTTP::Server.follower_internal_socket_http_server(->local_status)
   rescue ex : Socket::BindError

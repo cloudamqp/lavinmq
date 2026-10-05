@@ -65,7 +65,9 @@ module LavinMQ::Clustering::Raft
 
   # Runs a Core in a single fiber: every message, request and tick goes
   # through @events, so the Core needs no locking. State is persisted before
-  # any message produced alongside it leaves the node.
+  # any message produced alongside it leaves the node. The fiber runs in
+  # *execution_context*; RaftController gives it a context of its own, so that
+  # a busy broker can't delay heartbeats and votes.
   class Node
     Log = LavinMQ::Log.for "clustering.raft"
 
@@ -106,7 +108,8 @@ module LavinMQ::Clustering::Raft
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
-                   @tick = 20.milliseconds, bootstrap = false)
+                   @tick = 20.milliseconds, bootstrap = false,
+                   @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       @election_timeout = election_timeout
       @core = Core.new(@id, @address, seeds, uri, election_timeout, heartbeat_interval,
         Time.instant, @storage.load, bootstrap: bootstrap)
@@ -118,7 +121,7 @@ module LavinMQ::Clustering::Raft
 
     def run(transport : Transport) : Nil
       @transport = transport
-      spawn(event_loop, name: "raft node")
+      @execution_context.spawn(name: "raft node") { event_loop }
     end
 
     # Called by the transport for every received message and connection change.
@@ -425,7 +428,8 @@ module LavinMQ::Clustering::Raft
       callbacks.try do |cbs|
         removed.each do |id|
           Log.info { "Node #{id.to_s(36)} was removed from the cluster" }
-          cbs.each { |cb| spawn(name: "raft member removed") { cb.call(id) } }
+          # Broker code, keep it off the raft context
+          cbs.each { |cb| Fiber::ExecutionContext.default.spawn(name: "raft member removed") { cb.call(id) } }
         end
       end
       @serving.set(@core.serving_leader?)

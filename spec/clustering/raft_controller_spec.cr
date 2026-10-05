@@ -256,6 +256,43 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  it "keeps raft running while the default execution context is busy", tags: "slow" do
+    with_controllers do |cluster|
+      cluster.start_all
+      leader = cluster.next_leader
+      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      follower = cluster.controllers.find! { |c| c != leader }
+      term = leader.node.status.not_nil!.term
+      busy_until = Time.instant + 300.milliseconds * 5
+      # Watches from a thread of its own how long the follower's raft node
+      # takes to answer, and how long ago it heard from the leader
+      worst = Channel(Time::Span).new(1)
+      Fiber::ExecutionContext::Isolated.new("raft observer") do
+        max = Time::Span.zero
+        until Time.instant >= busy_until
+          asked = Time.instant
+          status = follower.node.status.not_nil!
+          max = {max, Time.instant - asked, status.leader_heard_ago || Time::Span.zero}.max
+          sleep 20.milliseconds
+        end
+        worst.send max
+      end
+      # Hog every default context thread for several election timeouts,
+      # without yielding, like a broker busy with heavy work
+      hogs = WaitGroup.new
+      Fiber::ExecutionContext.default.capacity.times do
+        hogs.spawn do
+          until Time.instant >= busy_until
+          end
+        end
+      end
+      hogs.wait
+      worst.receive.should be < 300.milliseconds
+      leader.node.status.not_nil!.role.leader?.should be_true
+      cluster.controllers.each(&.node.status.not_nil!.term.should(eq(term)))
+    end
+  end
+
   it "hands over leadership on shutdown faster than an election timeout", tags: "slow" do
     # Generous, the handover takes several fsyncs that can be slow on CI
     with_controllers(election_timeout: 1000) do |cluster|

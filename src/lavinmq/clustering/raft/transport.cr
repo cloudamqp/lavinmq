@@ -65,8 +65,11 @@ module LavinMQ::Clustering::Raft
     @server : TCPServer? = nil
     @closed = false
 
+    # Its fibers, outbound and inbound connections alike, run in
+    # *execution_context*, see RaftController.
     def initialize(@password : String, @id : Int32, @address : String, peers : Enumerable(String),
-                   @handler : TransportEvent ->, @connect_timeout = 1.second, @write_timeout = 2.seconds)
+                   @handler : TransportEvent ->, @connect_timeout = 1.second, @write_timeout = 2.seconds,
+                   @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)
       update_peers(peers)
     end
 
@@ -85,7 +88,7 @@ module LavinMQ::Clustering::Raft
         wanted.each do |peer|
           next if @outbound.has_key?(peer)
           ch = @outbound[peer] = Channel(Message).new(QUEUE_SIZE)
-          spawn(outbound_loop(peer, ch), name: "raft outbound #{peer}")
+          spawn_outbound(peer, ch)
         end
       end
     end
@@ -93,8 +96,19 @@ module LavinMQ::Clustering::Raft
     def listen(server : TCPServer) : Nil
       @server = server
       while socket = server.accept?
-        spawn(inbound(socket), name: "raft inbound #{socket.remote_address}")
+        spawn_inbound(socket)
       end
+    end
+
+    # Fibers are spawned through these methods so that each gets its own
+    # arguments. A block capturing the loop variable directly would see it
+    # reassigned by the next iteration before the fiber starts.
+    private def spawn_outbound(peer : String, ch : Channel(Message)) : Nil
+      @execution_context.spawn(name: "raft outbound #{peer}") { outbound_loop(peer, ch) }
+    end
+
+    private def spawn_inbound(socket : TCPSocket) : Nil
+      @execution_context.spawn(name: "raft inbound #{socket.remote_address}") { inbound(socket) }
     end
 
     def send(to : String, msg : Message) : Nil
@@ -188,7 +202,7 @@ module LavinMQ::Clustering::Raft
     private def watch_for_close(socket : TCPSocket) : Channel(Nil)
       closed = Channel(Nil).new
       socket.read_timeout = nil
-      spawn(name: "raft outbound close watch") do
+      @execution_context.spawn(name: "raft outbound close watch") do
         socket.read_byte
       rescue IO::Error | Socket::Error
       ensure
