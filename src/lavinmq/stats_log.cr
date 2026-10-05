@@ -102,13 +102,26 @@ module LavinMQ
       end
     end
 
-    # Yields the sum of *series* for each of the last *count* ticks, oldest
-    # first, and returns the block's results.
+    # The sum of *series* for each of the last *count* ticks, oldest first,
+    # as converted by the block
     def read(count : Int32, *series : Series, & : Int64 -> U) : Array(U) forall U
+      log = Array(U).new(count.clamp(0, @size), U.zero)
+      merge_into(log, count, *series) { |_, sum| yield sum }
+      log
+    end
+
+    # Replaces each value in *sums* with the block's result for it and the sum
+    # of *series* at the same tick, aligned at the latest tick. If *sums* has
+    # fewer than *count* values it's first padded with zeros at the front.
+    def merge_into(sums : Array(U), count : Int32, *series : Series, & : U, Int64 -> U) : Nil forall U
       count = count.clamp(0, @size)
+      until sums.size >= count
+        sums.unshift U.zero
+      end
+      offset = sums.size - count
       @lock.synchronize do
         chunks = series.map { |s| chunk_for(s) }
-        Array(U).new(count) do |i|
+        count.times do |i|
           row = ((@tick - count + 1 + i) % @size).to_i32
           sum = 0i64
           series.each_with_index do |s, j|
@@ -116,7 +129,7 @@ module LavinMQ
               sum += chunk.read(row, s.slot % @chunk_slots)
             end
           end
-          yield sum
+          sums[offset + i] = yield sums[offset + i], sum
         end
       end
     end

@@ -1,12 +1,9 @@
 require "../controller"
 require "../../version"
-require "../stats_helper"
 
 module LavinMQ
   module HTTP
     class MainController < Controller
-      include StatsHelpers
-
       OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject", "return_unroutable"}
       EXCHANGE_TYPES = {
         {name: "direct", human: "Direct"},
@@ -28,14 +25,16 @@ module LavinMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
-          ready_log = Array(Int64).new(LavinMQ::Config.instance.stats_log_size)
-          unacked_log = Array(Int64).new(LavinMQ::Config.instance.stats_log_size)
-          recv_rate_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
-          send_rate_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          log_size = LavinMQ::Config.instance.stats_log_size
+          messages_log = Array(Int64).new(log_size)
+          ready_log = Array(Int64).new(log_size)
+          unacked_log = Array(Int64).new(log_size)
+          recv_rate_log = Array(Float64).new(log_size)
+          send_rate_log = Array(Float64).new(log_size)
           {% for name in OVERVIEW_STATS %}
           {{ name.id }}_count = 0_u64
           {{ name.id }}_rate = 0_f64
-          {{ name.id }}_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{ name.id }}_log = Array(Float64).new(log_size)
           {% end %}
           {% for name in CHURN_STATS %}
           {{ name.id }} = 0_u64
@@ -71,21 +70,23 @@ module LavinMQ
               ready += s.message_count
               unacked += s.unacked_count
             end
-            add_logs!(ready_log, vhost.messages_ready_log)
-            add_logs!(unacked_log, vhost.messages_unacknowledged_log)
-            vhost_stats_details = vhost.stats_details
-            recv_rate += vhost_stats_details[:recv_oct_details][:rate]
-            send_rate += vhost_stats_details[:send_oct_details][:rate]
-            add_logs!(recv_rate_log, vhost_stats_details[:recv_oct_details][:log])
-            add_logs!(send_rate_log, vhost_stats_details[:send_oct_details][:log])
+            vhost.add_messages_ready_log(ready_log)
+            vhost.add_messages_ready_log(messages_log)
+            vhost.add_messages_unacknowledged_log(unacked_log)
+            vhost.add_messages_unacknowledged_log(messages_log)
+            vhost_stats = vhost.current_stats_details
+            recv_rate += vhost_stats[:recv_oct_details][:rate]
+            send_rate += vhost_stats[:send_oct_details][:rate]
+            vhost.add_recv_oct_log(recv_rate_log)
+            vhost.add_send_oct_log(send_rate_log)
             {% for sm in OVERVIEW_STATS %}
-              {{ sm.id }}_count += vhost_stats_details[:{{ sm.id }}]
-              {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
-              add_logs!({{ sm.id }}_log, vhost_stats_details[:{{ sm.id }}_details][:log])
+              {{ sm.id }}_count += vhost_stats[:{{ sm.id }}]
+              {{ sm.id }}_rate += vhost_stats[:{{ sm.id }}_details][:rate]
+              vhost.add_{{ sm.id }}_log({{ sm.id }}_log)
             {% end %}
             {% for sm in CHURN_STATS %}
-            {{ sm.id }} += vhost_stats_details[:{{ sm.id }}]
-            {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
+            {{ sm.id }} += vhost_stats[:{{ sm.id }}]
+            {{ sm.id }}_rate += vhost_stats[:{{ sm.id }}_details][:rate]
             {% end %}
           end
           {
@@ -105,7 +106,7 @@ module LavinMQ
               messages:                    ready + unacked,
               messages_ready:              ready,
               messages_unacknowledged:     unacked,
-              messages_log:                add_logs(ready_log, unacked_log),
+              messages_log:                messages_log,
               messages_ready_log:          ready_log,
               messages_unacknowledged_log: unacked_log,
             },

@@ -50,6 +50,16 @@ module LavinMQ
             (increase / interval).round(1)
           end
         end
+
+        # Adds the rate per second at each tick to *rates*, aligned at the latest tick
+        def add_{{ name.id }}_log(rates : Array(Float64)) : Nil
+          stats_log = Stats.counter_log
+          interval = Config.instance.stats_interval / 1000.0
+          stats_log.merge_into(rates, stats_log.ticks_since(@stats_log_start),
+            {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }}) do |rate, increase|
+            (rate + (increase / interval).round(1)).round(1)
+          end
+        end
       {% end %}
 
       def stats_details
@@ -104,6 +114,14 @@ module LavinMQ
         def {{ name.id }}_log : Array(Int64)
           stats_log = Stats.gauge_log
           stats_log.read(stats_log.ticks_since(@stats_log_start), @{{ name.id }}_log, &.itself)
+        end
+
+        # Adds the value at each tick to *values*, aligned at the latest tick
+        def add_{{ name.id }}_log(values : Array(Int64)) : Nil
+          stats_log = Stats.gauge_log
+          stats_log.merge_into(values, stats_log.ticks_since(@stats_log_start), @{{ name.id }}_log) do |value, sum|
+            value + sum
+          end
         end
 
         private def log_{{ name.id }}(value : Int) : Nil

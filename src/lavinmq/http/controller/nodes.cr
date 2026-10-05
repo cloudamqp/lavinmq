@@ -1,11 +1,8 @@
 require "../controller"
-require "../stats_helper"
 
 module LavinMQ
   module HTTP
     class NodesController < Controller
-      include StatsHelpers
-
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
                         :queue_declared, :queue_deleted}
 
@@ -14,20 +11,21 @@ module LavinMQ
         messages_ready = 0_u64
 
         deleted_stats = @server.vhosts.deleted_stats
+        log_size = LavinMQ::Config.instance.stats_log_size
         {% for sm in SERVER_METRICS %}
           {{ sm.id }} = deleted_stats.{{ sm.id }}
           {{ sm.id }}_rate = 0_f64
-          {{ sm.id }}_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{ sm.id }}_log = Array(Float64).new(log_size)
         {% end %}
         vhosts.each do |vhost|
           message_details = vhost.message_details
           messages_unacknowledged += message_details[:messages_unacknowledged]
           messages_ready += message_details[:messages_ready]
-          stats_details = vhost.stats_details
+          vhost_stats = vhost.current_stats_details
           {% for sm in SERVER_METRICS %}
-            {{ sm.id }} += stats_details[:{{ sm.id }}]
-            {{ sm.id }}_rate += stats_details[:{{ sm.id }}_details][:rate]
-            add_logs!({{ sm.id }}_log, stats_details[:{{ sm.id }}_details][:log])
+            {{ sm.id }} += vhost_stats[:{{ sm.id }}]
+            {{ sm.id }}_rate += vhost_stats[:{{ sm.id }}_details][:rate]
+            vhost.add_{{ sm.id }}_log({{ sm.id }}_log)
           {% end %}
         end
         {% begin %}

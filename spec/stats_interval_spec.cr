@@ -136,6 +136,25 @@ module LavinMQ
         end
       end
 
+      it "adds rate logs to a sum, aligned at the latest tick" do
+        with_stats_interval(5000) do
+          with_stats_logs(3) do |log|
+            a = IntervalProbe.new
+            log.advance
+            b = IntervalProbe.new
+            log.advance
+            a.bump(1u64)
+            b.bump(2u64)
+            a.update_rates
+            b.update_rates
+            rates = [] of Float64
+            a.add_x_log(rates)
+            b.add_x_log(rates)
+            rates.should eq [0.0, 0.6]
+          end
+        end
+      end
+
       it "caps the logged increase per tick at UInt32::MAX" do
         with_stats_interval(5000) do
           with_stats_logs(3) do |log|
@@ -161,6 +180,9 @@ module LavinMQ
             p.g = v
           end
           p.g_log.should eq [0, 9, 4]
+          values = [1i64, 1i64, 1i64, 1i64]
+          p.add_g_log(values)
+          values.should eq [1, 1, 10, 5]
         end
       end
 
@@ -199,6 +221,19 @@ module LavinMQ
       b = log.write(StatsLog::Series.new, 3u32)
       log.read(1, a, b, &.itself).should eq [UInt32::MAX.to_i64 + 3]
       log.read(1, a, b) { |v| v / 2 }.should eq [(UInt32::MAX.to_i64 + 3) / 2]
+    end
+
+    it "merges series into existing values, padding them at the front" do
+      log = StatsLog(UInt32).new(3)
+      log.advance
+      s = log.write(StatsLog::Series.new, 1u32)
+      log.advance
+      s = log.write(s, 2u32)
+      sums = [10i64]
+      log.merge_into(sums, 2, s) { |v, sum| v + sum }
+      sums.should eq [1, 12]
+      log.merge_into(sums, 1, s) { |v, sum| v * sum }
+      sums.should eq [1, 24]
     end
 
     it "doesn't allocate a slot for zeros, but overwrites a value with zero" do
