@@ -59,8 +59,6 @@ module LavinMQ
         @tree.size
       end
 
-      # TODO: notify observers of ExchangeEvent::Bind/Unbind once MQTT has its own
-      # observable events, with the SubscriptionDetails `bindings_details` builds.
       def subscribe(session : MQTT::Session, topic_filter : String, qos : UInt8) : Bool
         @tree.subscribe(topic_filter, session, qos)
         true
