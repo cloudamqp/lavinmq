@@ -1001,6 +1001,98 @@ describe LavinMQ::Config do
       end
     {% end %}
   end
+
+  # A typo like `yse` used to read as false, so the setting looked enabled
+  # in the config while it was off.
+  describe "invalid boolean values" do
+    it "raises in [main]" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          tls_prefer_server_ciphers = yse
+          CONFIG
+      end
+      config = LavinMQ::Config.new(IO::Memory.new)
+      expect_raises(LavinMQ::Config::Error, "Invalid boolean value 'yse' for 'tls_prefer_server_ciphers' in section [main]. Accepted values are 1/true/yes/on/y and 0/false/no/off/n") do
+        config.parse(["-c", config_file.path])
+      end
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "raises in [sni:]" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          mqtt_tls_verify_peer = oui
+          CONFIG
+      end
+      config = LavinMQ::Config.new(IO::Memory.new)
+      expect_raises(LavinMQ::Config::Error, "Invalid boolean value 'oui' for 'mqtt_tls_verify_peer' in section [sni:foobar.localhost]") do
+        config.parse(["-c", config_file.path])
+      end
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "raises in environment variables" do
+      config_file = File.tempfile(&.print(""))
+      ENV["LAVINMQ_SYNC"] = "ture"
+      config = LavinMQ::Config.new(IO::Memory.new)
+      expect_raises(LavinMQ::Config::Error, "Invalid boolean value 'ture' for 'LAVINMQ_SYNC'") do
+        config.parse(["-c", config_file.path])
+      end
+    ensure
+      ENV.delete("LAVINMQ_SYNC")
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "raises on the command line" do
+      config_file = File.tempfile(&.print(""))
+      config = LavinMQ::Config.new(IO::Memory.new)
+      expect_raises(LavinMQ::Config::Error, "Invalid boolean value 'nope' for '--default-user-only-loopback'") do
+        config.parse(["-c", config_file.path, "--default-user-only-loopback=nope"])
+      end
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "raises on reload and keeps the running config" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir_lock = true
+          CONFIG
+      end
+      config = LavinMQ::Config.new(IO::Memory.new)
+      config.parse(["-c", config_file.path])
+      File.write(config_file.path, "[main]\ndata_dir_lock = garbage\n")
+      expect_raises(LavinMQ::Config::Error, "Invalid boolean value 'garbage' for 'data_dir_lock' in section [main]") do
+        config.reload
+      end
+      config.data_dir_lock?.should be_true
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "accepts the documented spellings in any case" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir_lock = Off
+          tls_prefer_server_ciphers = YES
+          CONFIG
+      end
+      config = LavinMQ::Config.new(IO::Memory.new)
+      config.parse(["-c", config_file.path])
+      config.data_dir_lock?.should be_false
+      config.tls_prefer_server_ciphers?.should be_true
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+  end
 end
 
 # Connect a TLS client requesting *servername* to a one-shot server using
