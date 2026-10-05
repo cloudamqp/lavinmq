@@ -776,6 +776,55 @@ describe LavinMQ::Config do
       end
     {% end %}
   end
+
+  # [main] parses booleans through parse_value, which downcases first; the
+  # [sni:] branch calls true? on the raw value. Anything but all-lowercase was
+  # silently off under SNI, so TRUE quietly disabled peer verification.
+  describe "[sni:] booleans" do
+    {% for value in ["true", "TRUE", "True", "YES"] %}
+      it "is on when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_verify_peer = {{ value.id }}
+            mqtt_tls_verify_peer = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_verify_peer?.should be_true
+          host.mqtt_tls_verify_peer.should be_true
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+
+    {% for value in ["false", "FALSE"] %}
+      it "is off when the value is {{ value.id }}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+            [sni:foobar.localhost]
+            tls_cert = spec/resources/foobar_localhost_certificate.pem
+            tls_key = spec/resources/foobar_localhost_key.pem
+            tls_verify_peer = {{ value.id }}
+            CONFIG
+        end
+        begin
+          config = LavinMQ::Config.new
+          config.parse(["-c", config_file.path])
+          host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+          host.tls_verify_peer?.should be_false
+        ensure
+          File.delete?(config_file.path)
+        end
+      end
+    {% end %}
+  end
 end
 
 # Connect a TLS client requesting *servername* to a one-shot server using
