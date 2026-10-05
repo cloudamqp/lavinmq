@@ -213,7 +213,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -224,7 +224,7 @@ module LavinMQ
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
-      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator)
+      @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
@@ -525,7 +525,6 @@ module LavinMQ
       Fiber.yield
       definitions.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
-      @mqtt_permission_service.save!
     end
 
     def delete

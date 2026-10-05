@@ -73,11 +73,12 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+    def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true,
+               mqtt_default_group : Bool = true)
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, @persister, description, tags, mqtt_default_group)
       Log.info { "Created vhost #{name}" }
       # Grant the creating user full permissions on the new vhost. Only local
       # users have stored permissions; OAuth users get theirs from token scopes.
