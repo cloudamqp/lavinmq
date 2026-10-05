@@ -682,7 +682,9 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |pub_io|
           connect(pub_io, client_id: "pub")
-          publish(pub_io, topic: "a/b", payload: "retained".to_slice, qos: 1u8, retain: true)
+          # QoS 2, as a retained message is replayed at the lower of its own
+          # and the subscription's QoS
+          publish_qos2(pub_io, 1u16, topic: "a/b", payload: "retained".to_slice, retain: true)
         end
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: false)

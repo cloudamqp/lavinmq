@@ -546,7 +546,7 @@ docker run --rm --network host eclipse-mosquitto mosquitto_pub \
 wait
 # cross-version: v5 publisher -> v3.1.1 subscriber (properties must vanish, payload must not)
 $p interop.py sub rt/5 1 12 311 1 & sleep 1.5; $p interop.py pub rt/5 hello 1 - 5; wait
-# retained: item F - the store keeps only the body, so props come back empty
+# retained: the replay must keep its properties (item F)
 $p interop.py pub rt/6 retained 1 retain 5; $p interop.py sub rt/6 1 8 5 1
 ```
 
@@ -627,8 +627,8 @@ QoS 1, which scored 8 / 18 / 1 on v5 and 7 / 2 on v3.1.1 on 2026-08-19. The
 
 | test | why |
 |---|---|
-| `test_retained_message` | item F: a retained message loses its User Property |
-| `test_subscribe_options` | item F: retained replays come back at the subscription QoS, not the publisher's [MQTT-3.8.4-8] |
+| `test_retained_message` | item F: a retained message lost its User Property. Fixed since, not yet re-run |
+| `test_subscribe_options` | item F: retained replays came back at the subscription QoS, not the publisher's [MQTT-3.8.4-8]. Fixed since, not yet re-run |
 | `test_publication_expiry` | item M: Message Expiry Interval was carried but never enforced. Fixed since, not yet re-run |
 | `test_will_delay` | item E |
 | `test_flow_control1`, `test_flow_control2` (timeout) | item N: the client's Receive Maximum was not honoured. Fixed since, not yet re-run |

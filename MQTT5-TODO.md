@@ -38,29 +38,6 @@ Not a tweak:
   publication until after a restart, and session expiry already sets the
   precedent of persisting no deadlines.
 
-## F. Retained messages lose v5 properties and their QoS
-
-**Merge blocker.** [MQTT-3.3.2-17] and [MQTT-3.8.4-8]; listed in `MQTT5.md`.
-
-`retain_store.cr#retain` takes the whole `Publish` but writes only
-`packet.payload` to the file, so a retained v5 message reaches a later
-subscriber with its properties stripped. The call already has
-`packet.properties` in hand; the work is entirely in the store format, which
-makes this the most invasive item left.
-
-The same gap drops the publisher's QoS: `Broker#subscribe` replays every
-retained message at the subscription's granted QoS, where [MQTT-3.8.4-8] wants
-the lower of the two. Found by Paho's `test_subscribe_options` on 2026-10-02:
-retained messages published at QoS 0, 1 and 2 all came back at 2. Pre-existing,
-and v3 is affected too. Storing the QoS belongs in the same format change. `topic_tree.cr`, which backs the retain
-store, also still uses `StringTokenIterator` unlike the publish-path
-subscription tree.
-
-Once the store keeps properties, a retained message's Message Expiry Interval
-needs honouring as well: an expired one is discarded and no longer replayed
-(§3.3.1.3), and a replay carries the remaining interval [MQTT-3.3.2-6]. The
-store keeps no publish time today, so that goes into the format change too.
-
 ## G. Shard release and open items
 
 - **Merge blocker.** **Cut a tagged release.** `shard.yml` pins
@@ -114,6 +91,8 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
 
 - **B** subscription options, **D** session expiry, **E**'s will properties, and
   all of **J** are done.
+- **F** the retain store keeps each message's QoS, v5 properties and publish time,
+  so a replay keeps its properties, goes out at the lower QoS and honours expiry.
 - **M** an expired message is deleted unless its delivery started, and a delivered
   one carries the remaining interval.
 - **Retain Handling 3** is a Protocol Error in the shard since

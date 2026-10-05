@@ -1,7 +1,7 @@
 # MQTT 5.0 release notes draft
 
 Things we ship with, deliberately. These belong in the release notes and the
-docs, not in a bug tracker. The two marked **Release note** are visible
+docs, not in a bug tracker. The entries marked **Release note** are visible
 behaviour changes for existing users. Entries marked **(merge blocker)** are
 spec violations that get fixed before #2185 merges, so they drop out of the final
 notes; the checklist is in `MQTT5.md`.
@@ -26,6 +26,17 @@ notes; the checklist is in `MQTT5.md`.
   visible: a QoS 0 publish to a QoS 1 subscription is no longer upgraded, so it
   is no longer stored while that subscriber is offline. A spec titled "[LavinMQ
   non-normative]" used to assert the old behaviour. **Release note.**
+- **Retained messages replay at the lower of their own and the subscription's
+  QoS**, on v3.1.1 too, where they used to replay at the subscription's
+  [MQTT-3.8.4-8]. One retained before the upgrade replays as QoS 1 at most, the
+  highest any older version accepted, until it is retained again.
+  **Release note.**
+- **The retain store has a new file format.** Each retained message is written
+  as `<md5>.rmsg` with its QoS, properties and publish time; the old
+  payload-only `<md5>.msg` files are still read, and are replaced when their
+  topic is next retained. A downgrade to an older version does not read
+  `.rmsg`, so it loses every retained message published since the upgrade.
+  **Release note.**
 
 ## Session expiry caveats
 
@@ -60,10 +71,6 @@ notes; the checklist is in `MQTT5.md`.
 - **Will Delay Interval ignored** (wills fire immediately). **(merge blocker)** Not advertisable,
   MQTT has no capability flag for it, so this is a real gap rather than a legal
   deferral. See item E in `MQTT5-TODO.md`.
-- **Retained messages lose v5 properties and their QoS.** **(merge blocker)** The retain store keeps
-  only the payload, so a retained message is replayed without its properties and
-  at the subscription's QoS rather than the lower of that and the publisher's.
-  Item F.
 - **Expired messages are deleted lazily.** A message past its Message Expiry
   Interval is deleted when it reaches the head of the session, not when it
   expires, so until then it still counts towards the session's message count,

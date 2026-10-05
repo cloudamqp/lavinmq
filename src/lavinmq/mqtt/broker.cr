@@ -237,16 +237,18 @@ module LavinMQ
         result = session.subscribe(tf.topic, options)
         return Protocol::SubAck::ReasonCode::UnspecifiedError if result.failed?
         if replay_retained?(tf.retain_handling, result.new?)
-          ts = RoughTime.unix_ms
-          @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            # At the subscription's QoS, not capped like `Exchange#publish`
-            # [MQTT-3.8.4-6]: the retain store keeps no publish QoS, and adding
-            # it changes its file format. Listed in docs/mqtt.md Limitations.
-            props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: options.qos)
-            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+          @retain_store.each(tf.topic) do |retained|
+            props = retained.properties
+            # The lower of the publish and the subscription QoS [MQTT-3.8.4-8].
+            qos = Math.min(props.delivery_mode || 0u8, options.qos)
+            props.delivery_mode = qos
+            # The original timestamp, so the replay counts down the Message
+            # Expiry Interval like any stored message [MQTT-3.3.2-6].
+            msg = Message.new(retained.timestamp, EXCHANGE, retained.topic, props,
+              retained.bodysize, retained.body_io)
             # A durable session records a QoS 2 delivery's packet id before the
             # send, and that record must not outlive the message on power loss
-            msg.needs_sync = options.qos > 0
+            msg.needs_sync = qos > 0
             session.publish(msg)
           end
         end
