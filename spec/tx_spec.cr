@@ -2,6 +2,21 @@ require "./spec_helper"
 
 describe "Transactions" do
   describe "publishes" do
+    {% if flag?(:linux) %}
+      it "advises the segments they're written to for random access" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.tx_select
+            q = ch.queue("tx_random_access")
+            q.publish "m"
+            ch.tx_commit
+            queue = s.vhosts["/"].queue("tx_random_access").as(LavinMQ::AMQP::Queue)
+            vm_flags(queue.@msg_store.@wfile.path).should contain "rr"
+          end
+        end
+      end
+    {% end %}
+
     it "can be commited" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
