@@ -18,6 +18,14 @@ This avoids the syscall and copy overhead of buffered I/O — hot data is served
 
 Streams release a segment's resident pages as soon as its last reader leaves, for example when a consumer advances to another segment or is cancelled. The active write segment is excluded from this cleanup. Releasing pages does not delete the segment or its messages; a later reader can load them again from disk. This keeps memory usage during a stream replay from accumulating across all the segments already read.
 
+### Read Ahead
+
+The first write to a new segment makes the kernel read ahead up to the block device's `read_ahead_kb` of the empty segment. This happens synchronously, in the publish path. With a large read ahead and a page cache full of retained data, for example streams, that can stall publishers for tens of milliseconds at every segment rollover. At startup LavinMQ logs the read ahead of the data directory's block device, and warns if it is above 1 MiB. The kernel default of 128 KiB is a good value:
+
+```sh
+echo 128 > /sys/block/<device>/queue/read_ahead_kb
+```
+
 ## Acknowledgment Tracking
 
 For standard and priority queues, each segment has a corresponding ack file (`acks.{segment_id}`) that tracks which messages have been acknowledged (deleted):

@@ -26,8 +26,8 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
-    # Set once a publish to this store needed a sync (publish confirm or
-    # MQTT QoS 1), see #write_to_disk
+    # Set once a publish to this store needed a sync (publish confirm,
+    # tx.commit or MQTT QoS 1), see #write_to_disk
     @synced_writes = false
     getter closed
     getter bytesize = 0u64
