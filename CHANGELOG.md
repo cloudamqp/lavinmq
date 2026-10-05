@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.4] - 2026-10-05
+
+This patch release works around a Linux kernel bug that stalled queue churn on affected kernels, and fixes messages above `x-max-priority` that could not be acked, stream segments with an incomplete trailing record that prevented startup, and purged messages that came back after a restart. It also fixes connections dropped by long `reply_text` values, case-sensitive booleans in `[sni:]` config sections, stream replays starving other work, and several queue policy, HTTP API and logging issues.
+
+### Fixed
+
+- Severe queue-churn stalls on affected Linux kernels, observed on arm64: segment memory is released in 1 MiB chunks to avoid a kernel TLB flush bug that caused repeated page faults [#2288](https://github.com/cloudamqp/lavinmq/pull/2288)
+- Messages published with a priority above the queue's `x-max-priority` could not be acked, rejected, requeued or purged, leaving the queue inconsistent even after a restart. Store lookups now clamp the priority to the queue's maximum, matching how the messages are stored [#2293](https://github.com/cloudamqp/lavinmq/pull/2293)
+- An incomplete trailing record in a stream segment could prevent broker startup when segment metadata was rebuilt. Recovery now drops the incomplete record and replicates the shortened segment to followers [#2286](https://github.com/cloudamqp/lavinmq/pull/2286)
+- Purged messages that had been requeued came back after a restart, because `purge_all` dropped them from memory without writing an ack record. The queue size counter could also underflow [#2247](https://github.com/cloudamqp/lavinmq/pull/2247)
+- An AMQP `reply_text` longer than 255 bytes broke the frame after the header was written and dropped the connection. A passive declare of a missing queue with a long name reaches it, as does the `X-Reason` header on `DELETE /api/connections/:name`. The text is now truncated on a codepoint boundary [#2263](https://github.com/cloudamqp/lavinmq/pull/2263)
+- Boolean values in an `[sni:...]` config section were parsed case-sensitively, so `TRUE` read as false for the `tls_verify_peer` keys and silently disabled mTLS [#2264](https://github.com/cloudamqp/lavinmq/pull/2264)
+- A stream consumer replaying from an old offset yielded to other fibers only every 32768 messages, so a fast replay of large messages could starve publishers, other consumers and GC [#2237](https://github.com/cloudamqp/lavinmq/pull/2237)
+- Repeated queue policy updates spawned duplicate expiration and limit-enforcement workers. Updates are now coalesced, and overflow and delivery-limit enforcement run independently so a failure in one cannot skip the other [#2291](https://github.com/cloudamqp/lavinmq/pull/2291)
+- HTTP routes with percent-encoded unreserved characters, such as `/api/nodes/gc%5Fstats`, now match the intended endpoint. Encoded slashes remain part of parameter values, including vhost names [#2277](https://github.com/cloudamqp/lavinmq/pull/2277)
+- Sorting boolean columns through the HTTP API returned an error, including sorting the connections list by TLS in the management UI [#2248](https://github.com/cloudamqp/lavinmq/pull/2248)
+
+### Changed
+
+- TLS handshake failures and invalid TLS configuration are logged with an error message instead of a stack trace. A failed TLS configuration reload logs the error and keeps the previous configuration [#1762](https://github.com/cloudamqp/lavinmq/pull/1762)
+- RPM builds install `openssl-devel`, `zlib-devel` and `git` explicitly, since the Fedora `crystal` package no longer pulls them in [#2278](https://github.com/cloudamqp/lavinmq/pull/2278)
+
 ## [2.9.3] - 2026-09-09
 
 This patch release fixes MQTT persistent sessions losing their subscriptions on restart, a segfault when dead-lettering races a purge or queue delete, and slow restarts with many delayed messages. It enforces the vhost `max-connections` and `max-queues` limits for MQTT, stops PROXY protocol connections from counting as loopback for the default user, and corrects several message statistics, stream policy, API and management UI issues.
