@@ -36,4 +36,11 @@ describe LavinMQ::HTTP::StatsHelpers do
     add_logs!(a, b)
     a.should eq [1, 2, 4]
   end
+
+  it "should not modify b" do
+    a = [1, 2, 3]
+    b = [1] of Int32
+    add_logs!(a, b)
+    b.should eq [1]
+  end
 end

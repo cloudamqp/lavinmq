@@ -72,6 +72,23 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should include ready and unacked message history from all queues" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q1 = ch.queue("history_q1")
+          q2 = ch.queue("history_q2")
+          3.times { q1.publish_confirm "m" }
+          2.times { q2.publish_confirm "m" }
+          q2.get(no_ack: false)
+          s.update_stats_rates
+          totals = JSON.parse(http.get("/api/overview").body)["queue_totals"]
+          totals["messages_ready_log"].as_a.last.should eq 4
+          totals["messages_unacknowledged_log"].as_a.last.should eq 1
+          totals["messages_log"].as_a.last.should eq 5
+        end
+      end
+    end
+
     it "should return sum of all published messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")

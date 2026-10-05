@@ -82,4 +82,20 @@ describe LavinMQ::AMQP::StreamReader do
       end
     end
   end
+
+  it "should count reads as get_no_ack" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("", args: AMQP::Client::Arguments.new({
+          "x-queue-type" => "stream",
+        }))
+        3.times { |i| q.publish_confirm "test message #{i}" }
+
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        iq.reader("first").each { }
+        iq.get_no_ack_count.should eq 3
+        iq.deliver_get_count.should eq 3
+      end
+    end
+  end
 end

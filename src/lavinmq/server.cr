@@ -153,15 +153,28 @@ module LavinMQ
     end
 
     def update_stats_rates
+      stats_log = StatsLog.instance
+      stats_log.resize(@config.stats_log_size)
+      stats_log.advance
       @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates)
+        ready = unacked = 0_u64
+        vhost.each_queue do |q|
+          q.update_rates
+          ready += q.message_count
+          unacked += q.unacked_count
+        end
+        vhost.each_session do |s|
+          s.update_rates
+          ready += s.message_count
+          unacked += s.unacked_count
+        end
         vhost.each_exchange(&.update_rates)
-        vhost.each_session(&.update_rates)
         vhost.each_connection do |connection|
           connection.update_rates
           connection.each_channel(&.update_rates)
         end
         vhost.update_rates
+        vhost.update_message_count_logs(ready, unacked)
       end
     end
 

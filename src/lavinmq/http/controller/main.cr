@@ -28,8 +28,8 @@ module LavinMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
-          ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
-          unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
+          ready_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
+          unacked_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
           recv_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           send_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% for name in OVERVIEW_STATS %}
@@ -66,15 +66,13 @@ module LavinMQ
             vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
-              add_logs!(ready_log, q.message_count_log)
-              add_logs!(unacked_log, q.unacked_count_log)
             end
             vhost.each_session do |s|
               ready += s.message_count
               unacked += s.unacked_count
-              add_logs!(ready_log, s.message_count_log)
-              add_logs!(unacked_log, s.unacked_count_log)
             end
+            add_logs!(ready_log, vhost.messages_ready_log)
+            add_logs!(unacked_log, vhost.messages_unacknowledged_log)
             vhost_stats_details = vhost.stats_details
             recv_rate += vhost_stats_details[:recv_oct_details][:rate]
             send_rate += vhost_stats_details[:send_oct_details][:rate]

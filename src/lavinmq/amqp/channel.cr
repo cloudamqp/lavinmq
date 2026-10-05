@@ -417,7 +417,6 @@ module LavinMQ
             @deliver_count.add(1, :relaxed)
             @client.vhost.event_tick(EventType::ClientDeliver)
           end
-          @deliver_get_count.add(1, :relaxed)
         end
       end
 
@@ -488,7 +487,6 @@ module LavinMQ
               @get_count.add(1, :relaxed)
               @client.vhost.event_tick(EventType::ClientGet)
             end
-            @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages

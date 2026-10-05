@@ -8,9 +8,7 @@ module LavinMQ::AMQP
       @unacked_count = Atomic(UInt32).new(0u32)
       @unacked_bytesize = Atomic(UInt64).new(0u64)
 
-      rate_stats(
-        {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
-        {"message_count", "unacked_count"})
+      rate_stats({"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"})
     end
 
     def unacked_count
