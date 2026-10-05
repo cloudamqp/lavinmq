@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- MQTT sessions and subscriptions are stored in `definitions.mqtt` per vhost instead of as queues and bindings in `definitions.amqp`. Existing ones move there on the first start, so downgrading afterwards loses persistent MQTT sessions
+- The `mqtt.default` exchange is read-only in the HTTP API: declaring, deleting or publishing to it, and adding or removing its bindings, answer `501 Not Implemented`. Subscriptions are managed over MQTT
 - The MQTT `default` permission group is saved to `mqtt_permissions.json` when a vhost is created instead of when it closes. A definitions import no longer removes the `default` group from an existing vhost, and a vhost created by an import that has an `mqtt_permissions` key gets only the groups listed for it, so an exported vhost without groups stays locked down. `lavinmqctl definitions export` includes the `default` group for a vhost without `mqtt_permissions.json` [#2330](https://github.com/cloudamqp/lavinmq/pull/2330)
 - Publish confirms only sync the segments the confirmed messages were written to, plus the directories of newly created files, instead of a `syncfs` of the whole data dir, so unrelated traffic on other queues no longer gets flushed with every confirm. `tx.commit` still uses `syncfs`. Followers sync the same files before acking (replication protocol v2, v1 peers remain compatible) [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - Less write amplification for publish confirms and MQTT QoS 1: once a queue receives such a publish (with `sync` enabled), its write segments, and all ack files, are advised `MADV_RANDOM`, so the kernel caches them in page-sized folios and each sync writes about 4 KiB instead of up to 128 KiB. Full segments get readahead back when they're read: `MADV_SEQUENTIAL` for classic queues, `MADV_NORMAL` for streams, whose segments can be shared by several consumers [#2323](https://github.com/cloudamqp/lavinmq/pull/2323)
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A SUBACK grants Failure (`0x80`) for a subscription that could not be established, such as when a clean-session client reconnects under the same client ID meanwhile, instead of the requested QoS
 - Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 - Stream queue memory usage while consuming: segments are released from memory as soon as no consumer is reading them, instead of by a sweep every 60 seconds, which could grow to hundreds of MB during a fast replay [#2250](https://github.com/cloudamqp/lavinmq/pull/2250)
 - Messages published with a priority above the queue's `x-max-priority` could not be acked, rejected, requeued or purged, leaving the queue inconsistent even after a restart. Store lookups now clamp the priority to the queue's maximum, matching how the messages are stored [#2293](https://github.com/cloudamqp/lavinmq/pull/2293)

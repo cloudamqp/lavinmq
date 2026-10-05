@@ -344,7 +344,7 @@ module LavinMQ
               "arguments":   q.arguments,
             }.to_json(json)
           end
-          v.each_session do |s|
+          v.mqtt.each_session do |s|
             next unless s.durable?
             {
               "name":        s.name,
@@ -389,6 +389,12 @@ module LavinMQ
             e.bindings_details.each do |b|
               b.to_json(json)
             end
+          end
+          # The MQTT exchange is not in `each_exchange`, and only the sessions
+          # `export_queues` emits can be re-imported.
+          v.mqtt.exchange.bindings_details.each do |b|
+            next unless b.destination.durable?
+            b.to_json(json)
           end
         end
       end

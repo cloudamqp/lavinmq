@@ -162,7 +162,7 @@ module MqttSpecs
 
     it "binds a qos2 subscription as qos1" do
       with_server do |server|
-        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange = server.vhosts["/"].mqtt.exchange
         with_client_io(server) do |io|
           connect(io)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
@@ -193,8 +193,8 @@ module MqttSpecs
         restart_server(server)
 
         vhost = server.vhosts["/"]
-        vhost.session?("mqtt.sub").should_not be_nil
-        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        vhost.mqtt.session?("mqtt.sub").should_not be_nil
+        exchange = vhost.mqtt.exchange
         exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
       end
     end
@@ -210,7 +210,7 @@ module MqttSpecs
 
         restart_server(server)
 
-        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+        server.vhosts["/"].mqtt.exchange.bindings_details.should be_empty
       end
     end
   end

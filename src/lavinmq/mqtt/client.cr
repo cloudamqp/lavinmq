@@ -260,7 +260,7 @@ module LavinMQ
 
       def recieve_puback(packet : Protocol::PubAck)
         # No session means we never delivered anything to ack
-        unless session = @broker.sessions[@client_id]?
+        unless session = @broker.session?(@client_id)
           @log.warn { "Received PubAck from client without a session" }
           close_socket
           return

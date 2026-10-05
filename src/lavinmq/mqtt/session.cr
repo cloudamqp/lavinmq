@@ -121,7 +121,7 @@ module LavinMQ
           @msg_store.delete
         end
         @replicator.try &.delete_file(@metadata_file)
-        @vhost.delete_queue(@name)
+        @vhost.mqtt.delete_session(@name)
         true
       end
 
@@ -232,19 +232,15 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
-        arguments = MQTT.qos_arguments(qos)
-        if binding = find_binding(tf)
-          return if binding.binding_key.arguments == arguments
-          unbind(tf, binding.binding_key.arguments)
-        end
-        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
+      # False if the session was deleted between the caller getting hold of it
+      # and this call, by a clean-session client reconnecting under the same
+      # client_id.
+      def subscribe(tf, qos) : Bool
+        @vhost.mqtt.subscribe(self, tf, qos)
       end
 
-      def unsubscribe(tf)
-        if binding = find_binding(tf)
-          unbind(tf, binding.binding_key.arguments)
-        end
+      def unsubscribe(tf) : Bool
+        @vhost.mqtt.unsubscribe(self, tf)
       end
 
       # Returns whether the message was accepted, so the exchange only counts
@@ -265,15 +261,7 @@ module LavinMQ
       end
 
       def bindings
-        @vhost.queue_bindings(self)
-      end
-
-      private def find_binding(rk)
-        bindings.find { |b| b.binding_key.routing_key == rk }
-      end
-
-      private def unbind(rk, arguments)
-        @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
+        @vhost.mqtt.subscriptions(self)
       end
 
       private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
