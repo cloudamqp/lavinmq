@@ -79,7 +79,7 @@ module LavinMQ
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
           raise Error.new(seg, cause: ex)
         end
@@ -101,7 +101,7 @@ module LavinMQ
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
         raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -113,20 +113,7 @@ module LavinMQ
       end
     end
 
-    def shift?(consumer = nil) : Envelope?
-      shift_with_segment?(consumer).try &.first
-    end
-
-    # Like #shift?, but also leases the message's segment, see #lease
-    def shift_leased?(consumer = nil) : Tuple(Envelope, MFile)?
-      if shifted = shift_with_segment?(consumer)
-        env, segment = shifted
-        {env, segment.lease}
-      end
-    end
-
-    # The shifted message and the segment it's read from
-    private def shift_with_segment?(consumer) : Tuple(Envelope, MFile)? # ameba:disable Metrics/CyclomaticComplexity
+    def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
         begin
@@ -135,7 +122,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return {Envelope.new(sp, msg, redelivered: true), segment}
+          return Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           # sp has already been removed from @requeued; drop its accounting too
           # so @size/@bytesize don't leak when the segment is gone or the
@@ -168,7 +155,7 @@ module LavinMQ
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
-        return {Envelope.new(sp, msg, redelivered: false), rfile}
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -188,14 +175,6 @@ module LavinMQ
       rescue ex
         raise Error.new(segment, cause: ex)
       end
-    end
-
-    # Keeps the message's segment mapped, even if it's deleted meanwhile, until
-    # MFile#release_lease. For deliveries that yield the message outside the
-    # @msg_store_lock, e.g. while it's written to a socket.
-    def lease(sp : SegmentPosition) : MFile
-      raise ClosedError.new if @closed
-      @segments[sp.segment].lease
     end
 
     # Like `#[]`, but the returned message owns all its memory: the record is
@@ -318,7 +297,7 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
-      # A delivery may still be reading from the mapping, see MFile#lease
+      # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
     end
 
@@ -332,7 +311,7 @@ module LavinMQ
       @empty.close
       # A delivery may still be reading from a segment, e.g. a basic.get that
       # isn't waited for like consumers are, MFile#close only unmaps it once
-      # the delivery releases it (see #lease)
+      # the delivery releases it (see Envelope#lease)
       if replicator = @replicator
         @segments.each_value do |segment|
           replicator.register_file segment.path

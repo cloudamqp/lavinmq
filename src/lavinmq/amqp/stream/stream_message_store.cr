@@ -211,7 +211,7 @@ module LavinMQ::AMQP
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
         puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
@@ -238,7 +238,7 @@ module LavinMQ::AMQP
         consumer.pos += sp.bytesize
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
-        Envelope.new(sp, msg, redelivered: false)
+        Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
@@ -252,7 +252,7 @@ module LavinMQ::AMQP
             offset, _, _ = offset_at(sp.segment, sp.position)
             unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
-            return Envelope.new(sp, msg, redelivered: true)
+            return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
             raise Error.new(segment, cause: ex)
           end

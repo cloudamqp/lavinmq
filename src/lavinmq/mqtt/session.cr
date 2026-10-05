@@ -281,9 +281,8 @@ module LavinMQ
         loop do
           # The payload is sent straight from the segment, which a close or
           # delete of the session can unmap while the send is suspended
-          shifted = @msg_store_lock.synchronize { @msg_store.shift_leased? } || break
+          env = @msg_store_lock.synchronize { @msg_store.shift?.try &.lease } || break
           begin
-            env = shifted[0]
             sp = env.segment_position
             no_ack = env.message.properties.delivery_mode == 0
             if no_ack
@@ -335,7 +334,7 @@ module LavinMQ
             end
             return true
           ensure
-            shifted[1].release_lease
+            env.release
           end
         end
         false

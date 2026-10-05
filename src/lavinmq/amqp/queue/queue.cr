@@ -929,8 +929,7 @@ module LavinMQ::AMQP
         # The delivery can suspend in a socket write, during which the message
         # can be acked or purged and its segment deleted; the lease keeps the
         # segment mapped until we're done with the message
-        shifted = @msg_store_lock.synchronize { @msg_store.shift_leased? } || break
-        env = shifted[0]
+        env = @msg_store_lock.synchronize { @msg_store.shift?.try &.lease } || break
         begin
           if has_expired?(env.message) # guarantee to not deliver expired messages
             expire_msg(env, :expired)
@@ -958,7 +957,7 @@ module LavinMQ::AMQP
           @message_ttl_change.try_send? nil
           return true
         ensure
-          shifted[1].release_lease
+          env.release
         end
       end
       false

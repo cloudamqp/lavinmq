@@ -14,8 +14,7 @@ module LavinMQ::AMQP
       offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
-        if leased = stream.read_leased(segment, position)
-          env, mfile = leased
+        if env = stream.read_leased(segment, position)
           begin
             if headers = env.message.properties.headers
               headers["x-stream-offset"] = offset
@@ -26,7 +25,7 @@ module LavinMQ::AMQP
             offset += 1
             yield env
           ensure
-            mfile.release_lease
+            env.release
           end
           stream.@deliver_get_count.add(1, :relaxed)
         else
