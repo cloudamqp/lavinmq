@@ -655,6 +655,45 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "keeps the segment mapped when the queue is closed during a basic.get" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        mfile = nil
+        q.basic_get(false) do |env|
+          segment = segment_file.call(q, env.segment_position)
+          mfile = segment
+          size = segment.size
+          # Unlike consumers, a basic.get isn't waited for by Queue#close
+          q.close
+          segment.closed?.should be_false
+          String.new(env.message.body).should eq body
+          # Only the unmap is deferred, the file is truncated right away
+          File.size(segment.path).should eq size
+        end.should be_true
+        mfile.try(&.closed?).should be_true
+      end
+    end
+
+    it "doesn't truncate a segment reopened before the deferred close" do
+      with_queue do |q|
+        q.publish(LavinMQ::Message.new("", q.name, body))
+        path = ""
+        reopened = nil
+        q.basic_get(false) do |env|
+          path = segment_file.call(q, env.segment_position).path
+          q.close
+          # E.g. a vhost restart while the delivery is still being written
+          store = LavinMQ::MessageStore.new(File.dirname(path), nil)
+          reopened = store
+          store.@wfile.path.should eq path
+          store.push(LavinMQ::Message.new("", q.name, body))
+        end.should be_true
+        store = reopened.not_nil!
+        File.size(path).should be >= store.@wfile.size
+        store.close
+      end
+    end
+
     it "keeps the segment mapped when the queue is purged during a no-ack delivery" do
       with_queue do |q|
         4.times { q.publish(LavinMQ::Message.new("", q.name, body)) }

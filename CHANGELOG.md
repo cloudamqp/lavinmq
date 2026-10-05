@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A crash when a queue, stream or MQTT session was closed or deleted while a message was still being delivered by `basic.get`, the HTTP API or to an MQTT client. Closing now waits for such deliveries before unmapping the segment
 - A crash when a queue segment was deleted while a message from it was still being delivered. Deliveries now keep the segment mapped until they finish [#2325](https://github.com/cloudamqp/lavinmq/pull/2325)
 - Stream retention (`max-length`, `max-length-bytes`, `max-age`, a policy or purge) could unmap a segment while a consumer or the HTTP stream reader was still delivering a message from it, crashing the broker with a segfault when the consumer's socket was slow. The segment is now unlinked right away but kept mapped until the in-flight delivery finishes [#2324](https://github.com/cloudamqp/lavinmq/pull/2324)
 - Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)

@@ -165,14 +165,17 @@ class MFile < IO
 
   def release_lease : Nil
     if @leases.sub(1) == 1 && @close_when_unleased.get
-      close
+      close(truncate_to_size: false)
     end
   end
 
   # Closes now, or when the last lease is released. The flag is set before the
   # lease count is read, and release_lease decrements before reading the flag,
   # so at least one of them sees the other and closes (close is idempotent).
+  # A deferred close only unmaps, as the file may have been opened again by
+  # then, so a leased file is truncated to its size right away.
   def close_when_unleased : Nil
+    truncate(@size) unless @leases.get.zero? || @readonly || deleted? || @size.zero?
     @close_when_unleased.set(true)
     close if @leases.get.zero?
   end
