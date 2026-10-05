@@ -56,6 +56,11 @@ and v3 is affected too. Storing the QoS belongs in the same format change. `topi
 store, also still uses `StringTokenIterator` unlike the publish-path
 subscription tree.
 
+Once the store keeps properties, a retained message's Message Expiry Interval
+needs honouring as well: an expired one is discarded and no longer replayed
+(§3.3.1.3), and a replay carries the remaining interval [MQTT-3.3.2-6]. The
+store keeps no publish time today, so that goes into the format change too.
+
 ## G. Shard release and open items
 
 - **Merge blocker.** **Cut a tagged release.** `shard.yml` pins
@@ -85,17 +90,15 @@ subscription tree.
 - Consider a v5 mode for the `lavinmqperf mqtt` throughput tool. It is pinned to
   `IO.v3`, so there is no load-testing path for v5 at all. Optional.
 
-## M. Message Expiry Interval is not enforced
+## P. DUP set on a first delivery
 
-**Merge blocker.** [MQTT-3.3.2-5] and [MQTT-3.3.2-6]; listed in `MQTT5.md`.
-
-The property round-trips intact, but nothing acts on it: a message whose interval
-has passed is still delivered, where [MQTT-3.3.2-5] requires deleting it for any
-subscriber delivery has not started for, and a forwarded one keeps its original
-value, where [MQTT-3.3.2-6] wants it reduced by the time spent waiting. Found by
-Paho's `test_publication_expiry` on 2026-10-02. The delivery path already reads
-the property in `Session#build_packet`, so both halves can live there, against
-the message's store timestamp.
+Not a merge blocker. When `deliver_acked` finds no free packet id it requeues
+the message it just shifted, unsent, and `MessageStore` marks every requeued
+message redelivered. Its first real send then goes out with DUP 1 and is counted
+as a redelivery, where DUP 0 means a first attempt (§3.3.1.1). The capacity gate
+keeps this rare: it needs the window to shrink between the gate and `next_id`.
+A remembered packet id is the precise "sent before" signal, which is what
+`Session#expired_undelivered?` uses.
 
 ## O. Wildcards match `$`-prefixed topics
 
@@ -111,6 +114,8 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
 
 - **B** subscription options, **D** session expiry, **E**'s will properties, and
   all of **J** are done.
+- **M** an expired message is deleted unless its delivery started, and a delivered
+  one carries the remaining interval.
 - **Retain Handling 3** is a Protocol Error in the shard since
   `84codes/mqtt-protocol.cr#19`, so a v5 client gets DISCONNECT `0x82`.
 - **N** the outbound window is the lower of the client's Receive Maximum and

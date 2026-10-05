@@ -554,6 +554,10 @@ module LavinMQ
           # delete of the session can unmap while the send is suspended
           @msg_store.shift_with_lease?(@msg_store_lock) do |env|
             sp = env.segment_position
+            if expired_undelivered?(env)
+              delete_message(sp)
+              next
+            end
             # `nil` counts as QoS 0: `build_packet` maps it to 0, so booking an
             # id would leak the slot. Nothing produces a nil today.
             delivery_mode = env.message.properties.delivery_mode
@@ -726,6 +730,19 @@ module LavinMQ
         refresh_capacity
       end
 
+      # [MQTT-3.3.2-5] deletes an expired message only while onward delivery has
+      # not started. A remembered packet id means it was sent before and requeued
+      # on reattach, so [MQTT-4.4.0-1] still owes it. Not `env.redelivered`: a
+      # message requeued for want of a packet id was never sent.
+      private def expired_undelivered?(env) : Bool
+        msg = env.message
+        interval = PublishHeaders.message_expiry_interval(msg.properties.headers) || return false
+        return false if RoughTime.unix_ms - msg.timestamp < interval.to_i64 * 1000
+        return false unless (@msg_store.original_packet_id?(env.segment_position) || 0u16).zero?
+        @log.debug { "Dropping message past its #{interval}s Message Expiry Interval" }
+        true
+      end
+
       # A message loaded from disk is not `redelivered`, so a re-send under the
       # original id is marked by `dup` [MQTT-3.3.1-1].
       def build_packet(env, packet_id, dup = false) : Protocol::Publish
@@ -742,6 +759,12 @@ module LavinMQ
                      else
                        Protocol::PublishProperties.new
                      end
+        if interval = properties.message_expiry_interval
+          # Less the time spent here [MQTT-3.3.2-6]. 0 for an expired message
+          # we still owe, and never above the original if the clock went back.
+          remaining = interval.to_i64 - (RoughTime.unix_ms - msg.timestamp) // 1000
+          properties.message_expiry_interval = remaining.clamp(0_i64, interval.to_i64).to_u32
+        end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,

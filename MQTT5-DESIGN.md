@@ -243,6 +243,13 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   without entering `@unacked`, so it is never redelivered [MQTT-3.1.2-25].
   Requeuing would loop forever, since the packet will be exactly as oversized
   next time.
+- **Message expiry is checked at delivery, against the store timestamp.** The
+  interval is already in the message headers and the timestamp is written with
+  the message, so expiry survives a restart with no new state and costs nothing
+  for a message without an interval. "Delivery has started" [MQTT-3.3.2-5] is
+  read as "has a remembered packet id", not `env.redelivered`: a message
+  requeued for want of a packet id is marked redelivered without ever being
+  sent (item P).
 - **Any other oversized outbound packet closes the connection.** We put no
   Reason String or User Property on acks, so outside PUBLISH there is nothing
   optional to strip, and the exchange cannot complete without the packet.
