@@ -35,6 +35,10 @@ describe LavinMQ::Config do
     LavinMQ::Config.new.control_unix_path.should eq "/tmp/lavinmqctl.sock"
   end
 
+  it "enables tcp_nodelay by default" do
+    LavinMQ::Config.new.tcp_nodelay?.should be_true
+  end
+
   it "should prioritize CLI arguments over other arguments" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
@@ -107,7 +111,7 @@ describe LavinMQ::Config do
           stats_log_size = 240
           set_timestamp = true
           socket_buffer_size = 32768
-          tcp_nodelay = true
+          tcp_nodelay = false
           segment_size = 16777216
           sync = false
           syncfs_threshold = 8
@@ -196,7 +200,7 @@ describe LavinMQ::Config do
     config.stats_log_size.should eq 240
     config.set_timestamp?.should be_true
     config.socket_buffer_size.should eq 32768
-    config.tcp_nodelay?.should be_true
+    config.tcp_nodelay?.should be_false
     config.segment_size.should eq 16777216
     config.sync?.should be_false
     config.syncfs_threshold.should eq 8

@@ -44,7 +44,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `stats_log_size` | — | — | Int | `120` | Number of stats samples to retain |
 | `set_timestamp` | — | — | Bool | `false` | Set timestamp on received messages |
 | `socket_buffer_size` | — | — | Int | `16384` | Socket buffer size (bytes) |
-| `tcp_nodelay` | — | — | Bool | `false` | Disable Nagle's algorithm |
+| `tcp_nodelay` | — | — | Bool | `true` | Disable Nagle's algorithm |
 | `tcp_keepalive` | — | — | String | `60:10:3` | TCP keepalive (idle:interval:probes, colon-separated) |
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
