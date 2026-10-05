@@ -177,9 +177,9 @@ module LavinMQ::AMQP
       StreamReader.new(self, offset)
     end
 
-    # Yields a message for StreamReader, see StreamMessageStore#read_leased?
-    protected def read_leased?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
-      stream_msg_store.read_leased?(@msg_store_lock, segment, position) { |env| yield env }
+    # Yields a message for StreamReader, see StreamMessageStore#read_with_lease?
+    protected def read_with_lease?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
+      stream_msg_store.read_with_lease?(@msg_store_lock, segment, position) { |env| yield env }
     end
 
     protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?
@@ -211,7 +211,7 @@ module LavinMQ::AMQP
       raise ClosedError.new if @closed
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
-      stream_msg_store.shift_leased?(@msg_store_lock, consumer) do |env|
+      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer) do |env|
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error

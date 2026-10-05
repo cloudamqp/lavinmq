@@ -221,8 +221,8 @@ module LavinMQ::AMQP
       offset_at(@segments.first_key, 4u32).first
     end
 
-    # Like #read, but yields the message outside `lock`, see #shift_leased?
-    def read_leased?(lock : Mutex, segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
+    # Like #read, but yields the message outside `lock`, see #shift_with_lease?
+    def read_with_lease?(lock : Mutex, segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
       env = lock.synchronize { read(segment, position).try &.lease } || return false
       begin
         yield env

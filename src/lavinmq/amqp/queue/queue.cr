@@ -928,7 +928,7 @@ module LavinMQ::AMQP
       loop do # retry if msg expired or deliver limit hit
         # The message can be acked or purged, and its segment deleted, while
         # the delivery is suspended in a socket write
-        @msg_store.shift_leased?(@msg_store_lock) do |env|
+        @msg_store.shift_with_lease?(@msg_store_lock) do |env|
           if has_expired?(env.message) # guarantee to not deliver expired messages
             expire_msg(env, :expired)
             next

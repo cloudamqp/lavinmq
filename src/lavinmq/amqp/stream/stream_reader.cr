@@ -14,7 +14,7 @@ module LavinMQ::AMQP
       offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
-        read = stream.read_leased?(segment, position) do |env|
+        read = stream.read_with_lease?(segment, position) do |env|
           if headers = env.message.properties.headers
             headers["x-stream-offset"] = offset
           else
