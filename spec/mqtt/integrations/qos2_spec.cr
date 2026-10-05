@@ -315,6 +315,36 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
+    it "ends the delivery without a PUBREL on a PUBREC with a failure reason code [MQTT-4.3.3-4]" do
+      LavinMQ::Config.instance.max_inflight_messages = 1u16
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          String.new(first.payload).should eq "0"
+          first_id = first.packet_id.should_not be_nil
+          MQTT::Protocol::PubRec.new(first_id,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+
+          # The refusal frees the only slot in the window, so the next packet
+          # is the second message, not a PUBREL.
+          second = read_publish(io)
+          String.new(second.payload).should eq "1"
+          session.ack_count.should eq 1
+          session.@inflight.keys.should eq [second.packet_id.should_not be_nil]
+
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
+
     it "parks delivery when every packet id is owed to a requeued message" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -338,6 +368,36 @@ module MqttSpecs
           wait_for { !session.@has_capacity.value }
           ping(io)
           read_packet(io).should be_a(MQTT::Protocol::PingResp)
+          disconnect(io)
+        end
+      end
+    end
+
+    it "owes no PUBREL when a re-send under its original packet id is refused [MQTT-4.3.3-4]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          read_publish(io)
+          id = first.packet_id.should_not be_nil
+          # The state while a re-send is still being written: booked, and the
+          # original id not yet forgotten
+          sp = session.@inflight[id].sp.should_not be_nil
+          store = session.@msg_store.should_not be_nil
+          store.remember_original_packet_id(sp, id)
+
+          MQTT::Protocol::PubRec.new(id,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+          pingpong(io)
+
+          session.@inflight.has_key?(id).should be_false
+          store.original_packet_id_in_use?(id).should be_false
+
           disconnect(io)
         end
       end

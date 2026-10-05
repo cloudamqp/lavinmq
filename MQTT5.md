@@ -58,12 +58,12 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
   [MQTT-3.8.4-8]. Paho `test_retained_message`, `test_subscribe_options`.
 - [ ] **M** Message Expiry Interval enforced [MQTT-3.3.2-5] and counted down
   [MQTT-3.3.2-6]. Paho `test_publication_expiry`.
-- [ ] **N** the client's Receive Maximum honoured [MQTT-3.3.4-9]. Paho
+- [x] **N** the client's Receive Maximum honoured [MQTT-3.3.4-9]. Paho
   `test_flow_control1`, `test_flow_control2`.
-- [ ] **I** Maximum Packet Size on every outbound packet, not just PUBLISH
+- [x] **I** Maximum Packet Size on every outbound packet, not just PUBLISH
   [MQTT-3.1.2-24]. Raw cases `tiny_max_packet_size`, `oversized_suback`.
-- [ ] **K** no PUBREL after a PUBREC with a failure reason code [MQTT-4.3.3-4].
-- [ ] **L** a PUBLISH with packet id 0 answered as a Protocol Error
+- [x] **K** no PUBREL after a PUBREC with a failure reason code [MQTT-4.3.3-4].
+- [x] **L** a PUBLISH with packet id 0 answered as a Protocol Error
   [MQTT-2.2.1-3]. Raw case `packet_id_zero`.
 
 **Shipping steps**
@@ -106,18 +106,12 @@ This is what makes our deferrals legal rather than broken.
 | `shared_subscription_available` | `0` | `$share/...` filter -> DISCONNECT `0x9E` | [x] | [x] |
 | `retain_available` | `1` | supported (LavinMQ has a retain store) | [x] | n/a |
 | `wildcard_subscription_available` | `1` | supported | [x] | n/a |
-| `maximum_packet_size` | `Config#mqtt_max_packet_size` | oversized inbound rejected by the codec; oversized outbound dropped | [x] | [~] |
-| `receive_maximum` | omitted (default 65535) | 16-bit packet ids cannot exceed it; the *client's* Receive Maximum is item N | [x] | n/a |
+| `maximum_packet_size` | `Config#mqtt_max_packet_size` | oversized inbound rejected by the codec; oversized outbound PUBLISH dropped, any other oversized packet closes the connection | [x] | [x] |
+| `receive_maximum` | omitted (default 65535) | 16-bit packet ids cannot exceed it; the *client's* Receive Maximum narrows our outbound window | [x] | n/a |
 
 Plus: enhanced authentication (the AUTH-packet flow, [MQTT-4.12.0-1]) is rejected at
 CONNECT with CONNACK `0x8C` BadAuthenticationMethod, before username/password
 auth runs so the reason is accurate.
-
-**The one `[~]` row:** `maximum_packet_size` is checked only on the outbound
-PUBLISH path, while [MQTT-3.1.2-24] covers *every* packet the server sends. A
-client may legally advertise any limit >= 1, so a very small limit already gets
-an oversized CONNACK, and a SUBSCRIBE with many filters an oversized SUBACK.
-Tracked as item I in `MQTT5-TODO.md`.
 
 `maximum_qos` is omitted rather than sent as 2: it may only be sent as 0 or 1,
 and absent means 2 (§3.2.2.3.4). Everything else in the table is implemented and
