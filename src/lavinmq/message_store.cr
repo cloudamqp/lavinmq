@@ -318,8 +318,8 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
-      # A stream delivery may still be reading from the mapping
-      file.close_when_unleased
+      # A delivery may still be reading from the mapping, see MFile#lease
+      file.close
     end
 
     def empty?
@@ -331,19 +331,19 @@ module LavinMQ
       @closed = true
       @empty.close
       # A delivery may still be reading from a segment, e.g. a basic.get that
-      # isn't waited for like consumers are, so segments are only unmapped
-      # once released (see #lease). Acks are never read while delivering.
+      # isn't waited for like consumers are, MFile#close only unmaps it once
+      # the delivery releases it (see #lease)
       if replicator = @replicator
         @segments.each_value do |segment|
           replicator.register_file segment.path
-          segment.close_when_unleased
+          segment.close
         end
         @acks.each_value do |ackfile|
           replicator.register_file ackfile.path
           ackfile.close
         end
       else
-        @segments.each_value &.close_when_unleased
+        @segments.each_value &.close
         @acks.each_value &.close
       end
     end
