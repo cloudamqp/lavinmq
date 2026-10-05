@@ -8,6 +8,18 @@ module LavinMQ
     # Values of gauges per tick. There are only a few, so they get smaller chunks.
     class_property(gauge_log : StatsLog(Int64)) { StatsLog(Int64).new(Config.instance.stats_log_size, 64) }
 
+    # Starts a new tick in both logs and yields to write it. Readers see the
+    # tick once the block returns.
+    def self.tick(log_size : Int32, & : -> _) : Nil
+      counter_log.resize(log_size)
+      gauge_log.resize(log_size)
+      counter_log.advance do
+        gauge_log.advance do
+          yield
+        end
+      end
+    end
+
     # Tick when the owner was created, the log of each series starts there
     @stats_log_start : Int64 = Stats.counter_log.tick
 

@@ -91,12 +91,10 @@ module LavinMQ
       it "only keeps history for keys with non-zero rates" do
         with_stats_logs(3) do |log|
           p = DeliverGetProbe.new
-          log.advance
-          p.update_rates
+          log.advance { p.update_rates }
           log.series_count.should eq 0
           p.bump(deliver: 5u64)
-          log.advance
-          p.update_rates
+          log.advance { p.update_rates }
           log.series_count.should eq 1
         end
       end
@@ -106,14 +104,10 @@ module LavinMQ
           with_stats_logs(3) do |log|
             p = IntervalProbe.new
             p.stats_details[:x_details][:log].should be_empty
-            log.advance
             p.bump(5u64)
-            p.update_rates
+            log.advance { p.update_rates }
             p.stats_details[:x_details][:log].should eq [1.0]
-            4.times do
-              log.advance
-              p.update_rates
-            end
+            4.times { log.advance { p.update_rates } }
             p.stats_details[:x_details][:log].should eq [0.0, 0.0, 0.0]
           end
         end
@@ -124,8 +118,7 @@ module LavinMQ
           with_stats_logs(3) do |log|
             p = DeliverGetProbe.new
             p.bump(deliver: 10u64, get_no_ack: 5u64)
-            log.advance
-            p.update_rates
+            log.advance { p.update_rates }
             p.deliver_get_count.should eq 15
             details = p.stats_details
             details[:deliver_get_details][:rate].should eq 3.0
@@ -140,13 +133,14 @@ module LavinMQ
         with_stats_interval(5000) do
           with_stats_logs(3) do |log|
             a = IntervalProbe.new
-            log.advance
+            log.advance { }
             b = IntervalProbe.new
-            log.advance
             a.bump(1u64)
             b.bump(2u64)
-            a.update_rates
-            b.update_rates
+            log.advance do
+              a.update_rates
+              b.update_rates
+            end
             rates = [] of Float64
             a.add_x_log(rates)
             b.add_x_log(rates)
@@ -159,30 +153,11 @@ module LavinMQ
         with_stats_interval(5000) do
           with_stats_logs(3) do |log|
             p = IntervalProbe.new
-            log.advance
             p.bump(5_000_000_000u64)
-            p.update_rates
+            log.advance { p.update_rates }
             p.x_rate.should eq 1_000_000_000.0
             p.x_log.should eq [(UInt32::MAX / 5).round(1)]
           end
-        end
-      end
-    end
-
-    describe "gauge_stats" do
-      it "logs the value of each tick" do
-        with_stats_logs(3) do |counter_log, gauge_log|
-          p = GaugeProbe.new
-          p.g_log.should be_empty
-          {7, 0, 9, 4}.each do |v|
-            counter_log.advance
-            gauge_log.advance
-            p.g = v
-          end
-          p.g_log.should eq [0, 9, 4]
-          values = [1i64, 1i64, 1i64, 1i64]
-          p.add_g_log(values)
-          values.should eq [1, 1, 10, 5]
         end
       end
 
@@ -198,37 +173,65 @@ module LavinMQ
         end
       end
     end
+
+    describe "gauge_stats" do
+      it "logs the value of each tick" do
+        with_stats_logs(3) do
+          p = GaugeProbe.new
+          p.g_log.should be_empty
+          {7, 0, 9, 4}.each do |v|
+            Stats.tick(3) { p.g = v }
+          end
+          p.g_log.should eq [0, 9, 4]
+          values = [1i64, 1i64, 1i64, 1i64]
+          p.add_g_log(values)
+          values.should eq [1, 1, 10, 5]
+        end
+      end
+    end
   end
 
   describe StatsLog do
     it "returns the values of the latest ticks, oldest first" do
       log = StatsLog(UInt32).new(3)
-      log.advance
-      s = log.write(StatsLog::Series.new, 1u32)
-      log.advance
-      s = log.write(s, 2u32)
+      s = StatsLog::Series.new
+      log.advance { s = log.write(s, 1u32) }
+      log.advance { s = log.write(s, 2u32) }
       log.read(2, s, &.itself).should eq [1, 2]
-      log.advance
-      log.advance
-      s = log.write(s, 4u32)
+      log.advance { }
+      log.advance { s = log.write(s, 4u32) }
       log.read(3, s, &.itself).should eq [2, 0, 4]
+    end
+
+    it "shows a tick only once it has been written" do
+      log = StatsLog(UInt32).new(3)
+      s = StatsLog::Series.new
+      log.advance { s = log.write(s, 1u32) }
+      log.advance do
+        s = log.write(s, 2u32)
+        log.tick.should eq 1
+        log.read(2, s, &.itself).should eq [0, 1]
+      end
+      log.tick.should eq 2
+      log.read(2, s, &.itself).should eq [1, 2]
     end
 
     it "sums series" do
       log = StatsLog(UInt32).new(2)
-      log.advance
-      a = log.write(StatsLog::Series.new, UInt32::MAX)
-      b = log.write(StatsLog::Series.new, 3u32)
+      a = b = StatsLog::Series.new
+      log.advance do
+        a = log.write(a, UInt32::MAX)
+        b = log.write(b, 3u32)
+      end
       log.read(1, a, b, &.itself).should eq [UInt32::MAX.to_i64 + 3]
       log.read(1, a, b) { |v| v / 2 }.should eq [(UInt32::MAX.to_i64 + 3) / 2]
     end
 
     it "merges series into existing values, padding them at the front" do
       log = StatsLog(UInt32).new(3)
-      log.advance
-      s = log.write(StatsLog::Series.new, 1u32)
-      log.advance
-      s = log.write(s, 2u32)
+      s = StatsLog::Series.new
+      log.advance { s = log.write(s, 1u32) }
+      log.advance { s = log.write(s, 2u32) }
       sums = [10i64]
       log.merge_into(sums, 2, s) { |v, sum| v + sum }
       sums.should eq [1, 12]
@@ -238,37 +241,39 @@ module LavinMQ
 
     it "doesn't allocate a slot for zeros, but overwrites a value with zero" do
       log = StatsLog(Int64).new(2)
-      log.advance
-      s = log.write(StatsLog::Series.new, 0i64)
-      log.series_count.should eq 0
-      s = log.write(s, 5i64)
-      s = log.write(s, 0i64)
+      s = StatsLog::Series.new
+      log.advance do
+        s = log.write(s, 0i64)
+        log.series_count.should eq 0
+        s = log.write(s, 5i64)
+        s = log.write(s, 0i64)
+      end
       log.read(1, s, &.itself).should eq [0]
       log.series_count.should eq 1
-      2.times { log.advance }
+      3.times { log.advance { } }
       log.series_count.should eq 0
     end
 
-    it "reclaims a series after a full window of zeros" do
+    it "reclaims a series once all its rows are zero" do
       log = StatsLog(UInt32).new(3)
-      log.advance
-      s = log.write(StatsLog::Series.new, 1u32)
+      s = StatsLog::Series.new
+      log.advance { s = log.write(s, 1u32) }
       log.series_count.should eq 1
-      2.times { log.advance }
+      3.times { log.advance { } }
       log.series_count.should eq 1
-      log.read(3, s, &.itself).should eq [1, 0, 0]
-      log.advance
+      log.read(3, s, &.itself).should eq [0, 0, 0]
+      log.advance { }
       log.series_count.should eq 0
       log.chunk_count.should eq 0
-      log.read(3, s, &.itself).should eq [0, 0, 0]
     end
 
     it "doesn't read another series' values through a reclaimed handle" do
       log = StatsLog(UInt32).new(2)
-      log.advance
-      stale = log.write(StatsLog::Series.new, 1u32)
-      2.times { log.advance }
-      other = log.write(StatsLog::Series.new, 7u32)
+      stale = StatsLog::Series.new
+      log.advance { stale = log.write(stale, 1u32) }
+      3.times { log.advance { } }
+      other = StatsLog::Series.new
+      log.advance { other = log.write(other, 7u32) }
       other.slot.should eq stale.slot
       log.read(1, stale, &.itself).should eq [0]
       renewed = log.write(stale, 3u32)
@@ -281,31 +286,35 @@ module LavinMQ
       log = StatsLog(UInt32).new(3)
       s = StatsLog::Series.new
       1u32.upto(4u32) do |i|
-        log.advance
-        s = log.write(s, i)
+        log.advance { s = log.write(s, i) }
       end
+      log.read(3, s, &.itself).should eq [2, 3, 4]
       log.resize(5)
-      log.read(5, s, &.itself).should eq [0, 0, 2, 3, 4]
-      log.advance
-      s = log.write(s, 5u32)
-      log.read(5, s, &.itself).should eq [0, 2, 3, 4, 5]
+      log.read(5, s, &.itself).should eq [0, 1, 2, 3, 4]
+      log.advance { s = log.write(s, 5u32) }
+      log.read(5, s, &.itself).should eq [1, 2, 3, 4, 5]
       log.resize(2)
       log.read(2, s, &.itself).should eq [4, 5]
-      log.advance
+      log.advance { }
       log.read(2, s, &.itself).should eq [5, 0]
-      log.advance
+      log.advance { }
+      log.series_count.should eq 1
+      log.advance { }
       log.series_count.should eq 0
     end
 
     it "fills the lowest slots first and unmaps chunks that become unused" do
       log = StatsLog(UInt32).new(2, chunk_slots: 4)
-      log.advance
-      series = Array.new(5) { log.write(StatsLog::Series.new, 1u32) }
+      series = [] of StatsLog::Series
+      log.advance do
+        5.times { series << log.write(StatsLog::Series.new, 1u32) }
+      end
       log.chunk_count.should eq 2
       series.last.slot.should eq 4
-      2.times do
-        log.advance
-        series.first(4).each { |s| log.write(s, 1u32) }
+      3.times do
+        log.advance do
+          series.first(4).each { |s| log.write(s, 1u32) }
+        end
       end
       log.chunk_count.should eq 1
       log.series_count.should eq 4

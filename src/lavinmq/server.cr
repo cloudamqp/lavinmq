@@ -154,10 +154,10 @@ module LavinMQ
     end
 
     def update_stats_rates
-      {Stats.counter_log, Stats.gauge_log}.each do |stats_log|
-        stats_log.resize(@config.stats_log_size)
-        stats_log.advance
-      end
+      Stats.tick(@config.stats_log_size) { update_vhost_rates }
+    end
+
+    private def update_vhost_rates
       @vhosts.each_value do |vhost|
         ready = unacked = 0_u64
         vhost.each_queue do |q|
@@ -217,11 +217,13 @@ module LavinMQ
       end
       until closed?
         @stats_collection_duration_seconds_total = Time.measure do
-          @stats_rates_collection_duration_seconds = Time.measure do
-            update_stats_rates
-          end
-          @stats_system_collection_duration_seconds = Time.measure do
-            update_system_metrics(statm)
+          Stats.tick(@config.stats_log_size) do
+            @stats_rates_collection_duration_seconds = Time.measure do
+              update_vhost_rates
+            end
+            @stats_system_collection_duration_seconds = Time.measure do
+              update_system_metrics(statm)
+            end
           end
         end
         @gc_stats = GC.prof_stats

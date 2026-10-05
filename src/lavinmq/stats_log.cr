@@ -8,9 +8,10 @@ module LavinMQ
   # single start tick for their series in both.
   #
   # Series are grouped in chunks of `chunk_slots`. A chunk is time-major:
-  # `size` rows of `chunk_slots` values, one row per stats tick. Advancing the
-  # tick zeroes the next row in every chunk, so a series only has to be
-  # written when its value is non-zero.
+  # one row of `chunk_slots` values per stats tick, `size` rows for readers
+  # plus the one being written. Advancing the tick zeroes the oldest row in
+  # every chunk, so a series only has to be written when its value is
+  # non-zero, and readers only see the new tick once it's fully written.
   #
   # A series is given a slot on its first non-zero value and loses it after a
   # full window of zeros, when all its rows have been zeroed already, so a
@@ -26,7 +27,10 @@ module LavinMQ
 
     getter size : Int32
     getter chunk_slots : Int32
+    # Latest tick shown to readers
     getter tick = 0i64
+    # Tick that writes go to, ahead of `tick` while `advance` yields
+    @write_tick = 0i64
     @chunks = Array(Chunk(T)?).new
     @free_hint = 0 # no free slot below this one
     @last_id = 0u64
@@ -52,16 +56,17 @@ module LavinMQ
       @lock.synchronize { @chunks.count(&.itself) }
     end
 
-    # Starts a new tick: the oldest row is zeroed and becomes the current one,
-    # and slots that have been zero for a full window are freed.
-    def advance : Nil
+    # Starts a new tick and yields to write it. The oldest row is zeroed and
+    # becomes the one written, and slots that have been zero for all rows are
+    # freed. Readers see the new tick once the block returns.
+    def advance(& : -> _) : Nil
       @lock.synchronize do
-        @tick += 1
-        row = (@tick % @size).to_i32
+        @write_tick = @tick + 1
+        row = (@write_tick % rows).to_i32
         @chunks.each_with_index do |chunk, idx|
           next unless chunk
           chunk.clear_row(row)
-          chunk.free_idle(@tick - @size) do |offset|
+          chunk.free_idle(@write_tick - rows) do |offset|
             @free_hint = Math.min(@free_hint, idx * @chunk_slots + offset)
           end
           if chunk.used.zero?
@@ -73,6 +78,8 @@ module LavinMQ
           @chunks.pop
         end
       end
+      yield
+      @lock.synchronize { @tick = @write_tick }
     end
 
     # Changes the number of ticks kept, keeping the latest values
@@ -81,15 +88,16 @@ module LavinMQ
       @lock.synchronize do
         return if size == @size
         @chunks.each do |chunk|
-          chunk.try &.resize(@size, size, @tick)
+          chunk.try &.resize(rows, size + 1, @write_tick)
         end
         @size = size
       end
     end
 
-    # Stores *value* for *series* at the current tick. Returns the handle to
-    # keep, which differs from *series* if a slot had to be (re)allocated.
-    # Zeros don't need a slot, as rows are zeroed when the tick advances.
+    # Stores *value* for *series* at the tick being written, or at the latest
+    # tick outside of `advance`. Returns the handle to keep, which differs from
+    # *series* if a slot had to be (re)allocated. Zeros don't need a slot, as
+    # rows are zeroed when the tick advances.
     def write(series : Series, value : T) : Series
       @lock.synchronize do
         chunk = chunk_for(series)
@@ -97,7 +105,7 @@ module LavinMQ
           return series if value.zero?
           series, chunk = allocate
         end
-        chunk.write((@tick % @size).to_i32, series.slot % @chunk_slots, value, @tick)
+        chunk.write((@write_tick % rows).to_i32, series.slot % @chunk_slots, value, @write_tick)
         series
       end
     end
@@ -122,7 +130,7 @@ module LavinMQ
       @lock.synchronize do
         chunks = series.map { |s| chunk_for(s) }
         count.times do |i|
-          row = ((@tick - count + 1 + i) % @size).to_i32
+          row = ((@tick - count + 1 + i) % rows).to_i32
           sum = 0i64
           series.each_with_index do |s, j|
             if chunk = chunks[j]
@@ -132,6 +140,11 @@ module LavinMQ
           sums[offset + i] = yield sums[offset + i], sum
         end
       end
+    end
+
+    # The rows readers see plus the one being written
+    private def rows : Int32
+      @size + 1
     end
 
     # The chunk holding *series*, unless its slot has been reclaimed
@@ -152,9 +165,9 @@ module LavinMQ
         end
         chunk = @chunks[idx]
         if chunk.nil? || chunk.free?(slot % @chunk_slots)
-          chunk ||= @chunks[idx] = Chunk(T).new(@size, @chunk_slots)
+          chunk ||= @chunks[idx] = Chunk(T).new(rows, @chunk_slots)
           id = @last_id += 1
-          chunk.take(slot % @chunk_slots, id, @tick)
+          chunk.take(slot % @chunk_slots, id, @write_tick)
           @free_hint = slot + 1
           return {Series.new(slot, id), chunk}
         end
