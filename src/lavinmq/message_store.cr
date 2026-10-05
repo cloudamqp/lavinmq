@@ -532,7 +532,12 @@ module LavinMQ
         file.delete unless @durable # mark files for non-durable queues for deletion
 
         if was_empty
+          # The page fault of this first write would read ahead into the empty
+          # file, caching up to the filesystem's readahead window of it (4 MiB
+          # on btrfs) for a queue that may never get a message
+          file.advise(MFile::Advice::Random)
           file.write_bytes Schema::VERSION
+          file.advise(MFile::Advice::Normal)
           @replicator.try &.append_value path, Schema::VERSION, 0i64
         else
           begin

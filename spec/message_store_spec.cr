@@ -966,6 +966,16 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
+      it "doesn't leave random access advice on the first segment of a new store" do
+        with_datadir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.push(LavinMQ::Message.new("", "rk", "msg"))
+          vm_flags(store.@wfile.path).should_not contain "rr"
+          store.close
+        end
+      end
+
       it "advises the write segment once a publish needs a sync" do
         with_datadir do |dir|
           persister = LavinMQ::Persister.new(dir)
