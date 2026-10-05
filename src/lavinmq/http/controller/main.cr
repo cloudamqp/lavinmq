@@ -156,9 +156,10 @@ module LavinMQ
               4_u64,
               IO::Memory.new("test"))
             routed = vhost.publish(msg).routed?
-            env = nil
-            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = routed && env && String.new(env.message.body) == "test"
+            # Compare inside the block, the segment can be deleted once it returns
+            body_ok = false
+            vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
+            ok = routed && body_ok
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end
