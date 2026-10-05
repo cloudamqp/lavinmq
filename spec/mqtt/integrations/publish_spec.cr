@@ -54,5 +54,16 @@ module MqttSpecs
         end
       end
     end
+
+    it "closes the connection on a QoS 1 PUBLISH with packet id 0 [MQTT-2.2.1-3]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "test", payload: "x".to_slice, qos: 1u8, packet_id: 0u16,
+            expect_response: false)
+          io.should be_closed
+        end
+      end
+    end
   end
 end

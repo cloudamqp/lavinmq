@@ -242,6 +242,13 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   without entering `@unacked`, so it is never redelivered [MQTT-3.1.2-25].
   Requeuing would loop forever, since the packet will be exactly as oversized
   next time.
+- **Any other oversized outbound packet closes the connection.** We put no
+  Reason String or User Property on acks, so outside PUBLISH there is nothing
+  optional to strip, and the exchange cannot complete without the packet.
+  `Client#send` checks every packet against the client's limit [MQTT-3.1.2-24]
+  and closes, and the CONNACK is sized before `run_client`, so a client that
+  cannot take it never gets a session. Our CONNACK is about 21 bytes with the
+  capability set, so a client advertising less cannot connect at all.
 - **The v3 wire path is byte-for-byte unchanged.** On v3, properties are ignored
   on the wire, so the v3 CONNACK is identical to before. This is a hard
   constraint: the v3.1.1 suite must stay green throughout.

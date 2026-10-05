@@ -407,6 +407,93 @@ module MqttSpecs
       end
     end
 
+    describe "the client's Receive Maximum" do
+      it "halts delivery at the client's Receive Maximum [MQTT-3.3.4-9]" do
+        with_server do |server|
+          with_client_socket(server) do |socket|
+            io = MQTT::Protocol::IO.v5(socket)
+            props = MQTT::Protocol::ConnectProperties.new
+            props.receive_maximum = 2u16
+            connect(io, version: MQTT::Protocol::Version::V5, client_id: "subscriber",
+              properties: props)
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              3.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
+              disconnect(pub_io)
+            end
+
+            first = read_publish(io)
+            read_publish(io)
+            read_packet(io).should be_nil
+
+            puback(io, first.packet_id)
+            String.new(read_publish(io).payload).should eq "2"
+
+            disconnect(io)
+          end
+        end
+      end
+
+      it "keeps our limit when it is lower than the client's Receive Maximum" do
+        LavinMQ::Config.instance.max_inflight_messages = 1u16
+        with_server do |server|
+          with_client_socket(server) do |socket|
+            io = MQTT::Protocol::IO.v5(socket)
+            props = MQTT::Protocol::ConnectProperties.new
+            props.receive_maximum = 3u16
+            connect(io, version: MQTT::Protocol::Version::V5, client_id: "subscriber",
+              properties: props)
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              2.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
+              disconnect(pub_io)
+            end
+
+            read_publish(io)
+            read_packet(io).should be_nil
+
+            disconnect(io)
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+      end
+
+      it "counts a QoS 2 delivery against the Receive Maximum until PUBCOMP [MQTT-3.3.4-9]" do
+        with_server do |server|
+          with_client_socket(server) do |socket|
+            io = MQTT::Protocol::IO.v5(socket)
+            props = MQTT::Protocol::ConnectProperties.new
+            props.receive_maximum = 1u16
+            connect(io, version: MQTT::Protocol::Version::V5, client_id: "subscriber",
+              properties: props)
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              2.times { |i| publish_qos2(pub_io, (i + 1).to_u16, topic: "a/b", payload: "#{i}".to_slice) }
+              disconnect(pub_io)
+            end
+
+            first = read_publish(io)
+            id = first.packet_id.not_nil!
+            pubrec(io, id)
+            read_packet(io).should be_a(MQTT::Protocol::PubRel)
+            read_packet(io).should be_nil
+
+            pubcomp(io, id)
+            String.new(read_publish(io).payload).should eq "1"
+
+            disconnect(io)
+          end
+        end
+      end
+    end
+
     it "should not enqueue messages with QoS 0 if no client is connected to the session" do
       with_server do |server|
         with_client_io(server) do |io|

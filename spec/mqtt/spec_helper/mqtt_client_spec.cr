@@ -13,7 +13,7 @@ module MqttHelpers
     def initialize(io : IO)
       @client_id = ""
       @io = MQTT::Protocol::IO.v3(io)
-      @packet_id_generator = (0u16..).each
+      @packet_id_generator = (1u16..).each
     end
 
     def connect(

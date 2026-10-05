@@ -3,7 +3,7 @@ require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers
-  GENERATOR = (0u16..).each
+  GENERATOR = (1u16..).each
 
   def next_packet_id
     GENERATOR.next.as(UInt16)
@@ -153,9 +153,6 @@ module MqttHelpers
   end
 
   # The receiver half of the QoS 2 flow: PUBLISH, PUBREC, PUBREL, PUBCOMP.
-  #
-  # Takes an explicit `packet_id` rather than using `next_packet_id`, because
-  # `GENERATOR` starts at 0 and packet id 0 is illegal [MQTT-2.2.1-3].
   def publish_qos2(io, packet_id : UInt16, **args)
     publish(io, **{packet_id: packet_id, qos: 2u8}.merge(args))
     pubrel(io, packet_id)

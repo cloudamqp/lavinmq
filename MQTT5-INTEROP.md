@@ -585,9 +585,10 @@ each exercise the item J2 path and must print a `DISCONNECT` whose last byte is
 `0x82`. `pubrel` used to be one of them; with QoS 2 a stray PUBREL is legal and
 gets `PUBCOMP` with reason `0x92` (`7003000192`).
 
-`tiny_max_packet_size` and `oversized_suback` still show a CONNACK and a SUBACK
-over the client's limit: item I. `packet_id_zero` still gets a PUBACK carrying
-id 0, where it should get DISCONNECT `0x82`: item L in `MQTT5-TODO.md`.
+`tiny_max_packet_size` must print no CONNACK, and `oversized_suback` no SUBACK:
+since item I a packet over the client's limit is not sent, and the connection
+closes. `packet_id_zero` must print a `DISCONNECT`
+ending in `0x82`; before item L it got a PUBACK carrying id 0.
 
 `disconnect_forms` is the one to keep an eye on: it sends five DISCONNECT
 encodings (no reason byte, reason only, reason plus empty properties, reason plus a
@@ -630,7 +631,7 @@ QoS 1, which scored 8 / 18 / 1 on v5 and 7 / 2 on v3.1.1 on 2026-08-19. The
 | `test_subscribe_options` | item F: retained replays come back at the subscription QoS, not the publisher's [MQTT-3.8.4-8] |
 | `test_publication_expiry` | item M: Message Expiry Interval is carried but never enforced |
 | `test_will_delay` | item E |
-| `test_flow_control1`, `test_flow_control2` (timeout) | item N: the client's Receive Maximum is not honoured |
+| `test_flow_control1`, `test_flow_control2` (timeout) | item N: the client's Receive Maximum was not honoured. Fixed since, not yet re-run |
 | `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |
 | `test_subscribe_identifiers`, `test_shared_subscriptions` | correct rejections (`0xA1`, `0x9E`) the test client cannot cope with |
 | the three below | harness assumptions, fine to fail |

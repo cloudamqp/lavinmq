@@ -51,6 +51,22 @@ module MqttSpecs
       end
     end
 
+    it "closes without a CONNACK that exceeds the client's Maximum Packet Size [MQTT-3.1.2-24]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          # Our CONNACK carries the capability set, so it is well over 5 bytes.
+          props.maximum_packet_size = 5u32
+          connect(io, version: MQTT::Protocol::Version::V5, client_id: "tiny",
+            properties: props, expect_response: false)
+          io.should be_closed
+          # Refused before `run_client`, so no session was made either.
+          server.vhosts["/"].session?("mqtt.tiny").should be_nil
+        end
+      end
+    end
+
     it "echoes a server-assigned client id via assigned_client_identifier [MQTT-3.2.2-16]" do
       with_server do |server|
         with_client_socket(server) do |socket|

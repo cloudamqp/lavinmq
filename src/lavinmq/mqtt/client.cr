@@ -27,6 +27,12 @@ module LavinMQ
       end
     end
 
+    # Raised by `Client#send` for a packet over the client's Maximum Packet
+    # Size, after closing the socket. An `::IO::Error` so every send site
+    # already treats it as a dead connection.
+    class PacketTooLarge < ::IO::Error
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
@@ -52,9 +58,12 @@ module LavinMQ
       end
 
       getter log, name, user, client_id, socket, connection_info, session
-      # The client's advertised Maximum Packet Size (v5); nil = no limit. Used to
-      # enforce [MQTT-3.1.2-24] on outbound packets in the session delivery path.
+      # The client's advertised Maximum Packet Size (v5); nil = no limit,
+      # enforced on every outbound packet [MQTT-3.1.2-24].
       getter max_packet_size : UInt32?
+      # The client's advertised Receive Maximum (v5); nil = the 65535 default.
+      # Narrows the session's in-flight window [MQTT-3.3.4-9].
+      getter receive_maximum : UInt16?
 
       # The negotiated protocol version. Session reads it to skip v5-only work
       # for a v3 subscriber, the same way it reads max_packet_size.
@@ -68,6 +77,9 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @started = false
       getter? closed = false
+      # Set by `send` when it closes on an oversized packet, so the read loop's
+      # resulting `::IO::Error` is not logged as the client's doing.
+      @closed_oversized = false
       @channels = Hash(UInt16, Client::Channel).new
       @ack_seq = 0u64
       @pending_acks = Sync::Exclusive(Deque(PendingAck)).new(Deque(PendingAck).new, :unchecked)
@@ -108,6 +120,7 @@ module LavinMQ
                      @keepalive : UInt16 = 30,
                      @will : Protocol::Will? = nil,
                      @max_packet_size : UInt32? = nil,
+                     @receive_maximum : UInt16? = nil,
                      @session_expiry_interval : UInt32 = 0u32)
         @permission_context = PermissionService::Context.new(@user.name, @client_id)
         @lock = Mutex.new
@@ -222,7 +235,7 @@ module LavinMQ
 
       # A deleted session closes only the socket, not the client, and logs why.
       private def closed_by_server? : Bool
-        @closed || @session.deleted?
+        @closed || @closed_oversized || @session.deleted?
       end
 
       # A DISCONNECT may name a new Session Expiry Interval (§3.14.2.2.2).
@@ -276,11 +289,21 @@ module LavinMQ
         {packet, bytesize}
       end
 
+      # A packet over the client's Maximum Packet Size is never sent
+      # [MQTT-3.1.2-24]. A PUBLISH may be discarded instead [MQTT-3.1.2-25],
+      # which `Session` does before it gets here; any other packet is a step
+      # the exchange cannot complete without, so we close.
       def send(packet)
+        bytesize = @io.bytesize(packet)
+        if (max = @max_packet_size) && bytesize > max
+          @log.warn { "Closing: #{packet.class.name} of #{bytesize} bytes exceeds the client's Maximum Packet Size (#{max})" }
+          @closed_oversized = true
+          close_socket
+          raise PacketTooLarge.new("#{packet.class.name} exceeds Maximum Packet Size")
+        end
         @lock.synchronize do
           @io.write_packet(packet)
           @io.flush
-          bytesize = @io.bytesize(packet)
           @send_oct_count.add(bytesize, :relaxed)
           vhost.add_send_bytes(bytesize.to_u64)
         end

@@ -125,7 +125,9 @@ module MqttSpecs
         with_client_socket(server) do |sub_socket|
           sub = MQTT::Protocol::IO.v5(sub_socket)
           props = MQTT::Protocol::ConnectProperties.new
-          props.maximum_packet_size = 50u32
+          # Room for the CONNACK, which echoes the assigned client id, but not
+          # for the 200-byte payload.
+          props.maximum_packet_size = 120u32
           # Empty client id: the server assigns one and rebuilds the CONNECT.
           # The rebuild must carry the properties over, or the limit is lost.
           connect(sub, version: MQTT::Protocol::Version::V5, client_id: "",
@@ -135,8 +137,8 @@ module MqttSpecs
           with_client_socket(server) do |pub_socket|
             pub = MQTT::Protocol::IO.v5(pub_socket)
             connect(pub, version: MQTT::Protocol::Version::V5, client_id: "pub")
-            publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 50 -> dropped
-            publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 50 -> delivered
+            publish(pub, topic: "t", payload: Bytes.new(200, 0u8), qos: 1u8) # over 120 -> dropped
+            publish(pub, topic: "t", payload: "ok".to_slice, qos: 1u8)       # under 120 -> delivered
           end
 
           delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
@@ -236,6 +238,21 @@ module MqttSpecs
           # "x": [0x30, remaining=4, topic-len=0x0000, props-len=0x00, 'x'].
           io.write_bytes_raw(Bytes[0x30, 0x04, 0x00, 0x00, 0x00, 0x78])
           io.flush
+
+          pkt = MQTT::Protocol::Packet.from_io(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+      end
+    end
+
+    it "disconnects with ProtocolError (0x82) on a QoS 1 PUBLISH with packet id 0 [MQTT-2.2.1-3]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+          publish(io, topic: "test/topic", qos: 1u8, packet_id: 0u16, expect_response: false)
 
           pkt = MQTT::Protocol::Packet.from_io(io)
           pkt.should be_a(MQTT::Protocol::Disconnect)

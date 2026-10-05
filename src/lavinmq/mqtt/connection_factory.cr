@@ -35,7 +35,7 @@ module LavinMQ
           # only - v3 has no properties. [MQTT-4.12.0-1]
           if packet.properties.authentication_method
             logger.warn { "Enhanced authentication requested but not supported" }
-            reject_connack(io, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
+            reject_connack(io, packet, Protocol::Connack::ReasonCode::BadAuthenticationMethod)
             return socket.close
           end
           user, broker = authenticate(packet, connection_info)
@@ -51,13 +51,21 @@ module LavinMQ
             raise Protocol::Error::ServerUnavailable.new(
               "too many connections to vhost \"#{broker.vhost.name}\"")
           end
+          properties = connack_properties(io, assigned_client_id)
+          # Checked before `run_client`, so a client that cannot take our
+          # CONNACK never gets a session. Session Present is a flag bit, so the
+          # size does not depend on it.
+          if too_large?(io, packet, Protocol::Connack.new(false, Protocol::Connack::ReasonCode::Success, properties))
+            logger.warn { "CONNACK exceeds the client's Maximum Packet Size, closing" }
+            return socket.close
+          end
           broker.run_client(io, connection_info, user, packet) do |session_present|
-            connack io, session_present, Protocol::Connack::ReturnCode::Accepted, assigned_client_id
+            connack io, packet, session_present, Protocol::Connack::ReturnCode::Accepted, properties
           end
         rescue ex : Protocol::Error::Connect
           logger.warn { "Connect error #{ex.inspect}" }
           if io
-            connack io, false, Protocol::Connack::ReturnCode.new(ex.return_code)
+            connack io, packet, false, Protocol::Connack::ReturnCode.new(ex.return_code)
           end
           socket.close
         rescue ::IO::EOFError
@@ -70,34 +78,44 @@ module LavinMQ
 
       # Send a v5 CONNACK carrying a reason code that has no v3 return-code
       # equivalent (e.g. BadAuthenticationMethod 0x8C). v5-only by construction.
-      private def reject_connack(io : Protocol::IO, reason : Protocol::Connack::ReasonCode)
-        Protocol::Connack.new(false, reason).to_io(io)
+      private def reject_connack(io : Protocol::IO, connect : Protocol::Connect,
+                                 reason : Protocol::Connack::ReasonCode)
+        write_connack(io, connect, Protocol::Connack.new(false, reason))
+      end
+
+      # `connect` is nil when the CONNECT itself failed to decode, and then
+      # there is no Maximum Packet Size to honour.
+      private def connack(io : Protocol::IO, connect : Protocol::Connect?, session_present : Bool,
+                          return_code : Protocol::Connack::ReturnCode,
+                          properties = Protocol::ConnackProperties.new)
+        reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
+        write_connack(io, connect, Protocol::Connack.new(session_present, reason, properties))
+      end
+
+      private def write_connack(io : Protocol::IO, connect : Protocol::Connect?, connack : Protocol::Connack)
+        # Not sent at all rather than sent oversized [MQTT-3.1.2-24]; the
+        # caller closes the socket either way.
+        return if connect && too_large?(io, connect, connack)
+        connack.to_io(io)
         io.flush
       end
 
-      private def connack(io : Protocol::IO, session_present : Bool,
-                          return_code : Protocol::Connack::ReturnCode,
-                          assigned_client_id : String? = nil)
-        reason = Protocol::Connack::ReasonCode.from_v3_return_code(return_code)
-        # A v5 server must advertise which optional features it supports; an
-        # accepted v5 connection carries the capability set. On v3 the properties
-        # are ignored on the wire, so the v3 CONNACK is byte-for-byte unchanged.
-        properties =
-          if io.version.v5? && return_code.accepted?
-            if assigned_client_id
-              # Per-connection, so build a fresh set rather than mutating the
-              # shared static one.
-              caps = build_server_capabilities
-              caps.assigned_client_identifier = assigned_client_id
-              caps
-            else
-              @server_capabilities
-            end
-          else
-            Protocol::ConnackProperties.new
-          end
-        Protocol::Connack.new(session_present, reason, properties).to_io(io)
-        io.flush
+      private def too_large?(io : Protocol::IO, connect : Protocol::Connect, packet) : Bool
+        max = connect.properties.maximum_packet_size || return false
+        io.bytesize(packet) > max
+      end
+
+      # A v5 server must advertise which optional features it supports; an
+      # accepted v5 connection carries the capability set. On v3 the properties
+      # are ignored on the wire, so the v3 CONNACK is byte-for-byte unchanged.
+      private def connack_properties(io : Protocol::IO, assigned_client_id : String?) : Protocol::ConnackProperties
+        return Protocol::ConnackProperties.new unless io.version.v5?
+        return @server_capabilities unless assigned_client_id
+        # Per-connection, so build a fresh set rather than mutating the shared
+        # static one.
+        caps = build_server_capabilities
+        caps.assigned_client_identifier = assigned_client_id
+        caps
       end
 
       # The fixed v5 capabilities LavinMQ advertises in CONNACK. They depend only

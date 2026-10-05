@@ -331,7 +331,18 @@ module LavinMQ
       # because this runs per delivery and per ack, and `set` takes both channel
       # locks even when the value is unchanged.
       private def refresh_capacity : Nil
-        @has_capacity.swap(@inflight.size < Config.instance.max_inflight_messages)
+        @has_capacity.swap(@inflight.size < inflight_limit)
+      end
+
+      # The client's Receive Maximum caps unacknowledged QoS 1 and 2 PUBLISHes,
+      # counting a QoS 2 one until PUBCOMP [MQTT-3.3.4-9], which is exactly what
+      # `@inflight` holds. Our own limit still applies when it is lower.
+      private def inflight_limit : UInt16
+        limit = Config.instance.max_inflight_messages
+        if (receive_maximum = @client.try(&.receive_maximum)) && receive_maximum < limit
+          limit = receive_maximum
+        end
+        limit
       end
 
       # Whether `id` still names this exact delivery. Sending yields, so
@@ -424,6 +435,9 @@ module LavinMQ
         # Assigned before the writes below, which yield: `Session#publish`
         # drops a QoS 0 message while it is nil.
         @client = client
+        # After the assignment: the window depends on the client's Receive
+        # Maximum.
+        refresh_capacity
         unless client.nil? || awaiting_pubcomp.empty?
           # Queued, so each leaves once the delete at its PUBREC is durable;
           # `Client#run` attaches after CONNACK. [MQTT-4.4.0-1] does not order
@@ -820,17 +834,32 @@ module LavinMQ
           raise ProtocolViolation.new(Protocol::Disconnect::ReasonCode::ProtocolError, "PUBREC for QoS #{inflight.qos} packet id '#{id}'")
         end
         sp = inflight.sp.as(SegmentPosition)
+        # A reason code of 0x80 or above refuses the message, which ends the
+        # delivery like a PUBACK: the id is freed and no PUBREL follows
+        # [MQTT-4.3.3-4]. Only v5 PUBREC carries one.
+        refused = packet.reason_code.value >= 0x80
         # Before the send: a failed write still leaves the correct state, and
         # `client=` re-sends the PUBREL.
-        @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+        if refused
+          @inflight.delete(id)
+          # Ends the exchange, so the delete below is not a drop: no PUBREL is
+          # owed even if a re-send under the original id is still being written.
+          @msg_store.forget_original_packet_id(sp)
+        else
+          @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+        end
         @ack_count.add(1, :relaxed)
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         delete_message(sp)
-        @msg_store_lock.synchronize { @msg_store.mark_delete_dirty(sp) } if durable?
-        send_pubrel(id)
-        # No `refresh_capacity`: the id is still booked, so the window is
-        # unchanged.
+        if refused
+          refresh_capacity
+        else
+          @msg_store_lock.synchronize { @msg_store.mark_delete_dirty(sp) } if durable?
+          send_pubrel(id)
+          # No `refresh_capacity`: the id is still booked, so the window is
+          # unchanged.
+        end
         true
       end
 
@@ -929,7 +958,7 @@ module LavinMQ
       private def next_packet_id : UInt16?
         # `>=` not `==`: the limit is mutable at runtime, so the window can
         # already be over it.
-        return if @inflight.size >= Config.instance.max_inflight_messages
+        return if @inflight.size >= inflight_limit
         start_id = @last_packet_id
         next_id : UInt16 = start_id &+ 1_u16
         # `@last_packet_id` at 65535 wraps this to 0, which the loop below never

@@ -63,14 +63,13 @@ subscription tree.
   intended target. `main` is at `0.3.1`.
 - Decide **U1**: a v5 CONNACK with a non-zero reason but `session_present = 1` is
   accepted at decode. Arguably a server-side semantic rather than a codec rule.
-- Low-severity conformance gaps: **N3** packet identifier `0` accepted where a
-  non-zero id is required, which is item L and blocking; **O1** zero-entry SUBSCRIBE /
+- Low-severity conformance gaps: **O1** zero-entry SUBSCRIBE /
   UNSUBSCRIBE / SUBACK accepted at decode; **O2** AUTH accepted on a v3
   connection; **O3** some receiver-side property value validations missing.
 - **Retain Handling 3** is a Protocol Error (3.8.3.1), so v5 wants a DISCONNECT.
   The shard raises `ArgumentError` in the `TopicFilter` constructor and
   `Subscribe.from_io` maps it to `Error::PacketDecode`, the just-close case, so
-  the client gets no reason code. Belongs with N3/O1/O2/O3.
+  the client gets no reason code. Belongs with O1/O2/O3.
 - Test gaps: **N5** no malformed property-*value* test (the UTF-8 / NUL
   validation branch has zero coverage); **N6** the `consumed != total`
   intra-section property guard is untested; **U2** v3 CONNACK return-code byte
@@ -90,27 +89,6 @@ subscription tree.
 - Consider a v5 mode for the `lavinmqperf mqtt` throughput tool. It is pinned to
   `IO.v3`, so there is no load-testing path for v5 at all. Optional.
 
-## K. PUBREC with a failure reason code
-
-**Merge blocker.** [MQTT-4.3.3-4]; listed in `MQTT5.md`.
-
-`Session#pubrec` sends PUBREL whatever the reason code. [MQTT-4.3.3-4] sends one
-only for a reason code below `0x80`: a v5 subscriber answering PUBREC `0x80` or
-greater has refused the message, which ends that delivery like a PUBACK does,
-so the id should be freed without a PUBREL. v3 PUBREC has no reason code, so only
-v5 is affected.
-
-## L. PUBLISH with packet id 0
-
-**Merge blocker.** [MQTT-2.2.1-3]; listed in `MQTT5.md`. The shard's open item **N3**.
-
-A QoS 1 or 2 PUBLISH must carry a non-zero packet id [MQTT-2.2.1-3]. One with id
-0 parses but breaks that rule, which makes it a Protocol Error: DISCONNECT `0x82`
-[MQTT-4.13.1-1]. We PUBACK it instead, putting id 0 on the wire ourselves, and a
-QoS 2 one would book 0 in the dedupe set. The raw `packet_id_zero` case in
-`MQTT5-INTEROP.md` shows it. The check fits the shard's decoder, next to its
-empty-topic rejection, so every consumer gets it.
-
 ## M. Message Expiry Interval is not enforced
 
 **Merge blocker.** [MQTT-3.3.2-5] and [MQTT-3.3.2-6]; listed in `MQTT5.md`.
@@ -123,37 +101,12 @@ Paho's `test_publication_expiry` on 2026-10-02. The delivery path already reads
 the property in `Session#build_packet`, so both halves can live there, against
 the message's store timestamp.
 
-## N. The client's Receive Maximum is not honoured
-
-**Merge blocker.** [MQTT-3.3.4-9]; listed in `MQTT5.md`.
-
-A v5 client's CONNECT can set Receive Maximum: the most QoS 1 and QoS 2 PUBLISHes
-it will take before acking them. We never read it, so the in-flight window is
-`Config#max_inflight_messages` for every client. A client advertising less gets
-more than it allows, and may DISCONNECT us with `0x93`. Found by Paho's
-`test_flow_control1` / `test_flow_control2`. `Session#next_id` and
-`Session#refresh_capacity` both bound the window by `max_inflight_messages`; the
-bound becomes the lower of that and the client's value, carried on `Client` the
-way `max_packet_size` is, and both have to use it.
-
 ## O. Wildcards match `$`-prefixed topics
 
 **Must fix, not in this PR.** [MQTT-4.7.2-1]: a filter starting with `#` or `+`
 must not match a topic starting with `$`. LavinMQ matches them, on v3.1.1 as
 well, and Paho's `test_dollar_topics` fails on both versions. Fixing it changes
 what existing `#` subscribers receive, so it gets its own PR and CHANGELOG entry.
-
-## I. Open review finding
-
-**Merge blocker.** [MQTT-3.1.2-24]; listed in `MQTT5.md`.
-
-One finding from the two review rounds is still open:
-
-- **Maximum Packet Size is only enforced for outbound PUBLISH**, the `[~]` row in
-  the compliance table. `Client#send` is the single outbound choke point and is
-  the place to put it, so no future packet type can forget it.
-
----
 
 ## Resolved
 
@@ -162,10 +115,17 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
 
 - **B** subscription options, **D** session expiry, **E**'s will properties, and
   all of **J** are done.
+- **N** the outbound window is the lower of the client's Receive Maximum and
+  `Config#max_inflight_messages`.
+- **I** Maximum Packet Size is enforced on every outbound packet, in `Client#send`
+  and before the CONNACK.
+- **L** (the shard's **N3**) packet id 0 is a Protocol Error, raised by the shard's
+  decoder for every packet that carries an id.
+- **K** a PUBREC with a failure reason code ends the delivery without a PUBREL.
 - **Review round 1** (full branch, 2026-08-19), seven findings: six fixed
   (poison message and its `@unacked_*` corruption, hot-path allocation,
   `protocol_name` exhaustiveness, v3 property restore, Will QoS 2). The seventh
-  is item I above.
+  was item I.
 - **Review round 2** (item D only, 2026-08-21), five findings, all fixed in one
   commit with specs, each spec first run against the unfixed code. The one that
   mattered: `durable?` followed the interval, so a durable session narrowed to 0

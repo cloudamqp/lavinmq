@@ -333,6 +333,64 @@ module MqttSpecs
       LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
     end
 
+    it "ends the delivery without a PUBREL on a PUBREC with a failure reason code [MQTT-4.3.3-4]" do
+      LavinMQ::Config.instance.max_inflight_messages = 1u16
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          String.new(first.payload).should eq "0"
+          MQTT::Protocol::PubRec.new(first.packet_id.not_nil!,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+
+          # The refusal frees the only slot in the window, so the next packet
+          # is the second message, not a PUBREL.
+          second = read_publish(io)
+          String.new(second.payload).should eq "1"
+          session.ack_count.should eq 1
+          session.@inflight.keys.should eq [second.packet_id.not_nil!]
+
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+    end
+
+    it "owes no PUBREL when a re-send under its original packet id is refused [MQTT-4.3.3-4]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, client_id: "subscriber", version: MQTT::Protocol::Version::V5)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          session = server.vhosts["/"].session("mqtt.subscriber")
+
+          first = read_publish(io)
+          read_publish(io)
+          id = first.packet_id.not_nil!
+          # The state while a re-send is still being written: booked, and the
+          # original id not yet forgotten
+          sp = session.@inflight[id].sp.not_nil!
+          session.@msg_store.remember_original_packet_id(sp, id)
+
+          MQTT::Protocol::PubRec.new(id,
+            MQTT::Protocol::PubRec::ReasonCode::UnspecifiedError).to_io(io)
+          pingpong(io)
+
+          session.@inflight.has_key?(id).should be_false
+          session.@msg_store.original_packet_id_in_use?(id).should be_false
+
+          disconnect(io)
+        end
+      end
+    end
+
     it "encodes PUBCOMP with the reserved flags at 0 [MQTT-2.1.3-1]" do
       with_server do |server|
         with_client_io(server) do |io|

@@ -66,11 +66,10 @@ notes; the checklist is in `MQTT5.md`.
   Item F.
 - **Message Expiry Interval is not enforced.** **(merge blocker)** It is carried to subscribers
   unchanged, but an expired message is still delivered. Item M.
-- **Receive Maximum ignored.** **(merge blocker, item N)** We do not pace QoS 1 inflight against the client's
-  advertised Receive Maximum, and we do not advertise our own (so clients assume
-  the 65535 default). LavinMQ has its own `Config#max_inflight_messages` cap
-  instead. This is the one row in the compliance table with a fully unticked
-  enforcement column.
+- **No Receive Maximum of our own.** We do not advertise one, so clients assume
+  the 65535 default, which 16-bit packet ids cannot exceed anyway. The client's
+  Receive Maximum is honoured: the outbound window is the lower of it and
+  `Config#max_inflight_messages`.
 - **Payload Format Indicator is not validated.** Spec 3.3.2.3.2 only says a
   server MAY check that a payload declared as UTF-8 really is, so we never answer
   `0x99` PayloadFormatInvalid. Validating means a String allocation plus a UTF-8

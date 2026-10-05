@@ -128,6 +128,7 @@ module LavinMQ
           keepalive: packet.keepalive,
           will: packet.will,
           max_packet_size: packet.properties.maximum_packet_size,
+          receive_maximum: packet.properties.receive_maximum,
           session_expiry_interval: interval)
         @clients[client_id] = client
         @vhost.add_connection client

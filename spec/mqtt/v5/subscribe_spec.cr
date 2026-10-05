@@ -69,6 +69,22 @@ module MqttSpecs
       end
     end
 
+    it "closes rather than send a SUBACK over the client's Maximum Packet Size [MQTT-3.1.2-24]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          props = MQTT::Protocol::ConnectProperties.new
+          props.maximum_packet_size = 30u32
+          connect(io, version: MQTT::Protocol::Version::V5, client_id: "sub",
+            properties: props).should be_a(MQTT::Protocol::Connack)
+          # One reason code per filter, so 30 filters make a 35-byte SUBACK.
+          filters = (1..30).map { |i| subtopic("t/#{i}", 0) }
+          subscribe(io, topic_filters: filters, packet_id: 1u16, expect_response: false)
+          io.should be_closed
+        end
+      end
+    end
+
     it "grants a QoS 2 subscription as QoS 2" do
       with_server do |server|
         with_client_socket(server) do |socket|
