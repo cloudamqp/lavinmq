@@ -859,6 +859,91 @@ describe LavinMQ::Config do
       end
     {% end %}
   end
+
+  # Unrecognised booleans keep parsing as false so an existing typo doesn't
+  # stop a node from booting after an upgrade, but they must not be silent.
+  describe "invalid boolean values" do
+    it "warns and treats the value as false in [main]" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir_lock = garbage
+          tls_prefer_server_ciphers = yse
+          CONFIG
+      end
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      config.data_dir_lock?.should be_false
+      config.tls_prefer_server_ciphers?.should be_false
+      io.to_s.should contain "Invalid boolean value 'garbage' for 'data_dir_lock' in section [main]"
+      io.to_s.should contain "Invalid boolean value 'yse' for 'tls_prefer_server_ciphers' in section [main]"
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "warns and treats the value as false in [sni:]" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [sni:foobar.localhost]
+          tls_cert = spec/resources/foobar_localhost_certificate.pem
+          tls_key = spec/resources/foobar_localhost_key.pem
+          tls_prefer_server_ciphers = enabled
+          mqtt_tls_verify_peer = oui
+          CONFIG
+      end
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      host = config.sni_manager.get_host("foobar.localhost").should_not be_nil
+      host.tls_prefer_server_ciphers?.should be_false
+      host.mqtt_tls_verify_peer.should be_false
+      io.to_s.should contain "Invalid boolean value 'enabled' for 'tls_prefer_server_ciphers' in section [sni:foobar.localhost]"
+      io.to_s.should contain "Invalid boolean value 'oui' for 'mqtt_tls_verify_peer' in section [sni:foobar.localhost]"
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "warns and treats the value as false in environment variables" do
+      config_file = File.tempfile(&.print(""))
+      ENV["LAVINMQ_SYNC"] = "ture"
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      config.sync?.should be_false
+      io.to_s.should contain "Invalid boolean value 'ture' for 'LAVINMQ_SYNC'"
+    ensure
+      ENV.delete("LAVINMQ_SYNC")
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "warns and treats the value as false on the command line" do
+      config_file = File.tempfile(&.print(""))
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path, "--default-user-only-loopback=nope"])
+      config.default_user_only_loopback?.should be_false
+      io.to_s.should contain "Invalid boolean value 'nope' for '--default-user-only-loopback'"
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+
+    it "does not warn for accepted spellings" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir_lock = Off
+          tls_prefer_server_ciphers = YES
+          CONFIG
+      end
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      io.to_s.should_not contain "Invalid boolean value"
+    ensure
+      File.delete?(config_file.path) if config_file
+    end
+  end
 end
 
 # Connect a TLS client requesting *servername* to a one-shot server using
