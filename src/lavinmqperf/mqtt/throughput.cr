@@ -104,12 +104,12 @@ module LavinMQPerf
 
         client_id = "#{role}-#{id}"
         connect_packet = LavinMQ::MQTT::Protocol::Connect.new(
-          client_id: client_id,
-          clean_session: @clean_session,
-          keepalive: 0,
+          client_id,
+          clean_start: @clean_session,
+          keep_alive: 0u16,
           username: user,
           password: password.to_slice,
-          will: nil
+          version: LavinMQ::MQTT::Protocol::Version::V3_1_1
         )
 
         connect_packet.to_io(io)
@@ -117,7 +117,7 @@ module LavinMQPerf
 
         response = LavinMQ::MQTT::Protocol::Packet.from_io(io)
         unless response.is_a?(LavinMQ::MQTT::Protocol::Connack) &&
-               response.as(LavinMQ::MQTT::Protocol::Connack).return_code == LavinMQ::MQTT::Protocol::Connack::ReturnCode::Accepted
+               response.as(LavinMQ::MQTT::Protocol::Connack).reason_code.success?
           socket.try &.close rescue nil
           raise "Failed to connect: #{response.inspect}"
         end

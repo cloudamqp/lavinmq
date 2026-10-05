@@ -22,9 +22,9 @@ module LavinMQ
       # Stash the present (non-nil) v5 properties into `headers`. A v3 or
       # property-less publish adds nothing.
       def self.store(props : Protocol::PublishProperties, headers : AMQP::Table) : Nil
-        if v = props.payload_format_indicator
-          headers[PAYLOAD_FORMAT_INDICATOR] = v
-        end
+        # The shard reads an absent indicator as 0, the same meaning, so only
+        # a 1 needs carrying.
+        headers[PAYLOAD_FORMAT_INDICATOR] = true if props.payload_format_indicator?
         if v = props.message_expiry_interval
           headers[MESSAGE_EXPIRY_INTERVAL] = v
         end

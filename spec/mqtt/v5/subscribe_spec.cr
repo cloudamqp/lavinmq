@@ -26,6 +26,25 @@ module MqttSpecs
       end
     end
 
+    it "disconnects with ProtocolError (0x82) on Retain Handling 3 (§3.8.3.1)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = MQTT::Protocol::IO.v5(socket)
+          connect(io, version: MQTT::Protocol::Version::V5)
+
+          # The shard cannot encode Retain Handling 3, so send raw bytes: packet
+          # id 1, empty properties, filter "a", options 0x30.
+          io.write_bytes_raw(Bytes[0x82, 0x07, 0x00, 0x01, 0x00, 0x00, 0x01, 0x61, 0x30])
+          io.flush
+
+          pkt = MQTT::Protocol::Packet.from_io(io)
+          pkt.should be_a(MQTT::Protocol::Disconnect)
+          pkt.as(MQTT::Protocol::Disconnect).reason_code
+            .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
+        end
+      end
+    end
+
     it "disconnects with SharedSubscriptionsNotSupported (0x9E) on a $share/ filter" do
       with_server do |server|
         with_client_socket(server) do |socket|
@@ -97,7 +116,7 @@ module MqttSpecs
           io.flush
 
           suback = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::SubAck)
-          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQoS2])
+          suback.reason_codes.should eq([MQTT::Protocol::SubAck::ReasonCode::GrantedQos2])
         end
       end
     end

@@ -162,8 +162,9 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   `Disconnect::ReasonCode`, `SubAck::ReasonCode` and so on, each listing only the
   codes legal for that packet with contextually correct names, because the same
   byte `0x00` means "Success" / "Normal disconnection" / "Granted QoS 0"
-  depending on the packet. The v3 `Connack::ReturnCode` stays as the v3 wire
-  format; the IO hooks pick which byte goes on the wire.
+  depending on the packet. The v3 `ReturnCode` enums survive only as deprecated
+  shims: every packet takes a `ReasonCode`, and the IO hooks pick the v3 byte for
+  it on a v3 connection.
 - **Decode errors carry the reason code.** `Error::ProtocolError` carries the v5
   reason byte the consumer must respond with, so "which violation maps to which
   reason code" stays protocol knowledge owned by the shard instead of being
@@ -422,9 +423,28 @@ would have to fix. **All of this belongs in the release notes.**
   `Unknown` member, which breaks an exhaustive `case/in` over it.
 - `Packet#bytesize` / `#remaining_length` lost their no-arg form and now take a
   `Version`.
-- `SubAck` uses `ReasonCode` / `reason_codes` (was `ReturnCode` /
-  `return_codes`). No compat shim. `Connack` **is** back-compat: the
-  `(Bool, ReturnCode)` overload and `return_code` getter are retained.
+- `SubAck` and `Connack` use `ReasonCode` / `reason_codes` (was `ReturnCode` /
+  `return_codes`). The old constructors and getters remain, deprecated.
+  `Error::Connect` carries a `Connack::ReasonCode`; its `return_code` is
+  deprecated.
+- **Packets are populated with their v5 meaning on v3 too** (`84codes/mqtt-protocol.cr#19`). A
+  property with a spec default reads as that default when absent
+  (`receive_maximum` is 65535, the raw value is `receive_maximum?`), and a Bool
+  property has only the predicate reader. A v3 CONNECT gets the Session Expiry
+  Interval its Clean Session bit means: 0, or `UInt32::MAX` for Clean Session 0.
+- Renames, the old names kept as deprecated aliases where possible:
+  `Connect#keepalive` -> `keep_alive`, `clean_session?` -> `clean_start?`,
+  `Unsubscribe#topics` -> `topic_filters`. Enum members `GrantedQoS0..2` ->
+  `GrantedQos0..2` and `QoSNotSupported` -> `QosNotSupported` have no alias.
+  `UnsubAck.new` takes `(reason_codes, packet_id)`. `TopicFilter#retain_handling`
+  is a `RetainHandling` enum, and Retain Handling 3 decodes as a Protocol Error
+  (0x82).
+- `Connect`, `Will` and `Publish` constructors take keyword arguments, and
+  `Connect` defaults to `Version::V5`. Writing that default on an IO pinned to
+  v3 raises `PacketEncode` before any byte goes out, so a consumer that relied
+  on the old v3 default fails loudly rather than sending the wrong version.
+- A v5 CONNECT with an empty client id and Clean Start 0 is no longer refused at
+  decode (§3.1.3.1); v3.1.1 still requires Clean Session [MQTT-3.1.3-8 v3.1.1].
 - `Connect#version` is now the `Version` enum, was `UInt8`. **Silent hazard:** in
   Crystal, comparing a `UInt8`-backed enum to an Int compiles and is always
   `false`, so a consumer doing `if connect.version == 4` keeps compiling and

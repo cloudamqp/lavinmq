@@ -33,7 +33,7 @@ module MqttSpecs
 
           delivered = MQTT::Protocol::Packet.from_io(sub).as(MQTT::Protocol::Publish)
           dp = delivered.properties
-          dp.payload_format_indicator.should be_true
+          dp.payload_format_indicator?.should be_true
           dp.message_expiry_interval.should eq(3600u32)
           dp.response_topic.should eq("reply/here")
           dp.correlation_data.should eq(Bytes[1, 2, 3])

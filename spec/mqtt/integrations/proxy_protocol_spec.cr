@@ -13,7 +13,7 @@ module MqttSpecs
             io = MQTT::Protocol::IO.v3(socket)
             connack = connect(io)
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::NotAuthorized)
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::NotAuthorized)
           end
         end
       end
@@ -25,7 +25,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io)
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq(MQTT::Protocol::Connack::ReasonCode::Success)
             disconnect(io)
           end
         end

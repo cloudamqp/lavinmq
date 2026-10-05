@@ -19,12 +19,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-expiry-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-expiry-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }
@@ -52,12 +52,12 @@ module MqttSpecs
 
         broker = server.mqtt_server.broker("/")
         packet = MQTT::Protocol::Connect.new(
-          client_id: "oauth-valid-test",
-          clean_session: true,
-          keepalive: 60u16,
+          "oauth-valid-test",
+          clean_start: true,
+          keep_alive: 60u16,
           username: "testuser",
           password: nil,
-          will: nil,
+          version: MQTT::Protocol::Version::V3_1_1,
         )
 
         spawn { broker.run_client(mqtt_io, conn_info, user, packet) { } }

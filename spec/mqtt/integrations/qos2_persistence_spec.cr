@@ -371,12 +371,12 @@ module MqttSpecs
         vhost.session("mqtt.sub").closed?.should be_false
         with_client_io(server) do |io|
           connack = connect(io, client_id: "pub", clean_session: false).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
         # A clean CONNECT replaces it
         with_client_io(server) do |io|
           connack = connect(io, client_id: "pub", clean_session: true).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           disconnect(io)
         end
       end
@@ -405,7 +405,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           # Not attached, so no PUBREL for a message the store never loaded
           connack = connect(io, client_id: "sub", clean_session: false).as(MQTT::Protocol::Connack)
-          connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::ServerUnavailable
+          connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ServerUnavailable
         end
       end
     end

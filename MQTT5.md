@@ -145,7 +145,8 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 - Full capability advertisement (`build_server_capabilities`)
 - `assigned_client_identifier` echoed when we generate a client id [MQTT-3.2.2-16]
 - Enhanced auth rejected `0x8C` before authentication runs
-- `Connack::ReasonCode.from_v3_return_code` bridges the v3 accept path
+- Every CONNACK is built from a `ReasonCode`, rejections included; a v3 IO writes
+  the matching return code
 
 **Error handling**
 - Handlers raise `MQTT::ProtocolViolation`; `read_loop` catches it centrally,
@@ -199,7 +200,7 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 - `Session#session_expiry_interval : UInt32` is the single input to a session's
   lifetime; `clean_session?` is gone from both `Session` and `Client`
 - Derived at CONNECT: v5 reads the property, absent meaning 0 (§3.1.2.11.2);
-  v3 maps `clean_session=1` to 0 and `clean_session=0` to `UInt32::MAX`
+  for v3 the shard derives it from Clean Session, 1 to 0 and 0 to `UInt32::MAX`
 - DISCONNECT can narrow it, applied before the client is removed, so narrowing
   to 0 ends the session on that disconnect
 - The clock runs in the session's existing `deliver_loop`; reattaching cancels it

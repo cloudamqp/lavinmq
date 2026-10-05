@@ -81,6 +81,10 @@ module MqttSpecs
             packets += 1
           rescue IO::EOFError
             break
+          rescue ex : MQTT::Protocol::Error::PacketDecode
+            # The shard reports an EOF within a packet this way
+            raise ex unless ex.message == "truncated packet"
+            break
           end
           packets.should be > 0
         end

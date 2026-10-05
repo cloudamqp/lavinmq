@@ -19,7 +19,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io, client_id: "guest")
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           end
         end
       end
@@ -29,7 +29,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io, client_id: "not_guest")
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::IdentifierRejected
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::ClientIdentifierNotValid
             io.should be_closed
           end
         end
@@ -40,7 +40,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io, client_id: "", clean_session: true)
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             # Proof the assigned id is the username: a second connection with
             # client_id "guest" must take over this session [MQTT-3.1.4-3]
             with_client_io(server) do |io2|
@@ -56,7 +56,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io, username: "/:guest", client_id: "guest")
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           end
         end
       end
@@ -67,7 +67,7 @@ module MqttSpecs
             io = MQTT::Protocol::IO.v5(socket)
             connack = connect(io, version: MQTT::Protocol::Version::V5,
               client_id: "", clean_session: true).as(MQTT::Protocol::Connack)
-            connack.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             # The assigned id must be the username, and it must survive the
             # rebuild of the CONNECT packet intact so the broker registers it.
             connack.properties.assigned_client_identifier.should eq("guest")
@@ -86,7 +86,7 @@ module MqttSpecs
           with_client_io(server) do |io|
             connack = connect(io, client_id: "anything_goes")
             connack.should be_a(MQTT::Protocol::Connack)
-            connack.as(MQTT::Protocol::Connack).return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.as(MQTT::Protocol::Connack).reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
           end
         end
       end

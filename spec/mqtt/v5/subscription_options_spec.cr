@@ -230,7 +230,7 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 0)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :send_on_subscribe)])
             read_packet(sub).as(MQTT::Protocol::Publish).topic.should eq "a/b"
           end
         end
@@ -245,10 +245,10 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 2)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :do_not_send)])
             sub.should be_drained
             # Still nothing on a re-subscribe, new or not.
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 2)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :do_not_send)])
             sub.should be_drained
           end
         end
@@ -263,7 +263,7 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :send_on_new_subscription)])
             read_packet(sub).as(MQTT::Protocol::Publish).topic.should eq "a/b"
           end
         end
@@ -278,11 +278,11 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :send_on_new_subscription)])
             first = read_packet(sub).as(MQTT::Protocol::Publish)
             puback(sub, first.packet_id)
 
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :send_on_new_subscription)])
             sub.should be_drained
           end
         end
@@ -300,10 +300,10 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("a/b", 0u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 0u8, retain_handling: :send_on_new_subscription)])
             read_packet(sub).as(MQTT::Protocol::Publish).topic.should eq "a/b"
 
-            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("a/b", 1u8, retain_handling: :send_on_new_subscription)])
             sub.should be_drained
           end
         end
@@ -321,7 +321,7 @@ module MqttSpecs
 
           with_client_socket(server) do |sub_socket|
             sub = v5_connect(sub_socket, client_id: "sub")
-            subscribe(sub, topic_filters: [subtopic("mqtt.sub", 1u8, retain_handling: 1)])
+            subscribe(sub, topic_filters: [subtopic("mqtt.sub", 1u8, retain_handling: :send_on_new_subscription)])
             read_packet(sub).as(MQTT::Protocol::Publish).topic.should eq "mqtt.sub"
           end
         end

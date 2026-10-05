@@ -6,12 +6,12 @@ module MqttSpecs
 
   def self.connect_packet(client_id, clean_session = true)
     MQTT::Protocol::Connect.new(
-      client_id: client_id,
-      clean_session: clean_session,
-      keepalive: 60u16,
+      client_id,
+      clean_start: clean_session,
+      keep_alive: 60u16,
       username: "guest",
       password: nil,
-      will: nil,
+      version: MQTT::Protocol::Version::V3_1_1,
     )
   end
 
@@ -129,7 +129,7 @@ module MqttSpecs
             spawn { connack.send connect(io2, client_id: "a", clean_session: true).as(MQTT::Protocol::Connack) }
             sleep 50.milliseconds
             lock.unlock
-            connack.receive.return_code.should eq MQTT::Protocol::Connack::ReturnCode::Accepted
+            connack.receive.reason_code.should eq MQTT::Protocol::Connack::ReasonCode::Success
             n_client = broker.@clients["a"]
             wait_for(1.second) { n_client.session.client == n_client }
             n_client.session.should_not be old_session
