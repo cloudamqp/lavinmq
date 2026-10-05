@@ -60,13 +60,19 @@ module LavinMQ
         props = Protocol::PublishProperties.new
         return props unless headers
         props.payload_format_indicator = headers[PAYLOAD_FORMAT_INDICATOR]?.as?(Bool)
-        props.message_expiry_interval = fetch_u32?(headers, MESSAGE_EXPIRY_INTERVAL)
+        props.message_expiry_interval = message_expiry_interval(headers)
         props.response_topic = fetch_topic?(headers, RESPONSE_TOPIC)
         props.correlation_data = headers[CORRELATION_DATA]?.as?(Bytes)
         props.content_type = headers[CONTENT_TYPE]?.as?(String)
         entries = headers[USER_PROPERTIES]?
         props.user_properties = restore_user_properties(entries) if entries.is_a?(Array)
         props
+      end
+
+      # Read on its own by the delivery path, which expires messages for v3
+      # subscribers too.
+      def self.message_expiry_interval(headers : AMQP::Table?) : UInt32?
+        fetch_u32?(headers, MESSAGE_EXPIRY_INTERVAL) if headers
       end
 
       # Every four-byte-int property goes through here, so a value outside

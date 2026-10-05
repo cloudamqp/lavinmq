@@ -64,8 +64,12 @@ notes; the checklist is in `MQTT5.md`.
   only the payload, so a retained message is replayed without its properties and
   at the subscription's QoS rather than the lower of that and the publisher's.
   Item F.
-- **Message Expiry Interval is not enforced.** **(merge blocker)** It is carried to subscribers
-  unchanged, but an expired message is still delivered. Item M.
+- **Expired messages are deleted lazily.** A message past its Message Expiry
+  Interval is deleted when it reaches the head of the session, not when it
+  expires, so until then it still counts towards the session's message count,
+  its disk use and `max-length`. A subscriber never receives it either way. An
+  AMQP queue bound to an MQTT topic does not expire it at all: the interval is
+  kept as an `mqtt.*` header, not mapped onto AMQP `expiration`.
 - **No Receive Maximum of our own.** We do not advertise one, so clients assume
   the 65535 default, which 16-bit packet ids cannot exceed anyway. The client's
   Receive Maximum is honoured: the outbound window is the lower of it and

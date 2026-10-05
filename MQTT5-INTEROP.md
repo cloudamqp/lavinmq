@@ -629,7 +629,7 @@ QoS 1, which scored 8 / 18 / 1 on v5 and 7 / 2 on v3.1.1 on 2026-08-19. The
 |---|---|
 | `test_retained_message` | item F: a retained message loses its User Property |
 | `test_subscribe_options` | item F: retained replays come back at the subscription QoS, not the publisher's [MQTT-3.8.4-8] |
-| `test_publication_expiry` | item M: Message Expiry Interval is carried but never enforced |
+| `test_publication_expiry` | item M: Message Expiry Interval was carried but never enforced. Fixed since, not yet re-run |
 | `test_will_delay` | item E |
 | `test_flow_control1`, `test_flow_control2` (timeout) | item N: the client's Receive Maximum was not honoured. Fixed since, not yet re-run |
 | `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |

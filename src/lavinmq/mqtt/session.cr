@@ -751,6 +751,11 @@ module LavinMQ
         # delete of the session can unmap while the send is suspended, so it
         # stays leased until sent
         env = @msg_store_lock.synchronize { msg_store.shift_leased? } || return
+        if expired_undelivered?(env)
+          delete_message(env.segment_position)
+          env.release
+          return
+        end
         if qos2_batched?(env)
           deliver_qos2_batch(env) { |packet, bytesize| yield packet, bytesize }
           return
@@ -844,8 +849,10 @@ module LavinMQ
           return
         end
         loop do
-          # Gated, so a client without a limit builds no extra packet
-          if @client.try(&.max_packet_size) && exceeds_max_packet_size?(build_packet(env, id, original))
+          # The size check is gated, so a client without a limit builds no
+          # extra packet
+          if expired_undelivered?(env) ||
+             (@client.try(&.max_packet_size) && exceeds_max_packet_size?(build_packet(env, id, original)))
             # Never booked, so not redelivered [MQTT-3.1.2-25]
             delete_message(sp)
             env.release
@@ -1019,6 +1026,19 @@ module LavinMQ
         end
       end
 
+      # [MQTT-3.3.2-5] deletes an expired message only while onward delivery has
+      # not started. A remembered packet id means it was sent before and requeued
+      # on reattach, so [MQTT-4.4.0-1] still owes it. Not `env.redelivered`: a
+      # message requeued for want of a packet id was never sent.
+      private def expired_undelivered?(env) : Bool
+        msg = env.message
+        interval = PublishHeaders.message_expiry_interval(msg.properties.headers) || return false
+        return false if RoughTime.unix_ms - msg.timestamp < interval.to_i64 * 1000
+        return false unless (msg_store.original_packet_id?(env.segment_position) || 0u16).zero?
+        @log.debug { "Dropping message past its #{interval}s Message Expiry Interval" }
+        true
+      end
+
       # A message loaded from disk is not `redelivered`, so a re-send under the
       # original id is marked by `dup` [MQTT-3.3.1-1].
       def build_packet(env, packet_id, dup = false) : Protocol::Publish
@@ -1035,6 +1055,12 @@ module LavinMQ
                      else
                        Protocol::PublishProperties.new
                      end
+        if interval = properties.message_expiry_interval
+          # Less the time spent here [MQTT-3.3.2-6]. 0 for an expired message
+          # we still owe, and never above the original if the clock went back.
+          remaining = interval.to_i64 - (RoughTime.unix_ms - msg.timestamp) // 1000
+          properties.message_expiry_interval = remaining.clamp(0_i64, interval.to_i64).to_u32
+        end
         Protocol::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
