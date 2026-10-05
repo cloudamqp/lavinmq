@@ -62,6 +62,31 @@ describe "Retry Queue" do
       end
     end
 
+    it "should not create duplicate retry queues on concurrent rejects" do
+      with_amqp_server do |s|
+        args = AMQP::Client::Arguments.new({
+          "x-delivery-limit"    => 3,
+          "x-delayed-retry-min" => 60_000,
+        })
+        with_channel(s) do |ch1|
+          q = ch1.queue("retry-concurrent", args: args)
+          q.publish_confirm "a"
+          q.publish_confirm "b"
+          with_channel(s) do |ch2|
+            msg1 = wait_for { ch1.basic_get("retry-concurrent", no_ack: false) }
+            msg2 = wait_for { ch2.basic_get("retry-concurrent", no_ack: false) }
+            s.vhosts["/"].delete_queue("amq.retry-retry-concurrent")
+
+            msg1.reject(requeue: true)
+            msg2.reject(requeue: true)
+
+            wait_for { s.vhosts["/"].queue?("amq.retry-retry-concurrent").try(&.message_count) == 2 }
+            s.vhosts["/"].queue("retry-concurrent").message_count.should eq 0
+          end
+        end
+      end
+    end
+
     it "should recreate the retry queue if it was deleted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

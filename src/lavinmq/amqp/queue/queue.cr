@@ -69,6 +69,7 @@ module LavinMQ::AMQP
     @delayed_retry_max : Int64?
     @delayed_retry_multiplier : Int32?
     @delayed_retry_queue : DelayedRetryQueue?
+    @retry_queue_lock = Mutex.new
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -521,25 +522,34 @@ module LavinMQ::AMQP
     end
 
     private def init_retry_queue
-      return if @delayed_retry_queue
-      queue = DelayedRetryQueue.create(@vhost, self)
-      @delayed_retry_queue = queue
-      @vhost.register_queue(queue)
+      @retry_queue_lock.synchronize { create_retry_queue }
     end
 
     # Recreates the retry queue if it was deleted or closed itself on a store error.
     private def active_retry_queue : DelayedRetryQueue?
-      if retry_queue = @delayed_retry_queue
-        return retry_queue unless retry_queue.closed?
-        @delayed_retry_queue = nil
+      @retry_queue_lock.synchronize do
+        if retry_queue = @delayed_retry_queue
+          next retry_queue unless retry_queue.closed?
+          @delayed_retry_queue = nil
+        end
+        next if @deleted || @closed
+        @log.info { "Recreating retry queue" }
+        create_retry_queue
       end
-      return if @deleted || @closed
-      @log.info { "Recreating retry queue" }
-      init_retry_queue
-      @delayed_retry_queue
     rescue ex
       @log.error(ex) { "Failed to recreate retry queue, requeuing instantly" }
       nil
+    end
+
+    # Only call while holding @retry_queue_lock
+    private def create_retry_queue : DelayedRetryQueue
+      if queue = @delayed_retry_queue
+        return queue
+      end
+      queue = DelayedRetryQueue.create(@vhost, self)
+      @delayed_retry_queue = queue
+      @vhost.register_queue(queue)
+      queue
     end
 
     # The message keeps its original timestamp while delayed, so x-message-ttl
@@ -663,9 +673,11 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
-      if retry_queue = @delayed_retry_queue
-        @delayed_retry_queue = nil
-        retry_queue.delete
+      @retry_queue_lock.synchronize do
+        if retry_queue = @delayed_retry_queue
+          @delayed_retry_queue = nil
+          retry_queue.delete
+        end
       end
       close
       @state = QueueState::Deleted
