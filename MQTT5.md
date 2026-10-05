@@ -36,8 +36,7 @@ A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, gets a session whose lifetime
 it controls, gets its subscription options honoured, gets its will published
 with its properties intact, and gets a spec-correct rejection for every feature
-we do not implement. Missing: the Will Delay Interval, and properties and QoS on
-retained messages.
+we do not implement. Missing: the Will Delay Interval.
 
 Green on 2026-10-02: 2637 examples, 0 failures, lint and format clean.
 
@@ -53,7 +52,7 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 **Spec violations**
 
 - [ ] **E** Will Delay Interval [MQTT-3.1.2-8]. Paho `test_will_delay`.
-- [ ] **F** retained messages keep their v5 properties [MQTT-3.3.2-17] and are
+- [x] **F** retained messages keep their v5 properties [MQTT-3.3.2-17] and are
   replayed at the lower of the publisher's and the subscription's QoS
   [MQTT-3.8.4-8]. Paho `test_retained_message`, `test_subscribe_options`.
 - [x] **M** Message Expiry Interval enforced [MQTT-3.3.2-5] and counted down

@@ -355,7 +355,8 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.follower_config.data_dir}/retain_store", nil)
       a = Array(String).new(2)
       b = Array(String).new(2)
-      follower_retain_store.each("#") do |topic, body_io, body_bytesize|
+      follower_retain_store.each("#") do |retained|
+        topic, body_io, body_bytesize = retained.topic, retained.body_io, retained.bodysize
         a << topic
         b << body_io.read_string(body_bytesize)
       end

@@ -200,10 +200,14 @@ module LavinMQ
             MQTT.granted_qos(tf.qos), tf.no_local?, tf.retain_as_published?)
           new_subscription = session.subscribe(tf.topic, options)
           if replay_retained?(tf.retain_handling, new_subscription)
-            ts = RoughTime.unix_ms
-            @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-              props = AMQP::Properties.new(headers: RETAINED_HEADERS, delivery_mode: options.qos)
-              msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
+            @retain_store.each(tf.topic) do |retained|
+              props = retained.properties
+              # The lower of the publish and the subscription QoS [MQTT-3.8.4-8].
+              props.delivery_mode = Math.min(props.delivery_mode || 0u8, options.qos)
+              # The original timestamp, so the replay counts down the Message
+              # Expiry Interval like any stored message [MQTT-3.3.2-6].
+              msg = Message.new(retained.timestamp, EXCHANGE, retained.topic, props,
+                retained.bodysize, retained.body_io)
               session.publish(msg)
             end
           end

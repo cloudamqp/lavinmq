@@ -736,10 +736,9 @@ module LavinMQ
       # message requeued for want of a packet id was never sent.
       private def expired_undelivered?(env) : Bool
         msg = env.message
-        interval = PublishHeaders.message_expiry_interval(msg.properties.headers) || return false
-        return false if RoughTime.unix_ms - msg.timestamp < interval.to_i64 * 1000
+        return false unless PublishHeaders.expired?(msg.properties.headers, msg.timestamp)
         return false unless (@msg_store.original_packet_id?(env.segment_position) || 0u16).zero?
-        @log.debug { "Dropping message past its #{interval}s Message Expiry Interval" }
+        @log.debug { "Dropping message past its Message Expiry Interval" }
         true
       end
 

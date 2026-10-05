@@ -235,9 +235,17 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   publish reached a QoS 1 subscriber as QoS 1: LavinMQ then waited for a PUBACK on
   a fire-and-forget message, counted it against `max_inflight_messages`,
   redelivered it on reconnect, and stored it for an offline subscriber. Retained
-  replay does not follow it yet: `Broker#subscribe` bypasses `Exchange#publish`
-  and the retain store never kept the publisher's QoS, so a replay goes out at
-  the granted QoS. That breaks [MQTT-3.8.4-8] too, and is tracked under item F.
+  replay follows the same rule: the retain store keeps the publisher's QoS, and
+  `Broker#subscribe` replays at the lower of that and the granted QoS.
+- **The retain store keeps a header per message, under a new file suffix.** A
+  `.rmsg` file holds the publish time and `AMQP::Properties` (the publisher's QoS
+  and the `mqtt.*` headers) ahead of the payload, so a replay keeps its v5
+  properties [MQTT-3.3.2-17], its QoS and its Message Expiry Interval. A legacy
+  payload-only `.msg` cannot be told apart by content, so the suffix carries the
+  format: legacy files are read as QoS 1 with no properties (QoS 1 was the most
+  any older version accepted), and replaced on the topic's next retain. No
+  boot-time migration, and a downgrade drops the topics it cannot find rather
+  than replaying header bytes as payload.
 - **Oversized outbound PUBLISH is dropped, not requeued.** A message exceeding
   the subscriber's Maximum Packet Size is deleted and the delivery completed
   without entering `@unacked`, so it is never redelivered [MQTT-3.1.2-25].
@@ -340,8 +348,8 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
 - A will at QoS 2 is accepted on both versions. Before QoS 2 a v5 will above
   `maximum_qos` was refused with CONNACK `0x9B` (§3.1.2.6); with nothing to
   exceed, that check went.
-- A **retained** will inherits item F: its properties reach live subscribers but
-  not later ones, because the retain store keeps only the payload.
+- A **retained** will keeps its properties for later subscribers too, through
+  the retain store.
 
 ### Session expiry
 

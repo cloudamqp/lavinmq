@@ -9,8 +9,7 @@ module LavinMQ
     # Header-only mapping (no AMQP-native slots like content_type/reply_to - that
     # cross-protocol mapping is a separate concern). `topic_alias` and
     # `subscription_identifiers` are intentionally not carried (rejected on
-    # ingress / not supported). Retained messages don't carry properties yet -
-    # the retain store keeps only the body (follow-up).
+    # ingress / not supported). The retain store keeps the same headers.
     module PublishHeaders
       PAYLOAD_FORMAT_INDICATOR = "mqtt.payload_format_indicator"
       MESSAGE_EXPIRY_INTERVAL  = "mqtt.message_expiry_interval"
@@ -73,6 +72,13 @@ module LavinMQ
       # subscribers too.
       def self.message_expiry_interval(headers : AMQP::Table?) : UInt32?
         fetch_u32?(headers, MESSAGE_EXPIRY_INTERVAL) if headers
+      end
+
+      # Whether a message stored at `timestamp` (unix ms) is past its Message
+      # Expiry Interval. False for a message without one.
+      def self.expired?(headers : AMQP::Table?, timestamp : Int64) : Bool
+        interval = message_expiry_interval(headers) || return false
+        RoughTime.unix_ms - timestamp >= interval.to_i64 * 1000
       end
 
       # Every four-byte-int property goes through here, so a value outside
