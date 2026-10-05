@@ -113,6 +113,22 @@ module LavinMQ
       end
     end
 
+    # Shifts the next message, under `lock`, and yields it outside the lock with
+    # its segment kept mapped until the block returns, even if the segment is
+    # deleted or the store closed meanwhile. For deliveries, which can be
+    # suspended in a socket write. Returns false if there was no message.
+    def shift_leased?(lock : Mutex, consumer = nil, & : Envelope -> _) : Bool
+      env = lock.synchronize { shift?(consumer).try &.lease } || return false
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
+    # The envelope points into the segment, so it's only valid while the lock
+    # guarding the store is held, see #shift_leased? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?

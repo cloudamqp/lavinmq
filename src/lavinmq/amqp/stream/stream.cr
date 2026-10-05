@@ -177,10 +177,9 @@ module LavinMQ::AMQP
       StreamReader.new(self, offset)
     end
 
-    # Reads a message for StreamReader, leased (see #get), the caller must
-    # release it when done with the message
-    protected def read_leased(segment : UInt32, position : UInt32) : Envelope?
-      @msg_store_lock.synchronize { stream_msg_store.read(segment, position).try &.lease }
+    # Yields a message for StreamReader, see StreamMessageStore#read_leased?
+    protected def read_leased?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
+      stream_msg_store.read_leased?(@msg_store_lock, segment, position) { |env| yield env }
     end
 
     protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?
@@ -210,15 +209,11 @@ module LavinMQ::AMQP
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      # The delivery can suspend in a socket write, during which retention may
-      # drop the segment; the lease keeps it mapped until we're done
-      env = @msg_store_lock.synchronize { stream_msg_store.shift?(consumer).try &.lease } || return false
-      begin
+      # Retention can drop the segment while the delivery is suspended in a
+      # socket write
+      stream_msg_store.shift_leased?(@msg_store_lock, consumer) do |env|
         yield env # deliver the message
-      ensure
-        env.release
       end
-      true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

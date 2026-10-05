@@ -14,19 +14,17 @@ module LavinMQ::AMQP
       offset, segment, position = stream.find_offset(@start_offset)
       loop do
         break if store.closed
-        if env = stream.read_leased(segment, position)
-          begin
-            if headers = env.message.properties.headers
-              headers["x-stream-offset"] = offset
-            else
-              env.message.properties.headers = AMQP::Table.new({"x-stream-offset": offset})
-            end
-            position += env.segment_position.bytesize
-            offset += 1
-            yield env
-          ensure
-            env.release
+        read = stream.read_leased?(segment, position) do |env|
+          if headers = env.message.properties.headers
+            headers["x-stream-offset"] = offset
+          else
+            env.message.properties.headers = AMQP::Table.new({"x-stream-offset": offset})
           end
+          position += env.segment_position.bytesize
+          offset += 1
+          yield env
+        end
+        if read
           stream.@deliver_get_count.add(1, :relaxed)
         else
           # try read from new segment, the current one may also have been
