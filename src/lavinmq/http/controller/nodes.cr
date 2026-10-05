@@ -17,7 +17,7 @@ module LavinMQ
         {% for sm in SERVER_METRICS %}
           {{ sm.id }} = deleted_stats.{{ sm.id }}
           {{ sm.id }}_rate = 0_f64
-          {{ sm.id }}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{ sm.id }}_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
         {% end %}
         vhosts.each do |vhost|
           message_details = vhost.message_details

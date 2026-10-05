@@ -35,9 +35,8 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
-    # Ready and unacked messages in all queues and sessions, per stats tick
-    getter messages_ready_log = Deque(UInt64).new(Config.instance.stats_log_size)
-    getter messages_unacknowledged_log = Deque(UInt64).new(Config.instance.stats_log_size)
+    # Ready and unacked messages in all queues and sessions
+    gauge_stats({"messages_ready", "messages_unacknowledged"})
 
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
@@ -626,14 +625,8 @@ module LavinMQ
     end
 
     def update_message_count_logs(ready : UInt64, unacked : UInt64) : Nil
-      log_size = Config.instance.stats_log_size
-      {% for log in %w[messages_ready_log messages_unacknowledged_log] %}
-        until @{{ log.id }}.size < log_size
-          @{{ log.id }}.shift
-        end
-      {% end %}
-      @messages_ready_log.push ready
-      @messages_unacknowledged_log.push unacked
+      log_messages_ready(ready)
+      log_messages_unacknowledged(unacked)
     end
 
     def add_recv_bytes(bytes : UInt64) : Nil

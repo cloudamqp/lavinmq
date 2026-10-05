@@ -28,14 +28,14 @@ module LavinMQ
           x_vhost = context.request.headers["x-vhost"]?
           channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
-          ready_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
-          unacked_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
-          recv_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
-          send_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          ready_log = Array(Int64).new(LavinMQ::Config.instance.stats_log_size)
+          unacked_log = Array(Int64).new(LavinMQ::Config.instance.stats_log_size)
+          recv_rate_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          send_rate_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% for name in OVERVIEW_STATS %}
           {{ name.id }}_count = 0_u64
           {{ name.id }}_rate = 0_f64
-          {{ name.id }}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{ name.id }}_log = Array(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% end %}
           {% for name in CHURN_STATS %}
           {{ name.id }} = 0_u64
