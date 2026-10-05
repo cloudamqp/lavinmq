@@ -112,22 +112,21 @@ module LavinMQ
   struct Envelope
     getter segment_position, message, redelivered
 
-    # `segment` is the segment the message, body and headers both, is read
-    # from, when it's shifted or read from a message store
-    def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
-                   @redelivered = false, @segment : MFile? = nil)
+    # `segment` is the segment the message, body and headers both, is read from
+    def initialize(@segment_position : SegmentPosition, @message : BytesMessage, *,
+                   @segment : MFile, @redelivered = false)
     end
 
     # Keeps the segment mapped until #release, even if it's deleted or its
     # store closed meanwhile. Use MessageStore#shift_with_lease? rather than
     # calling these directly.
     protected def lease : self
-      @segment.try &.lease
+      @segment.lease
       self
     end
 
     protected def release : Nil
-      @segment.try &.release_lease
+      @segment.release_lease
     end
   end
 end

@@ -1020,13 +1020,11 @@ module LavinMQ::AMQP
       if requeue
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
-          env = Envelope.new(sp, msg, false)
-          expire_msg(env, :expired)
+          expire_msg(sp, :expired)
         else
           if delivery_limit = @delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
-              env = Envelope.new(sp, msg, false)
-              return expire_msg(env, :delivery_limit)
+              return expire_msg(sp, :delivery_limit)
             end
           end
           was_empty = false
@@ -1172,9 +1170,7 @@ module LavinMQ::AMQP
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
-      msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
-      Envelope.new(msg_sp, msg, redelivered: true)
+      @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close

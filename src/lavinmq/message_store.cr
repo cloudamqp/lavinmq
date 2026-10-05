@@ -196,6 +196,18 @@ module LavinMQ
       end
     end
 
+    # Like `#[]`, as an envelope, with the segment position made from the message
+    def envelope(sp : SegmentPosition, redelivered = false) : Envelope
+      raise ClosedError.new if @closed
+      segment = @segments[sp.segment]
+      begin
+        msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+        Envelope.new(SegmentPosition.make(sp.segment, sp.position, msg), msg, redelivered: redelivered, segment: segment)
+      rescue ex
+        raise Error.new(segment, cause: ex)
+      end
+    end
+
     # Like `#[]`, but the returned message owns all its memory: the record is
     # copied out of the segment's mmap, so the message stays valid after the
     # segment is deleted and unmapped. For messages that outlive the caller's
