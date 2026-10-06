@@ -1,11 +1,11 @@
 # Clustering
 
-LavinMQ supports multi-node clustering with leader-based replication. Leader election and the in-sync replica set (ISR) are kept by one of two backends, chosen with `backend` in `[clustering]`:
+LavinMQ supports multi-node clustering with leader-based replication. Leader election and the in-sync replica set (ISR) are kept by one of two backends:
 
-- **`raft`** — the nodes elect the leader themselves with a built-in [Raft](https://raft.github.io/) implementation, no external coordination service is needed. Recommended for new clusters.
-- **`etcd`** (default) — an external [etcd](https://etcd.io/) cluster does leader election and stores the ISR. Kept so that existing clusters keep working unchanged when upgraded; they can [migrate to raft](#migrating-from-etcd-to-raft) when convenient.
+- **`raft`** (when `seeds` are set) — the nodes elect the leader themselves with a built-in [Raft](https://raft.github.io/) implementation, no external coordination service is needed. Recommended for new clusters.
+- **`etcd`** (otherwise) — an external [etcd](https://etcd.io/) cluster does leader election and stores the ISR. Kept so that existing clusters keep working unchanged when upgraded; they can [migrate to raft](#migrating-from-etcd-to-raft) when convenient.
 
-A node never switches backend on its own, `backend` has to be changed by the operator.
+The backend follows from the config: setting `seeds`, which raft requires and etcd ignores, selects raft. `backend = etcd` or `backend = raft` in `[clustering]` overrides that, e.g. to keep etcd while `seeds` are already in place for a migration. A node never switches backend while it runs.
 
 ## Architecture
 
@@ -23,7 +23,6 @@ Only the leader handles client traffic. Followers maintain a synchronized copy o
 ```ini
 [clustering]
 enabled = true
-backend = raft
 bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
@@ -143,12 +142,12 @@ If the leader fails, etcd coordinates leader election among ISR members. The fir
 The migration needs a short full cluster downtime. All nodes have to switch backend at the same time, a cluster can't run with both.
 
 1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `backend = raft`, `seeds` (every node), `raft_advertised_address` and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
+2. Add `seeds` (every node, which selects raft) and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
 A node without election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until an elected leader has it in the in-sync replica set, i.e. once it has synced from that leader. That includes nodes with an empty data dir: if they could, two replaced nodes could outvote the one that still has the data, and it would then sync their empty state. `bootstrap` overrides that and lets the node become the cluster's first leader. Until the other nodes have synced, the bootstrapped node is the only one that can lead, so if it goes down the cluster waits for it to come back. It only has an effect while the node has no election state, but remove it once the cluster is up: if that node loses its data dir along with a majority of the others, it could otherwise start a new, empty cluster. A cluster of a single node needs no bootstrap.
 
-To roll back to etcd, stop all nodes the same way, followers first and the leader last. Delete `{etcd_prefix}/isr` in etcd (`etcdctl del lavinmq/isr`), since it's from before the migration and may list nodes that are no longer in sync. Set `backend = etcd` again on every node and delete `.raft_state` from the data dirs. Then start the former leader first, and the other nodes once it has been elected.
+To roll back to etcd, stop all nodes the same way, followers first and the leader last. Delete `{etcd_prefix}/isr` in etcd (`etcdctl del lavinmq/isr`), since it's from before the migration and may list nodes that are no longer in sync. Remove `seeds`, or set `backend = etcd`, on every node and delete `.raft_state` from the data dirs. Then start the former leader first, and the other nodes once it has been elected.
 
 ### Changing the cluster membership
 
@@ -181,7 +180,7 @@ To move a replica from node A to a new node D:
 
 ### Changing a node's address
 
-To give a node a new address but keep its data dir, restart it with the new `raft_advertised_address`. When it connects from there, the leader makes it a learner at the new address and promotes it back once it has synced and caught up again. Meanwhile the cluster has one voter less: in a three node cluster the other two must both be up. A node at a new address doesn't campaign until the leader has moved it.
+To give a node a new address but keep its data dir, restart it with the new `advertised_uri` (or `raft_advertised_address`, if set). When it connects from there, the leader makes it a learner at the new address and promotes it back once it has synced and caught up again. Meanwhile the cluster has one voter less: in a three node cluster the other two must both be up. A node at a new address doesn't campaign until the leader has moved it.
 
 Moving a voter takes a majority of the voters at their old addresses, so if most of them come back at new addresses together, e.g. after changing `raft_port` on every node or when the hostnames change and neither `advertised_uri` nor `raft_advertised_address` is set, no leader can be elected the normal way. After three election timeouts without a leader the nodes count each other's votes wherever they are and log a warning that they do. The leader elected then records the new addresses in the membership, without demoting anyone, and the normal rules apply again. Until then the cluster is unavailable, about four election timeouts (6 s by default) plus the election itself, so prefer moving one node at a time.
 

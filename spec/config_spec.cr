@@ -519,6 +519,23 @@ describe LavinMQ::Config do
       config.clustering_etcd_prefix.should eq "lavinmq"
     end
 
+    it "uses the raft backend when seeds are set" do
+      ENV["LAVINMQ_CLUSTERING_PASSWORD_FILE"] = password_file = clustering_password_file
+      config = LavinMQ::Config.new
+      config.parse(["--clustering", "--clustering-seeds=a:1"])
+      config.clustering_backend.should eq LavinMQ::ClusteringBackend::Raft
+    ensure
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD_FILE")
+      File.delete?(password_file) if password_file
+    end
+
+    it "applies the raft requirements when seeds select it" do
+      config = LavinMQ::Config.new
+      expect_raises(LavinMQ::Config::Error, /password/) do
+        config.parse(["--clustering", "--clustering-seeds=a:1"])
+      end
+    end
+
     it "doesn't apply the raft requirements to the etcd backend" do
       config = LavinMQ::Config.new
       config.parse(["--clustering", "--clustering-backend=etcd", "--clustering-seeds=a:1,b:1", "--clustering-raft-advertised-address=c:1"])

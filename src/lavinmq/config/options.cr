@@ -426,10 +426,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
-      @[CliOpt("", "--clustering-backend=BACKEND", "Leader election backend, etcd or raft (default: etcd)", ->parse_clustering_backend(String), section: "clustering")]
+      @[CliOpt("", "--clustering-backend=BACKEND", "Leader election backend, etcd or raft (default: raft when seeds are set, else etcd)", ->parse_clustering_backend(String), section: "clustering")]
       @[IniOpt(ini_name: backend, section: "clustering", transform: ->parse_clustering_backend(String))]
       @[EnvOpt("LAVINMQ_CLUSTERING_BACKEND", ->parse_clustering_backend(String))]
-      property clustering_backend = ClusteringBackend::Etcd
+      # Nil when not configured, see Config#clustering_backend
+      property clustering_backend : ClusteringBackend? = nil
 
       @[CliOpt("", "--clustering-seeds=ADDRESSES", "Comma separated host:port raft addresses to form or join a cluster with: all nodes of a new cluster, or any member when joining, raft backend only", section: "clustering")]
       @[IniOpt(ini_name: seeds, section: "clustering")]

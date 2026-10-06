@@ -92,7 +92,7 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
-      validate_raft_clustering! if @clustering && @clustering_backend.raft?
+      validate_raft_clustering! if @clustering && clustering_backend.raft?
     end
 
     # The password nodes authenticate each other with, read from `password_file`.
@@ -137,6 +137,12 @@ module LavinMQ
       @clustering_secret = File.read(path).strip
     rescue ex : File::Error
       raise Error.new("Cannot read clustering password_file: #{ex.message}")
+    end
+
+    # The configured backend, or raft when `seeds` are set, as they're required
+    # with raft and ignored by etcd, so `backend` rarely needs to be set.
+    def clustering_backend : ClusteringBackend
+      @clustering_backend || (@clustering_seeds.strip.empty? ? ClusteringBackend::Etcd : ClusteringBackend::Raft)
     end
 
     # The URI followers replicate from. Defaults to this host's name when
