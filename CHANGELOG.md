@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Memory growth with clustering enabled when vhosts are repeatedly created and deleted: files of a deleted vhost stayed in the replication index, and followers kept them on disk with an open file descriptor each [#2335](https://github.com/cloudamqp/lavinmq/pull/2335)
+
 ## [2.10.1] - 2026-10-05
 
 This patch release works around a Linux kernel bug that stalled queue churn on affected kernels, and fixes messages above `x-max-priority` that could not be acked, stream segments with an incomplete trailing record that prevented startup, and streams that `max-length` retention could empty on rollover. It reduces stream memory usage during replays, resends unacked MQTT QoS 1 publishes under their original packet IDs, keeps a locked-down MQTT definitions import locked down, and fixes several queue policy, HTTP API, management UI and logging issues.

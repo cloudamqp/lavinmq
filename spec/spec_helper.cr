@@ -320,6 +320,9 @@ class NoOpReplicator
   def delete_file(path : String)
   end
 
+  def delete_dir(path : String)
+  end
+
   def followers : Array(LavinMQ::Clustering::Follower)
     Array(LavinMQ::Clustering::Follower).new
   end
