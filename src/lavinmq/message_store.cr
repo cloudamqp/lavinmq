@@ -1,3 +1,4 @@
+require "./rough_time"
 require "./mfile"
 require "./filesystem"
 require "./segment_position"
@@ -27,7 +28,7 @@ module LavinMQ
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
     # When the reader moved into @rfile, see #read_fast?
-    @rfile_since = RoughTime.instant
+    @rfile_since : Time::Instant = RoughTime.instant
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
