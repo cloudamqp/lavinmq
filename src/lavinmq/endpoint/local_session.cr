@@ -198,7 +198,7 @@ module LavinMQ
         raise Refused.new("530 - consumer tag '#{tag}' in use") if @consumers.has_key?(tag)
         consumer =
           if q.is_a?(AMQP::Stream)
-            LocalStreamConsumer.new(self, q, tag, @prefetch, args)
+            LocalStreamConsumer.new(self, q, tag, no_ack, @prefetch, args)
           else
             if q.in_exclusive_use?(exclusive)
               raise Refused.new("403 - queue '#{queue}' in vhost '#{v.name}' in exclusive use")
@@ -223,10 +223,14 @@ module LavinMQ
       end
 
       # Called by a consumer for each delivery: assigns its delivery tag and,
-      # unless it's no-ack, tracks it until it's settled
+      # unless it's no-ack, tracks it until it's settled. Returns nil once the
+      # session is closed: checked under the lock #close snapshots the unacked
+      # deliveries with, so a delivery is either requeued by the close or
+      # refused here, never left behind.
       # :nodoc:
-      def next_delivery_tag(consumer : LocalConsumer, sp : SegmentPosition) : UInt64
+      def next_delivery_tag(consumer : LocalConsumer, sp : SegmentPosition) : UInt64?
         @unacked_lock.synchronize do
+          return if @closed
           tag = @next_tag += 1
           @unacked.push(Unack.new(tag, consumer, sp)) unless consumer.no_ack?
           tag

@@ -25,8 +25,10 @@ module LavinMQ
       @track_offset = false
       @new_message_available = BoolChannel.new(false)
 
-      def initialize(session : LocalSession, @stream : AMQP::Stream, tag : String,
+      def initialize(session : LocalSession, @stream : AMQP::Stream, tag : String, no_ack : Bool,
                      prefetch_count : UInt16, args : AMQ::Protocol::Table)
+        # Like AMQP::StreamConsumer: a stream consumer's position moves with its acks
+        raise Refused.new("406 - Stream consumers must acknowledge messages") if no_ack
         raise Refused.new("406 - Stream consumers must have a prefetch limit") if prefetch_count.zero?
         offset = args["x-stream-offset"]?
         case offset
