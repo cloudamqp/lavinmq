@@ -169,29 +169,35 @@ describe Raft::Node do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
-      m = leader.metrics.should_not be_nil
-      m.is_leader.should be_true
-      m.leader.should eq leader.status.not_nil!.id
-      m.term.should eq leader.status.not_nil!.term
+      # With a 100 ms election timeout a loaded machine can move leadership
+      # on its own, so wait for a settled view rather than read it once
+      m = nil
+      wait_for do
+        leader = c.wait_for_leader
+        s = leader.status
+        x = leader.metrics
+        m = x if s && x && x.is_leader && x.leader == s.id && x.term == s.term && x.isr_size == 3 &&
+                 x.proposals_pending == 0 && x.peers.size == 2 && x.peers.values.all?
+      end
+      m = m.not_nil!
       m.leader_contact.should eq Time::Span.zero
-      m.leader_changes.should eq 1
-      m.isr_size.should eq 3
-      m.proposals_pending.should eq 0
-      m.peers.size.should eq 2
-      m.peers.values.should eq [true, true]
+      m.leader_changes.should be >= 1
       m.save_count.should be > 0
       m.save_buckets.sum.should eq m.save_count
       m.save_buckets.size.should eq Raft::Node::SAVE_BUCKETS.size + 1
 
       follower = c.nodes.values.find! { |n| n != leader }
-      wait_for { follower.metrics.try &.isr_size }
-      fm = follower.metrics.should_not be_nil
-      fm.is_leader.should be_false
-      fm.leader.should eq m.leader
+      fm = nil
+      wait_for { fm = follower.metrics.try { |x| x if !x.is_leader && x.leader == m.leader && x.isr_size } }
+      fm = fm.not_nil!
       fm.leader_contact.not_nil!.should be < 1.second
 
       c.stop(c.nodes.key_for(leader))
-      wait_for { follower.metrics.try { |x| x.leader_changes == 2 && x.peers.values.count(false) == 1 } }
+      wait_for do
+        follower.metrics.try do |x|
+          x.leader_changes > fm.leader_changes && x.leader != m.leader && x.peers.values.count(false) == 1
+        end
+      end
     end
   end
 
