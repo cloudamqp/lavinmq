@@ -75,6 +75,41 @@ describe IO::Buffered do
       writer.try &.close
     end
 
+    it "doesn't return a buffer to the pool when closed during a blocked flush" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      writer.buffer_pool = pool
+      writer.sync = false
+      writes = 0
+      closing = false
+      done = Channel(Nil).new
+      spawn do
+        until closing
+          writer.write Bytes.new(512)
+          writer.flush # eventually blocks holding the pooled buffer
+          writes += 1
+        end
+      rescue IO::Error
+      ensure
+        done.send nil
+      end
+      loop do # until the writer is blocked
+        prev = writes
+        sleep 20.milliseconds
+        break if writes == prev
+      end
+      closing = true
+      spawn { writer.close } # flushes concurrently without a lock, like Client#close_socket
+      Fiber.yield
+      reader.gets_to_end
+      done.receive
+      acquired = pool.stats[:allocated] + pool.stats[:reused]
+      # the buffer that was in use when the socket was closed is left to the GC
+      pool.stats[:released].should eq acquired - 1
+    ensure
+      reader.try &.close
+    end
+
     it "releases the write buffer after flush" do
       pool = IO::BufferPool.new(1024)
       reader, writer = UNIXSocket.pair

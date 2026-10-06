@@ -128,6 +128,16 @@ module IO::Buffered
     self
   end
 
+  # Close can race with a fiber that is blocked writing from (or reading into)
+  # a pooled buffer, e.g. a force closed connection. Detach from the pool so
+  # those buffers are left to the GC instead of being handed to another IO.
+  def close : Nil
+    @buffer_pool = nil
+    flush if @out_count > 0
+  ensure
+    unbuffered_close
+  end
+
   private def out_buffer
     @out_buffer ||= if pool = @buffer_pool
                       pool.acquire
