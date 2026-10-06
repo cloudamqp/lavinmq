@@ -102,7 +102,7 @@ jobs:
 
   spec_osx:
     name: Spec macOS
-    runs-on: macos-15-xlarge
+    runs-on: macos-15
     if: github.repository == 'cloudamqp/lavinmq'
     timeout-minutes: 10
     steps:

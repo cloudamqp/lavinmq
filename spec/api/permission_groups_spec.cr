@@ -51,6 +51,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         service = vhost.mqtt_permission_service
         original = service.to_json
         path = File.join(vhost.data_dir, "mqtt_permissions.json")
+        on_disk = File.read(path)
         Dir.mkdir("#{path}.tmp")
 
         http.put("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 500
@@ -63,7 +64,7 @@ describe LavinMQ::HTTP::PermissionGroupsController do
         context = LavinMQ::MQTT::PermissionService::Context.new("guest", "dev")
         service.can_read?(context, "anything").should be_true
         service.can_write?(context, "anything").should be_true
-        File.exists?(path).should be_false
+        File.read(path).should eq on_disk
       ensure
         FileUtils.rm_rf("#{path}.tmp") if path
       end

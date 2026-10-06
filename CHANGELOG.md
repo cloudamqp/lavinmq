@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
 - Tab navigation on stream detail pages in the management UI [#2274](https://github.com/cloudamqp/lavinmq/pull/2274)
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The MQTT `default` permission group is saved to `mqtt_permissions.json` when a vhost is created instead of when it closes. A definitions import no longer removes the `default` group from an existing vhost, and a vhost created by an import that has an `mqtt_permissions` key gets only the groups listed for it, so an exported vhost without groups stays locked down. `lavinmqctl definitions export` includes the `default` group for a vhost without `mqtt_permissions.json` [#2330](https://github.com/cloudamqp/lavinmq/pull/2330)
 - Publish confirms only sync the segments the confirmed messages were written to, plus the directories of newly created files, instead of a `syncfs` of the whole data dir, so unrelated traffic on other queues no longer gets flushed with every confirm. `tx.commit` still uses `syncfs`. Followers sync the same files before acking (replication protocol v2, v1 peers remain compatible) [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - Less write amplification for publish confirms and MQTT QoS 1: once a queue receives such a publish (with `sync` enabled), its write segments, and all ack files, are advised `MADV_RANDOM`, so the kernel caches them in page-sized folios and each sync writes about 4 KiB instead of up to 128 KiB. Full segments get readahead back when they're read: `MADV_SEQUENTIAL` for classic queues, `MADV_NORMAL` for streams, whose segments can be shared by several consumers [#2323](https://github.com/cloudamqp/lavinmq/pull/2323)
 - Transactional publishes get the same page-sized folios as confirmed publishes, so the `syncfs` at each `tx.commit` writes 4 KiB pages at the queues' tails instead of up to 128 KiB [#2332](https://github.com/cloudamqp/lavinmq/pull/2332)
@@ -29,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Crashes when a message store segment was unmapped while a message from it was still being delivered: stream retention (`max-length`, `max-length-bytes`, `max-age`, a policy or purge) with a slow consumer or during an HTTP stream read, a queue segment deleted during the delivery (e.g. the message acked or the queue purged meanwhile), or a queue, stream or MQTT session closed or deleted during a `basic.get`, an HTTP API read or an MQTT send. Segments are now kept mapped until in-flight deliveries finish [#2324](https://github.com/cloudamqp/lavinmq/pull/2324)
+- The queue API's `exclusive_consumer_tag` reports the tag of the queue's exclusive consumer. It was based on whether the queue itself was exclusive, so it showed the first consumer of an exclusive queue and nothing for a normal queue with an exclusive consumer [#2328](https://github.com/cloudamqp/lavinmq/pull/2328)
+- An exclusive consumer is refused with `ACCESS_REFUSED` when the queue already has non-exclusive-consumers [#2327](https://github.com/cloudamqp/lavinmq/pull/2327)
 - Unacknowledged MQTT QoS 1 publishes are resent under the packet IDs the client already holds, with `dup` set, instead of being assigned new ones [MQTT-4.4.0-1]. The IDs are remembered in-process, so a session resumed after a broker restart is still redelivered under fresh IDs [#2233](https://github.com/cloudamqp/lavinmq/pull/2233)
 - Stream queue memory usage while consuming: segments are released from memory as soon as no consumer is reading them, instead of by a sweep every 60 seconds, which could grow to hundreds of MB during a fast replay [#2250](https://github.com/cloudamqp/lavinmq/pull/2250)
 - Messages published with a priority above the queue's `x-max-priority` could not be acked, rejected, requeued or purged, leaving the queue inconsistent even after a restart. Store lookups now clamp the priority to the queue's maximum, matching how the messages are stored [#2293](https://github.com/cloudamqp/lavinmq/pull/2293)
