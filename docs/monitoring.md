@@ -179,6 +179,6 @@ The management API provides live log streaming via Server-Sent Events at `GET /a
 | Signal | Behavior |
 |--------|----------|
 | `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting connections, close existing connections, flush to disk, exit |
-| `SIGUSR1` | Print GC statistics and fiber dump to stdout |
+| `SIGUSR1` | Print GC statistics, a fiber dump with stack usage per fiber, and socket buffer pool statistics (buffer size, available, allocated, reused, released) to stdout |
 | `SIGUSR2` | Run garbage collection |
 | `SIGHUP` | Reload server configuration |
