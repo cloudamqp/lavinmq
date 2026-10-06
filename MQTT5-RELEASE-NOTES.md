@@ -68,9 +68,9 @@ notes; the checklist is in `MQTT5.md`.
   `{mqtt.qos: 2i32}` is removed in memory but restored on the next boot.
   Pre-existing and QoS-only until now; the two option keys multiply the
   permutations.
-- **Will Delay Interval ignored** (wills fire immediately). **(merge blocker)** Not advertisable,
-  MQTT has no capability flag for it, so this is a real gap rather than a legal
-  deferral. See item E in `MQTT5-TODO.md`.
+- **A will waiting out its Will Delay Interval is lost on a broker restart.**
+  It is held in memory only, so a shutdown or failover during the delay drops
+  it, which §3.1.2.5 permits. Same precedent as session expiry deadlines.
 - **Expired messages are deleted lazily.** A message past its Message Expiry
   Interval is deleted when it reaches the head of the session, not when it
   expires, so until then it still counts towards the session's message count,

@@ -117,6 +117,9 @@ module LavinMQ
         # if running, captured the old one at disconnect and stops on attach, so
         # narrowing it here cannot expire the session about to be resumed.
         session.session_expiry_interval = interval if existing
+        # A connection opened within the Will Delay Interval cancels the will
+        # [MQTT-3.1.3-9]. Here, not at attach: that waits for CONNACK.
+        session.pending_will = nil if existing
         client = MQTT::Client.new(io,
           connection_info,
           user,

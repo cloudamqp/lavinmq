@@ -342,7 +342,7 @@ what `Bootstrap` writes ([MQTT-3.1.2-2]).
   message the will becomes. `client.cr#publish_will` previously built a
   `Protocol::Publish` with no properties at all, so every one was dropped.
   `will_delay_interval` is deliberately not mapped: it is server behaviour, not
-  wire content.
+  wire content (item E in `MQTT5-TODO.md`).
 - No version gate: v3 CONNECT has no will properties, so they are all nil there
   and `IO::Framing::V3#write_properties` discards them regardless.
 - A will at QoS 2 is accepted on both versions. Before QoS 2 a v5 will above

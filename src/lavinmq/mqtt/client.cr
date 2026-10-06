@@ -76,6 +76,7 @@ module LavinMQ
       getter session_expiry_interval : UInt32
       @connected_at = RoughTime.unix_ms
       @started = false
+      @read_fiber : Fiber? = nil
       getter? closed = false
       # Set by `send` when it closes on an oversized packet, so the read loop's
       # resulting `::IO::Error` is not logged as the client's doing.
@@ -134,6 +135,7 @@ module LavinMQ
       # which makes a takeover's `close` wait for this fiber to finish.
       def run : Nil
         @started = true
+        @read_fiber = Fiber.current
         @session.client = self
         @log.info { "Connection established for user=#{@user.name}" }
         case user = @user
@@ -665,35 +667,47 @@ module LavinMQ
           value === @user.name
       end
 
+      # A delayed will is handed to the session, which outlives this fiber
+      # (§3.1.3.2.2). Permissions are checked here, at close, either way.
       private def publish_will
-        if will = @will
-          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
-            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-            return
-          end
-          unless @broker.permission_service.can_write?(@permission_context, will.topic)
-            Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
-            return
-          end
-          # The will's publisher is this client, so No Local applies to it by
-          # the same rule as any other publish [MQTT-3.8.3-3].
-          @broker.publish(Protocol::Publish.new(
-            topic: will.topic,
-            payload: will.payload,
-            packet_id: nil,
-            qos: will.qos,
-            retain: will.retain?,
-            dup: false,
-            properties: will_properties(will.properties),
-          ), @session.name)
+        will = @will || return
+        packet = will_packet(will) || return
+        delay = will.properties.will_delay_interval
+        # A deleted session has ended, so its will is due now [MQTT-3.1.2-8].
+        if delay.zero? || @session.deleted?
+          @broker.publish(packet, @session.name)
+        else
+          @session.pending_will = PendingWill.new(packet, @broker, Time.instant + delay.seconds)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end
 
+      private def will_packet(will : Protocol::Will) : Protocol::Publish?
+        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+          return
+        end
+        unless @broker.permission_service.can_write?(@permission_context, will.topic)
+          Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
+          return
+        end
+        # The will's publisher is this client, so No Local applies to it by
+        # the same rule as any other publish [MQTT-3.8.3-3].
+        Protocol::Publish.new(
+          topic: will.topic,
+          payload: will.payload,
+          packet_id: nil,
+          qos: will.qos,
+          retain: will.retain?,
+          dup: false,
+          properties: will_properties(will.properties),
+        )
+      end
+
       # The six Will Properties that are also PUBLISH properties, carried onto
-      # the message the will becomes. `will_delay_interval` is deliberately not
-      # among them: it is server behaviour, not wire content.
+      # the message the will becomes. `will_delay_interval` is not among them:
+      # it is server behaviour, handled by `publish_will`.
       #
       # Needs no version gate - v3 CONNECT has no will properties, so these are
       # all nil there and `IO::Framing::V3#write_properties` would discard them
@@ -720,11 +734,14 @@ module LavinMQ
       # A client that never started has no read fiber to wait for:
       # `Broker#run_client` sees `closed?` and does not start it.
       def close(reason = "")
-        return if @closed
-        @log.info { "Closing connection: #{reason}" }
-        @closed = true
-        close_socket
-        @waitgroup.wait if @started
+        unless @closed
+          @log.info { "Closing connection: #{reason}" }
+          @closed = true
+          close_socket
+        end
+        # Every caller waits, not only the first: a takeover cancels the will
+        # the read fiber arms on its way out, so it has to be armed by then.
+        @waitgroup.wait if @started && Fiber.current != @read_fiber
       end
 
       def state

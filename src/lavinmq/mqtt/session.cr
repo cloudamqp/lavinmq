@@ -15,6 +15,7 @@ require "./permission_service"
 require "./session_message_store"
 require "./packet_id_log"
 require "../persister"
+require "./pending_will"
 
 module LavinMQ
   module MQTT
@@ -99,6 +100,14 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
+      # Set by the closing connection, published by this session's fiber
+      # (§3.1.3.2.2). Cleared by `Broker#add_client_locked` on resume.
+      property pending_will : PendingWill? = nil
+      # The expiry clock of the current offline window, fixed when it starts:
+      # neither a will firing mid-wait nor a resuming connection narrowing the
+      # interval before it attaches may move it.
+      @offline_since = Time.instant
+      @offline_ttl : UInt32
       # Packet ids of QoS 2 PUBLISHes answered with PUBREC and not yet released.
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
       # one is answered again and not routed twice [MQTT-4.3.3-10].
@@ -125,6 +134,7 @@ module LavinMQ
                                arguments : ::AMQ::Protocol::Table = ARGUMENTS)
         @arguments = arguments
         @session_expiry_interval = self.class.expiry_from(@name, arguments, auto_delete)
+        @offline_ttl = @session_expiry_interval
         @durable = !@session_expiry_interval.zero?
         @last_packet_id = 0u16
         @client_id = @name.lchop(SESSION_PREFIX)
@@ -310,6 +320,10 @@ module LavinMQ
           client.try &.close("Server force closed client")
           self.client = nil if @client == client
         end
+        # Every delete, expiry included, ends the loop here. The session has
+        # ended, so a will still waiting out its delay is due [MQTT-3.1.2-8].
+        # A plain close (shutdown) drops it (§3.1.2.5).
+        publish_pending_will if @deleted
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -361,24 +375,29 @@ module LavinMQ
         end
       end
 
-      # Parks until a client attaches, or until the session expires. This is the
-      # only place the expiry clock runs - exactly the window in which the session
-      # has no connection (§3.1.2.11.2). Reattaching cancels the timer, and
-      # the next disconnect enters a fresh select, so the interval is measured
-      # from each disconnect rather than accumulated.
+      # Parks until a client attaches, the session expires, or a pending will
+      # is due. This is the only place the expiry clock runs - exactly the
+      # window in which the session has no connection (§3.1.2.11.2). Measured
+      # from `@offline_since`, so re-entering the wait does not restart it.
       private def wait_for_client : Nil
-        ttl = @session_expiry_interval
+        ttl = @offline_ttl
         # Unreachable in practice - Broker#remove_client deletes a 0-interval
         # session - but expiring is the right answer if it is ever reached.
         return expire if ttl.zero?
-        if ttl == UInt32::MAX
+        expires_at = @offline_since + ttl.seconds unless ttl == UInt32::MAX
+        deadline = expires_at
+        # A tie goes to expiry, which publishes the will on its way out.
+        if (will_at = @pending_will.try &.deadline) && (deadline.nil? || will_at < deadline)
+          deadline = will_at
+        end
+        if deadline.nil?
           @has_client.when_true.receive?
           return
         end
         select
         when @has_client.when_true.receive?
-        when timeout ttl.seconds
-          expire
+        when timeout({deadline - Time.instant, Time::Span.zero}.max)
+          deadline == expires_at ? expire : publish_pending_will
         end
       end
 
@@ -389,6 +408,14 @@ module LavinMQ
       private def expire : Nil
         @log.info { "Session expired after #{@session_expiry_interval}s offline" }
         delete
+      end
+
+      private def publish_pending_will : Nil
+        will = @pending_will || return
+        @pending_will = nil
+        will.broker.publish(will.packet, @name)
+      rescue ex
+        @log.warn { "Failed to publish will: #{ex.message}" }
       end
 
       def client : MQTT::Client?
@@ -434,6 +461,12 @@ module LavinMQ
 
         # Assigned before the writes below, which yield: `Session#publish`
         # drops a QoS 0 message while it is nil.
+        # A detach starts the offline window, with the interval of this moment:
+        # a DISCONNECT has already applied its own.
+        if client.nil? && @client
+          @offline_since = Time.instant
+          @offline_ttl = @session_expiry_interval
+        end
         @client = client
         # After the assignment: the window depends on the client's Receive
         # Maximum.

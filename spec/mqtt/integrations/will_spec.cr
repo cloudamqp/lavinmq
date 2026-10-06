@@ -211,8 +211,7 @@ module MqttSpecs
             props.response_topic = "reply/here"
             props.correlation_data = "cid".to_slice
             props.user_properties = [{"a", "1"}, {"b", "2"}]
-            # will_delay_interval is set but ignored for now: it is server
-            # behaviour, not wire content, and must not reach the subscriber.
+            # Server behaviour, not wire content: must not reach the subscriber.
             props.will_delay_interval = 0u32
             will = MQTT::Protocol::Will.new(topic: "will/t", payload: "bye".to_slice,
               qos: 1u8, retain: false, properties: props)

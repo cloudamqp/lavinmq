@@ -7,36 +7,104 @@ Ordered roughly easiest-first. Everything here is on
 
 ## E. Will Delay Interval
 
-**Merge blocker.** [MQTT-3.1.2-8]; listed in `MQTT5.md`.
+**Done** (2026-10-06). [MQTT-3.1.2-8], [MQTT-3.1.3-9]. Paho `test_will_delay`,
+not yet re-run. Kept here as the design record.
 
-Will *properties* are done. What remains is
-`WillProperties#will_delay_interval`, still unread. Like the subscription
-options and unlike the features in the compliance table, it has **no capability
-flag**, so it cannot be
-advertised as unavailable: shipping without it is a real gap.
+`WillProperties#will_delay_interval` has **no capability flag**, so it could
+not be advertised as unavailable: shipping without it would have been a real
+gap.
 
-Not a tweak:
+### Model
 
-- **The will has to outlive its owner.** `@will` lives on `Client`, and all seven
-  `publish_will` call sites are inside `read_loop`'s rescues, so today the will is
-  always published by the dying connection's own fiber. A delayed will must fire
-  after that fiber is gone.
-- **Nothing downstream can publish it.** `Session` holds no reference to the
-  `Broker`, and `Broker#publish` is what applies the retain store, so a retained
-  delayed will routed straight through `@vhost.mqtt_exchange` would silently skip
-  retention.
-- **It belongs in the session-expiry timer, not a second one.** [MQTT-3.1.2-8]
-  and [MQTT-3.1.3-9] make it "the delay elapses **or** the session ends, whichever
-  first", cancelled by a reconnect: the exact shape of
-  `Session#wait_for_client`'s existing select. Spec 3.1.3.2.2 explicitly supports
-  a delay longer than the expiry as a way to be told the session expired, so
-  session-end has to win.
-- **Takeover has its own rule** (3.1.4): a takeover publishes the predecessor's
-  will *unless* the new connection has Clean Start 0 **and** will delay > 0. We
-  currently always publish on takeover.
-- A delayed will need not survive a broker restart: 3.1.3.2.2 lets a server defer
-  publication until after a restart, and session expiry already sets the
-  precedent of persisting no deadlines.
+A connection that closes without DISCONNECT `0x00` leaves its will pending on
+the session, due at close + delay. It is published at whichever comes first:
+the deadline, or the session ending. A new connection for the client id that
+resumes the session before then cancels it. §3.1.4's takeover rule needs no
+code of its own:
+
+| Takeover case | What the model does | Result |
+|---|---|---|
+| delay 0 | published at close, as today | published |
+| Clean Start 1 | `add_client_locked` deletes the session: it ended | published |
+| Clean Start 0, delay > 0 | the new connection resumes the session | cancelled |
+
+A pending will need not survive a broker restart: §3.1.2.5 lets a server defer
+publication until after a restart, and session expiry already persists no
+deadlines. A graceful shutdown (`Session#close` without `delete`) therefore
+drops it, the same as a crash or a cluster failover.
+
+### Design (approved 2026-10-06)
+
+The constraint that shapes it: `Session` holds no reference to the `Broker`,
+and `Broker#publish` is what applies the retain store, so a delayed will sent
+straight to `@vhost.mqtt_exchange` would silently lose its retain flag.
+
+- **`PendingWill`**, a new `record`: `packet : Protocol::Publish`,
+  `broker : Broker`, `deadline : Time::Instant`. The session publishes it with
+  `will.broker.publish(will.packet, @name)` and never holds a `Client` or a
+  `Broker` of its own. Rejected: the session holding the dead `Client` (keeps
+  a closed connection reachable) and a `Broker` field on every `Session` (a
+  permanent cycle for one use).
+- **`Client#publish_will` splits in two.** `will_packet : Protocol::Publish?`
+  runs today's permission checks and builds the packet with
+  `will_properties`. `publish_will` publishes it at once when the delay is 0,
+  and otherwise sets `@session.pending_will`. The seven call sites in
+  `read_loop`'s rescues stay as they are. Permissions are therefore checked at
+  close, not when the will fires: a write permission revoked during the delay
+  does not stop it.
+- **Delay 0 keeps today's path** (every v3 client, most v5 ones): published
+  synchronously by the dying read fiber, so existing ordering is unaffected.
+- **Cancel in `Broker#add_client_locked`**, where a resumed session survives,
+  not in `Session#client=`. The spec's trigger is a connection *opened*, and
+  attach happens only in `Client#run`, after CONNACK: a deadline passing in
+  that window would publish a will the spec forbids. The client-id lock and
+  `prev_client.close` joining the old read fiber guarantee a takeover's will
+  is set before it is cancelled. That needs *every* `Client#close` to join it,
+  not only the first: a client already closed by OAuth expiry or the
+  `deliver_loop` rescue used to return at once, and its will could then arm
+  after the cancel.
+- **One wait, two deadlines.** `wait_for_client` selects on reconnect, the
+  expiry deadline (unless `UInt32::MAX`) and the will deadline (when pending).
+  The will firing publishes it and returns to the loop, so the expiry
+  deadline must not move: `Session#client=` fixes `@offline_since` and
+  `@offline_ttl` at detach (construction, for a restored session). Re-reading
+  the interval per wait would let a resuming connection's narrower interval,
+  set before it attaches, expire the session it is about to resume.
+- **Session end publishes it, on the session's own fiber.** Every delete
+  (expiry, `auto_delete` at disconnect, a Clean Start 1 takeover, an HTTP API
+  delete, a vhost delete) ends `deliver_loop`, which publishes after the loop
+  if `@deleted`. `expire` runs on that fiber and needs nothing extra. This
+  keeps the publish out of `Session#delete`, which can run under the
+  definitions lock. A will arming on a session already deleted (its read
+  fiber ran after `deliver_loop` exited) is published at once instead.
+
+Covered without special cases: Session Expiry 0 with a delay publishes at
+close; a delay longer than the expiry publishes at expiry; DISCONNECT `0x04`
+with a delay is delayed; DISCONNECT `0x00` still discards [MQTT-3.14.4-3].
+
+### Specs
+
+In `spec/mqtt/v5/puback_disconnect_spec.cr`, next to the existing will
+examples (H later folds them into `integrations/will_spec.cr`). Delays are
+whole seconds, so these use 1-2s. Run 2, 5 and 7 against the unfixed code
+first.
+
+1. Delay 2: nothing at ~1s, the will at ~2s.
+2. Reconnect with Clean Start 0 inside the delay: never published.
+3. Session Expiry 1, delay 10: published at ~1s.
+4. Session Expiry 0, delay 10: published at close.
+5. Takeover with Clean Start 1: published. Takeover with Clean Start 0 and a
+   delay: not published.
+6. A retained delayed will reaches a later subscriber as retained.
+7. Delay 1, Session Expiry 2: the session is gone at ~2s, not ~3s.
+8. Deleting the session through the HTTP API publishes a pending will.
+9. A second `Client#close` returns only once the will is armed.
+10. Narrowing the interval while offline (what a resume does before attach)
+    does not move the expiry deadline.
+11. Deleting a connected session publishes its delayed will.
+
+2 and 5 disconnect the new connection normally before asserting: while it is
+attached no will can fire, cancelled or not.
 
 ## G. Shard release and open items
 
@@ -110,8 +178,8 @@ what existing `#` subscribers receive, so it gets its own PR and CHANGELOG entry
 Kept as one line each so nobody re-opens them; the reasoning is in git and in
 `MQTT5-DESIGN.md`.
 
-- **B** subscription options, **D** session expiry, **E**'s will properties, and
-  all of **J** are done.
+- **B** subscription options, **D** session expiry, **E** will properties and
+  Will Delay Interval (design record above), and all of **J** are done.
 - **F** the retain store keeps each message's QoS, v5 properties and publish time,
   so a replay keeps its properties, goes out at the lower QoS and honours expiry.
 - **M** an expired message is deleted unless its delivery started, and a delivered
