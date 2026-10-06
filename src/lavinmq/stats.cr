@@ -5,17 +5,23 @@ module LavinMQ
   module Stats
     # How much each counter increased per tick
     class_property(counter_log : StatsLog(UInt32)) { StatsLog(UInt32).new(Config.instance.stats_log_size) }
+    # How much each byte counter (keys ending in _oct) increased per tick, which
+    # can be more than UInt32::MAX. There are fewer of them, so smaller chunks.
+    class_property(byte_log : StatsLog(UInt64)) { StatsLog(UInt64).new(Config.instance.stats_log_size, 256) }
     # Values of gauges per tick. There are only a few, so they get smaller chunks.
     class_property(gauge_log : StatsLog(Int64)) { StatsLog(Int64).new(Config.instance.stats_log_size, 64) }
 
-    # Starts a new tick in both logs and yields to write it. Readers see the
+    # Starts a new tick in all logs and yields to write it. Readers see the
     # tick once the block returns.
     def self.tick(log_size : Int32, & : -> _) : Nil
       counter_log.resize(log_size)
+      byte_log.resize(log_size)
       gauge_log.resize(log_size)
       counter_log.advance do
-        gauge_log.advance do
-          yield
+        byte_log.advance do
+          gauge_log.advance do
+            yield
+          end
         end
       end
     end
@@ -23,9 +29,10 @@ module LavinMQ
     # Tick when the owner was created, the log of each series starts there
     @stats_log_start : Int64 = Stats.counter_log.tick
 
-    # Defines a counter, a rate and a rate log (in `counter_log`) per key.
-    # deliver_get is the sum of deliver, deliver_no_ack, get and get_no_ack,
-    # so it's derived from those instead of tracked on its own.
+    # Defines a counter, a rate and a rate log (in `counter_log`, or in
+    # `byte_log` for keys ending in _oct) per key. deliver_get is the sum of
+    # deliver, deliver_no_ack, get and get_no_ack, so it's derived from those
+    # instead of tracked on its own.
     macro rate_stats(stats_keys)
       {% stats_keys = stats_keys.resolve if stats_keys.is_a?(Path) %}
       {% derived = {"deliver_get" => %w[deliver deliver_no_ack get get_no_ack]} %}
@@ -53,9 +60,11 @@ module LavinMQ
           end
         {% end %}
 
+        {% stats_log = name.ends_with?("_oct") ? "Stats.byte_log".id : "Stats.counter_log".id %}
+
         # Rate per second at each tick, oldest first
         def {{ name.id }}_log : Array(Float64)
-          stats_log = Stats.counter_log
+          stats_log = {{ stats_log }}
           interval = Config.instance.stats_interval / 1000.0
           stats_log.read(stats_log.ticks_since(@stats_log_start),
             {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }}) do |increase|
@@ -65,7 +74,7 @@ module LavinMQ
 
         # Adds the rate per second at each tick to *rates*, aligned at the latest tick
         def add_{{ name.id }}_log(rates : Array(Float64)) : Nil
-          stats_log = Stats.counter_log
+          stats_log = {{ stats_log }}
           interval = Config.instance.stats_interval / 1000.0
           stats_log.merge_into(rates, stats_log.ticks_since(@stats_log_start),
             {{ (parts || [name]).map { |p| "@#{p.id}_log".id }.join(", ").id }}) do |rate, increase|
@@ -98,14 +107,17 @@ module LavinMQ
 
       def update_rates : Nil
         interval = Config.instance.stats_interval / 1000.0
-        stats_log = Stats.counter_log
         {% for name in tracked %}
           {{ name.id }}_count = @{{ name.id }}_count.get(:relaxed)
           {{ name.id }}_increase = {{ name.id }}_count - @{{ name.id }}_count_prev
           @{{ name.id }}_count_prev = {{ name.id }}_count
           @{{ name.id }}_rate = ({{ name.id }}_increase / interval).round(1)
           unless {{ name.id }}_increase.zero? # rows start at zero, so idle counters cost nothing
-            @{{ name.id }}_log = stats_log.write(@{{ name.id }}_log, Stats.log_value({{ name.id }}_increase))
+            {% if name.ends_with?("_oct") %}
+              @{{ name.id }}_log = Stats.byte_log.write(@{{ name.id }}_log, {{ name.id }}_increase)
+            {% else %}
+              @{{ name.id }}_log = Stats.counter_log.write(@{{ name.id }}_log, Stats.log_value({{ name.id }}_increase))
+            {% end %}
           end
         {% end %}
         {% for name in stats_keys %}

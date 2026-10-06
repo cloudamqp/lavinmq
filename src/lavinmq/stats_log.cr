@@ -2,10 +2,10 @@ module LavinMQ
   # Per tick history of every stats series (per queue, channel, connection
   # etc), stored column-wise in memory mapped outside the GC heap.
   #
-  # `Stats.counter_log` holds how much each counter increased per tick, from
-  # which the rates are computed when read, and `Stats.gauge_log` holds the
-  # values of gauges. The stats loop advances both together, so owners keep a
-  # single start tick for their series in both.
+  # `Stats.counter_log` and `Stats.byte_log` hold how much each counter
+  # increased per tick, from which the rates are computed when read, and
+  # `Stats.gauge_log` holds the values of gauges. The stats loop advances them
+  # together, so owners keep a single start tick for their series in all.
   #
   # Series are grouped in chunks of `chunk_slots`. A chunk is time-major:
   # one row of `chunk_slots` values per stats tick, `size` rows for readers

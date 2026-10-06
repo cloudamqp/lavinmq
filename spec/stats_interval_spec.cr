@@ -12,13 +12,14 @@ private def with_stats_interval(ms : Int32, &)
 end
 
 private def with_stats_logs(size : Int32, &)
-  counter_log, gauge_log = LavinMQ::Stats.counter_log, LavinMQ::Stats.gauge_log
+  counter_log, byte_log, gauge_log = LavinMQ::Stats.counter_log, LavinMQ::Stats.byte_log, LavinMQ::Stats.gauge_log
   LavinMQ::Stats.counter_log = LavinMQ::StatsLog(UInt32).new(size)
+  LavinMQ::Stats.byte_log = LavinMQ::StatsLog(UInt64).new(size, 256)
   LavinMQ::Stats.gauge_log = LavinMQ::StatsLog(Int64).new(size, 64)
   begin
-    yield LavinMQ::Stats.counter_log, LavinMQ::Stats.gauge_log
+    yield LavinMQ::Stats.counter_log
   ensure
-    LavinMQ::Stats.counter_log, LavinMQ::Stats.gauge_log = counter_log, gauge_log
+    LavinMQ::Stats.counter_log, LavinMQ::Stats.byte_log, LavinMQ::Stats.gauge_log = counter_log, byte_log, gauge_log
   end
 end
 
@@ -39,6 +40,15 @@ module LavinMQ
 
     def g=(value)
       log_g(value)
+    end
+  end
+
+  private class ByteProbe
+    include Stats
+    rate_stats({"recv_oct"})
+
+    def bump(n : UInt64)
+      @recv_oct_count.add(n)
     end
   end
 
@@ -157,6 +167,22 @@ module LavinMQ
             log.advance { p.update_rates }
             p.x_rate.should eq 1_000_000_000.0
             p.x_log.should eq [(UInt32::MAX / 5).round(1)]
+          end
+        end
+      end
+
+      it "logs byte counters without a cap" do
+        with_stats_interval(5000) do
+          with_stats_logs(3) do
+            p = ByteProbe.new
+            p.bump(50_000_000_000u64)
+            Stats.tick(3) { p.update_rates }
+            p.recv_oct_log.should eq [10_000_000_000.0]
+            Stats.byte_log.series_count.should eq 1
+            Stats.counter_log.series_count.should eq 0
+            rates = [1.0]
+            p.add_recv_oct_log(rates)
+            rates.should eq [10_000_000_001.0]
           end
         end
       end
