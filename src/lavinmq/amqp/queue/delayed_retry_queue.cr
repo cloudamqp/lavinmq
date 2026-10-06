@@ -69,10 +69,10 @@ module LavinMQ::AMQP
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       if delay(redelayed)
         @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
+        delete_message sp
       else
-        @log.warn { "Dropping retried message #{sp}: primary queue unavailable and retry queue closed" }
+        @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
       end
-      delete_message sp
     end
   end
 

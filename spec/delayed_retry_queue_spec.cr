@@ -172,12 +172,12 @@ describe "Retry Queue" do
       end
     end
 
-    it "should keep delaying messages while the primary queue is closed" do
+    it "should close the retry queue with the primary queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-delivery-limit"    => 3,
-            "x-delayed-retry-min" => 100,
+            "x-delayed-retry-min" => 60_000,
           })
           q = ch.queue("retry-closed-primary", args: args)
           q.publish_confirm "survive"
@@ -187,8 +187,9 @@ describe "Retry Queue" do
           wait_for { s.vhosts["/"].queue("amq.retry-retry-closed-primary").message_count == 1 }
           s.vhosts["/"].queue("retry-closed-primary").close
 
-          sleep 350.milliseconds
-          s.vhosts["/"].queue("amq.retry-retry-closed-primary").message_count.should eq 1
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-closed-primary")
+          retry_q.closed?.should be_true
+          retry_q.message_count.should eq 1
         end
       end
     end
