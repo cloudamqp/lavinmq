@@ -4,21 +4,6 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  # Returns the PUBLISH `io` was delivered, unacknowledged, so the session still
-  # owes it. Module level because a `def self.` inside a `describe` raises
-  # "can't declare def dynamically".
-  def self.deliver_qos2(server, io, payload = "1", topic = "a/b")
-    subscribe(io, topic_filters: mk_topic_filters({topic, 2u8}))
-    with_client_io(server) do |pub_io|
-      connect(pub_io, client_id: "publisher")
-      publish(pub_io, topic: topic, payload: payload.to_slice, qos: 2u8, packet_id: 1u16)
-      pubrel(pub_io, 1u16)
-      read_packet(pub_io).should be_a(MQTT::Protocol::PubComp)
-      disconnect(pub_io)
-    end
-    read_publish(io)
-  end
-
   # Publishes two QoS 2 messages through the full receiver-side handshake from a
   # throwaway connection, so the client under test is only ever the subscriber.
   def self.publish_two_qos2(server, topic)
