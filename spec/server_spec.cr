@@ -770,6 +770,27 @@ describe LavinMQ::Server do
     end
   end
 
+  it "refuses an exclusive consumer when the queue already has consumers" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("exclusive_consumer_after_shared", auto_delete: true)
+        q.subscribe { }
+
+        expect_raises(AMQP::Client::Channel::ClosedException, /ACCESS_REFUSED/) do
+          with_channel(s) do |ch2|
+            q2 = ch2.queue("exclusive_consumer_after_shared", passive: true)
+            q2.subscribe(exclusive: true) { }
+          end
+        end
+
+        # The refused exclusive consumer must not lock out further consumers
+        with_channel(s) do |ch3|
+          ch3.queue("exclusive_consumer_after_shared", passive: true).subscribe { }
+        end
+      end
+    end
+  end
+
   it "only allow one connection access an exlusive queues" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
