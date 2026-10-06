@@ -670,6 +670,25 @@ describe "Retry Queue" do
   end
 
   describe "Durability" do
+    it "should not persist the retry queue in the definitions file" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 1000,
+          })
+          ch.queue("retry-defs", durable: true, args: args)
+          ch.queue("retry-defs-tmp", durable: true).delete
+        end
+
+        restart_server(s)
+
+        defs = File.read(File.join(s.vhosts["/"].data_dir, "definitions.amqp"))
+        defs.includes?("amq.retry-retry-defs").should be_false
+        s.vhosts["/"].queue("amq.retry-retry-defs").should be_a(LavinMQ::AMQP::DelayedRetryQueue)
+      end
+    end
+
     it "should survive broker restart" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
