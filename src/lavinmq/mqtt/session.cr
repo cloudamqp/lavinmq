@@ -12,6 +12,7 @@ require "../vhost"
 require "./consts"
 require "./permission_service"
 require "./session_message_store"
+require "./subscriber"
 
 module LavinMQ
   module MQTT
@@ -21,6 +22,7 @@ module LavinMQ
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
+      include MQTT::Subscriber
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       ARGUMENTS      = AMQP::Table.new({"x-queue-type" => "mqtt"})
@@ -245,6 +247,10 @@ module LavinMQ
         if binding = find_binding(tf)
           unbind(tf, binding.binding_key.arguments)
         end
+      end
+
+      def deliver(msg : Message, filter : String) : Bool
+        publish(msg)
       end
 
       # Returns whether the message was accepted, so the exchange only counts
