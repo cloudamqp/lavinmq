@@ -146,14 +146,13 @@ module LavinMQ
       # An existing session is always returned, reusing one consumes no new
       # resource.
       private def declare_session(client : Client) : Session?
-        session?(client.client_id) || begin
+        session = session?(client.client_id) || begin
           return if @vhost.queue_limit_reached?
           name = session_name(client.client_id)
-          @vhost.declare_queue(name, !client.clean_session?, client.clean_session?, Session::ARGUMENTS)
-          session = @vhost.mqtt.session(name)
-          session.client = client
-          session
+          @vhost.mqtt.declare_session(name, client.clean_session?) || @vhost.mqtt.session(name)
         end
+        session.client = client
+        session
       end
 
       private def session_name(client_id : String) : String
