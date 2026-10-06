@@ -28,4 +28,19 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       metrics_server.close
     end
   end
+
+  it "returns from a concurrent close only once the data dir lock is released", tags: "slow" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.instance.dup
+      config.data_dir = data_dir
+      config.metrics_http_port = -1
+      client = LavinMQ::Clustering::Client.new(config, 1, "test_password", proxy: false)
+      # Not following, so this close waits for the follower loop to time out
+      spawn(name: "first close") { client.close }
+      Fiber.yield
+      client.close
+      # Like the launcher taking the lock on promotion
+      LavinMQ::DataDirLock.new(data_dir).acquire
+    end
+  end
 end

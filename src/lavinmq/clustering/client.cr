@@ -29,6 +29,7 @@ module LavinMQ
 
       @data_dir_lock : DataDirLock
       @closed = false
+      @close_done = Channel(Nil).new # closed once #close has finished
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
@@ -725,8 +726,13 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # A call while another is closing waits for it to finish: callers rely
+      # on the data dir lock being released once it returns
       def close
-        return if @closed
+        if @closed
+          @close_done.receive?
+          return
+        end
         @closed = true
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
@@ -757,6 +763,8 @@ module LavinMQ
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
         @data_dir_lock.release
         @metrics_server.try &.close
+      ensure
+        @close_done.close
       end
 
       class Error < Exception; end
