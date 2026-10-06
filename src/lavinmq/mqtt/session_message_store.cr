@@ -24,6 +24,11 @@ module LavinMQ
         @original_packet_ids.delete(sp) unless @original_packet_ids.empty?
       end
 
+      # Linear, but bounded by the in-flight window that produced the ids.
+      def original_packet_id_in_use?(id : UInt16) : Bool
+        !@original_packet_ids.empty? && @original_packet_ids.has_value?(id)
+      end
+
       def delete(sp) : Nil
         super
         forget_original_packet_id(sp)
