@@ -203,6 +203,30 @@ module MqttSpecs
       end
     end
 
+    [true, false].each do |clean_session|
+      it "leaves the messages in flight alone (clean_session=#{clean_session})" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, client_id: "sub", clean_session: clean_session)
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "pub")
+              publish(pub_io, topic: "a/b", payload: "1".to_slice, qos: 1u8)
+              disconnect(pub_io)
+            end
+            pub = read_publish(io)
+
+            subscribe(io, topic_filters: mk_topic_filters({"c/d", 1u8}))
+              .should be_a(MQTT::Protocol::SubAck)
+            # Neither resent nor forgotten: the ack is for a message still in flight
+            puback(io, pub.packet_id)
+            read_packet(io).should be_nil
+            server.vhosts["/"].mqtt.session("mqtt.sub").unacked_count.should eq 0
+          end
+        end
+      end
+    end
+
     it "keeps the subscriptions of a persistent session after a restart" do
       with_server do |server|
         with_client_io(server) do |io|

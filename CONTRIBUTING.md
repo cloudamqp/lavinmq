@@ -156,7 +156,8 @@ operators to modify things when the server is not running, if ever needed.
 
 In the data directory we store `users.json` and `vhosts.json` as mentioned earlier,
 and each vhost has a directory in which we store `definitions.amqp`
-(encoded as AMQP frames), `policies.json` and the messages named such as `msgs.0000000124`.
+(encoded as AMQP frames), `definitions.mqtt` (MQTT sessions and subscriptions),
+`policies.json` and the messages named such as `msgs.0000000124`.
 Each vhost directory is named after the sha1 hash of its real name. The same goes
 for the queue directories in the vhost directory. The queue directories only has two files,
 `ack` and `enq`, also described earlier.

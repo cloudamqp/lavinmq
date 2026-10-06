@@ -42,6 +42,25 @@ describe LavinMQ::MQTT::SubscriptionTree do
     end
   end
 
+  describe "#qos?" do
+    it "returns the qos of the session's subscription to exactly that filter" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
+      {"a/b" => 0u8, "a/+/c" => 1u8, "a/#" => 1u8, "#" => 0u8}.each do |filter, qos|
+        tree.subscribe(filter, session, qos)
+      end
+
+      tree.qos?("a/b", session).should eq 0u8
+      tree.qos?("a/+/c", session).should eq 1u8
+      tree.qos?("a/#", session).should eq 1u8
+      tree.qos?("#", session).should eq 0u8
+      # Filters that would match a topic, but aren't the filter subscribed to
+      tree.qos?("a/x/c", session).should be_nil
+      tree.qos?("a/+", session).should be_nil
+      tree.qos?("a/b", "other").should be_nil
+    end
+  end
+
   describe "#empty?" do
     it "returns true before any subscribe" do
       tree = LavinMQ::MQTT::SubscriptionTree(String).new
