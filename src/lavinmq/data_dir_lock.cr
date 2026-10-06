@@ -1,25 +1,27 @@
 module LavinMQ
-  # Make sure that only one instance is using the data directory
-  # Can work as a poor mans cluster where the master nodes acquires
-  # a file lock on a shared file system like NFS
+  # Makes sure that only one instance is using the data directory
   class DataDirLock
     Log = LavinMQ::Log.for "data_dir_lock"
 
-    def initialize(data_dir)
+    # Another process holds the lock
+    class Locked < Exception; end
+
+    def initialize(@data_dir : String)
       @lock = File.open(File.join(data_dir, ".lock"), "a+")
       @lock.sync = true
       @lock.read_buffering = false
     end
 
-    # See `man 2 flock`
+    # Raises Locked if another process holds the lock, instead of waiting for
+    # it: two instances on one data dir is a mistake, not a standby. See `man 2 flock`
     def acquire
       begin
         @lock.flock_exclusive(blocking: false)
-      rescue
-        Log.info { "Data directory locked by '#{@lock.gets_to_end}'" }
-        Log.info { "Waiting for file lock to be released" }
-        @lock.flock_exclusive(blocking: true)
-        Log.info { "Lock acquired" }
+      rescue ex : IO::Error
+        raise ex unless ex.os_error.in?(Errno::EAGAIN, Errno::EWOULDBLOCK)
+        holder = @lock.gets_to_end
+        holder = "another process" if holder.empty?
+        raise Locked.new("Data directory #{@data_dir} is locked by #{holder}")
       end
       Log.debug { "Data directory lock aquired" }
       @lock.truncate

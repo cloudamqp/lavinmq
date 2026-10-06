@@ -35,4 +35,36 @@ describe LavinMQ::Launcher do
   ensure
     blocker.try &.close
   end
+
+  it "exits instead of waiting when another process holds the data dir lock" do
+    with_datadir do |data_dir|
+      holder = LavinMQ::DataDirLock.new(data_dir)
+      holder.acquire
+      expect_raises(LavinMQ::DataDirLock::Locked, /locked by PID #{Process.pid}/) do
+        LavinMQ::DataDirLock.new(data_dir).acquire
+      end
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_port = config.amqps_port = config.http_port = config.https_port = -1
+      config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
+      config.control_unix_path = File.join(data_dir, "control.sock")
+      launcher = LavinMQ::Launcher.new(config)
+      done = Channel(Nil).new
+      spawn do
+        expect_raises(SpecExit, /Exiting with code 1/) do
+          launcher.start_for_spec
+        end
+      ensure
+        done.close
+      end
+      select
+      when done.receive?
+      when timeout(2.seconds)
+        fail "waited for the lock"
+      end
+    ensure
+      launcher.try &.stop
+      holder.try &.release
+    end
+  end
 end

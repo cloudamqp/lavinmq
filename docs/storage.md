@@ -56,7 +56,7 @@ For standard and priority queues, when all messages in a segment have been ackno
 
 ## Data Directory Locking
 
-LavinMQ acquires an exclusive file lock on the data directory to prevent multiple instances from corrupting data. This is enabled by default and can be disabled with `--no-data-dir-lock` (not recommended).
+LavinMQ acquires an exclusive file lock on the data directory to prevent multiple instances from corrupting data. If another process holds the lock, LavinMQ exits with an error naming the holder (PID and host) instead of waiting for it. This is enabled by default and can be disabled with `--no-data-dir-lock` (not recommended).
 
 ## Disk Space Monitoring
 

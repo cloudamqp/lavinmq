@@ -117,7 +117,7 @@ class LavinMQ::Clustering::Controller
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
-  rescue ex : Socket::BindError
+  rescue ex : Socket::BindError | DataDirLock::Locked
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
   rescue ex
