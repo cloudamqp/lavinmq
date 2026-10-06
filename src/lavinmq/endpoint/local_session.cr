@@ -74,11 +74,13 @@ module LavinMQ
         @closed = true
         @closed_signal.close
         @confirm_mailbox.close
-        @consumers.each_value do |c|
+        # A snapshot: consuming fibers remove their own consumer as they end
+        consumers = @consumers.values
+        @consumers.clear
+        consumers.each do |c|
           c.cancel
           c.queue.rm_consumer(c)
         end
-        @consumers.clear
         # Like a closed AMQP channel: everything unacked goes back to its queue
         unacked = @unacked_lock.synchronize do
           list = @unacked.to_a
@@ -296,9 +298,9 @@ module LavinMQ
         end
         result = begin
           v.publish(msg, immediate)
-        rescue ex
+        rescue err
           nack(seq)
-          raise ex
+          raise err
         end
         # A message a queue refused (reject-publish overflow), or that no
         # consumer was ready for when published `immediate`, isn't delivered
