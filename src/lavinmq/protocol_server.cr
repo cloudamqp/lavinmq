@@ -271,7 +271,7 @@ module LavinMQ
 
     private def set_buffer_size(socket)
       if @config.socket_buffer_size.positive?
-        socket.buffer_size = @config.socket_buffer_size
+        socket.buffer_pool = IO::BufferPool.for(@config.socket_buffer_size)
         socket.sync = false
         socket.read_buffering = true
       else
