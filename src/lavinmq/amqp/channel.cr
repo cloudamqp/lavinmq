@@ -448,7 +448,7 @@ module LavinMQ
             @client.send_internal_queue_refused(frame, frame.queue)
             return
           end
-          if q.has_exclusive_consumer?
+          if q.in_exclusive_use?(frame.exclusive)
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
