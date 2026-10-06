@@ -94,6 +94,8 @@ end
 # the election timeout, with a stale message queued ahead of the acks.
 private class StallingTransport < Raft::Transport
   property stall : Time::Span? = nil
+  # When false, followers answer appends without taking any entries
+  property? ack = true
   @node : Raft::Node? = nil
 
   def initialize(@node_ids : Hash(String, Int32))
@@ -111,6 +113,13 @@ private class StallingTransport < Raft::Transport
     when Raft::RequestVote
       node.deliver Raft::VoteResponse.new(id, msg.term, true, pre_vote: msg.pre_vote)
     when Raft::AppendEntries
+      unless ack?
+        # From another fiber: the leader resends right away and would fill
+        # its event queue from its own fiber
+        nack = Raft::AppendResponse.new(id, msg.term, true, msg.prev_index)
+        spawn { sleep 5.milliseconds; node.deliver nack }
+        return
+      end
       ack = Raft::AppendResponse.new(id, msg.term, true, msg.prev_index + msg.entries.size)
       if (stall = @stall) && !msg.entries.empty?
         @stall = nil
@@ -184,6 +193,23 @@ describe Raft::Node do
       c.stop(c.nodes.key_for(leader))
       wait_for { follower.metrics.try { |x| x.leader_changes == 2 && x.peers.values.count(false) == 1 } }
     end
+  end
+
+  it "counts the entries a leader appended itself among pending proposals" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    transport = StallingTransport.new({"b" => 2, "c" => 3})
+    transport.ack = false
+    node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+    transport.node = node
+    node.run(transport)
+    # Its seeded membership, which no caller proposed, can't commit
+    wait_for { node.metrics.try &.is_leader }
+    node.metrics.not_nil!.proposals_pending.should be > 0
+  ensure
+    node.try &.close
+    FileUtils.rm_rf dir if dir
   end
 
   it "gives up on metrics when the event loop doesn't take requests" do

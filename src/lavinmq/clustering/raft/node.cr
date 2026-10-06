@@ -68,7 +68,7 @@ module LavinMQ::Clustering::Raft
   # leader and nil on a node that hasn't heard from one. `save_buckets` are
   # per bucket of Node::SAVE_BUCKETS (not cumulative), plus one for slower saves.
   record Metrics, leader : Int32?, is_leader : Bool, term : Int64, leader_changes : UInt64,
-    leader_contact : Time::Span?, proposals_pending : Int32, peers : Hash(Int32, Bool),
+    leader_contact : Time::Span?, proposals_pending : Int64, peers : Hash(Int32, Bool),
     isr_size : Int32?, save_buckets : Array(UInt64), save_count : UInt64, save_sum : Float64
 
   # Runs a Core in a single fiber: every message, request and tick goes
@@ -379,8 +379,14 @@ module LavinMQ::Clustering::Raft
       @core.peers.each { |p| peers[p] = @core.connected?(p) }
       contact = @core.role.leader? ? Time::Span.zero : @core.leader_heard_ago(Time.instant)
       Metrics.new(@core.leader, @core.role.leader?, @core.term, @leader_changes, contact,
-        @pending.size + @pending_changes.size, peers, @core.committed_isr.try(&.size),
+        proposals_pending, peers, @core.committed_isr.try(&.size),
         @save_buckets.dup, @save_count, @save_sum)
+    end
+
+    # Entries the leader has appended but not committed, whether proposed by
+    # a caller or by the Core itself (membership seeding, relocation)
+    private def proposals_pending : Int64
+      @core.role.leader? ? @core.last_index - @core.commit_index : 0_i64
     end
 
     private def observe_save(seconds : Float64) : Nil

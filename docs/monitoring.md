@@ -104,7 +104,7 @@ one can still be monitored.
 | `raft_leader_changes_seen_total` | counter | Leader changes this node has seen since it started |
 | `raft_term` | gauge | Current raft term |
 | `raft_leader_last_contact_seconds` | gauge | Time since this node last heard from the leader, 0 on the leader. Absent until it has heard from one |
-| `raft_proposals_pending` | gauge | ISR and membership changes the leader has proposed but not yet committed |
+| `raft_proposals_pending` | gauge | Log entries (ISR and membership changes) the leader has appended but not yet committed, 0 on other nodes |
 | `raft_isr_size` | gauge | Nodes in the committed in-sync replica set |
 | `raft_peer_connected` | gauge | 1 if this node is connected to the cluster member `peer` (its clustering id) |
 | `raft_storage_save_duration_seconds` | histogram | Time to persist the raft state (term, vote and log) to disk, with an fsync |
