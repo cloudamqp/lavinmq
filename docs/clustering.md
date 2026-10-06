@@ -27,13 +27,14 @@ bind = 0.0.0.0
 port = 5679
 advertised_uri = tcp://node1.example.com:5679
 seeds = node1.example.com:5680,node2.example.com:5680,node3.example.com:5680
-password_file = /etc/lavinmq/clustering_password
+password = replace-with-your-shared-secret
 ```
 
 - `seeds` are the raft addresses to form or join a cluster with. When a new cluster is started, list every node: the first leader makes them its voters, so the list sets the quorum. A node joining an existing cluster only needs one member. Once a node has the membership from the raft log, that is used, and `seeds` are only read again when starting from scratch. Three or five voters are recommended: a cluster of `N` voters keeps working with `(N - 1) / 2` of them down. `seeds` is required, so that a node left out of the config doesn't silently form a cluster of its own; a single node cluster lists only its own address.
 - `advertised_uri` is the URI followers replicate from: `tcp://hostname:port` when `bind` is all interfaces (`::` or `0.0.0.0`), otherwise `tcp://bind:port`.
 - `raft_advertised_address` is the address other nodes reach this node's raft port at, by default the host of `advertised_uri` with `raft_port`, so it rarely needs to be set. Use a stable name in `advertised_uri`: if the address changes, e.g. with the hostname of a recreated container, and that happens to most nodes at once, the cluster is without a leader for a few election timeouts (see [Changing a node's address](#changing-a-nodes-address)).
-- A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Put it in a file owned by the lavinmq user with mode `0600` and point `password_file` at it; startup fails if the file is readable by group or others. There's no inline option, as config files are often world readable and command lines and environments leak easily.
+- A password shared by all nodes is required. It authenticates both election traffic and followers replicating from the leader. Set `password` in `[clustering]`, `LAVINMQ_CLUSTERING_PASSWORD`, or `--clustering-password`. CLI overrides environment, which overrides the config file. The password must be nonempty and at most 255 bytes. Protect any config file or environment containing the password; command-line passwords may be visible in process listings.
+- Alternatively, put the password in a file and point `password_file` at it. If both `password` and `password_file` are set, the file takes precedence. Mode `0600` is recommended; startup warns if the file is accessible by group or others, but still loads it. An unreadable or missing file still prevents startup.
 
   ```sh
   openssl rand -base64 32 > /etc/lavinmq/clustering_password  # copy the same file to every node
@@ -54,7 +55,7 @@ etcd_endpoints = etcd1:2379,etcd2:2379,etcd3:2379
 etcd_prefix = lavinmq
 ```
 
-The raft options (`seeds`, `password_file`, `election_timeout`, ...) are ignored with the etcd backend.
+The raft options (`seeds`, `password`, `password_file`, `election_timeout`, ...) are ignored with the etcd backend.
 
 See [Configuration](configuration.md) for all clustering options.
 
@@ -142,7 +143,7 @@ If the leader fails, etcd coordinates leader election among ISR members. The fir
 The migration needs a short full cluster downtime. All nodes have to switch backend at the same time, a cluster can't run with both.
 
 1. Stop all nodes, the followers first and the leader last, so the node with the most recent data is known.
-2. Add `seeds` (every node, which selects raft) and `password_file` to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
+2. Add `seeds` (every node, which selects raft) and `password` (or `password_file`) to every node's config and open the raft port between the nodes. `etcd_endpoints` and `etcd_prefix` can be removed, raft ignores them.
 3. Start the former leader with `--clustering-bootstrap` (or `LAVINMQ_CLUSTERING_BOOTSTRAP=true`), and the other nodes normally.
 
 A node without election state (`.raft_state` in the data dir) doesn't know whether its data is current, so it won't try to become leader until an elected leader has it in the in-sync replica set, i.e. once it has synced from that leader. That includes nodes with an empty data dir: if they could, two replaced nodes could outvote the one that still has the data, and it would then sync their empty state. `bootstrap` overrides that and lets the node become the cluster's first leader. Until the other nodes have synced, the bootstrapped node is the only one that can lead, so if it goes down the cluster waits for it to come back. It only has an effect while the node has no election state, but remove it once the cluster is up: if that node loses its data dir along with a majority of the others, it could otherwise start a new, empty cluster. A cluster of a single node needs no bootstrap.
@@ -172,7 +173,7 @@ The operations are available in `lavinmqctl` (`cluster_status`, `add_cluster_mem
 
 To move a replica from node A to a new node D:
 
-1. Start D with `seeds` listing at least one existing member, the same `password_file`, and no `bootstrap`. It doesn't campaign with an empty log. **Don't** list only D in `seeds`, a node that is its only seed bootstraps a new cluster of its own.
+1. Start D with `seeds` listing at least one existing member, the same shared password, and no `bootstrap`. It doesn't campaign with an empty log. **Don't** list only D in `seeds`, a node that is its only seed bootstraps a new cluster of its own.
 2. `lavinmqctl add_cluster_member <D>`. D gets the Raft log and syncs the broker data. `cluster_status` shows `in_isr` for D when it is done.
 3. `lavinmqctl promote_cluster_member <D>`.
 4. `lavinmqctl transfer_leadership --target <D> --wait` if A is the leader. A restarts as a follower.
@@ -214,7 +215,7 @@ For AMQP and MQTT TCP traffic, the proxy prepends a PROXY protocol v1 header so 
 
 ## Security
 
-With the raft backend, nodes authenticate each other with the shared password from `password_file`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
+With the raft backend, nodes authenticate each other with the shared password from `password` or `password_file`: raft connections with an HMAC-SHA256 challenge-response, and followers by sending it to the leader's replication port.
 
 With the etcd backend, followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.
 

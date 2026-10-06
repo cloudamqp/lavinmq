@@ -95,13 +95,10 @@ module LavinMQ
       validate_raft_clustering! if @clustering && clustering_backend.raft?
     end
 
-    # The password nodes authenticate each other with, read from `password_file`.
-    property clustering_secret = ""
-
     private def validate_raft_clustering! : Nil
       load_clustering_password_file
       if @clustering_secret.empty?
-        raise Error.new("clustering requires a password shared by all nodes, set password_file in [clustering]")
+        raise Error.new("clustering requires a password shared by all nodes, set password or password_file in [clustering]")
       end
       if @clustering_secret.bytesize > 255
         raise Error.new("clustering password can be at most 255 bytes")
@@ -131,8 +128,8 @@ module LavinMQ
       return if path.empty?
       info = File.info(path)
       unless info.permissions.value & 0o077 == 0
-        raise Error.new("clustering password_file #{path} is accessible by group or others " \
-                        "(mode #{info.permissions.value.to_s(8)}), chmod 600 it")
+        @io.puts "WARNING: clustering password_file #{path} is accessible by group or others " \
+                 "(mode #{info.permissions.value.to_s(8)}), chmod 600 it"
       end
       @clustering_secret = File.read(path).strip
     rescue ex : File::Error

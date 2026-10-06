@@ -438,6 +438,32 @@ describe LavinMQ::Config do
   end
 
   describe "clustering validation" do
+    it "accepts a password from config, overridden by environment and CLI" do
+      with_datadir do |dir|
+        path = File.join(dir, "lavinmq.ini")
+        File.write(path, <<-INI)
+          [clustering]
+          enabled = true
+          backend = raft
+          seeds = a:1
+          raft_advertised_address = a:1
+          password = ini-secret
+          INI
+        config = LavinMQ::Config.new(IO::Memory.new)
+        config.parse(["-c", path])
+        config.clustering_secret.should eq "ini-secret"
+
+        ENV["LAVINMQ_CLUSTERING_PASSWORD"] = "env-secret"
+        config.parse(["-c", path])
+        config.clustering_secret.should eq "env-secret"
+
+        config.parse(["-c", path, "--clustering-password=cli-secret"])
+        config.clustering_secret.should eq "cli-secret"
+      end
+    ensure
+      ENV.delete("LAVINMQ_CLUSTERING_PASSWORD")
+    end
+
     it "reads the password from password_file" do
       with_datadir do |dir|
         path = File.join(dir, "clustering_password")
@@ -445,19 +471,36 @@ describe LavinMQ::Config do
         File.chmod(path, 0o600)
         config = LavinMQ::Config.new(IO::Memory.new)
         config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
-                      "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+                      "--clustering-raft-advertised-address=a:1", "--clustering-password=file-overrides-this",
+                      "--clustering-password-file=#{path}"])
         config.clustering_secret.should eq "file-secret"
       end
     end
 
-    it "rejects a password_file readable by group or others" do
-      with_datadir do |dir|
-        path = File.join(dir, "clustering_password")
-        File.write(path, "file-secret")
-        File.chmod(path, 0o640)
+    it "warns about a password_file readable by group or others and still loads it" do
+      {0o440, 0o640, 0o644}.each do |mode|
+        with_datadir do |dir|
+          path = File.join(dir, "clustering_password")
+          File.write(path, "file-secret")
+          File.chmod(path, mode)
+          warnings = IO::Memory.new
+          config = LavinMQ::Config.new(warnings)
+          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
+                        "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+          config.clustering_secret.should eq "file-secret"
+          warnings.to_s.should contain("WARNING: clustering password_file #{path} is accessible by group or others")
+          warnings.to_s.should contain("chmod 600")
+          warnings.to_s.should_not contain("file-secret")
+        end
+      end
+    end
+
+    it "rejects an empty or oversized inline password" do
+      {"", "a" * 256}.each do |password|
         config = LavinMQ::Config.new(IO::Memory.new)
-        expect_raises(LavinMQ::Config::Error, /chmod 600/) do
-          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-raft-advertised-address=a:1", "--clustering-password-file=#{path}"])
+        expect_raises(LavinMQ::Config::Error, /clustering.*password/) do
+          config.parse(["--clustering", "--clustering-backend=raft", "--clustering-seeds=a:1",
+                        "--clustering-raft-advertised-address=a:1", "--clustering-password=#{password}"])
         end
       end
     end

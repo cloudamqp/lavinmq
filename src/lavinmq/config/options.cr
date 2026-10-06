@@ -462,11 +462,14 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BOOTSTRAP")]
       property? clustering_bootstrap = false
 
-      # File holding the password shared by all nodes, authenticating election
-      # traffic and followers replicating from the leader. Must not be readable
-      # by group or others. There's deliberately no inline option, the config
-      # file is often world readable and argv and the environment leak easily.
-      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600), raft backend only", section: "clustering")]
+      # Password shared by all nodes, authenticating election and replication.
+      # A configured password_file overrides this value.
+      @[CliOpt("", "--clustering-password=PASSWORD", "Clustering password shared by all nodes, raft backend only", section: "clustering")]
+      @[IniOpt(ini_name: password, section: "clustering")]
+      @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD")]
+      property clustering_secret = ""
+
+      @[CliOpt("", "--clustering-password-file=PATH", "File with the clustering password shared by all nodes (mode 0600 recommended), overrides password, raft backend only", section: "clustering")]
       @[IniOpt(ini_name: password_file, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_PASSWORD_FILE")]
       property clustering_password_file = ""

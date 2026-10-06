@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
-- Built-in Raft clustering backend, used when `seeds` are set in `[clustering]` (or with `backend = raft`): the nodes elect a leader and keep the ISR themselves over a new raft port (`5680`), no etcd needed. It requires `seeds` (the nodes to form or join a cluster with) and a shared password in `password_file` (mode `0600`). Without `seeds` etcd is used, so existing clusters are unaffected, see `docs/clustering.md` for how to migrate them
+- Built-in Raft clustering backend, used when `seeds` are set in `[clustering]` (or with `backend = raft`): the nodes elect a leader and keep the ISR themselves over a new raft port (`5680`), no etcd needed. It requires `seeds` (the nodes to form or join a cluster with) and a shared password through `password` or `password_file`. Without `seeds` etcd is used, so existing clusters are unaffected, see `docs/clustering.md` for how to migrate them
 - Raft clustering: the membership is kept in the Raft log, so nodes are added as non-voting learners, promoted and removed at runtime, and leadership can be handed to a chosen node. New `/api/cluster` endpoints, a cluster members section on the Nodes page for administrators, and `lavinmqctl` commands (`add_cluster_member`, `promote_cluster_member`, `remove_cluster_member`, `transfer_leadership`; `cluster_status` shows the raft members). Nodes are identified by their clustering id, so a node that is restarted with a new raft address keeps its place in the cluster. [#2322](https://github.com/cloudamqp/lavinmq/pull/2322)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Raft clustering password can be set through config, environment or CLI; group or other access to `password_file` now produces a warning instead of preventing startup [#2299](https://github.com/cloudamqp/lavinmq/pull/2299)
 - The clustering `advertised_uri` defaults to `tcp://<bind>:<port>` when `bind` is a specific address, and to the hostname only when bound to all interfaces (`::` or `0.0.0.0`). It was always the hostname. With the raft backend, `raft_advertised_address` defaults to the host of `advertised_uri` with `raft_port`, so it rarely needs to be set
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
