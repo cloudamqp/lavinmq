@@ -214,14 +214,20 @@ describe LavinMQ::Clustering::Server do
       tcp_server = TCPServer.new("localhost", 0)
       spawn(server.listen(tcp_server), name: "isr rejoin failure spec")
 
+      # A synced follower's ISR writes succeed and leave the ISR clean
+      synced_io = sync_follower(server, tcp_server.local_address.port, 1)
+      wait_for { server.followers.any? &.id.== 1 }
+      server.isr_dirty?.should be_false
+
       coordinator.failing = true
       client_io = connect_follower(server, tcp_server.local_address.port, 2)
       # Not synced while it may still be listed: closed before the full sync
       client_io.read_timeout = 5.seconds
       expect_raises(IO::EOFError) { Compress::LZ4::Reader.new(client_io).read_bytes Int32, IO::ByteFormat::LittleEndian }
-      server.all_followers.should be_empty
+      server.all_followers.map(&.id).should eq [1]
       server.isr_dirty?.should be_true
     ensure
+      synced_io.try &.close
       client_io.try &.close
       server.try &.close
       tcp_server.try &.close
