@@ -15,9 +15,14 @@ test.describe('queue', _ => {
         "source": "amq.topic", "vhost": queueVhost, "destination": queueName,
         "destination_type": "queue", "routing_key": queueName,
         "arguments": {}, "properties_key": queueName
+      },
+      {
+        "source": "mqtt.default", "vhost": queueVhost, "destination": queueName,
+        "destination_type": "queue", "routing_key": "a/b",
+        "arguments": {"mqtt.qos": 1}, "properties_key": "a%2Fb"
       }
     ],
-    "filtered_count": 2, "item_count": 2, "page": 1, "page_count": 1, "page_size": 100, "total_count": 2
+    "filtered_count": 3, "item_count": 3, "page": 1, "page_count": 1, "page_size": 100, "total_count": 3
   }
 
   const consumers = [
@@ -98,6 +103,13 @@ test.describe('queue', _ => {
       page.on('dialog', async dialog => await dialog.accept())
       await page.locator('#bindings-table').getByRole('button', { name: /unbind/i }).click()
       await expect(unbindRequest).toBeRequested()
+    })
+
+    test('an MQTT subscription has no exchange link or unbind button', async ({ page }) => {
+      const row = page.locator('#bindings-table tbody tr', { hasText: 'mqtt.default' })
+      await expect(row).toHaveCount(1)
+      await expect(row.getByRole('link')).toHaveCount(0)
+      await expect(row.getByRole('button')).toHaveCount(0)
     })
 
     test('keeps binding form values and table unchanged when add fails', async ({ page }) => {
