@@ -236,7 +236,12 @@ describe Raft::Node do
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
-      leader.transfer_leadership.should eq Raft::TransferResult::Sent
+      # With a 100 ms election timeout a loaded machine can move leadership
+      # on its own, so transfer from whoever leads by then
+      wait_for do
+        leader = c.wait_for_leader
+        leader.transfer_leadership.sent?
+      end
       wait_for(1.second) { !leader.leader? }
       c.wait_for_leader(except: leader)
     end
