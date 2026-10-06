@@ -574,10 +574,9 @@ module LavinMQ
         @awaiting_pubrel.delete(packet_id)
       end
 
-      # Through the ack writer, so it leaves after the PUBREC's delete is
-      # durable. `client=` passes `client` to re-send directly on attach.
-      # Errors are swallowed: the id stays booked either way, so the next
-      # attach re-sends it [MQTT-4.4.0-1].
+      # `client=` passes `client` to send directly on attach; otherwise it goes
+      # through the ack writer, after the PUBREC's delete is durable. Errors are
+      # swallowed: the id stays booked, so the next attach re-sends [MQTT-4.4.0-1].
       private def send_pubrel(id : UInt16, client : MQTT::Client? = nil) : Bool
         if client
           client.send(Protocol::PubRel.new(id))
@@ -601,7 +600,10 @@ module LavinMQ
         # corrects because 0 is never booked. Packet id 0 is illegal
         # [MQTT-2.3.1-1].
         next_id = 1u16 if next_id == 0
-        while @inflight.has_key?(next_id)
+        # Skips ids owed to requeued messages too: taking one makes its
+        # message fall back to a fresh id, while the client still holds the
+        # old one [MQTT-4.4.0-1].
+        while @inflight.has_key?(next_id) || @msg_store.original_packet_id_in_use?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
           return if next_id == start_id
