@@ -81,7 +81,22 @@ module LavinMQ::AMQP
     def acquire_segment(consumer : StreamConsumer) : Nil
       return if consumer.segment_acquired?
       consumer.segment_acquired = true
-      @segment_readers[consumer.segment] = (@segment_readers[consumer.segment]? || 0u32) + 1
+      seg = consumer.segment
+      if count = @segment_readers[seg]?
+        @segment_readers[seg] = count + 1
+      else
+        @segment_readers[seg] = 1u32
+        @segments[seg]?.try { |mfile| read_ahead(mfile) }
+      end
+    end
+
+    # Readahead for reading a full segment, which can still be advised random
+    # from when it was written (see MessageStore#random_access_for_sync).
+    # Normal rather than sequential advice: several consumers can read the
+    # same segment, and the kernel evicts pages read through a sequential
+    # mapping early, possibly before the next consumer has read them.
+    private def read_ahead(mfile : MFile) : Nil
+      mfile.advise(MFile::Advice::Normal) unless mfile == @wfile
     end
 
     def release_segment(consumer : StreamConsumer) : Nil
@@ -142,12 +157,14 @@ module LavinMQ::AMQP
       segment = offset_index_lookup(offset)
       pos = 4u32
       msg_offset = @segment_first_offset[segment] || 0i64
+      @segments[segment]?.try { |mfile| read_ahead(mfile) }
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
           unmap_if_unused(segment)
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
+            read_ahead(rfile)
             pos = 4u32
             msg_offset = @segment_first_offset[segment]
           else
@@ -286,7 +303,11 @@ module LavinMQ::AMQP
 
     # Streams don't use the inherited @rfile, so unmap unless a consumer is reading it
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      mfile.dontneed unless @segment_readers.has_key?(seg)
+      if @segment_readers.has_key?(seg)
+        mfile.advise(MFile::Advice::Normal) # see #read_ahead, still @wfile here
+      else
+        mfile.dontneed
+      end
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile

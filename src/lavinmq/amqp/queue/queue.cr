@@ -415,6 +415,12 @@ module LavinMQ::AMQP
       @exclusive_consumer
     end
 
+    # A queue with an exclusive consumer refuses all other consumers, and an
+    # exclusive consumer is refused while the queue has any consumers
+    def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
+      @exclusive_consumer || (new_consumer_exclusive && !@consumers.empty?)
+    end
+
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool # ameba:disable Metrics/CyclomaticComplexity
       @log.debug { "Applying policy #{key}: #{value}" }
       case key
