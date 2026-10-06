@@ -32,6 +32,7 @@ class ConsumersDataSource extends DataSource {
       page_count: 1
     }
   }
+
   reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
