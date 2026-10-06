@@ -1,0 +1,101 @@
+require "./consts"
+require "./exchange"
+require "./session"
+require "./subscription_key"
+require "./subscription_details"
+
+module LavinMQ
+  module MQTT
+    # Owns a vhost's MQTT definitions: its sessions (one per client_id that has
+    # subscribed) and their subscriptions, the latter held in the subscription
+    # tree of the vhost's `MQTT::Exchange`. The exchange is created with the
+    # store rather than declared, so there is always one to subscribe against,
+    # and it is never persisted.
+    #
+    # Persisted as `Queue::Declare` and `Queue::Bind` frames in definitions.amqp:
+    # `LavinMQ::DefinitionsStore` owns that file and calls in here for the
+    # in-memory state, both when replaying frames on boot and when applying them
+    # at runtime.
+    class DefinitionsStore
+      getter exchange : MQTT::Exchange
+
+      def initialize(@vhost : VHost)
+        @sessions = Hash(String, Session).new
+        @exchange = MQTT::Exchange.new(@vhost, EXCHANGE)
+      end
+
+      # Session accessors
+
+      def session?(name : String) : Session?
+        @sessions[name]?
+      end
+
+      def session(name : String) : Session
+        @sessions[name]
+      end
+
+      def session_exists?(name : String) : Bool
+        @sessions.has_key?(name)
+      end
+
+      def each_session(& : Session ->) : Nil
+        @sessions.each_value { |s| yield s }
+      end
+
+      def sessions : Array(Session)
+        @sessions.values
+      end
+
+      def sessions_size : Int32
+        @sessions.size
+      end
+
+      def sessions_clear : Nil
+        @sessions.clear
+      end
+
+      # Nil if a session already exists under that name, so a caller can tell a
+      # fresh declaration from a no-op.
+      def declare_session(name : String, clean_session : Bool) : Session?
+        return if @sessions.has_key?(name)
+        @sessions[name] = Session.new(@vhost, name, clean_session)
+      end
+
+      # Removes a session and its subscriptions; nil if there is none. Closing
+      # and deleting the `Session` is the caller's job, as it is for a queue.
+      def delete_session(name : String) : Session?
+        return unless session = @sessions.delete(name)
+        @exchange.unsubscribe_all(session)
+        session
+      end
+
+      # Subscription accessors
+
+      def subscribe(session : Session, topic_filter : String, qos : UInt8) : Bool
+        @exchange.subscribe(session, topic_filter, qos)
+      end
+
+      def unsubscribe(session : Session, topic_filter : String) : Bool
+        @exchange.unsubscribe(session, topic_filter)
+      end
+
+      def each_subscription(&block : (Session, String, UInt8) ->) : Nil
+        @exchange.each_subscription(&block)
+      end
+
+      # One session's subscriptions, in the binding-details shape the HTTP API
+      # and the session itself read them through.
+      def subscriptions(session : Session) : Array(SubscriptionDetails)
+        result = Array(SubscriptionDetails).new
+        # The MQTT exchange changes the session's filters under this lock
+        @vhost.synchronize_definitions do
+          session.each_subscription do |topic_filter, qos|
+            result << SubscriptionDetails.new(@exchange.name, @vhost.name,
+              SubscriptionKey.new(topic_filter, qos), session)
+          end
+        end
+        result
+      end
+    end
+  end
+end
