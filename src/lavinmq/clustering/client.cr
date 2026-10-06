@@ -1,4 +1,3 @@
-require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
 require "../filesystem"
@@ -27,7 +26,6 @@ module LavinMQ
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
-      @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
@@ -70,7 +68,6 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
         raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
-        @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
@@ -755,7 +752,6 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @data_dir_lock.release
         @metrics_server.try &.close
       end
 

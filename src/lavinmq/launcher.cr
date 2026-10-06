@@ -39,10 +39,8 @@ module LavinMQ
         Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
       Dir.mkdir_p @config.data_dir
+      acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
-      if @config.data_dir_lock?
-        @data_dir_lock = DataDirLock.new(@config.data_dir)
-      end
 
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
@@ -66,7 +64,6 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
-      @data_dir_lock.try &.acquire
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
@@ -103,6 +100,16 @@ module LavinMQ
       @server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+    end
+
+    # Exits if another process holds the lock, before the server or the
+    # replication client touches the data directory
+    private def acquire_data_dir_lock
+      lock = DataDirLock.new(@config.data_dir)
+      lock.acquire
+      @data_dir_lock = lock
+    rescue ex : DataDirLock::Error
+      abort "Error: #{ex.message}"
     end
 
     private def print_environment_info
