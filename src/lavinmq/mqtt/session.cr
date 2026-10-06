@@ -107,6 +107,8 @@ module LavinMQ
           username = read_metadata_file
         end
         @permission_context = PermissionService::Context.new(username, @client_id)
+        @msg_store.on_original_packet_id_dropped = ->original_packet_id_dropped(SegmentPosition, UInt16)
+        @msg_store.on_original_packet_id_released = ->original_packet_id_released(UInt16)
 
         spawn deliver_loop, name: "Session#deliver_loop"
       end
@@ -572,6 +574,25 @@ module LavinMQ
       # Releases `packet_id` on PUBREL. False if we were not holding it.
       def pubrel_received(packet_id : UInt16) : Bool
         @awaiting_pubrel.delete(packet_id)
+      end
+
+      # The client may hold a QoS 2 id until our PUBREL [MQTT-4.3.3-2], so a
+      # dropped message's id is released, not freed. A QoS 1 id is held by
+      # nobody once requeued. Also fires for the delete of an acknowledgement
+      # racing the re-send; the id is then still booked (`pubrec` rebooks it
+      # as awaiting PUBCOMP before deleting), which is not a drop.
+      private def original_packet_id_dropped(sp : SegmentPosition, id : UInt16) : Bool
+        return false if @inflight.has_key?(id)
+        return false unless @msg_store[sp].properties.delivery_mode == 2u8
+        @inflight[id] = Inflight.new(Inflight::Awaiting::PubComp, nil)
+        refresh_capacity
+        true
+      end
+
+      # After the delete is written, so the PUBREL cannot leave before it,
+      # as at PUBREC.
+      private def original_packet_id_released(id : UInt16) : Nil
+        send_pubrel(id)
       end
 
       # `client=` passes `client` to send directly on attach; otherwise it goes

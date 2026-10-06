@@ -29,9 +29,26 @@ module LavinMQ
         !@original_packet_ids.empty? && @original_packet_ids.has_value?(id)
       end
 
+      # Called before the delete, while the message is still readable, for a
+      # message that still owed a re-send under its original id. Fires for
+      # drops (overflow, purge) but also for an ack racing the re-send, so the
+      # handler must tell them apart. Returns whether the id is now released.
+      property on_original_packet_id_dropped : Proc(SegmentPosition, UInt16, Bool)? = nil
+
+      # Called for a released id once its delete is written
+      property on_original_packet_id_released : Proc(UInt16, Nil)? = nil
+
       def delete(sp) : Nil
+        released = nil
+        unless @original_packet_ids.empty?
+          if id = @original_packet_ids.delete(sp)
+            released = id if @on_original_packet_id_dropped.try &.call(sp, id)
+          end
+        end
         super
-        forget_original_packet_id(sp)
+        if id = released
+          @on_original_packet_id_released.try &.call(id)
+        end
       end
     end
   end
