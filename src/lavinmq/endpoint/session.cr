@@ -64,6 +64,9 @@ module LavinMQ
     abstract class Session
       # Shown as the connection name (remote) or consumer's connection (local)
       getter name : String
+      # Bumped by every #open. Delivery tags are only meaningful within one
+      # generation: a reopened session numbers its deliveries from 1 again.
+      getter generation = 0_u32
       @on_close : Proc(String, Nil)?
 
       def initialize(@name : String)
@@ -131,6 +134,10 @@ module LavinMQ
       abstract def publish(exchange : String, routing_key : String,
                            properties : AMQ::Protocol::Properties, body : Bytes,
                            &on_confirm : Bool -> Nil) : Nil
+
+      protected def next_generation : Nil
+        @generation &+= 1
+      end
 
       protected def notify_closed(reason : String) : Nil
         if cb = @on_close

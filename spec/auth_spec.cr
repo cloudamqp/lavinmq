@@ -84,6 +84,49 @@ describe LavinMQ::Auth::Chain do
     end
   end
 
+  describe "the broker's internal identity" do
+    it "can't log in, whatever the password" do
+      with_amqp_server do |s|
+        LavinMQ::Auth::UserStore::RESERVED_NAMES.each do |name|
+          frame = amqp_login(amqp_port(s), name, "")
+          frame.should be_a AMQ::Protocol::Frame::Connection::Close
+          frame = amqp_login(amqp_port(s), name, "guest")
+          frame.should be_a AMQ::Protocol::Frame::Connection::Close
+        end
+        s.users["__internal"]?.should be_nil
+      end
+    end
+
+    it "can't be created over the HTTP API" do
+      with_http_server do |http, s|
+        LavinMQ::Auth::UserStore::RESERVED_NAMES.each do |name|
+          response = http.put("/api/users/#{name}", body: %({"password": "secret", "tags": "administrator"}))
+          response.status_code.should eq 400
+          s.users[name]?.should be_nil
+        end
+      end
+    end
+
+    it "is skipped by a definitions import" do
+      with_http_server do |http, s|
+        body = %({"users": [{"name": "__direct", "password_hash": "", "tags": "administrator"}]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["__direct"]?.should be_nil
+      end
+    end
+
+    it "has full access to every vhost, including new ones" do
+      with_amqp_server do |s|
+        user = s.users.internal_user
+        s.vhosts.create("created-later")
+        user.can_write?("created-later", "x").should be_true
+        user.can_read?("/", "q").should be_true
+        user.can_config?("/", "q").should be_true
+      end
+    end
+  end
+
   describe "default user loopback gate with PROXY protocol" do
     it "rejects the default user when a PROXY header claims a loopback source" do
       with_amqp_server do |s|

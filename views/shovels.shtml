@@ -62,7 +62,7 @@
           <legend>Source</legend>
           <label>
             <span>URI</span>
-            <input type="text" name="src-uri" required value="amqp://">
+            <input type="text" name="src-uri" required value="amqp://" title="Without host, e.g. amqp:///vhost, it is this broker, in-process. With a host, e.g. amqp://user:password@host/vhost, it is reached over AMQP.">
           </label>
           <label>
             <span>Type</span>
@@ -101,7 +101,7 @@
           <legend>Destination</legend>
           <label>
             <span>URI</span>
-            <input type="text" name="dest-uri" required value="amqp://">
+            <input type="text" name="dest-uri" required value="amqp://" title="Without host, e.g. amqp:///vhost, it is this broker, in-process. With a host, e.g. amqp://user:password@host/vhost, it is reached over AMQP.">
           </label>
           <label class="amqp-dest-field">
             <span>Type</span>

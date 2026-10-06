@@ -29,6 +29,7 @@ module LavinMQ
         end
         @conn = conn
         @ch = conn.channel
+        next_generation
       end
 
       def close : Nil
@@ -138,9 +139,10 @@ module LavinMQ
         begin
           yield ch
         rescue ex : ::AMQP::Client::Channel::ClosedException
-          raise translate(ex) if closed?
-          @ch = conn = @conn.not_nil!.channel
-          conn.prefetch(@prefetch) unless @prefetch.zero?
+          conn = @conn
+          raise translate(ex) if conn.nil? || conn.closed?
+          @ch = new_ch = conn.channel
+          new_ch.prefetch(@prefetch) unless @prefetch.zero?
           raise translate(ex)
         rescue ex : ::AMQP::Client::Connection::ClosedException
           raise ClosedError.new(ex.message, cause: ex)

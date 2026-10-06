@@ -62,7 +62,12 @@ module LavinMQ
           # ack would settle it undelivered. When the whole shovel is stopping
           # the source is already closed and the Runner ignores the report.
           listener = @listener
-          @session.publish(ex, rk, msg.properties, msg.body) do |confirmed|
+          session = @session
+          generation = session.generation
+          session.publish(ex, rk, msg.properties, msg.body) do |confirmed|
+            # A confirm from before a restart: the source was restarted too,
+            # its delivery tags name other messages now
+            next if session.generation != generation
             listener.report(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
           end
         in AckMode::OnPublish
