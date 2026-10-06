@@ -349,14 +349,19 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  it "serves raft metrics without a leader and while following", tags: "slow" do
+  it "reports raft metrics without a leader and while following", tags: "slow" do
     with_controllers(replication: true) do |cluster|
-      port = cluster.configs[1].metrics_http_port = free_port
+      # As the Launcher sets it up
+      follower = cluster.controllers[1]
+      metrics = LavinMQ::HTTP::MetricsServer.new(raft: follower.node)
+      addr = metrics.bind_tcp("127.0.0.1", 0)
+      follower.metrics_server = metrics
+      spawn metrics.listen
       scrape = -> {
-        HTTP::Client.get("http://127.0.0.1:#{port}/metrics").body rescue ""
+        HTTP::Client.get("http://#{addr}/metrics").body rescue ""
       }
       # Nodes 1 and 2 have no raft state and can't elect a leader on their own
-      cluster.start(cluster.controllers[1])
+      cluster.start(follower)
       cluster.start(cluster.controllers[2])
       peer = cluster.controllers[2].id.to_s(36)
       wait_for { scrape.call.includes? %(lavinmq_raft_peer_connected{peer="#{peer}"} 1) }
@@ -364,7 +369,8 @@ describe LavinMQ::Clustering::RaftController do
       body.should contain "lavinmq_raft_has_leader 0"
       body.should contain "lavinmq_raft_is_leader 0"
       body.should_not contain "lavinmq_raft_leader_last_contact_seconds"
-      # The replication client takes over the port once there's a leader
+      body.should_not contain "lavinmq_cluster_received_bytes_total"
+      # Along with the replication client's once there's a leader
       cluster.start(cluster.controllers[0])
       cluster.next_leader.should eq cluster.controllers[0]
       wait_for { scrape.call.includes? "lavinmq_cluster_received_bytes_total" }
@@ -377,6 +383,8 @@ describe LavinMQ::Clustering::RaftController do
       body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="\+Inf"\} [1-9]\d*$/m
       body.should match /^lavinmq_raft_storage_save_duration_seconds_count [1-9]\d*$/m
       body.should match /^lavinmq_raft_storage_save_duration_seconds_sum \d/m
+    ensure
+      metrics.try &.close
     end
   end
 

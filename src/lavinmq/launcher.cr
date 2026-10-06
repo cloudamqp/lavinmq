@@ -72,7 +72,7 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller)
       start_listeners(amqp_server, mqtt_server, http_server)
-      start_metrics_server(server) unless @config.metrics_http_port == -1
+      @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -83,6 +83,7 @@ module LavinMQ
     end
 
     def run
+      start_metrics_server unless @config.metrics_http_port == -1
       @runner.run do
         start
       end
@@ -204,12 +205,20 @@ module LavinMQ
       exit 1
     end
 
-    private def start_metrics_server(server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server, raft: @raft_controller.try(&.node))
+    # One metrics server for the life of the process, bound before the node
+    # knows its role, so followers and nodes without a leader are monitored too.
+    # It reports the broker's metrics once this node serves, see #start.
+    private def start_metrics_server
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: @raft_controller.try(&.node))
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
+      if (runner = @runner).is_a?(Clustering::Controller)
+        runner.metrics_server = metrics_server
+      end
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
     end
 
     private def start_listeners(amqp_server, mqtt_server, http_server)

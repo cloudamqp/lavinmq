@@ -3,7 +3,6 @@ require "../rate_limiter"
 require "../filesystem"
 require "./checksums"
 require "./proxy"
-require "./raft/node"
 require "lz4"
 require "http/server"
 require "wait_group"
@@ -61,9 +60,7 @@ module LavinMQ
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
 
-      # *raft* is the node's raft state, served along with the metrics
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true,
-                     @raft : Raft::Node? = nil)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -87,15 +84,6 @@ module LavinMQ
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
-        start_metrics_server unless @config.metrics_http_port == -1
-      end
-
-      private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self, raft: @raft)
-        metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-        spawn(name: "HTTP metrics listener") do
-          metrics_server.listen
         end
       end
 
@@ -784,7 +772,6 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @metrics_server.try &.close
       end
 
       class Error < Exception; end

@@ -2,7 +2,6 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
-require "../http/metrics_server"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
 class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
@@ -16,9 +15,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   @transport : Raft::TCPTransport? = nil
   # Serves lavinmqctl this node's view of the cluster until it leads
   @control_server : ::HTTP::Server? = nil
-  # Serves the raft metrics while there's no leader. The replication client
-  # serves them while following, the leader along with the broker's.
-  @metrics_server : HTTP::MetricsServer? = nil
   @step_down : (String ->)? = nil
   @transfer_target : Int32? = nil
   @transfer_lock = Mutex.new
@@ -108,8 +104,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     return if @stopped
     ensure_in_isr!
     @repli_client.try &.close
-    # The launcher binds the metrics port once this node serves
-    close_metrics_server
     # The leader's HTTP server binds the control socket when it starts
     close_control_server
     # No follower is replicating from this node yet, so none of them can be
@@ -135,7 +129,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     @stopped = @stopping = true
     @repli_client.try &.close
     close_control_server
-    close_metrics_server
     # Before releasing #run, so the process can't exit while handing over
     hand_over_leadership
     @stop_signal.close
@@ -150,21 +143,6 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   private def close_control_server : Nil
     @control_server.try &.close
     @control_server = nil
-  end
-
-  private def start_metrics_server : Nil
-    return if @metrics_server || @stopped || @config.metrics_http_port == -1
-    server = HTTP::MetricsServer.new(raft: @node)
-    server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-    @metrics_server = server
-    spawn(server.listen, name: "HTTP metrics listener")
-  rescue ex : Socket::BindError
-    Log.warn { "Can't serve metrics while there's no leader: #{ex.message}" }
-  end
-
-  private def close_metrics_server : Nil
-    @metrics_server.try &.close
-    @metrics_server = nil
   end
 
   private def exit_on_leadership_loss : Nil
@@ -245,10 +223,10 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       return if repli_client.follows? uri
       repli_client.close
       @repli_client = nil
+      report_metrics_of nil
     end
     if uri.nil?
       Log.warn { "No leader available" }
-      start_metrics_server
       return
     end
     if uri == @advertised_uri
@@ -256,9 +234,8 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       raise Error.new("Another node in the cluster is advertising the same URI")
     end
     Log.info { "Leader: #{uri}" }
-    # The client serves them on the same port
-    close_metrics_server
-    @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password, raft: @node)
+    @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
+    report_metrics_of r
     r.member_check = -> { @node.self_member? }
     r.serve_control_socket = false
     spawn r.follow(uri), name: "Clustering client #{uri}"

@@ -213,6 +213,8 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.prometheus"
 
+      property clustering_client : LavinMQ::Clustering::Client?
+
       def initialize(@clustering_client : LavinMQ::Clustering::Client? = nil,
                      @raft : LavinMQ::Clustering::Raft::Node? = nil)
         register_routes

@@ -9,6 +9,10 @@ LavinMQ exposes metrics in Prometheus format on a dedicated HTTP endpoint at `ht
 | `metrics_http_bind` | `[main]` | `127.0.0.1` | Bind address for the metrics endpoint |
 | `metrics_http_port` | `[main]` | `15692` | Port for the metrics endpoint |
 
+The endpoint is up from startup on every node. In a cluster, a follower and a
+node without a leader report runtime and clustering metrics, and the leader
+adds the broker's once it serves clients.
+
 Metrics are prefixed with `lavinmq_`. Both `/metrics` and `/metrics/detailed` accept a `prefix` query parameter (defaults to `lavinmq`) and a `vhost` parameter (repeatable) to filter by vhost.
 
 ### `/metrics`
@@ -90,8 +94,8 @@ follower, bulk transfer included.
 #### Raft
 
 Leader election state, on every node of a cluster that uses the Raft backend
-(`backend = raft`). A node without a leader serves these on the metrics port
-too, so a cluster that can't elect one can still be monitored.
+(`backend = raft`), also while there's no leader, so a cluster that can't elect
+one can still be monitored.
 
 | Metric | Type | Description |
 |--------|------|-------------|

@@ -506,6 +506,22 @@ describe "LavinMQ::HTTP::PrometheusController counter monotonicity" do
 end
 
 describe LavinMQ::HTTP::FollowerPrometheusController do
+  it "is replaced by the broker's metrics once the node serves" do
+    with_amqp_server do |s|
+      metrics = LavinMQ::HTTP::MetricsServer.new
+      addr = metrics.bind_tcp("127.0.0.1", 0)
+      spawn metrics.listen
+      begin
+        HTTP::Client.get("http://#{addr}/metrics").body.should_not contain "lavinmq_uptime"
+        # What the Launcher does once this node serves
+        metrics.amqp_server = s
+        HTTP::Client.get("http://#{addr}/metrics").body.should contain "lavinmq_uptime"
+      ensure
+        metrics.close
+      end
+    end
+  end
+
   it "returns gc metrics on /metrics" do
     with_follower_metrics_server do |http|
       response = http.get("/metrics")
