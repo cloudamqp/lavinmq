@@ -246,16 +246,22 @@ module LavinMQ::Clustering::Raft
     end
 
     # Built in the event loop, like #status. Nil when the node has stopped or
-    # doesn't answer within a second, e.g. stuck in an fsync.
+    # doesn't answer within a second, e.g. stuck in an fsync. The second
+    # includes queueing the request, the queue fills up while it's stuck.
     def metrics : Metrics?
+      deadline = Time.instant + 1.second
       reply = Channel(Metrics).new(1)
-      @events.send GetMetrics.new(reply)
+      select
+      when @events.send(GetMetrics.new(reply))
+      when timeout(deadline - Time.instant)
+        return
+      end
       select
       when m = reply.receive
         m
       when @stopped.receive?
         nil
-      when timeout(1.second)
+      when timeout(deadline - Time.instant)
         nil
       end
     rescue Channel::ClosedError

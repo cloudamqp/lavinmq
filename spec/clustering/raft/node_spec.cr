@@ -186,6 +186,25 @@ describe Raft::Node do
     end
   end
 
+  it "gives up on metrics when the event loop doesn't take requests" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    # Not run, like an event loop stuck in an fsync while events queue up
+    node = Raft::Node.new(1, "127.0.0.1:1", ["127.0.0.1:1"], "tcp://127.0.0.1:1", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds)
+    Raft::Node::EVENT_QUEUE_SIZE.times { node.deliver Raft::Disconnected.new(2, "127.0.0.1:2") }
+    result = Channel(Raft::Metrics?).new(1)
+    spawn { result.send node.metrics }
+    select
+    when m = result.receive
+      m.should be_nil
+    when timeout(3.seconds)
+      fail "metrics hung"
+    end
+  ensure
+    FileUtils.rm_rf dir if dir
+  end
+
   it "hands over leadership on transfer" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
