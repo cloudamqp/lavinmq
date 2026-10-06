@@ -35,4 +35,34 @@ describe LavinMQ::Launcher do
   ensure
     blocker.try &.close
   end
+
+  it "exits when the data directory is locked by another process" do
+    with_datadir do |data_dir|
+      lock = LavinMQ::DataDirLock.new(data_dir)
+      lock.acquire
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      expect_raises(SpecExit, /Exiting with code 1/) do
+        LavinMQ::Launcher.new(config)
+      end
+    ensure
+      lock.try &.release
+    end
+  end
+end
+
+describe LavinMQ::DataDirLock do
+  it "raises when the lock is already held" do
+    with_datadir do |data_dir|
+      first = LavinMQ::DataDirLock.new(data_dir)
+      first.acquire
+      expect_raises(LavinMQ::DataDirLock::Error, /Data directory locked by 'PID #{Process.pid}/) do
+        LavinMQ::DataDirLock.new(data_dir).acquire
+      end
+      first.release
+      second = LavinMQ::DataDirLock.new(data_dir)
+      second.acquire
+      second.release
+    end
+  end
 end

@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
