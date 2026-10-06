@@ -551,5 +551,47 @@ module MqttSpecs
         end
       end
     end
+
+    it "does not give a requeued message's original packet id to another message [MQTT-4.4.0-1]" do
+      with_server do |server|
+        owed = 0u16
+        ids = Array(UInt16).new
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            3.times { |i| publish_qos2(pub_io, (i + 1).to_u16, topic: "a/b", payload: i.to_s.to_slice) }
+            disconnect(pub_io)
+          end
+          first = read_publish(io)
+          owed = first.packet_id.as(UInt16)
+          2.times { ids << read_publish(io).packet_id.as(UInt16) }
+          pubrec(io, owed)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          disconnect(io)
+        end
+
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+        store = session.@msg_store
+        # Message "1" falls back to a fresh id because its own is awaiting
+        # PUBCOMP; point the counter so the fresh id would be message "2"'s.
+        sp1 = store.@original_packet_ids.key_for(ids[0])
+        store.@original_packet_ids[sp1] = owed
+        pointerof(session.@last_packet_id).value = ids[1] &- 1
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          read_packet(io).should be_a(MQTT::Protocol::PubRel)
+          one = read_publish(io)
+          two = read_publish(io)
+          String.new(two.payload).should eq "2"
+          two.packet_id.should eq ids[1]
+          one.packet_id.should_not eq ids[1]
+          disconnect(io)
+        end
+      end
+    end
   end
 end
