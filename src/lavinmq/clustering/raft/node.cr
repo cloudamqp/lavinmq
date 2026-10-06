@@ -117,7 +117,9 @@ module LavinMQ::Clustering::Raft
     @election_timeout : Time::Span
     @logged_trust_moved = false
     # Metrics, only touched by the event loop
-    @last_leader : Int32? = nil
+    # The leader and term last counted as a leader change: the same node
+    # elected again in a later term is a change too
+    @last_leader : Tuple(Int32, Int64)? = nil
     @leader_changes = 0_u64
     @save_buckets = Array(UInt64).new(SAVE_BUCKETS.size + 1, 0_u64)
     @save_count = 0_u64
@@ -458,8 +460,8 @@ module LavinMQ::Clustering::Raft
     end
 
     private def publish_state : Nil
-      if (leader_id = @core.leader) && leader_id != @last_leader
-        @last_leader = leader_id
+      if (leader_id = @core.leader) && {leader_id, @core.term} != @last_leader
+        @last_leader = {leader_id, @core.term}
         @leader_changes += 1
       end
       uri = @core.leader_uri

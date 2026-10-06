@@ -96,6 +96,8 @@ private class StallingTransport < Raft::Transport
   property stall : Time::Span? = nil
   # When false, followers answer appends without taking any entries
   property? ack = true
+  # When true, followers don't answer appends at all, but still vote
+  property? drop_appends = false
   @node : Raft::Node? = nil
 
   def initialize(@node_ids : Hash(String, Int32))
@@ -113,6 +115,7 @@ private class StallingTransport < Raft::Transport
     when Raft::RequestVote
       node.deliver Raft::VoteResponse.new(id, msg.term, true, pre_vote: msg.pre_vote)
     when Raft::AppendEntries
+      return if drop_appends?
       unless ack?
         # From another fiber: the leader resends right away and would fill
         # its event queue from its own fiber
@@ -213,6 +216,26 @@ describe Raft::Node do
     # Its seeded membership, which no caller proposed, can't commit
     wait_for { node.metrics.try &.is_leader }
     node.metrics.not_nil!.proposals_pending.should be > 0
+  ensure
+    node.try &.close
+    FileUtils.rm_rf dir if dir
+  end
+
+  it "counts the same node elected again in a later term as a leader change" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    transport = StallingTransport.new({"b" => 2, "c" => 3})
+    node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+    transport.node = node
+    node.run(transport)
+    wait_for { node.serving.value }
+    first = node.metrics.not_nil!
+    first.leader_changes.should eq 1
+    # No followers answering: it steps down on losing its quorum, and the
+    # votes they still grant elect it again
+    transport.drop_appends = true
+    wait_for { node.metrics.try { |m| m.is_leader && m.term > first.term && m.leader_changes > 1 } }
   ensure
     node.try &.close
     FileUtils.rm_rf dir if dir

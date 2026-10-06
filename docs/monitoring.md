@@ -101,7 +101,7 @@ one can still be monitored.
 |--------|------|-------------|
 | `raft_has_leader` | gauge | 1 if this node knows of a leader |
 | `raft_is_leader` | gauge | 1 if this node is the leader |
-| `raft_leader_changes_seen_total` | counter | Leader changes this node has seen since it started |
+| `raft_leader_changes_seen_total` | counter | Leader changes this node has seen since it started, including the same node elected again in a later term |
 | `raft_term` | gauge | Current raft term |
 | `raft_leader_last_contact_seconds` | gauge | Time since this node last heard from the leader, 0 on the leader. Absent until it has heard from one |
 | `raft_proposals_pending` | gauge | Log entries (ISR and membership changes) the leader has appended but not yet committed, 0 on other nodes |
