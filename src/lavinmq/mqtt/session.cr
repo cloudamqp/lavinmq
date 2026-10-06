@@ -215,7 +215,7 @@ module LavinMQ
       end
 
       # Whether `id` still names this exact delivery. Sending yields, so
-      # `client=`, `ack` or `pubrec` can have moved it in the meantime.
+      # `client=`, `puback` or `pubrec` can have moved it in the meantime.
       private def booked?(id : UInt16, sp : SegmentPosition) : Bool
         @inflight[id]?.try(&.sp) == sp
       end
@@ -415,7 +415,7 @@ module LavinMQ
         begin
           # Booked before the send, which yields: the client can acknowledge
           # before we return, and an acknowledgement finding no entry is either
-          # fatal (`ack`) or silently dropped (`pubrec`).
+          # fatal (`puback`) or silently dropped (`pubrec`).
           @inflight[id] = Inflight.new(packet.qos == 1u8 ? Inflight::Awaiting::PubAck : Inflight::Awaiting::PubRec, sp)
           @unacked_count.add(1, :relaxed)
           @unacked_bytesize.add(sp.bytesize, :relaxed)
@@ -574,12 +574,17 @@ module LavinMQ
         @awaiting_pubrel.delete(packet_id)
       end
 
+      # Through the ack writer, so it leaves after the PUBREC's delete is
+      # durable. `client=` passes `client` to re-send directly on attach.
       # Errors are swallowed: the id stays booked either way, so the next
       # attach re-sends it [MQTT-4.4.0-1].
       private def send_pubrel(id : UInt16, client : MQTT::Client? = nil) : Bool
-        client ||= @client
-        return false if client.nil?
-        client.send(Protocol::PubRel.new(id))
+        if client
+          client.send(Protocol::PubRel.new(id))
+          return true
+        end
+        return false unless current = @client
+        current.queue_ack(Client::PendingAck::PacketType::PubRel, id)
         true
       rescue ex
         @log.debug { "Failed to send PUBREL for id '#{id}': #{ex.message}" }

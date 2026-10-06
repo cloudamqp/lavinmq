@@ -32,11 +32,17 @@ module LavinMQ
       include SortableJSON
       include Persister::ConfirmTarget
 
-      # A QoS 1 publish waiting for its PUBACK, or a QoS 2 one for its PUBREC,
-      # which is sent once the persister has made the publish durable. `seq`
-      # orders the publishes, so the persister's cumulative confirm releases
-      # every acknowledgement up to it.
-      record PendingAck, seq : UInt64, packet_id : UInt16, qos : UInt8
+      # An acknowledgement packet (3.1.1 4.3) that leaves once the state it
+      # answers for is durable. `seq` orders them, so the persister's
+      # cumulative confirm releases every one up to it.
+      record PendingAck, seq : UInt64, type : PacketType, packet_id : UInt16 do
+        enum PacketType : UInt8
+          PubAck
+          PubRec
+          PubRel
+          PubComp
+        end
+      end
 
       getter log, name, user, client_id, socket, connection_info, session
       @connected_at = RoughTime.unix_ms
@@ -230,7 +236,7 @@ module LavinMQ
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
           # Queued like the others, so acknowledgements leave in publish order
           if packet.qos > 0 && packet_id
-            queue_ack(packet_id, packet.qos)
+            queue_ack(packet.qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck, packet_id)
           end
           return
         end
@@ -242,20 +248,19 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && packet_id
-          queue_ack(packet_id, packet.qos)
+          queue_ack(packet.qos == 2u8 ? PendingAck::PacketType::PubRec : PendingAck::PacketType::PubAck, packet_id)
         end
       end
 
-      # QoS 1 and 2 publishes are acked like publish confirms, once durable. The
-      # PUBACK or PUBREC is sent by the writer fiber, so the read loop never
-      # waits for the disk.
-      private def queue_ack(packet_id : UInt16, qos : UInt8) : Nil
+      # The packet is sent by the ack writer, so neither the read loop nor the
+      # session's fibers wait for the disk.
+      def queue_ack(type : PendingAck::PacketType, packet_id : UInt16) : Nil
         unless @ack_mailbox
           mailbox = @ack_mailbox = ::Channel(UInt64).new(1)
           spawn ack_writer(mailbox), name: "MQTT client #{@client_id} ack writer"
         end
         seq = @ack_seq &+= 1
-        @pending_acks.lock &.push(PendingAck.new(seq, packet_id, qos))
+        @pending_acks.lock &.push(PendingAck.new(seq, type, packet_id))
         vhost.enqueue_ack(self, seq)
       end
 
@@ -273,14 +278,20 @@ module LavinMQ
       private def ack_writer(mailbox : ::Channel(UInt64))
         while seq = mailbox.receive?
           while pending = next_ack(seq)
-            if pending.qos == 2
-              send(Protocol::PubRec.new(pending.packet_id))
-            else
-              send(Protocol::PubAck.new(pending.packet_id))
-            end
+            send(ack_packet(pending))
           end
         end
       rescue ::IO::Error
+      end
+
+      private def ack_packet(pending : PendingAck) : Protocol::Packet
+        id = pending.packet_id
+        case pending.type
+        in .pub_ack?  then Protocol::PubAck.new(id)
+        in .pub_rec?  then Protocol::PubRec.new(id)
+        in .pub_rel?  then Protocol::PubRel.new(id)
+        in .pub_comp? then Protocol::PubComp.new(id)
+        end
       end
 
       private def next_ack(seq : UInt64) : PendingAck?
@@ -306,7 +317,7 @@ module LavinMQ
         end
         # Answered on both paths: a re-send means our first PUBREC was lost.
         # Queued even for a re-send, since the first copy may not be durable yet.
-        queue_ack(packet_id, 2u8)
+        queue_ack(PendingAck::PacketType::PubRec, packet_id)
       end
 
       def recieve_pubrec(packet : Protocol::PubRec)
@@ -325,7 +336,7 @@ module LavinMQ
           # raising would publish the will of every resuming QoS 2 publisher.
           @log.debug { "PUBREL for unknown packet id '#{id}', answering PUBCOMP anyway" }
         end
-        send(Protocol::PubComp.new(id))
+        queue_ack(PendingAck::PacketType::PubComp, id)
       end
 
       def recieve_puback(packet : Protocol::PubAck)
