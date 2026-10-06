@@ -399,7 +399,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          session = server.vhosts["/"].session("mqtt.subscriber")
+          session = server.vhosts["/"].mqtt.session("mqtt.subscriber")
           # As after handing out 65535 ids
           pointerof(session.@count).value = UInt16::MAX
 
@@ -420,7 +420,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          session = server.vhosts["/"].session("mqtt.subscriber")
+          session = server.vhosts["/"].mqtt.session("mqtt.subscriber")
           # Every id but the last one handed out is held, one short of the
           # default window of 65535
           free = 100u16

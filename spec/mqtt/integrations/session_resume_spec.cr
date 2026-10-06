@@ -81,7 +81,7 @@ module MqttSpecs
           connect(io, client_id: "swap", clean_session: false)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
           vhost = server.vhosts["/"]
-          session = vhost.session("mqtt.swap")
+          session = vhost.mqtt.session("mqtt.swap")
           replacement = session.client.should be_a(LavinMQ::MQTT::Client)
           replaced = ReplacedClient.new(session, replacement, vhost.mqtt_broker, server.users["guest"])
           session.client = replaced
@@ -138,7 +138,7 @@ module MqttSpecs
         sent = deliver_unacked(server, ["old"]).first
         # Must be offline first: published to a session that has not detached
         # yet, "new" would go to the dying connection and join the window.
-        wait_for { server.vhosts["/"].session("mqtt.resumer").client.nil? }
+        wait_for { server.vhosts["/"].mqtt.session("mqtt.resumer").client.nil? }
         publish_from(server, "a/b", ["new"])
 
         with_client_io(server) do |io|
@@ -238,12 +238,12 @@ module MqttSpecs
           publish_from(server, "a/b", ["1"])
 
           read_publish(io) # read, never acked: a message is in flight
-          server.vhosts["/"].session("mqtt.cleaner").unacked_count.should eq 1
+          server.vhosts["/"].mqtt.session("mqtt.cleaner").unacked_count.should eq 1
           disconnect(io)
         end
 
         # The session goes with the connection, in-flight window and all.
-        wait_for { !server.vhosts["/"].session_exists?("mqtt.cleaner") }
+        wait_for { server.vhosts["/"].mqtt.session?("mqtt.cleaner").nil? }
 
         with_client_io(server) do |io|
           connect(io, client_id: "cleaner", clean_session: true)
@@ -258,7 +258,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # Requeued on detach, so still ready and still counted - only the packet
@@ -285,7 +285,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         session.purge.should eq 1
@@ -303,7 +303,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         store = session.@msg_store
         sp = store.@packet_ids.keys.first
@@ -358,7 +358,7 @@ module MqttSpecs
     it "stores a publish whose max-length drop is the first to reach a message that can't be read" do
       with_server do |server|
         deliver_unacked(server, ["1"])
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         store = session.@msg_store
         sp = store.@packet_ids.keys.first
@@ -383,7 +383,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          session = server.vhosts["/"].session("mqtt.resumer")
+          session = server.vhosts["/"].mqtt.session("mqtt.resumer")
           publish_from(server, "a/b", ["1"])
           first = read_publish(io)
           LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
@@ -415,7 +415,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          session = server.vhosts["/"].session("mqtt.resumer")
+          session = server.vhosts["/"].mqtt.session("mqtt.resumer")
           publish_from(server, "a/b", ["1"])
           first = read_publish(io)
           # As when the broker is out of file descriptors
@@ -437,7 +437,7 @@ module MqttSpecs
     it "enforces max-length before it resumes, and stays paused if that fails again" do
       with_server do |server|
         deliver_unacked(server, [] of String)
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         publish_from(server, "a/b", ["1", "2", "3", "4"])
         LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
         defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
@@ -463,7 +463,7 @@ module MqttSpecs
     it "applies max-length while paused by an operator" do
       with_server do |server|
         deliver_unacked(server, [] of String)
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         session.pause!
         defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
@@ -478,7 +478,7 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-          session = server.vhosts["/"].session("mqtt.resumer")
+          session = server.vhosts["/"].mqtt.session("mqtt.resumer")
           session.pause!
           session.state.should eq LavinMQ::QueueState::Paused
           session.paused_reason.should eq "operator"
@@ -489,7 +489,7 @@ module MqttSpecs
         end
       end
       with_server do |server|
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         session.state.should eq LavinMQ::QueueState::Paused
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
@@ -509,7 +509,7 @@ module MqttSpecs
         deliver_unacked(server, ["1"])
 
         vhost = server.vhosts["/"]
-        session = vhost.session("mqtt.resumer")
+        session = vhost.mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         session.message_count.should eq 1
 
@@ -526,7 +526,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["1"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # Planted, as `next_id` never hands out 0. Guards the zero check in
@@ -551,7 +551,7 @@ module MqttSpecs
       with_server do |server|
         sent = deliver_unacked(server, ["0", "1", "2"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         # A purge takes the requeued messages first, in delivery order, so "0"
         # goes and the two the client still holds ids for stay.
@@ -574,7 +574,7 @@ module MqttSpecs
       with_server do |server|
         deliver_unacked(server, ["0", "1", "2"])
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
         publish_from(server, "a/b", ["3", "4"])
         wait_for { session.message_count == 5 }
@@ -595,7 +595,7 @@ module MqttSpecs
         sent = deliver_unacked(server, ["0", "1"])
         first_id = sent.first.packet_id.should_not be_nil
 
-        session = server.vhosts["/"].session("mqtt.resumer")
+        session = server.vhosts["/"].mqtt.session("mqtt.resumer")
         wait_for { session.client.nil? }
 
         # Point the second message at the first one's id. Resends go out in sp

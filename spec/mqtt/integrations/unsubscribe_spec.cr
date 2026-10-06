@@ -101,7 +101,7 @@ module MqttSpecs
           unsubscribe(io, topics: ["a/b"], packet_id: 0u16, expect_response: false)
           io.should be_closed
         end
-        server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+        server.vhosts["/"].mqtt.exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
       end
     end
   end

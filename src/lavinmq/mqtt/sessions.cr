@@ -12,14 +12,14 @@ module LavinMQ
       # than getting the dying session
       def []?(client_id : String) : Session?
         name = "#{SESSION_PREFIX}#{client_id}"
-        session = @vhost.session?(name) || return
+        session = @vhost.mqtt.session?(name) || return
         return session unless session.deleting?
         session.wait_for_deletion
-        @vhost.session?(name).try { |s| s unless s.deleting? }
+        @vhost.mqtt.session?(name).try { |s| s unless s.deleting? }
       end
 
       def [](client_id : String) : Session
-        @vhost.session("#{SESSION_PREFIX}#{client_id}")
+        @vhost.mqtt.session("#{SESSION_PREFIX}#{client_id}")
       end
 
       # Returns nil if creating the session would exceed the vhost's max-queues

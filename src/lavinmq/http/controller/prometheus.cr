@@ -493,7 +493,7 @@ module LavinMQ
               consumers += ch.consumers_size
             end
           end
-          queues += vhost.queues_size + vhost.sessions_size
+          queues += vhost.queues_size + vhost.mqtt.sessions_size
           MQTTExchangeCompat.each_exchange(vhost) { |e| bindings += e.binding_count }
         end
         writer.write({name:  "connections",
@@ -673,7 +673,7 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
           end
-          vhost.each_session do |s|
+          vhost.mqtt.each_session do |s|
             labels = {queue: s.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_ready", s.message_count, labels)
           end
@@ -686,7 +686,7 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
           end
-          vhost.each_session do |s|
+          vhost.mqtt.each_session do |s|
             labels = {queue: s.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages_unacked", s.unacked_count, labels)
           end
@@ -699,7 +699,7 @@ module LavinMQ
             labels = {queue: q.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
           end
-          vhost.each_session do |s|
+          vhost.mqtt.each_session do |s|
             labels = {queue: s.name, vhost: vhost.name}
             writer.write_value("detailed_queue_messages", s.message_count + s.unacked_count, labels)
           end
@@ -779,7 +779,7 @@ module LavinMQ
           "Number of queues on a vhost")
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
-          writer.write_value("detailed_vhost_queues", vhost.queues_size + vhost.sessions_size, labels)
+          writer.write_value("detailed_vhost_queues", vhost.queues_size + vhost.mqtt.sessions_size, labels)
         end
       end
 

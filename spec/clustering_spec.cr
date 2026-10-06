@@ -1412,7 +1412,7 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         session_name = "#{LavinMQ::MQTT::SESSION_PREFIX}paused"
         vhost.declare_queue(session_name, true, false, LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
         queue = vhost.queue("paused_q").as(LavinMQ::AMQP::Queue)
-        session = vhost.session?(session_name).should_not be_nil
+        session = vhost.mqtt.session?(session_name).should_not be_nil
         {"paused_q"   => follower_path.call(File.join(queue.@data_dir, "paused")),
          session_name => follower_path.call(session.@paused_file)}.each do |name, paused|
           http.put("/api/queues/%2f/#{name}/pause").status_code.should eq 204

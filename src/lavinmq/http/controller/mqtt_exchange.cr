@@ -82,7 +82,7 @@ module LavinMQ
         get "/api/exchanges/:vhost/#{NAME}/bindings/source" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.mqtt_exchange.bindings_details)
+            page(context, vhost.mqtt.exchange.bindings_details)
           end
         end
 
@@ -98,7 +98,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = find_queue(context, params, vhost, "queue")
-            page(context, vhost.mqtt_exchange.bindings_details.select { |b| b.destination == q })
+            page(context, vhost.mqtt.exchange.bindings_details.select { |b| b.destination == q })
           end
         end
 
@@ -231,7 +231,7 @@ module LavinMQ
 
       private def subscription?(vhost, q, props) : MQTT::SubscriptionDetails?
         return unless q.is_a?(MQTT::Session)
-        vhost.session_subscriptions(q).find(&.binding_key.properties_key.== props)
+        vhost.mqtt.subscriptions(q).find(&.binding_key.properties_key.== props)
       end
 
       # nil when the path has the MQTT exchange at *key*, else the AMQP
