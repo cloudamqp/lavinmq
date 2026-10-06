@@ -215,7 +215,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true)
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @persister : Persister, @description = "", @tags = Array(String).new(0), mqtt_default_group = true, @vhosts : VHostStore? = nil)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -584,6 +584,13 @@ module LavinMQ
       end
       closed.set(false)
       Fiber.yield
+    end
+
+    # A vhost of the same broker, by name, for in-process shovels and
+    # federation links (see Endpoint::LocalSession)
+    def sibling(name : String) : VHost?
+      return self if name == @name
+      @vhosts.try &.[name]?
     end
 
     def upstreams

@@ -1,5 +1,6 @@
 require "./stream"
 require "./stream_consumer"
+require "./stream_cursor"
 require "./consumer_offsets"
 
 module LavinMQ::AMQP
@@ -78,7 +79,7 @@ module LavinMQ::AMQP
       end
     end
 
-    def acquire_segment(consumer : StreamConsumer) : Nil
+    def acquire_segment(consumer : StreamCursor) : Nil
       return if consumer.segment_acquired?
       consumer.segment_acquired = true
       seg = consumer.segment
@@ -94,7 +95,7 @@ module LavinMQ::AMQP
       mfile.advise(MFile::Advice::Normal) unless mfile == @wfile
     end
 
-    def release_segment(consumer : StreamConsumer) : Nil
+    def release_segment(consumer : StreamCursor) : Nil
       return unless consumer.segment_acquired?
       consumer.segment_acquired = false
       release_segment(consumer.segment)
@@ -241,7 +242,7 @@ module LavinMQ::AMQP
       end
     end
 
-    def shift?(consumer : AMQP::StreamConsumer) : Envelope?
+    def shift?(consumer : AMQP::StreamCursor) : Envelope?
       raise ClosedError.new if @closed
 
       if env = shift_requeued(consumer)

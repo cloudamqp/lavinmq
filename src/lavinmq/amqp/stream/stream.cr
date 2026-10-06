@@ -186,7 +186,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { stream_msg_store.next_segment_offset(segment) }
     end
 
-    def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
+    def consume_get(consumer : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
         if env.redelivered
@@ -207,7 +207,7 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
+    private def get(consumer : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
@@ -232,7 +232,7 @@ module LavinMQ::AMQP
 
     private def notify_all_stream_consumers
       @consumers.each do |consumer|
-        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+        if stream_consumer = consumer.as?(AMQP::StreamCursor)
           stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
         end
       end
@@ -328,7 +328,7 @@ module LavinMQ::AMQP
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+      if stream_consumer = consumer.as?(AMQP::StreamCursor)
         @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
       end
       super
@@ -336,7 +336,7 @@ module LavinMQ::AMQP
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+      if stream_consumer = consumer.as?(AMQP::StreamCursor)
         @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
       end
     end
