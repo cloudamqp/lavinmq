@@ -2,6 +2,7 @@ require "./controller"
 require "./raft_coordinator"
 require "./raft/node"
 require "./raft/transport"
+require "../http/metrics_server"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
 class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
