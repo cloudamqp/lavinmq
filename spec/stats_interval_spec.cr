@@ -176,13 +176,39 @@ module LavinMQ
           with_stats_logs(3) do
             p = ByteProbe.new
             p.bump(50_000_000_000u64)
-            Stats.tick(3) { p.update_rates }
+            Stats.tick(3, 5000) { p.update_rates }
             p.recv_oct_log.should eq [10_000_000_000.0]
             Stats.byte_log.series_count.should eq 1
             Stats.counter_log.series_count.should eq 0
             rates = [1.0]
             p.add_recv_oct_log(rates)
             rates.should eq [10_000_000_001.0]
+          end
+        end
+      end
+
+      it "restarts the rate logs, but not the gauge logs, when stats_interval changes" do
+        with_stats_logs(3) do
+          p = IntervalProbe.new
+          g = GaugeProbe.new
+          with_stats_interval(5000) do
+            1.upto(2) do |i|
+              p.bump(5u64)
+              Stats.tick(3, 5000) do
+                p.update_rates
+                g.g = i
+              end
+            end
+            p.x_log.should eq [1.0, 1.0]
+          end
+          with_stats_interval(1000) do
+            p.bump(5u64)
+            Stats.tick(3, 1000) do
+              p.update_rates
+              g.g = 3
+            end
+            p.x_log.should eq [5.0]
+            g.g_log.should eq [1, 2, 3]
           end
         end
       end
@@ -206,7 +232,7 @@ module LavinMQ
           p = GaugeProbe.new
           p.g_log.should be_empty
           {7, 0, 9, 4}.each do |v|
-            Stats.tick(3) { p.g = v }
+            Stats.tick(3, Config.instance.stats_interval) { p.g = v }
           end
           p.g_log.should eq [0, 9, 4]
           values = [1i64, 1i64, 1i64, 1i64]
@@ -306,6 +332,20 @@ module LavinMQ
       renewed.should_not eq stale
       log.read(1, renewed, &.itself).should eq [3]
       log.read(1, other, &.itself).should eq [7]
+    end
+
+    it "restarts the logs at the latest tick when cleared" do
+      log = StatsLog(UInt32).new(3)
+      s = StatsLog::Series.new
+      2.times { log.advance { s = log.write(s, 1u32) } }
+      log.ticks_since(0).should eq 2
+      log.clear
+      log.chunk_count.should eq 0
+      log.ticks_since(0).should eq 0
+      log.read(3, s, &.itself).should eq [0, 0, 0]
+      log.advance { s = log.write(s, 2u32) }
+      log.ticks_since(0).should eq 1
+      log.read(1, s, &.itself).should eq [2]
     end
 
     it "keeps the latest values when resized" do

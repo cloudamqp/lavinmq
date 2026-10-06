@@ -31,6 +31,8 @@ module LavinMQ
     getter tick = 0i64
     # Tick that writes go to, ahead of `tick` while `advance` yields
     @write_tick = 0i64
+    # Logs start after this tick, see `clear`
+    @cleared_tick = 0i64
     @chunks = Array(Chunk(T)?).new
     @free_hint = 0 # no free slot below this one
     @last_id = 0u64
@@ -41,9 +43,21 @@ module LavinMQ
       raise ArgumentError.new("chunk_slots must be positive") unless @chunk_slots.positive?
     end
 
-    # Number of ticks since *start_tick*, capped by the window size
+    # Number of ticks since *start_tick*, or since the log was cleared if that's
+    # later, capped by the window size
     def ticks_since(start_tick : Int64) : Int32
-      (@tick - start_tick).clamp(0i64, @size.to_i64).to_i32
+      (@tick - Math.max(start_tick, @cleared_tick)).clamp(0i64, @size.to_i64).to_i32
+    end
+
+    # Drops all values and restarts every log at the latest tick. Existing
+    # handles read as zeros and get new slots on their next write.
+    def clear : Nil
+      @lock.synchronize do
+        @chunks.each &.try(&.unmap)
+        @chunks.clear
+        @free_hint = 0
+        @cleared_tick = @tick
+      end
     end
 
     # Number of slots in use

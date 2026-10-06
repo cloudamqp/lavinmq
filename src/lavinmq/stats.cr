@@ -11,9 +11,19 @@ module LavinMQ
     # Values of gauges per tick. There are only a few, so they get smaller chunks.
     class_property(gauge_log : StatsLog(Int64)) { StatsLog(Int64).new(Config.instance.stats_log_size, 64) }
 
+    # stats_interval the increases in counter_log and byte_log were collected at
+    @@log_interval : Int32? = nil
+
     # Starts a new tick in all logs and yields to write it. Readers see the
-    # tick once the block returns.
-    def self.tick(log_size : Int32, & : -> _) : Nil
+    # tick once the block returns. Increases are divided by the current
+    # *interval* when read, so if it changed the counter and byte logs are
+    # cleared, as their values would show the wrong rates.
+    def self.tick(log_size : Int32, interval : Int32, & : -> _) : Nil
+      if (log_interval = @@log_interval) && log_interval != interval
+        counter_log.clear
+        byte_log.clear
+      end
+      @@log_interval = interval
       counter_log.resize(log_size)
       byte_log.resize(log_size)
       gauge_log.resize(log_size)

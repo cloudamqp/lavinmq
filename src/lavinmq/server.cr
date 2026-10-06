@@ -154,7 +154,7 @@ module LavinMQ
     end
 
     def update_stats_rates
-      Stats.tick(@config.stats_log_size) { update_vhost_rates }
+      Stats.tick(@config.stats_log_size, @config.stats_interval) { update_vhost_rates }
     end
 
     private def update_vhost_rates
@@ -217,7 +217,7 @@ module LavinMQ
       end
       until closed?
         @stats_collection_duration_seconds_total = Time.measure do
-          Stats.tick(@config.stats_log_size) do
+          Stats.tick(@config.stats_log_size, @config.stats_interval) do
             @stats_rates_collection_duration_seconds = Time.measure do
               update_vhost_rates
             end
