@@ -66,7 +66,7 @@ Set via the management API (`PUT /api/vhost-limits/:vhost/max-connections`) or `
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `tcp_nodelay` | `[main]` | `false` | Disable Nagle's algorithm |
+| `tcp_nodelay` | `[main]` | `true` | Disable Nagle's algorithm |
 | `tcp_keepalive` | `[main]` | `60:10:3` | Idle, interval, probes (colon-separated) |
 | `tcp_recv_buffer_size` | `[main]` | (system) | TCP receive buffer |
 | `tcp_send_buffer_size` | `[main]` | (system) | TCP send buffer |
