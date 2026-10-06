@@ -277,9 +277,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2.seconds
+        sleep 10.milliseconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end

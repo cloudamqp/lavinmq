@@ -56,7 +56,6 @@ describe "Delayed Message Exchange" do
         end
         restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
-        sleep 1.second
         wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
       end
     end

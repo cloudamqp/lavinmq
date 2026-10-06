@@ -242,10 +242,10 @@ describe LavinMQ::AMQP::Stream do
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         q.publish_confirm data
         # Sleep > 1s so the two messages land in distinct whole seconds
-        sleep 1.2.seconds
+        sleep 1.02.seconds
         q.publish_confirm data
-        # Derive target from msg1's stored timestamp; Time.utc here would race RoughTime's
-        # 100ms coarsening and could land inside segment 2's bucket, hanging the consumer.
+        # Derive target from msg1's stored timestamp; Time.utc here could race the
+        # coarse clock and land inside segment 2's bucket, hanging the consumer.
         store = s.vhosts["/"].queue("stream-ts-across-segments").as(LavinMQ::AMQP::Stream).stream_msg_store
         msg1_ts = store.@segment_last_ts.values.first
         target_time = Time.unix(msg1_ts // 1000 + 1)
@@ -560,7 +560,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -575,7 +575,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -590,7 +590,7 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
           q.message_count.should eq 2
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
           q.message_count.should eq 1
         end
