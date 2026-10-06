@@ -119,6 +119,8 @@ module MqttSpecs
           suback = suback.as(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+          # ... in place of the qos0 subscription, not next to it
+          server.vhosts["/"].mqtt_exchange.binding_count.should eq 1
 
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
@@ -162,7 +164,7 @@ module MqttSpecs
 
     it "binds a qos2 subscription as qos1" do
       with_server do |server|
-        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange = server.vhosts["/"].mqtt_exchange
         with_client_io(server) do |io|
           connect(io)
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 2}))
@@ -194,7 +196,7 @@ module MqttSpecs
 
         vhost = server.vhosts["/"]
         vhost.session?("mqtt.sub").should_not be_nil
-        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange = vhost.mqtt_exchange
         exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
       end
     end
