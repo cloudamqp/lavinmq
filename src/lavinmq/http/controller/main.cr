@@ -64,7 +64,7 @@ module LavinMQ
             end
             exchanges += MQTTExchangeCompat.exchanges_size(vhost)
             queues += vhost.queues_size
-            queues += vhost.sessions_size
+            queues += vhost.mqtt.sessions_size
             MQTTExchangeCompat.each_exchange(vhost) { |e| bindings += e.binding_count }
             vhost_ready, vhost_unacked = vhost.count_messages
             ready += vhost_ready
