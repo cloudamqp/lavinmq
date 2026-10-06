@@ -196,4 +196,18 @@ module MqttHelpers
     end
     pub
   end
+
+  # Returns the PUBLISH `io` was delivered, unacknowledged, so the session still
+  # owes it.
+  def deliver_qos2(server, io, payload = "1", topic = "a/b")
+    subscribe(io, topic_filters: mk_topic_filters({topic, 2u8}))
+    with_client_io(server) do |pub_io|
+      connect(pub_io, client_id: "publisher")
+      publish(pub_io, topic: topic, payload: payload.to_slice, qos: 2u8, packet_id: 1u16)
+      pubrel(pub_io, 1u16)
+      read_packet(pub_io).should be_a(MQTT::Protocol::PubComp)
+      disconnect(pub_io)
+    end
+    read_publish(io)
+  end
 end

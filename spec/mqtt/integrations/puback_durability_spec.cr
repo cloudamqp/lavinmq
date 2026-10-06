@@ -1,35 +1,8 @@
 require "../spec_helper"
 
-# Lets a spec hold the publish confirm loop's drain, so what is acked before
-# the data is durable can be observed
-class LavinMQ::Persister
-  class_property drain_gate : ::Channel(Nil)? = nil
-
-  private def drain : Nil
-    @@drain_gate.try &.receive?
-    previous_def
-  end
-end
-
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
-
-  def self.with_drain_held(&)
-    gate = ::Channel(Nil).new
-    LavinMQ::Persister.drain_gate = gate
-    begin
-      yield gate
-    ensure
-      LavinMQ::Persister.drain_gate = nil
-      gate.close
-    end
-  end
-
-  def self.release_drain(gate) : Nil
-    LavinMQ::Persister.drain_gate = nil
-    gate.close
-  end
 
   describe "QoS 1 PUBACK durability" do
     it "sends the PUBACK once the publish is durable, without blocking the read loop" do
@@ -127,6 +100,40 @@ module MqttSpecs
             read_packet(io).should be_nil # no PUBREC while the drain is held
             release_drain(gate)
             read_packet(io).as(MQTT::Protocol::PubRec).packet_id.should eq 1u16
+          end
+        end
+      end
+    end
+
+    it "sends the PUBCOMP once the release is durable [MQTT-4.3.3-2]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 2u8, packet_id: 1u16)
+          with_drain_held do |gate|
+            pubrel(io, 1u16)
+            ping(io)
+            read_packet(io).should be_a(MQTT::Protocol::PingResp)
+            read_packet(io).should be_nil # no PUBCOMP while the drain is held
+            release_drain(gate)
+            read_packet(io).as(MQTT::Protocol::PubComp).packet_id.should eq 1u16
+          end
+        end
+      end
+    end
+
+    it "sends the PUBREL to a subscriber once the PUBREC is durable" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub")
+          pub = deliver_qos2(server, sub_io)
+          with_drain_held do |gate|
+            pubrec(sub_io, pub.packet_id.as(UInt16))
+            ping(sub_io)
+            read_packet(sub_io).should be_a(MQTT::Protocol::PingResp)
+            read_packet(sub_io).should be_nil
+            release_drain(gate)
+            read_packet(sub_io).as(MQTT::Protocol::PubRel).packet_id.should eq pub.packet_id
           end
         end
       end
