@@ -165,3 +165,64 @@ describe IO::Buffered do
     end
   end
 end
+
+describe Socket do
+  describe "#read_nonblock" do
+    it "returns nil when no data is available" do
+      reader, writer = UNIXSocket.pair
+      reader.read_nonblock(Bytes.new(16)).should be_nil
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
+    it "returns the available data without waiting for more" do
+      reader, writer = UNIXSocket.pair
+      writer.write "hello".to_slice
+      buf = Bytes.new(16)
+      reader.read_nonblock(buf).should eq 5
+      String.new(buf[0, 5]).should eq "hello"
+      reader.read_nonblock(buf).should be_nil
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
+    it "returns 0 at end of stream" do
+      reader, writer = UNIXSocket.pair
+      writer.close
+      reader.read_nonblock(Bytes.new(16)).should eq 0
+    ensure
+      reader.try &.close
+    end
+
+    it "raises when the socket is closed" do
+      reader, writer = UNIXSocket.pair
+      reader.close
+      expect_raises(IO::Error) { reader.read_nonblock(Bytes.new(16)) }
+    ensure
+      writer.try &.close
+    end
+  end
+
+  describe "#wait_readable" do
+    it "returns when data arrives" do
+      reader, writer = UNIXSocket.pair
+      spawn { writer.write_byte 1_u8 }
+      reader.wait_readable
+      reader.read_nonblock(Bytes.new(16)).should eq 1
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
+    it "raises IO::TimeoutError after read_timeout" do
+      reader, writer = UNIXSocket.pair
+      reader.read_timeout = 10.milliseconds
+      expect_raises(IO::TimeoutError) { reader.wait_readable }
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+  end
+end

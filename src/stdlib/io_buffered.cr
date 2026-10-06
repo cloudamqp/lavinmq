@@ -1,12 +1,4 @@
-require "socket"
-
-lib LibC
-  {% if flag?(:linux) %}
-    MSG_DONTWAIT = 0x40
-  {% else %}
-    MSG_DONTWAIT = 0x80
-  {% end %}
-end
+require "./socket_read_nonblock"
 
 # A thread-safe pool of reusable byte buffers for IO::Buffered.
 #
@@ -166,38 +158,18 @@ module IO::Buffered
     @in_buffer_rem = Slice.new(in_buffer, size)
   end
 
-  # fill_socket_buffer bypasses Socket#unbuffered_read and relies on stdlib
-  # internals (Socket's @fd_lock, the event loop's wait_readable). Re-verify
-  # them, and bump the version here, when upgrading Crystal.
-  {% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.22.0") < 0 %}
-    {% warning "IO::Buffered#fill_socket_buffer is only tested with Crystal 1.21, not #{Crystal::VERSION.id}" %}
-  {% end %}
-
   # Non-blocking read into a pooled buffer. If no data is available the buffer
   # is returned to the pool while waiting for the socket to become readable.
   private def fill_socket_buffer(socket : Socket, pool : IO::BufferPool) : Nil
-    # like Socket#unbuffered_read, hold the fd's read lock so a concurrent
-    # close can't close (and the OS reuse) the fd while we're reading from it
-    socket.@fd_lock.read do
-      loop do
-        in_buffer = (@in_buffer ||= pool.acquire)
-        ret = LibC.recv(socket.fd, in_buffer, @buffer_size, LibC::MSG_DONTWAIT)
-        if ret >= 0
-          @in_buffer_rem = Slice.new(in_buffer, ret.to_i)
-          return
-        end
-        case Errno.value
-        when Errno::EAGAIN # same as EWOULDBLOCK on Linux and macOS
-          @in_buffer = Pointer(UInt8).null
-          pool.release(in_buffer)
-          Crystal::EventLoop.current.wait_readable(socket)
-          check_open
-        when Errno::EINTR
-          next
-        else
-          raise IO::Error.from_errno("read", target: self)
-        end
+    loop do
+      in_buffer = (@in_buffer ||= pool.acquire)
+      if size = socket.read_nonblock(Slice.new(in_buffer, @buffer_size))
+        @in_buffer_rem = Slice.new(in_buffer, size)
+        return
       end
+      @in_buffer = Pointer(UInt8).null
+      pool.release(in_buffer)
+      socket.wait_readable
     end
   end
 end
