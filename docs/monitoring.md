@@ -9,11 +9,9 @@ LavinMQ exposes metrics in Prometheus format on a dedicated HTTP endpoint at `ht
 | `metrics_http_bind` | `[main]` | `127.0.0.1` | Bind address for the metrics endpoint |
 | `metrics_http_port` | `[main]` | `15692` | Port for the metrics endpoint |
 
-A clustered node serves the endpoint from startup, whatever its role: a
-follower and a node without a leader report runtime and clustering metrics,
-and the leader adds the broker's once it serves clients. A standalone node
-serves it once it holds the data directory lock, so a standby waiting for it
-doesn't look up.
+The endpoint is served as soon as the node holds the data directory lock,
+whatever its role: a follower and a node without a leader report runtime and
+clustering metrics, and the leader adds the broker's once it serves clients.
 
 Metrics are prefixed with `lavinmq_`. Both `/metrics` and `/metrics/detailed` accept a `prefix` query parameter (defaults to `lavinmq`) and a `vhost` parameter (repeatable) to filter by vhost.
 
