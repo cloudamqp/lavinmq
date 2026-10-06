@@ -82,6 +82,7 @@ module LavinMQ
         # Acks that are settled but not yet flushed are flushed before closing,
         # so the close only returns what's really unsettled.
         @settle.synchronize { flush_ack(session) unless session.closed? }
+        stop_ack_timer
         session.close
         @q = nil
       end
@@ -106,9 +107,14 @@ module LavinMQ
         return if session.closed?
         settle_tag(delivery_tag, acked: true)
         final = settle_one
-        if !batch || @frontier - @flushed >= ack_batch_size || final
+        # A full batch is flushed, and so is a partial one once nothing is in
+        # flight: no settlement is coming to grow it. Under load deliveries
+        # are always in flight, so acks go out once per batch.
+        if !batch || final || @in_flight.zero? || @frontier - @flushed >= ack_batch_size
           flush_ack(session)
           finish(session) if final
+        elsif pending_ack
+          arm_ack_timer
         end
       end
 
@@ -124,6 +130,7 @@ module LavinMQ
         return if session.closed?
         session.reject(delivery_tag, requeue: requeue)
         settle_tag(delivery_tag)
+        flush_ack(session) if @in_flight.zero?
         if requeue
           # A requeued message comes back redelivered and is settled then —
           # unless the broker dropped it (delivery limit, TTL) instead, in
@@ -207,6 +214,7 @@ module LavinMQ
       end
 
       private def open_queue(session)
+        stop_ack_timer # of a previous run
         q_name = @queue || ""
         q = begin
           session.declare_queue(q_name, passive: true)
@@ -233,24 +241,42 @@ module LavinMQ
           prefetch = Math.min(q[1], prefetch).to_u16
         end
         session.prefetch = prefetch
-        # Only batched acks need a timeout to flush a batch that stopped growing
+        # Only batched acks need a deadline for a partial batch
         if ack_batch_size > 1
-          spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(session) }
+          arm = ::Channel(Bool).new(1)
+          done = ::Channel(Nil).new
+          @ack_timer = {arm, done}
+          spawn(name: "Shovel #{@name} ack timer") { ack_timer(session, arm, done) }
         end
       end
 
-      # Flush a batch that has been waiting a whole timeout without growing.
-      private def ack_timeout_loop(session)
-        loop do
-          pending = pending_ack
-          sleep @batch_ack_timeout
-          break if session.closed?
-          next if pending.nil?
-          # Re-check and flush under the settlement lock so a concurrent
-          # ack/reject can't move the frontier between the check and the flush.
-          @settle.synchronize do
-            flush_ack(session) if !session.closed? && pending == pending_ack
+      # Armed when an ack is left pending in a partial batch, closed by #stop
+      @ack_timer : Tuple(::Channel(Bool), ::Channel(Nil))?
+
+      private def arm_ack_timer
+        @ack_timer.try &.[0].try_send?(true)
+      end
+
+      # Flushes a partial batch at most batch_ack_timeout after it was armed:
+      # deliveries are still in flight (else the ack would have been flushed
+      # already) but they may take long, e.g. a destination being retried.
+      # Sleeps on the arm channel while there's nothing pending, no polling.
+      private def ack_timer(session, arm, done)
+        while arm.receive? # Bool, as receive? of nil can't be told from closed
+          select
+          when done.receive?
+            return
+          when timeout(@batch_ack_timeout)
           end
+          @settle.synchronize { flush_ack(session) unless session.closed? }
+        end
+      end
+
+      private def stop_ack_timer
+        if timer = @ack_timer
+          timer[0].close
+          timer[1].close
+          @ack_timer = nil
         end
       end
 

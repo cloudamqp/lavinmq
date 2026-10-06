@@ -820,21 +820,43 @@ describe LavinMQ::Shovel do
   end
 
   describe "AMQPSource" do
-    it "acks in batches to a remote broker, and flushes a batch after a timeout" do
+    it "batches acks to a remote broker, flushing a partial batch once nothing is in flight" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
         vhost.declare_queue("ba_q", true, false)
         q = vhost.queue("ba_q")
         3.times { |i| ShovelSpecHelpers.publish(vhost, "ba_q", "m#{i}") }
-        source = ShovelSpecHelpers.source(s, "remote", "ba_q", prefetch: 10_u16,
+        source = ShovelSpecHelpers.source(s, "remote", "ba_q", prefetch: 10_u16, batch_ack_timeout: 1.hour)
+        source.start
+        tags = Channel(UInt64).new(3)
+        spawn { source.each { |m| tags.send m.tag } rescue nil }
+        delivered = Array.new(3) { tags.receive }
+        source.ack(delivered[0])
+        source.ack(delivered[1])
+        sleep 50.milliseconds
+        q.unacked_count.should eq 3 # batched: the third is still in flight
+        source.ack(delivered[2])
+        should_eventually(eq(0), 1.second) { q.unacked_count } # idle: flushed at once
+        q.message_count.should eq 0
+        source.stop
+      end
+    end
+
+    it "flushes a partial batch at the timeout while deliveries are in flight" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("bt_q", true, false)
+        q = vhost.queue("bt_q")
+        3.times { |i| ShovelSpecHelpers.publish(vhost, "bt_q", "m#{i}") }
+        source = ShovelSpecHelpers.source(s, "remote", "bt_q", prefetch: 10_u16,
           batch_ack_timeout: 50.milliseconds)
         source.start
         tags = Channel(UInt64).new(3)
         spawn { source.each { |m| tags.send m.tag } rescue nil }
-        3.times { source.ack(tags.receive) }
-        q.unacked_count.should eq 3 # waiting for a batch of 5
-        should_eventually(eq 0) { q.unacked_count }
-        q.message_count.should eq 0
+        delivered = Array.new(3) { tags.receive }
+        source.ack(delivered[0]) # the other two stay in flight
+        q.unacked_count.should eq 3
+        should_eventually(eq(2), 2.seconds) { q.unacked_count }
         source.stop
       end
     end
