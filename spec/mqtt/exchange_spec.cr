@@ -7,7 +7,7 @@ module MqttSpecs
     it "grants a QoS 2 subscription bound from outside the MQTT protocol as QoS 1" do
       with_server do |server|
         vhost = server.vhosts["/"]
-        exchange = vhost.mqtt_exchange
+        exchange = vhost.mqtt.exchange
         vhost.declare_queue("mqtt.sub", true, false,
           LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
 
@@ -30,7 +30,7 @@ module MqttSpecs
 
     it "exposes subscriptions as MQTT::SubscriptionDetails sharing the binding details interface" do
       with_server do |server|
-        exchange = server.vhosts["/"].mqtt_exchange
+        exchange = server.vhosts["/"].mqtt.exchange
         with_client_io(server) do |io|
           connect(io, client_id: "sub", clean_session: true)
           subscribe(io, topic_filters: [subtopic("a/b", 0u8)])

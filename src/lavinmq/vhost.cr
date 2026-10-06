@@ -98,10 +98,6 @@ module LavinMQ
       definitions.register_exchange(exchange)
     end
 
-    def mqtt_exchange : MQTT::Exchange
-      mqtt_definitions.exchange
-    end
-
     # Queue accessors
 
     def queue?(name : String) : AMQP::Queue?
@@ -121,8 +117,8 @@ module LavinMQ
     end
 
     private def each_policy_target(& : Queue | Exchange ->)
-      resources = Array(Queue | Exchange).new(queues_size + exchanges_size + sessions_size)
-      resources.concat(queues).concat(sessions).concat(exchanges)
+      resources = Array(Queue | Exchange).new(queues_size + exchanges_size + mqtt.sessions_size)
+      resources.concat(queues).concat(mqtt.sessions).concat(exchanges)
       resources.each do |r|
         yield r
       end
@@ -142,42 +138,6 @@ module LavinMQ
 
     def queues_clear : Nil
       definitions.queues_clear
-    end
-
-    # Session accessors
-
-    def session?(name : String) : MQTT::Session?
-      mqtt_definitions.session?(name)
-    end
-
-    def session(name : String) : MQTT::Session
-      mqtt_definitions.session(name)
-    end
-
-    def session_exists?(name : String) : Bool
-      mqtt_definitions.session_exists?(name)
-    end
-
-    def each_session(& : MQTT::Session ->) : Nil
-      mqtt_definitions.each_session { |v| yield v }
-    end
-
-    def sessions : Array(MQTT::Session)
-      mqtt_definitions.sessions
-    end
-
-    def sessions_size : Int32
-      mqtt_definitions.sessions_size
-    end
-
-    def sessions_clear : Nil
-      mqtt_definitions.sessions_clear
-    end
-
-    # The subscriptions of an MQTT session, in binding-details shape. The MQTT
-    # counterpart of `queue_bindings`.
-    def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
-      mqtt_definitions.subscriptions(session)
     end
 
     # Connection accessors
@@ -281,7 +241,7 @@ module LavinMQ
     end
 
     def queue_limit_reached? : Bool
-      @max_queues.try { |max| definitions.queues_size + mqtt_definitions.sessions_size >= max } || false
+      @max_queues.try { |max| definitions.queues_size + mqtt.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -348,7 +308,7 @@ module LavinMQ
         ready += q.message_count
         unacked += q.unacked_count
       end
-      each_session do |s|
+      mqtt.each_session do |s|
         ready += s.message_count
         unacked += s.unacked_count
       end
@@ -533,7 +493,7 @@ module LavinMQ
       each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       each_queue &.close
-      each_session &.close
+      mqtt.each_session &.close
       @mqtt_broker.try &.close
       each_exchange &.close
       Fiber.yield
@@ -658,7 +618,7 @@ module LavinMQ
       @definitions.not_nil!
     end
 
-    private def mqtt_definitions : MQTT::DefinitionsStore
+    def mqtt : MQTT::DefinitionsStore
       @mqtt_definitions.not_nil!
     end
   end

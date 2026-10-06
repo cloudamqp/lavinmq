@@ -20,7 +20,7 @@ module MqttSpecs
 
           pingpong(io)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.publish_count.should eq 1
           disconnect(io)
         end
@@ -43,7 +43,7 @@ module MqttSpecs
           read_packet(io)
           pingpong(io)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.deliver_no_ack_count.should eq 1
           session.deliver_get_count.should eq 1
           session.deliver_count.should eq 0
@@ -69,7 +69,7 @@ module MqttSpecs
           puback(io, pub.packet_id)
           pingpong(io)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.deliver_count.should eq 1
           session.deliver_get_count.should eq 1
           session.deliver_no_ack_count.should eq 0
@@ -93,7 +93,7 @@ module MqttSpecs
 
           pub = read_packet(io).as(MQTT::Protocol::Publish)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.unacked_count.should eq 1
           session.unacked_bytesize.should be > 0
 
@@ -123,7 +123,7 @@ module MqttSpecs
           puback(io, pub.packet_id)
           pingpong(io)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.ack_count.should eq 1
           disconnect(io)
         end
@@ -153,7 +153,7 @@ module MqttSpecs
           puback(io, pub.packet_id)
           pingpong(io)
 
-          session = server.vhosts["/"].session("mqtt.client_id")
+          session = server.vhosts["/"].mqtt.session("mqtt.client_id")
           session.redeliver_count.should eq 1
           session.deliver_count.should eq 1
           session.deliver_no_ack_count.should eq 0
