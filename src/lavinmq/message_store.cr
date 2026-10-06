@@ -26,9 +26,8 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
-    # Set once a publish to this store needed a sync (publish confirm,
-    # tx.commit or MQTT QoS 1), see #write_to_disk
-    @synced_writes = false
+    # When the reader moved into @rfile, see #read_fast?
+    @rfile_since = RoughTime.instant
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
@@ -380,10 +379,13 @@ module LavinMQ
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
-        # Not the segment being written, it would undo #random_access_for_sync
-        rfile.advise(MFile::Advice::Sequential) unless id == @wfile_id
+        # Not the segment being written, it's read as it's written and cached
+        if id != @wfile_id && read_fast?(@rfile, @rfile_since)
+          rfile.advise(MFile::Advice::Sequential)
+        end
         @rfile_id = id
         @rfile = rfile
+        @rfile_since = RoughTime.instant
         @log.debug { "select_next_read_segment: #{prev_id} -> #{id}, segments=#{@segments.keys}" }
         rfile
       else
@@ -404,39 +406,40 @@ module LavinMQ
       # After the replication dispatch, so the fsync request the persister
       # sends followers comes after this append in the stream
       if msg.needs_sync? && (persister = @persister)
-        # Only when the persister actually syncs, see #random_access_for_sync
-        random_access_for_sync(wfile) if !@synced_writes && Config.instance.sync?
         persister.mark_dirty(wfile)
       end
       @segment_msg_count[wfile_id] += 1
       sp
     end
 
-    # Readahead on page faults makes the kernel cache the segment in large
-    # folios (up to 128 KiB on ext4/XFS), and each msync for a confirm then
-    # writes the whole folio holding the tail of the segment, not just the
-    # few bytes appended since the last sync. MADV_RANDOM disables the
-    # readahead, so the folios stay at a page. Folios already in the page
-    # cache keep their size, so the first syncs after this still write
-    # large folios, until the writes pass the readahead window. Segments
-    # opened later get it from the start. Readers advise a full segment
-    # sequential (see #unmap_finished_segment), as reading it without
-    # readahead would be slow. It's only for stores that sync, as page sized
-    # folios take more page faults to write.
-    private def random_access_for_sync(wfile : MFile) : Nil
-      @synced_writes = true
-      wfile.advise(MFile::Advice::Random)
+    # Segments are mapped without readahead. Readahead on a page fault caches
+    # up to the readahead window (4 MiB on btrfs, 128 KiB on ext4/XFS) around
+    # it: for the segment being written that's its empty rest, and for a slow
+    # reader the part it hasn't reached yet, kept for as long as the queue is
+    # written to or read, which with many queues adds up to gigabytes. It also
+    # keeps the page cache in page sized folios, so an msync only writes the
+    # pages that changed. Writing faults once per page with or without
+    # readahead. Fast readers get readahead back, see #read_fast?.
+    private def open_segment(path : String, capacity : Int? = nil) : MFile
+      mfile = MFile.new(path, capacity)
+      mfile.advise(MFile::Advice::Random)
+      mfile
     end
 
-    # Called on rollover for the segment that was just written to. A segment
-    # that is being read gets sequential advice here, as it won't get it when
-    # the reader moves into it (see #select_next_read_segment).
+    # A reader that got through its previous segment at least this fast gets
+    # readahead for its next one. A slower reader isn't waiting on the disk,
+    # so readahead wouldn't speed it up. Reading a segment a page per fault,
+    # without readahead, is faster than this even on slow disks, so a reader
+    # that is held back by the disk still gets it.
+    READAHEAD_MIN_BYTES_PER_SECOND = 1024 * 1024
+
+    private def read_fast?(segment : MFile, since : Time::Instant) : Bool
+      segment.size >= READAHEAD_MIN_BYTES_PER_SECOND * (RoughTime.instant - since).total_seconds
+    end
+
+    # Called on rollover for the segment that was just written to
     private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
-      if mfile == @rfile
-        mfile.advise(MFile::Advice::Sequential)
-      else
-        mfile.dontneed
-      end
+      mfile.dontneed unless mfile == @rfile
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
@@ -448,8 +451,7 @@ module LavinMQ
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = MFile.new(path, capacity)
-      wfile.advise(MFile::Advice::Random) if @synced_writes
+      wfile = open_segment(path, capacity)
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -481,7 +483,7 @@ module LavinMQ
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
       mfile = MFile.new(path, capacity, writeonly: true)
       # Page sized folios, so a sync doesn't rewrite up to 128 KiB of acks
-      # for each 4 byte append (see #random_access_for_sync). A page fault
+      # for each 4 byte append (see #open_segment). A page fault
       # still covers 1024 acks, so it's cheap enough to always do.
       mfile.advise(MFile::Advice::Random)
       mfile.delete unless @durable # mark as deleted if non-durable
@@ -556,9 +558,9 @@ module LavinMQ
         path = File.join(@msg_dir, filename)
         file = if idx == last_idx
                  # expand the last segment
-                 MFile.new(path, Config.instance.segment_size)
+                 open_segment(path, Config.instance.segment_size)
                else
-                 MFile.new(path)
+                 open_segment(path)
                end
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
@@ -574,7 +576,7 @@ module LavinMQ
             @log.warn { "Empty file at #{path}, deleting it" }
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = MFile.new(path, Config.instance.segment_size)
+              file = open_segment(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
               @replicator.try &.append_value path, Schema::VERSION, 0i64
             else
