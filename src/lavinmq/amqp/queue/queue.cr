@@ -120,6 +120,21 @@ module LavinMQ::AMQP
 
     private EXPIRE_FIBER_IDLE_THRESHOLD = 30.seconds
 
+    # The expire loop wakes on deadlines rounded up to this many ms, so
+    # messages published close together expire in one batch instead of
+    # one wakeup per millisecond. Messages are never expired early.
+    EXPIRE_WAKEUP_GRANULARITY_MS = 10_i64
+
+    # Time until the expire loop should wake up for a message expiring at
+    # *expire_at* (unix ms)
+    def self.time_to_expiration_wakeup(expire_at : Int64) : Time::Span
+      now = RoughTime.unix_ms
+      return Time::Span.zero if expire_at <= now
+      g = EXPIRE_WAKEUP_GRANULARITY_MS
+      wake_at = (expire_at + g - 1) // g * g
+      (wake_at - now).milliseconds
+    end
+
     getter? internal = false
 
     private def queue_expire_loop
@@ -806,12 +821,7 @@ module LavinMQ::AMQP
       env = @msg_store_lock.synchronize { @msg_store.first? } || return
       @log.debug { "Checking if message #{env.message} has to be expired" }
       if expire_at = expire_at(env.message)
-        expire_in = expire_at - RoughTime.unix_ms
-        if expire_in > 0
-          expire_in.milliseconds
-        else
-          Time::Span.zero
-        end
+        Queue.time_to_expiration_wakeup(expire_at)
       end
     end
 
