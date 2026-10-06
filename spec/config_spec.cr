@@ -20,6 +20,46 @@ private def clustering_password_file(secret = "secret") : String
 end
 
 describe LavinMQ::Config do
+  describe "clustering advertised addresses" do
+    it "advertises the hostname when bound to all interfaces" do
+      {"::", "0.0.0.0"}.each do |bind|
+        config = LavinMQ::Config.new
+        config.clustering_bind = bind
+        config.clustering_advertised_uri_or_default.should eq "tcp://#{System.hostname}:5679"
+        config.clustering_raft_address.should eq "#{System.hostname}:5680"
+      end
+    end
+
+    it "advertises the address bound to otherwise" do
+      config = LavinMQ::Config.new
+      config.clustering_bind = "10.0.0.5"
+      config.clustering_advertised_uri_or_default.should eq "tcp://10.0.0.5:5679"
+      config.clustering_raft_address.should eq "10.0.0.5:5680"
+    end
+
+    it "brackets an IPv6 bind address" do
+      config = LavinMQ::Config.new
+      config.clustering_bind = "fd00::5"
+      config.clustering_advertised_uri_or_default.should eq "tcp://[fd00::5]:5679"
+      config.clustering_raft_address.should eq "[fd00::5]:5680"
+    end
+
+    it "takes the raft address's host from the advertised URI" do
+      config = LavinMQ::Config.new
+      config.clustering_bind = "::"
+      config.clustering_advertised_uri = "tcp://node1.example:5679"
+      config.clustering_raft_port = 5690
+      config.clustering_raft_address.should eq "node1.example:5690"
+    end
+
+    it "uses a configured raft advertised address as is" do
+      config = LavinMQ::Config.new
+      config.clustering_advertised_uri = "tcp://node1.example:5679"
+      config.clustering_raft_advertised_address = "raft.example:7000"
+      config.clustering_raft_address.should eq "raft.example:7000"
+    end
+  end
+
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG

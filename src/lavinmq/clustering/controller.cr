@@ -23,8 +23,7 @@ abstract class LavinMQ::Clustering::Controller
 
   def initialize(@config : Config)
     @id = clustering_id
-    @advertised_uri = @config.clustering_advertised_uri ||
-                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @advertised_uri = @config.clustering_advertised_uri_or_default
   end
 
   abstract def coordinator : Coordinator

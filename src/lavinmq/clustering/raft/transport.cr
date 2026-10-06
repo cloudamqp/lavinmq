@@ -147,6 +147,7 @@ module LavinMQ::Clustering::Raft
 
     private def connect(peer : String) : TCPSocket
       host, _, port = peer.rpartition(':')
+      host = host[1...-1] if host.starts_with?('[') && host.ends_with?(']') # IPv6
       socket = TCPSocket.new(host, port.to_i, connect_timeout: @connect_timeout)
       socket.sync = false
       socket.tcp_nodelay = true

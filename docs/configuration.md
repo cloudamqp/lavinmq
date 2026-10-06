@@ -115,13 +115,13 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `enabled` | `--clustering` | `LAVINMQ_CLUSTERING` | Bool | `false` | Enable clustering |
 | `bind` | `--clustering-bind` | `LAVINMQ_CLUSTERING_BIND` | String | `127.0.0.1` | Clustering bind address |
 | `port` | `--clustering-port` | `LAVINMQ_CLUSTERING_PORT` | Int | `5679` | Clustering port |
-| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | (none) | Advertised URI for peers |
+| `advertised_uri` | `--clustering-advertised-uri` | `LAVINMQ_CLUSTERING_ADVERTISED_URI` | String | `tcp://hostname:port` when bound to all interfaces, else `tcp://bind:port` | Advertised URI for peers |
 | `backend` | `--clustering-backend` | `LAVINMQ_CLUSTERING_BACKEND` | String | `etcd` | Leader election backend, `raft` (built in, recommended for new clusters) or `etcd` |
 | `etcd_endpoints` | `--clustering-etcd-endpoints` | `LAVINMQ_CLUSTERING_ETCD_ENDPOINTS` | String | `localhost:2379` | etcd endpoints (comma-separated), etcd backend only |
 | `etcd_prefix` | `--clustering-etcd-prefix` | `LAVINMQ_CLUSTERING_ETCD_PREFIX` | String | `lavinmq` | etcd key prefix, etcd backend only |
 | `seeds` | `--clustering-seeds` | `LAVINMQ_CLUSTERING_SEEDS` | String | (required) | Raft `host:port` addresses (comma-separated) to form or join a cluster with: every node of a new cluster, or any member when joining. Raft backend only |
 | `raft_port` | `--clustering-raft-port` | `LAVINMQ_CLUSTERING_RAFT_PORT` | Int | `5680` | Port for leader election traffic, bound on `bind`, raft backend only |
-| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | `hostname:raft_port` | The `host:port` other nodes reach this node's raft port at, raft backend only |
+| `raft_advertised_address` | `--clustering-raft-advertised-address` | `LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS` | String | host of `advertised_uri`, `:raft_port` | The `host:port` other nodes reach this node's raft port at, raft backend only |
 | `password_file` | `--clustering-password-file` | `LAVINMQ_CLUSTERING_PASSWORD_FILE` | String | (empty) | File with the shared secret authenticating nodes to each other, at most 255 bytes. Must not be accessible by group or others. Required, raft backend only |
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts, raft backend only |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats, raft backend only |

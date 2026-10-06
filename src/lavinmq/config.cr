@@ -139,9 +139,30 @@ module LavinMQ
       raise Error.new("Cannot read clustering password_file: #{ex.message}")
     end
 
-    # This node's raft address as it appears in the peer list.
+    # The URI followers replicate from. Defaults to this host's name when
+    # bound to all interfaces, otherwise to the address bound to.
+    def clustering_advertised_uri_or_default : String
+      @clustering_advertised_uri || "tcp://#{bracket_ipv6(default_clustering_host)}:#{@clustering_port}"
+    end
+
+    # This node's raft address as it appears in the peer list. Defaults to the
+    # host of the advertised URI with the raft port.
     def clustering_raft_address : String
-      @clustering_raft_advertised_address || "#{System.hostname}:#{@clustering_raft_port}"
+      @clustering_raft_advertised_address || begin
+        host = URI.parse(clustering_advertised_uri_or_default).hostname.presence || default_clustering_host
+        "#{bracket_ipv6(host)}:#{@clustering_raft_port}"
+      end
+    end
+
+    private def default_clustering_host : String
+      case bind = @clustering_bind
+      when "::", "0.0.0.0", "" then System.hostname
+      else                          bind
+      end
+    end
+
+    private def bracket_ipv6(host : String) : String
+      host.includes?(':') && !host.starts_with?('[') ? "[#{host}]" : host
     end
 
     # Raft addresses to form or join a cluster with. A new cluster's first

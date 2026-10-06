@@ -416,7 +416,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
 
-      @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
+      @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server (default: tcp://hostname:port when bound to all interfaces, else tcp://bind:port)", section: "clustering")]
       @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
@@ -441,7 +441,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_PORT")]
       property clustering_raft_port = 5680
 
-      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "The host:port other nodes reach this node's raft port at, raft backend only (default: hostname:raft_port)", section: "clustering")]
+      @[CliOpt("", "--clustering-raft-advertised-address=ADDRESS", "The host:port other nodes reach this node's raft port at, raft backend only (default: the advertised URI's host with raft_port)", section: "clustering")]
       @[IniOpt(ini_name: raft_advertised_address, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_RAFT_ADVERTISED_ADDRESS")]
       property clustering_raft_advertised_address : String? = nil
