@@ -83,3 +83,7 @@ A per-queue override can be set with the `x-consumer-timeout` queue argument (mi
 ## Exclusive Consumers
 
 A consumer declared with `exclusive: true` ensures no other consumers can consume from the queue while it is active. If another consumer tries to consume from the same queue, a `403 ACCESS_REFUSED` error is returned.
+
+An exclusive consumer can only be added to a queue without consumers. If the queue already has consumers, the exclusive consumer is refused with `403 ACCESS_REFUSED`, and the existing consumers are unaffected.
+
+Exclusive consumers are unrelated to [exclusive queues](queues.md), which belong to the connection that declared them.

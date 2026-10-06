@@ -279,57 +279,60 @@ module LavinMQ
       private def get_packet(& : Protocol::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if closed?
         loop do
-          env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-          sp = env.segment_position
-          no_ack = env.message.properties.delivery_mode == 0
-          if no_ack
-            begin
-              packet = build_packet(env, nil)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              raise ex
-            end
-            delete_message(sp)
-          else
-            begin
-              id = delivery_id(sp)
-              unless id
+          # The payload is sent straight from the segment, which a close or
+          # delete of the session can unmap while the send is suspended
+          @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+            sp = env.segment_position
+            no_ack = env.message.properties.delivery_mode == 0
+            if no_ack
+              begin
+                packet = build_packet(env, nil)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_no_ack_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+              rescue ex # requeue failed delivery
                 @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-                # Without this the deliver_loop spins: the store is non-empty and
-                # capacity still reads true. Recomputed rather than closed
-                # outright, since an ack can free a slot while the requeue above
-                # waits on a contended @msg_store_lock.
+                raise ex
+              end
+              delete_message(sp)
+            else
+              begin
+                id = delivery_id(sp)
+                unless id
+                  @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                  # Without this the deliver_loop spins: the store is non-empty and
+                  # capacity still reads true. Recomputed rather than closed
+                  # outright, since an ack can free a slot while the requeue above
+                  # waits on a contended @msg_store_lock.
+                  refresh_capacity
+                  return false
+                end
+                packet = build_packet(env, id)
+                @unacked_count.add(1, :relaxed)
+                @unacked_bytesize.add(sp.bytesize, :relaxed)
+                yield packet, sp.bytesize
+                if env.redelivered
+                  @redeliver_count.add(1, :relaxed)
+                else
+                  @deliver_count.add(1, :relaxed)
+                  @deliver_get_count.add(1, :relaxed)
+                end
+                @unacked[id] = sp
+                @msg_store.forget_packet_id(sp)
                 refresh_capacity
-                return false
+              rescue ex # requeue failed delivery
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+                raise ex
               end
-              packet = build_packet(env, id)
-              @unacked_count.add(1, :relaxed)
-              @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet, sp.bytesize
-              if env.redelivered
-                @redeliver_count.add(1, :relaxed)
-              else
-                @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
-              end
-              @unacked[id] = sp
-              @msg_store.forget_packet_id(sp)
-              refresh_capacity
-            rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
-              raise ex
             end
-          end
-          return true
+            return true
+          end || break
         end
         false
       rescue ex : MessageStore::Error

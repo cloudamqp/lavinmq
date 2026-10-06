@@ -966,96 +966,49 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
-      it "advises the write segment once a publish needs a sync" do
+      it "advises every segment random access" do
         with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          wfile = store.@wfile.path
-          store.push(LavinMQ::Message.new("", "rk", "not synced"))
-          vm_flags(wfile).should_not contain "rr"
-          store.push(synced_message("synced"))
-          vm_flags(wfile).should contain "rr"
-          store.close
-          persister.close
-        end
-      end
-
-      it "advises segments opened after a synced publish, also when the reader reaches them" do
-        with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          store.push(synced_message("synced"))
-          first_segment = store.@wfile_id
+          store = LavinMQ::MessageStore.new(dir, nil)
+          vm_flags(store.@wfile.path).should contain "rr"
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-          store.@wfile_id.should_not eq first_segment
-          4.times { store.shift?.should_not be_nil }
-          store.@rfile_id.should eq store.@wfile_id
+          store.@wfile_id.should_not eq 1
           vm_flags(store.@wfile.path).should contain "rr"
           store.close
-          persister.close
+          store = LavinMQ::MessageStore.new(dir, nil)
+          store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
+          store.close
         end
       end
 
-      it "advises a full segment sequential if the reader is in it" do
+      it "advises the next full segment sequential for a reader that read the previous one fast" do
         with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          store.push(synced_message("synced"))
-          first_segment = store.@wfile.path
-          vm_flags(first_segment).should contain "rr"
+          store = LavinMQ::MessageStore.new(dir, nil)
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-          store.@wfile.path.should_not eq first_segment
-          store.@rfile.path.should eq first_segment
-          vm_flags(first_segment).should_not contain "rr"
-          vm_flags(first_segment).should contain "sr"
-          store.close
-          persister.close
-        end
-      end
-
-      it "advises a full segment sequential when the reader reaches it" do
-        with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          store.push(synced_message("synced"))
-          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
-          4.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-          second_segment = store.@segments.values[1].path
-          vm_flags(second_segment).should contain "rr"
+          first, second, third = store.@segments.values.map(&.path)
           3.times { store.shift?.should_not be_nil }
-          store.@rfile.path.should eq second_segment
-          vm_flags(second_segment).should_not contain "rr"
-          vm_flags(second_segment).should contain "sr"
+          vm_flags(first).should contain "rr" # no read before it to go by
+          vm_flags(second).should_not contain "rr"
+          vm_flags(second).should contain "sr"
+          vm_flags(third).should contain "rr" # the write segment
           store.close
-          persister.close
         end
       end
 
-      it "doesn't advise the write segment when sync is disabled" do
-        LavinMQ::Config.instance.sync = false
+      it "keeps random access for a reader that read the previous segment slowly" do
+        LavinMQ::Config.instance.segment_size = 64 * 1024
         with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          store.push(synced_message("not synced, sync is disabled"))
-          vm_flags(store.@wfile.path).should_not contain "rr"
-          store.close
-          persister.close
-        end
-      ensure
-        LavinMQ::Config.instance.sync = true
-      end
-
-      it "doesn't advise segments of stores that never sync" do
-        with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
+          store = LavinMQ::MessageStore.new(dir, nil)
           large = "x" * (LavinMQ::Config.instance.segment_size // 2)
           3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-          vm_flags(store.@wfile.path).should_not contain "rr"
+          second = store.@segments.values[1].path
+          store.shift?.should_not be_nil
+          sleep 200.milliseconds # 64 KiB in 200 ms is below 1 MiB/s
+          store.shift?.should_not be_nil
+          store.@rfile.path.should eq second
+          vm_flags(second).should contain "rr"
           store.close
-          persister.close
         end
       end
 
