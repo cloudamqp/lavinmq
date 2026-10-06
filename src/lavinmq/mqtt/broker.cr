@@ -3,14 +3,13 @@ require "./consts"
 require "./exchange"
 require "./protocol"
 require "./session"
-require "./sessions"
 require "./retain_store"
 require "../vhost"
 
 module LavinMQ
   module MQTT
     class Broker
-      getter vhost, sessions
+      getter vhost
       Log = LavinMQ::Log.for "mqtt.broker"
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
@@ -24,7 +23,6 @@ module LavinMQ
       # - Interfacing with the virtual host (vhost) and the exchange to route messages
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
       def initialize(@vhost : VHost)
-        @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt.exchange
@@ -34,9 +32,13 @@ module LavinMQ
         @vhost.mqtt_permission_service
       end
 
+      def session?(client_id : String) : Session?
+        @vhost.mqtt.session?(session_name(client_id))
+      end
+
       def session_present?(client_id : String, clean_session) : Bool
         return false if clean_session
-        session = sessions[client_id]? || return false
+        session = session?(client_id) || return false
         return false if session.clean_session?
         true
       end
@@ -65,11 +67,11 @@ module LavinMQ
           packet.keepalive,
           packet.will)
         if client.clean_session?
-          sessions[client.client_id]?.try &.delete
+          session?(client.client_id).try &.delete
         else
           # If an existing session exists, reuse it. If no session exists
           # it will be created on first subscribe
-          if session = sessions[client.client_id]?
+          if session = session?(client.client_id)
             session.client = client
           end
         end
@@ -90,7 +92,7 @@ module LavinMQ
 
       def remove_client(client)
         client_id = client.client_id
-        if session = sessions[client_id]?
+        if session = session?(client_id)
           if session.client.nil? || (session.client == client)
             session.client = nil
             session.delete if session.clean_session?
@@ -106,7 +108,7 @@ module LavinMQ
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
-        session = sessions.declare(client)
+        session = declare_session(client)
         unless session
           Log.warn { "Rejecting subscribe from client_id=#{client.client_id}, queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached" }
           return topics.map { Protocol::SubAck::ReturnCode::Failure }
@@ -130,7 +132,7 @@ module LavinMQ
       end
 
       def unsubscribe(client_id, topics)
-        session = sessions[client_id]? || return
+        session = session?(client_id) || return
         topics.each do |tf|
           session.unsubscribe(tf)
         end
@@ -138,6 +140,24 @@ module LavinMQ
 
       def close
         @retain_store.close
+      end
+
+      # Nil if creating the session would exceed the vhost's max-queues limit.
+      # An existing session is always returned, reusing one consumes no new
+      # resource.
+      private def declare_session(client : Client) : Session?
+        session?(client.client_id) || begin
+          return if @vhost.queue_limit_reached?
+          name = session_name(client.client_id)
+          @vhost.declare_queue(name, !client.clean_session?, client.clean_session?, Session::ARGUMENTS)
+          session = @vhost.mqtt.session(name)
+          session.client = client
+          session
+        end
+      end
+
+      private def session_name(client_id : String) : String
+        "#{SESSION_PREFIX}#{client_id}"
       end
     end
   end
