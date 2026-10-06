@@ -33,6 +33,9 @@ module LavinMQ
       @followers = Array(Follower).new(4)
       @password : String
       @dirty_isr = true
+      # Set by #close: followers dropped by our own shutdown stay in the ISR,
+      # so one of them can take over
+      @closing = false
       @id : Int32
       @config : Config
       # Maps relative paths to their MFile (for sparse, mmap-backed files) or
@@ -399,25 +402,21 @@ module LavinMQ
         # would hang every wait_for_confirm forever.
         @lock.synchronize do
           @followers.delete(follower)
-          if follower.synced?
-            # If the follower was behind (unacked replicated data) when it
-            # dropped, it may be missing data that's about to be confirmed via
-            # the surviving followers, so it must leave the etcd ISR now rather
-            # than lazily — otherwise it could be promoted on failover lacking
-            # already-confirmed data. A caught-up follower (no lag) still has
-            # everything confirmed so far, so we leave it in the ISR as a valid
-            # failover candidate; the dirty ISR is flushed before the next
-            # replicated durable operation returns (each_follower) and before
-            # the next publish confirm (Persister), so nothing it lacks is
-            # ever acknowledged while it remains listed.
-            behind = follower.lag_in_bytes > 0
+          if follower.synced? && !@closing
+            # A follower leaves the ISR as soon as it disconnects, also when it
+            # was caught up. It may come back with its clustering id but lost
+            # or stale data (a disk restored from a snapshot), and while still
+            # listed it could be elected before its full sync has restored
+            # that data, and the other nodes would then sync from it. If the
+            # write fails, @dirty_isr stays set and the next replicated
+            # durable operation (each_follower) or publish confirm (Persister)
+            # retries it, so nothing the follower lacks is acknowledged while
+            # it is listed.
             @dirty_isr = true
-            if behind
-              begin
-                update_isr # @dirty_isr stays set, so the lazy path retries on failure
-              rescue ex
-                Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
-              end
+            begin
+              update_isr
+            rescue ex
+              Log.warn(exception: ex) { "Failed to update ISR after follower id=#{follower.id.to_s(36)} disconnected" }
             end
           end
         end
@@ -492,6 +491,7 @@ module LavinMQ
       def close
         @listeners.each &.close
         @lock.synchronize do
+          @closing = true
           @followers.each &.close
           @followers.clear
         end

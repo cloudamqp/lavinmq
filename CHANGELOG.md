@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A clustering follower leaves the ISR as soon as it disconnects, also when it was caught up, instead of at the next replicated write or publish confirm. A node that comes back with lost or stale data under the same clustering id, e.g. from a restored disk snapshot, can then not be elected leader before it has synced again. Followers dropped by the leader's own shutdown stay in the ISR [#ISRPR](https://github.com/cloudamqp/lavinmq/pull/ISRPR)
 - LavinMQ now exits at startup if the data directory lock is held by another process, instead of waiting for the lock to be released [#2350](https://github.com/cloudamqp/lavinmq/pull/2350)
 - `tcp_nodelay` in `[main]` now defaults to `true`, removing up to ~40 ms of Nagle/delayed-ACK latency on deliveries to consumers that ack in batches. Set `tcp_nodelay = false` for the old behaviour [#2336](https://github.com/cloudamqp/lavinmq/pull/2336)
 - Message timestamps and message TTL expiry have millisecond precision; they were previously rounded down to 100 ms, so messages could expire up to 100 ms early. Expiry wakeups are batched to 10 ms [#2344](https://github.com/cloudamqp/lavinmq/pull/2344)
