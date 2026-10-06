@@ -52,7 +52,7 @@ module LavinMQ
       @protocol : String
       @ack_seq = 0u64
       @pending_acks = Sync::Exclusive(Deque(PendingAck)).new(Deque(PendingAck).new, :unchecked)
-      # Created with the ack writer fiber on the first QoS 1 or 2 publish
+      # Created with the ack writer fiber on the first queued ack of any kind (PUBACK, PUBREC, PUBREL, PUBCOMP)
       @ack_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
@@ -138,11 +138,11 @@ module LavinMQ
             break
           end
         end
-      rescue ex : Session::ProtocolViolation
+      rescue ex : Session::ProtocolViolation | Session::AwaitingPubrelLimitReached
         # The Will publishes from here as it does on every other close without a
         # DISCONNECT [MQTT-3.1.2-8]; 3.1.2.5 names a server close on a protocol
         # error as one of those situations.
-        @log.warn { "Protocol violation: #{ex.message}" }
+        @log.warn { "Closing connection: #{ex.message}" }
         publish_will
       rescue ex : Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }

@@ -193,6 +193,35 @@ module MqttSpecs
         end
       end
     end
+
+    it "closes a publisher holding more than max_awaiting_pubrel packet ids" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 2u16
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          2.times { |i| publish(io, topic: "a/b", qos: 2u8, packet_id: (i + 1).to_u16) }
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 3u16, expect_response: false)
+          io.should be_closed
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
+    end
+
+    it "accepts a re-send of a held packet id at the cap" do
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1u16
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16)
+          publish(io, topic: "a/b", qos: 2u8, packet_id: 1u16, dup: true)
+          pubrel(io, 1u16)
+          read_packet(io).should be_a(MQTT::Protocol::PubComp)
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.max_awaiting_pubrel = 1024u16
+    end
   end
 
   describe "qos2 as sender" do

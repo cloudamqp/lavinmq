@@ -92,6 +92,9 @@ module LavinMQ
       unless @max_inflight_messages.positive?
         raise Error.new("max_inflight_messages must be positive (got #{@max_inflight_messages})")
       end
+      unless @max_awaiting_pubrel.positive?
+        raise Error.new("max_awaiting_pubrel must be positive (got #{@max_awaiting_pubrel})")
+      end
     end
 
     private def parse_config_from_cli(argv)

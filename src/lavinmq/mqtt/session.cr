@@ -23,6 +23,10 @@ module LavinMQ
       # the window does not survive a restart.
       class ProtocolViolation < MQTT::Error; end
 
+      # 3.1.1 has no way to refuse one publish, so going over the cap closes
+      # the connection; the client re-sends its PUBRELs on reconnect.
+      class AwaitingPubrelLimitReached < MQTT::Error; end
+
       include SortableJSON
       include PolicyTarget
       include AMQP::QueueStats
@@ -564,11 +568,13 @@ module LavinMQ
 
       # Records `packet_id`, returning false if it was already held, i.e. this
       # PUBLISH is a re-send of one already routed.
-      #
-      # Uncapped on purpose: ids are `UInt16` so a session holds at most 65535,
-      # and rejecting past a cap would have to raise, which publishes the will.
       def publish_received(packet_id : UInt16) : Bool
-        @awaiting_pubrel.add?(packet_id)
+        return false if @awaiting_pubrel.includes?(packet_id)
+        if @awaiting_pubrel.size >= Config.instance.max_awaiting_pubrel
+          raise AwaitingPubrelLimitReached.new("Holding #{@awaiting_pubrel.size} QoS 2 packet ids, max_awaiting_pubrel is #{Config.instance.max_awaiting_pubrel}")
+        end
+        @awaiting_pubrel.add(packet_id)
+        true
       end
 
       # Releases `packet_id` on PUBREL. False if we were not holding it.
