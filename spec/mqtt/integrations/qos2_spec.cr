@@ -593,5 +593,61 @@ module MqttSpecs
         end
       end
     end
+
+    it "sends PUBREL for the original packet id of a requeued message dropped by overflow" do
+      with_server do |server|
+        owed = 0u16
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          owed = read_publish(io).packet_id.as(UInt16)
+          read_publish(io)
+          disconnect(io)
+        end
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+        # Both requeued with their original ids; drop the oldest.
+        server.vhosts["/"].add_policy("ml", "^mqtt\\.resumer$", "queues", {"max-length" => JSON::Any.new(1)}, 0i8)
+        wait_for { session.message_count == 1 }
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq owed
+          String.new(read_publish(io).payload).should eq "1"
+          disconnect(io)
+        end
+      end
+    end
+
+    it "answers a PUBREC with one PUBREL even if the original id is still remembered" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 2u8}))
+          publish_two_qos2(server, "a/b")
+          read_publish(io)
+          read_publish(io)
+          disconnect(io)
+        end
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer", clean_session: false)
+          first = read_publish(io)
+          id = first.packet_id.as(UInt16)
+          read_publish(io)
+          # Recreates the window where the PUBREC is handled before the resend
+          # has forgotten the remembered id.
+          sp = session.@inflight[id].sp.as(LavinMQ::SegmentPosition)
+          session.@msg_store.remember_original_packet_id(sp, id)
+          pubrec(io, id)
+          read_packet(io).as(MQTT::Protocol::PubRel).packet_id.should eq id
+          read_packet(io).should be_nil
+          disconnect(io)
+        end
+      end
+    end
   end
 end
