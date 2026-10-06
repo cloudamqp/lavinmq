@@ -49,7 +49,11 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           cluster = require_cluster(context)
           body = parse_body(context)
-          target = body["target"]?.try(&.as_s?).presence
+          # Absent or null is any caught up voter, anything else must name one
+          target = nil
+          if (t = body["target"]?) && !t.raw.nil?
+            target = t.as_s?.presence || bad_request(context, "target must be a raft address or clustering id")
+          end
           case plan = cluster.request_transfer(target)
           in Clustering::RaftController::Transfer
             # The leader stops serving, including this connection, so the

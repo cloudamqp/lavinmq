@@ -227,7 +227,7 @@ bind = ::
 port = 5679
 advertised_uri = tcp://my-ip:5679
 backend = raft
-peers = node1:5680,node2:5680,node3:5680
+seeds = node1:5680,node2:5680,node3:5680
 raft_advertised_address = node1:5680
 password_file = /etc/lavinmq/clustering_password # same secret on every node, chmod 600
 ```
@@ -236,7 +236,7 @@ or start LavinMQ with:
 
 ```sh
 lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-backend=raft --clustering-bind :: --clustering-password-file=/etc/lavinmq/clustering_password \
-  --clustering-advertised-uri=tcp://my-ip:5679 --clustering-peers=node1:5680,node2:5680,node3:5680 \
+  --clustering-advertised-uri=tcp://my-ip:5679 --clustering-seeds=node1:5680,node2:5680,node3:5680 \
   --clustering-raft-advertised-address=node1:5680
 ```
 

@@ -125,6 +125,9 @@ describe LavinMQ::HTTP::ClusterController do
       http.post("/api/cluster/transfer-leadership", body: "{}").status_code.should eq 409
       http.post("/api/cluster/transfer-leadership", body: %({"target":"127.0.0.1:1"})).status_code.should eq 409
       http.post("/api/cluster/transfer-leadership", body: %({"target":"#{addr}"})).status_code.should eq 409
+      # An empty or non-string target is a mistake, not "any voter"
+      http.post("/api/cluster/transfer-leadership", body: %({"target":""})).status_code.should eq 400
+      http.post("/api/cluster/transfer-leadership", body: %({"target":1})).status_code.should eq 400
       # still the leader
       JSON.parse(http.get("/api/cluster").body)["leader"].as_s.should eq addr
     end
