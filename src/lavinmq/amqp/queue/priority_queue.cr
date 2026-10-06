@@ -168,6 +168,11 @@ module LavinMQ::AMQP
         store_for sp, &.[sp]
       end
 
+      def envelope(sp : SegmentPosition, redelivered = false) : Envelope
+        raise ClosedError.new if @closed
+        store_for sp, &.envelope(sp, redelivered)
+      end
+
       def copy(sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
         store_for sp, &.copy(sp)

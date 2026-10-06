@@ -107,7 +107,7 @@ describe LavinMQ::Config do
           stats_log_size = 240
           set_timestamp = true
           socket_buffer_size = 32768
-          tcp_nodelay = true
+          tcp_nodelay = false
           segment_size = 16777216
           sync = false
           syncfs_threshold = 8
@@ -196,7 +196,7 @@ describe LavinMQ::Config do
     config.stats_log_size.should eq 240
     config.set_timestamp?.should be_true
     config.socket_buffer_size.should eq 32768
-    config.tcp_nodelay?.should be_true
+    config.tcp_nodelay?.should be_false
     config.segment_size.should eq 16777216
     config.sync?.should be_false
     config.syncfs_threshold.should eq 8

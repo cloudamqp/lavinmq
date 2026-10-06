@@ -294,7 +294,7 @@ module LavinMQ
       property socket_buffer_size = 16384 # bytes
 
       @[IniOpt(section: "main")]
-      property? tcp_nodelay = false # bool
+      property? tcp_nodelay = true # bool
 
       @[IniOpt(section: "main")]
       property segment_size : Int32 = 8 * 1024**2 # bytes

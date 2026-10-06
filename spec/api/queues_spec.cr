@@ -131,6 +131,28 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should return the tag of an exclusive consumer" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_consumer_tag")
+          q.subscribe(tag: "the-exclusive-one", exclusive: true) { }
+          response = http.get("/api/queues/%2f/exclusive_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should eq "the-exclusive-one"
+        end
+      end
+    end
+
+    it "should not return an exclusive consumer tag for a normal consumer on an exclusive queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_queue_consumer_tag", exclusive: true)
+          q.subscribe(tag: "not-exclusive") { }
+          response = http.get("/api/queues/%2f/exclusive_queue_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should be_nil
+        end
+      end
+    end
+
     it "should return 404 if queue does not exist" do
       with_http_server do |http, _|
         response = http.get("/api/queues/%2f/404")

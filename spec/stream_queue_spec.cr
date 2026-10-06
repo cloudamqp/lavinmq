@@ -242,10 +242,10 @@ describe LavinMQ::AMQP::Stream do
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         q.publish_confirm data
         # Sleep > 1s so the two messages land in distinct whole seconds
-        sleep 1.2.seconds
+        sleep 1.02.seconds
         q.publish_confirm data
-        # Derive target from msg1's stored timestamp; Time.utc here would race RoughTime's
-        # 100ms coarsening and could land inside segment 2's bucket, hanging the consumer.
+        # Derive target from msg1's stored timestamp; Time.utc here could race the
+        # coarse clock and land inside segment 2's bucket, hanging the consumer.
         store = s.vhosts["/"].queue("stream-ts-across-segments").as(LavinMQ::AMQP::Stream).stream_msg_store
         msg1_ts = store.@segment_last_ts.values.first
         target_time = Time.unix(msg1_ts // 1000 + 1)
@@ -560,7 +560,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -575,7 +575,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -590,7 +590,7 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
           q.message_count.should eq 2
-          sleep 1.1.seconds
+          sleep 1.02.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
           q.message_count.should eq 1
         end
@@ -734,6 +734,79 @@ describe LavinMQ::AMQP::Stream do
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
           q.message_count.should eq 2
+        end
+      end
+    end
+
+    describe "segment dropped while a message from it is being delivered" do
+      # Parks the real deliver_loop on prefetch and drives consume_get from the
+      # spec instead; the yield is where the deliver_loop can be suspended in a
+      # socket write while retention drops the segment
+      it "keeps the segment mapped until the delivery is done" do
+        with_amqp_server do |s|
+          qname = Random::Secure.hex
+          segment_size = LavinMQ::Config.instance.segment_size
+          body = "x" * (segment_size // 4)
+          with_channel(s) do |ch|
+            cq = ch.queue(qname, args: AMQP::Client::Arguments.new({
+              "x-queue-type": "stream", "x-max-length-bytes": segment_size.to_i64 * 2,
+            }))
+            12.times { cq.publish_confirm body }
+            ch.prefetch 1
+            msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+            cq.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            msgs.receive
+            q = s.vhosts["/"].queue(qname).as(LavinMQ::AMQP::Stream)
+            consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
+            store = q.stream_msg_store
+            mfile = nil
+            q.consume_get(consumer) do |env|
+              seg = env.segment_position.segment
+              mfile = store.@segments[seg]
+              20.times do
+                break unless store.@segments.has_key?(seg)
+                q.publish(LavinMQ::Message.new("", qname, body))
+              end
+              store.@segments.has_key?(seg).should be_false
+              mfile.try(&.closed?).should be_false
+              String.new(env.message.body).should eq body
+            end.should be_true
+            mfile.try(&.closed?).should be_true
+          end
+        end
+      end
+
+      it "keeps the segment mapped when a policy drops it" do
+        with_amqp_server do |s|
+          qname = Random::Secure.hex
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          with_channel(s) do |ch|
+            cq = ch.queue(qname, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+            12.times { cq.publish_confirm body }
+            ch.prefetch 1
+            msgs = Channel(AMQP::Client::DeliverMessage).new(1)
+            cq.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msgs.send msg
+            end
+            msgs.receive
+            q = s.vhosts["/"].queue(qname).as(LavinMQ::AMQP::Stream)
+            consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
+            store = q.stream_msg_store
+            mfile = nil
+            q.consume_get(consumer) do |env|
+              seg = env.segment_position.segment
+              mfile = store.@segments[seg]
+              policy = s.vhosts["/"].add_policy("mlb", qname, "queues",
+                {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8, apply: false)
+              q.apply_policy(policy, nil)
+              store.@segments.has_key?(seg).should be_false
+              mfile.try(&.closed?).should be_false
+              String.new(env.message.body).should eq body
+            end.should be_true
+            mfile.try(&.closed?).should be_true
+          end
         end
       end
     end
@@ -1617,7 +1690,7 @@ describe LavinMQ::AMQP::Stream do
         end
       end
 
-      it "restores readahead on a full segment when a consumer starts reading it" do
+      it "gives readahead to a full segment a consumer moves into after reading the previous one fast" do
         queue_name = Random::Secure.hex
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         with_amqp_server do |s|
@@ -1625,21 +1698,26 @@ describe LavinMQ::AMQP::Stream do
             q = ch.queue(queue_name, args: stream_queue_args)
             3.times { q.publish_confirm data }
             store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
-            first_seg, first = store.@segments.first
-            first.should_not eq store.@wfile
-            # Confirmed publishes made the segment random access when it was written
-            vm_flags(first.path).should contain "rr"
+            first, second, third = store.@segments.values
+            third.should eq store.@wfile
+            store.@segments.each_value { |segment| vm_flags(segment.path).should contain "rr" }
 
+            received = Channel(Nil).new(3)
             ch.prefetch 1
-            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
-            wait_for { store.@segment_readers.has_key?(first_seg) }
-            vm_flags(first.path).should_not contain "rr"
-            vm_flags(first.path).should_not contain "sr"
+            q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+              msg.ack
+              received.send nil
+            end
+            3.times { received.receive }
+            vm_flags(first.path).should contain "rr" # no read before it to go by
+            vm_flags(second.path).should_not contain "rr"
+            vm_flags(second.path).should_not contain "sr"
+            vm_flags(third.path).should contain "rr" # the write segment
           end
         end
       end
 
-      it "restores readahead on a segment being read when it's full" do
+      it "keeps random access on a segment being read when it's full" do
         queue_name = Random::Secure.hex
         data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
         with_amqp_server do |s|
@@ -1648,16 +1726,12 @@ describe LavinMQ::AMQP::Stream do
             q.publish_confirm "m"
             store = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).stream_msg_store
             first_seg, first = store.@segments.first
-            vm_flags(first.path).should contain "rr"
-
             ch.prefetch 1
             q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) { }
             wait_for { store.@segment_readers.has_key?(first_seg) }
-            vm_flags(first.path).should contain "rr" # still the write segment
             2.times { q.publish_confirm data }
             store.@wfile.should_not eq first
-            vm_flags(first.path).should_not contain "rr"
-            vm_flags(first.path).should_not contain "sr"
+            vm_flags(first.path).should contain "rr"
           end
         end
       end
