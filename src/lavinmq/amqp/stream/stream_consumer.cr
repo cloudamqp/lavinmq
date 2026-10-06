@@ -12,6 +12,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       property? segment_acquired = false
+      property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
       @filters = Array(StreamFilter).new
       @filter_match_all = true

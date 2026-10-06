@@ -35,8 +35,7 @@ module RoughTime
 
   def self.unix_ms : Int64
     ts = clock_gettime(REALTIME_CLOCK)
-    ms = ts.tv_sec.to_i64 * 1000 + ts.tv_nsec.to_i64 // 1_000_000
-    ms // 100 * 100
+    ts.tv_sec.to_i64 * 1000 + ts.tv_nsec.to_i64 // 1_000_000
   end
 
   def self.instant : Time::Instant

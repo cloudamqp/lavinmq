@@ -6,7 +6,7 @@ describe RoughTime do
   end
 
   it "unix_ms is close to Time.utc.to_unix_ms" do
-    (Time.utc.to_unix_ms - RoughTime.unix_ms).abs.should be < 200
+    (Time.utc.to_unix_ms - RoughTime.unix_ms).abs.should be < 100
   end
 
   it "advances without a background updater" do
