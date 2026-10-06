@@ -21,7 +21,7 @@ module LavinMQ
                      @max_hops = DEFAULT_MAX_HOPS, @msg_ttl = DEFAULT_MSG_TTL,
                      @prefetch = DEFAULT_PREFETCH, @reconnect_delay = DEFAULT_RECONNECT_DELAY,
                      consumer_tag = nil)
-        @consumer_tag = "federation-link-#{@name}"
+        @consumer_tag = consumer_tag || "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
       end
 

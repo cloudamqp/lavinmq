@@ -214,13 +214,19 @@ module LavinMQ
       private def handle_run_error(ex, run_generation) : Bool
         return true if should_stop_loop?(run_generation)
         @state = State::Error
-        return true if ex.message.to_s.starts_with?("404") # shoveled queue was deleted
+        return true if source_gone?(ex)
         Log.warn { ex.message }
         @error = ex.message
         @source.stop
         @destination.stop
         exponential_reconnect_delay
         false
+      end
+
+      # The shoveled queue (or the destination exchange) was deleted: there's
+      # nothing to reconnect to.
+      private def source_gone?(ex) : Bool
+        ex.is_a?(Endpoint::NotFound) || ex.message.to_s.starts_with?("404")
       end
 
       private def terminate_if_needed(run_generation)

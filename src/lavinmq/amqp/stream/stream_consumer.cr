@@ -1,4 +1,5 @@
 require "../consumer"
+require "./stream_cursor"
 require "../../segment_position"
 require "../../rough_time"
 require "./filters/kv"
@@ -9,6 +10,7 @@ module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
       include SortableJSON
+      include StreamCursor
       property offset : Int64
       property segment : UInt32
       property pos : UInt32

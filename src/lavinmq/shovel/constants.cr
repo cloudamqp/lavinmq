@@ -1,5 +1,9 @@
+require "../endpoint/ack_mode"
+
 module LavinMQ
   module Shovel
+    alias AckMode = Endpoint::AckMode
+
     DEFAULT_ACK_MODE          = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER      = DeleteAfter::Never
     DEFAULT_PREFETCH          = 1000_u16
@@ -22,12 +26,6 @@ module LavinMQ
     enum DeleteAfter
       Never
       QueueLength
-    end
-
-    enum AckMode
-      OnConfirm
-      OnPublish
-      NoAck
     end
 
     # The per-message disposition a Destination reports for a delivery attempt.

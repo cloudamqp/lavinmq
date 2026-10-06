@@ -1,25 +1,16 @@
-require "amqp-client"
 require "./destination"
+require "../endpoint/session"
 
 module LavinMQ
   module Shovel
+    # Publishes to an exchange, or a queue through the default exchange, on an
+    # Endpoint: this broker in-process or another broker over AMQP.
     class AMQPDestination < Destination
-      @conn : ::AMQP::Client::Connection?
-      @ch : ::AMQP::Client::Channel?
+      @started = false
 
-      def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : Auth::User? = nil)
-        if @uri.user.nil? && @uri.host.to_s.empty?
-          if direct_user
-            @uri.user = direct_user.name
-            @uri.password = direct_user.plain_text_password
-          else
-            raise ArgumentError.new("direct_user required")
-          end
-        end
-        params = @uri.query_params
-        params["name"] ||= "Shovel #{@name} sink"
-        @uri.query = params.to_s
+      def initialize(@name : String, @session : Endpoint::Session, @queue : String?,
+                     @exchange : String? = nil, @exchange_key : String? = nil,
+                     @ack_mode = DEFAULT_ACK_MODE)
         if queue
           @exchange = ""
           @exchange_key = queue
@@ -31,55 +22,54 @@ module LavinMQ
 
       def start
         return if started?
-        if c = @conn
-          c.close
-        end
-        conn = ::AMQP::Client.new(@uri).connect
-        @conn = conn
-        @ch = ch = conn.channel
+        @session.close
+        @session.open
         if q = @queue
           begin
-            ch.queue_declare(q, passive: true)
-          rescue ::AMQP::Client::Channel::ClosedException
-            @ch = ch = conn.channel
-            ch.queue_declare(q, passive: false)
+            @session.declare_queue(q, passive: true)
+          rescue Endpoint::NotFound
+            @session.declare_queue(q, passive: false)
           end
         end
+        @started = true
+      rescue ex
+        @session.close
+        raise ex
       end
 
       def stop
-        @conn.try &.close
-        @ch = nil
+        @started = false
+        @session.close
       end
 
       def started? : Bool
-        !@ch.nil? && !@conn.try &.closed?
+        @started && !@session.closed?
       end
 
       def push(msg) : Nil
-        ch = @ch || raise "Not started"
+        raise "Not started" unless started?
         ex = @exchange || msg.exchange
         rk = @exchange_key || msg.routing_key
-        tag = msg.delivery_tag
+        tag = msg.tag
         case @ack_mode
         in AckMode::OnConfirm
-          # The confirm callback's Bool is the broker's ack/nack. A nack (e.g.
-          # reject-publish overflow) is transient — the queue may drain — so it
-          # becomes Retry, never a silent ack. When the connection goes away
-          # amqp-client voids every pending confirm with `false` as well. That
-          # is reported as Retry too: when the connection drops on its own the
-          # source is still open and
+          # The confirm is the broker's ack/nack. A nack (e.g. reject-publish
+          # overflow) is transient — the queue may drain — so it becomes Retry,
+          # never a silent ack. When the session closes every pending confirm
+          # is voided with a nack as well. That is reported as Retry too: when
+          # the destination goes away on its own the source is still open and
           # every in-flight message has to go back to it, or a later cumulative
           # ack would settle it undelivered. When the whole shovel is stopping
           # the source is already closed and the Runner ignores the report.
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do |confirmed|
-            @listener.report(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
+          listener = @listener
+          @session.publish(ex, rk, msg.properties, msg.body) do |confirmed|
+            listener.report(tag, confirmed ? Outcome::Confirmed : Outcome::Retry)
           end
         in AckMode::OnPublish
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          @session.publish(ex, rk, msg.properties, msg.body)
           @listener.report(tag, Outcome::Confirmed)
         in AckMode::NoAck
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          @session.publish(ex, rk, msg.properties, msg.body)
         end
       end
     end
