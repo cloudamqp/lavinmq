@@ -89,16 +89,17 @@ module LavinMQ
           break unless wait_until_ready
           get do |env|
             sp = env.segment_position
-            # Cancelled while the message was being fetched: give it back
-            if @closed
+            # Registered atomically with the session's close; nil when the
+            # session (or this consumer) closed while the message was fetched
+            tag = @session.next_delivery_tag(self, sp) unless @closed
+            unless tag
               raise Cancelled.new if @no_ack # the queue requeues it
               @queue.reject(sp, true)
-              next
+              raise Cancelled.new
             end
             increment_unacked
             delivered_bytes &+= sp.bytesize
             msg = env.message
-            tag = @session.next_delivery_tag(self, sp)
             blk.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
               msg.properties, msg.body, env.redelivered)
           end

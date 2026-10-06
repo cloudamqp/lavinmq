@@ -383,6 +383,38 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "refuses no-ack consumers on a stream" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_stream_na", true, false, AMQ::Protocol::Table.new({"x-queue-type" => "stream"}))
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 10_u16
+        expect_raises(LavinMQ::Endpoint::Refused, /acknowledge/) do
+          session.consume("ls_stream_na", "spec", true, false, AMQ::Protocol::Table.new) { }
+        end
+        vhost.queue("ls_stream_na").consumer_count.should eq 0
+        session.close
+      end
+    end
+
+    it "doesn't register a delivery once closed" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_closed", true, false)
+        q = vhost.queue("ls_closed")
+        session = ShovelSpecHelpers.session(s, "in-process").as(LavinMQ::Endpoint::LocalSession)
+        session.open
+        consumer = LavinMQ::Endpoint::LocalConsumer.new(session, q, "spec", false, false, 10_u16)
+        sp = LavinMQ::SegmentPosition.new(1_u32, 4_u32, 10_u32)
+        session.close
+        # A delivery fetched while the session closed must not be tracked
+        # after close requeued everything it had
+        session.next_delivery_tag(consumer, sp).should be_nil
+        session.@unacked.should be_empty
+      end
+    end
+
     it "closes, and says so, when its vhost is deleted" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("ls_vhost")
