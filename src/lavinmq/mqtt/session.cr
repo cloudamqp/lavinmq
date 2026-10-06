@@ -232,9 +232,12 @@ module LavinMQ
         @replicator.try &.replace_file(@metadata_file)
       end
 
-      def subscribe(tf, qos)
+      # False if the session was deleted between the caller getting hold of it
+      # and this call, by a clean-session client reconnecting under the same
+      # client_id.
+      def subscribe(tf, qos) : Bool
         if subscription = find_subscription(tf)
-          return if subscription.binding_key.qos == qos
+          return true if subscription.binding_key.qos == qos
           unbind(tf, subscription.binding_key.arguments)
         end
         @vhost.bind_queue(@name, EXCHANGE, tf, MQTT.qos_arguments(qos))

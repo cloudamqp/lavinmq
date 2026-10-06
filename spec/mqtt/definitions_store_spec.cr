@@ -49,6 +49,21 @@ describe LavinMQ::MQTT::DefinitionsStore do
     end
   end
 
+  # A clean-session client reconnecting under the same client_id deletes the
+  # session from another fiber, so a subscribe can find its session gone. Unless
+  # told, the client waits forever on a topic it believes it subscribed to.
+  it "reports a failed subscription for a session that has been deleted" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      session = declare_mqtt_session(v, "mqtt.gone")
+      session.delete
+      v.session?("mqtt.gone").should be_nil
+
+      session.subscribe("a/b", 0u8).should be_false
+      v.mqtt_exchange.binding_count.should eq 0
+    end
+  end
+
   it "restores durable sessions and their subscriptions after a compaction and restart" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.max_deleted_definitions = 4

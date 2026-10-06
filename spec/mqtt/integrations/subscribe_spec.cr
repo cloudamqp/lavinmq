@@ -184,6 +184,21 @@ module MqttSpecs
       end
     end
 
+    # As when a clean-session client reconnects under the same client_id
+    # while the old connection's SUBSCRIBE is being handled
+    it "grants Failure for a subscription whose session was deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_queue("mqtt.gone", true, false, LavinMQ::MQTT::Session::ARGUMENTS)
+        session = vhost.session("mqtt.gone")
+        session.delete
+
+        tf = MQTT::Protocol::Subscribe::TopicFilter.new("a/b", 0u8)
+        server.mqtt_server.broker("/").grant(session, tf)
+          .should eq MQTT::Protocol::SubAck::ReturnCode::Failure
+      end
+    end
+
     it "keeps the subscriptions of a persistent session after a restart" do
       with_server do |server|
         with_client_io(server) do |io|
