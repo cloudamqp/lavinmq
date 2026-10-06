@@ -380,17 +380,26 @@ module LavinMQ
       sp
     end
 
+    # A new segment is a sparse file, and readahead on its page faults would
+    # cache the empty rest of it, up to the readahead window (4 MiB on btrfs),
+    # for as long as the segment is written to. With many queues that are
+    # rarely published to that is gigabytes. Writing faults once per page
+    # with or without readahead, so random access costs nothing there.
+    private def new_segment_access(wfile : MFile) : Nil
+      wfile.advise(MFile::Advice::Random)
+    end
+
     # Readahead on page faults makes the kernel cache the segment in large
     # folios (up to 128 KiB on ext4/XFS), and each msync for a confirm then
     # writes the whole folio holding the tail of the segment, not just the
     # few bytes appended since the last sync. MADV_RANDOM disables the
     # readahead, so the folios stay at a page. Folios already in the page
     # cache keep their size, so the first syncs after this still write
-    # large folios, until the writes pass the readahead window. Segments
-    # opened later get it from the start. Readers advise a full segment
+    # large folios, until the writes pass the readahead window. Segments the
+    # store creates get it from the start (see #new_segment_access), this is
+    # for a write segment loaded from disk. Readers advise a full segment
     # sequential (see #unmap_finished_segment), as reading it without
-    # readahead would be slow. It's only for stores that sync, as page sized
-    # folios take more page faults to write.
+    # readahead would be slow.
     private def random_access_for_sync(wfile : MFile) : Nil
       @synced_writes = true
       wfile.advise(MFile::Advice::Random)
@@ -417,7 +426,7 @@ module LavinMQ
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
       wfile = MFile.new(path, capacity)
-      wfile.advise(MFile::Advice::Random) if @synced_writes
+      new_segment_access(wfile)
       wfile.write_bytes Schema::VERSION
       wfile.pos = 4
       @replicator.try &.register_file wfile
@@ -532,12 +541,8 @@ module LavinMQ
         file.delete unless @durable # mark files for non-durable queues for deletion
 
         if was_empty
-          # The page fault of this first write would read ahead into the empty
-          # file, caching up to the filesystem's readahead window of it (4 MiB
-          # on btrfs) for a queue that may never get a message
-          file.advise(MFile::Advice::Random)
+          new_segment_access(file)
           file.write_bytes Schema::VERSION
-          file.advise(MFile::Advice::Normal)
           @replicator.try &.append_value path, Schema::VERSION, 0i64
         else
           begin

@@ -966,18 +966,21 @@ describe LavinMQ::MessageStore do
 
   {% if flag?(:linux) %}
     describe "random access advice" do
-      it "doesn't leave random access advice on the first segment of a new store" do
+      it "advises new segments, also of stores that never sync" do
         with_datadir do |dir|
           store = LavinMQ::MessageStore.new(dir, nil)
-          vm_flags(store.@wfile.path).should_not contain "rr"
-          store.push(LavinMQ::Message.new("", "rk", "msg"))
-          vm_flags(store.@wfile.path).should_not contain "rr"
+          vm_flags(store.@wfile.path).should contain "rr"
+          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
+          store.@wfile_id.should_not eq 1
+          vm_flags(store.@wfile.path).should contain "rr"
           store.close
         end
       end
 
-      it "advises the write segment once a publish needs a sync" do
+      it "advises a write segment loaded from disk once a publish needs a sync" do
         with_datadir do |dir|
+          LavinMQ::MessageStore.new(dir, nil).tap(&.push(LavinMQ::Message.new("", "rk", "m"))).close
           persister = LavinMQ::Persister.new(dir)
           store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
           wfile = store.@wfile.path
@@ -1043,9 +1046,10 @@ describe LavinMQ::MessageStore do
         end
       end
 
-      it "doesn't advise the write segment when sync is disabled" do
+      it "doesn't advise a write segment loaded from disk when sync is disabled" do
         LavinMQ::Config.instance.sync = false
         with_datadir do |dir|
+          LavinMQ::MessageStore.new(dir, nil).tap(&.push(LavinMQ::Message.new("", "rk", "m"))).close
           persister = LavinMQ::Persister.new(dir)
           store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
           store.push(synced_message("not synced, sync is disabled"))
@@ -1055,18 +1059,6 @@ describe LavinMQ::MessageStore do
         end
       ensure
         LavinMQ::Config.instance.sync = true
-      end
-
-      it "doesn't advise segments of stores that never sync" do
-        with_datadir do |dir|
-          persister = LavinMQ::Persister.new(dir)
-          store = LavinMQ::MessageStore.new(dir, nil, persister: persister)
-          large = "x" * (LavinMQ::Config.instance.segment_size // 2)
-          3.times { store.push(LavinMQ::Message.new("", "rk", large)) }
-          vm_flags(store.@wfile.path).should_not contain "rr"
-          store.close
-          persister.close
-        end
       end
 
       it "advises ack files" do
