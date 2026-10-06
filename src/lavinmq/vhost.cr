@@ -527,6 +527,7 @@ module LavinMQ
     def delete
       close(reason: "VHost deleted")
       Fiber.yield
+      @replicator.try &.delete_dir(@data_dir)
       FileUtils.rm_rf @data_dir
     end
 
