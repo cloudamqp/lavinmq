@@ -30,20 +30,24 @@ reason code). A blanket version matrix was dropped as redundant: the
 per-version `Framing` split makes "a v5 packet parsed with v3 framing"
 structurally hard to even express.
 
-**LavinMQ**, measured 2026-10-02 on `9e3d3559` (on `feat/mqtt-qos-2`):
+**LavinMQ**, measured 2026-10-05 on `32fc6434` (on `feat/mqtt-qos-2` `e8a8b5ed`):
 
 | what | result |
 |---|---|
-| `crystal spec spec/mqtt` (slow included) | **477 examples, 0 failures, 0 errors, 0 pending** |
-| `make test` | **2637 examples, 0 failures, 0 errors, 10 pending** |
-| `make lint` | 443 inspected, 0 failures |
+| `crystal spec spec/mqtt` (slow included) | **502 examples, 0 failures, 0 errors, 0 pending** |
+| `make test` | **2661 examples, 0 failures, 0 errors, 10 pending** |
+| `make lint` | 444 inspected, 0 failures |
+| deprecation warnings from the shard | none |
 | `crystal tool format --check` | clean |
 
 The pending examples are pre-existing and unrelated to MQTT (queue dead-lettering
 headers, kTLS, UNIX sockets, VHost GC segments). The etcd-tagged specs were
-skipped because no etcd runs locally, not because they fail. Two expiry specs
-are tagged `slow`: the interval's unit is seconds, so the shortest honest test
-of elapse and of reconnect-cancels-it is one second each.
+skipped because no etcd runs locally, not because they fail. Specs that wait
+out a seconds-based interval (session and message expiry, retained expiry,
+keepalive) are tagged `slow`: the shortest honest test of an elapse is a second.
+`delayed_message_exchange_spec.cr:171` (AMQP) failed once in a full run and once
+in three isolated runs on 2026-10-05; it shares no code with MQTT, and was not
+checked on `main`.
 
 v5 coverage lives in `spec/mqtt/v5/` (connect, publish, subscribe, unsubscribe,
 puback/disconnect, session expiry, subscription options) plus
@@ -61,6 +65,31 @@ into the integration files before the PR.
 abstract (it is concrete again since `84codes/mqtt-protocol.cr#16`). It hid because `spec/mqtt` never requires `lavinmqperf`: a targeted
 MQTT spec run looked green while `make test` died at compile time. Run the full
 suite after a shard bump.
+
+## External verification, 2026-10-05
+
+The same harness against a debug build of `32fc6434`, which adds items F, I, K, L,
+M and N and the `84codes/mqtt-protocol.cr#19` shard. Paho testing at `9d7bb80`,
+paho-mqtt 2.1.0, mqtt.js 5.16.0, `eclipse-mosquitto:latest`.
+
+- Paho v5 went from 15 to **19 of 27** passing: `test_retained_message`,
+  `test_subscribe_options` (F), `test_publication_expiry` (M) and
+  `test_flow_control1` (N). v3.1.1 stays at **7 of 9**, the same two failures.
+- `test_flow_control2` still times out, and is not N: it tests our *inbound*
+  Receive Maximum (DISCONNECT `0x93`), now item Q.
+- F and M seen from outside: a retained replay keeps all six properties, goes
+  out at the lower QoS both ways round, and carries 117 of a 120s interval after
+  3s; an offline session drops a 2s message and delivers a 60s one with 57 left.
+- I and L: no CONNACK under a 5-byte limit, no SUBACK over a 25-byte one, and
+  packet id 0 answered with DISCONNECT `0x82`.
+- K has no external check: none of the tools sends a PUBREC with a failure code.
+- No crashes, no `Read Loop error`. The only ERRORs are clients closing without
+  DISCONNECT, which item H now covers as a log-level question.
+- The run found four harness faults, fixed in `MQTT5-INTEROP.md`: the
+  `oversized_suback` limit sat below our CONNACK, so it never reached the SUBACK;
+  the Maximum Packet Size row needs an explicit client id since item I; the
+  Clean Start row misread `-C`; and `broker.sh` still bound the default AMQP unix
+  socket.
 
 ## External verification, 2026-10-02
 
@@ -108,7 +137,7 @@ self-confirming round-trip, never checked against a real v5 client.
   are not.
 - Three defects were new information, tracked as item J. All three are fixed.
 
-**Re-run on 2026-10-02**, above. The delivery-QoS and DISCONNECT `0x82` rows it
+**Re-run on 2026-10-02 and 2026-10-05**, above. The delivery-QoS and DISCONNECT `0x82` rows it
 left to confirm all held.
 
 ### Why the stock Paho v5 suite cannot grade this broker

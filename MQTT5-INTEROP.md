@@ -5,10 +5,10 @@ external run found; this file is *how to run it again*. Nothing here is wired in
 or CI on purpose: it needs a built binary, a network clone and a Docker pull, and
 it is a release-gate check, not a per-commit one.
 
-Last run 2026-10-02, on `9e3d3559` (QoS 2 included); the score and what each
-failure maps to are under *Interpreting the score*. Re-run it after E / F land:
-several of the remaining Paho failures are the grading function for exactly
-those items.
+Last run 2026-10-05, on `32fc6434` (items F, I, K, L, M, N and the
+`84codes/mqtt-protocol.cr#19` shard included); the score and what each failure
+maps to are under *Interpreting the score*. Re-run it once E lands:
+`test_will_delay` is its grading function.
 
 ## What it exercises that our own specs cannot
 
@@ -98,7 +98,7 @@ start)
   "$BIN" --data-dir "$DATA" --bind 127.0.0.1 \
          --mqtt-port "$MQTT_PORT" --amqp-port 5683 --http-port 15683 \
          --mqtts-port -1 --amqps-port -1 --metrics-http-port 15693 \
-         --control-unix-path /tmp/lmqi.ctl.sock \
+         --control-unix-path /tmp/lmqi.ctl.sock --amqp-unix-path /tmp/lmqi.amqp.sock \
          --debug > "$LOG" 2>&1 &
   echo $! > "$PIDFILE"
   for _ in $(seq 1 100); do
@@ -124,7 +124,7 @@ esac
 
 `$LMQ` is the worktree exported during setup. Every port is off LavinMQ's
 defaults (MQTT 1893, AMQP 5683, HTTP 15683, metrics 15693, and its own
-`lavinmqctl` socket), so a LavinMQ already running on the machine cannot answer
+`lavinmqctl` and AMQP unix sockets), so a LavinMQ already running on the machine cannot answer
 for this one. That happened on 2026-10-02: a dev broker held 1883, ours failed to
 bind, and the old readiness check - "does the port answer?" - reported it up, so
 a whole run graded the wrong server. The check now also requires our own process
@@ -133,7 +133,7 @@ persisted sessions leak between suites otherwise.
 
 To run a second broker in parallel (useful: one suite on 1893 while you poke at
 1894), copy the script and change `DATA`, `PIDFILE`, all three ports, **and** give
-it its own `--metrics-http-port` and `--control-unix-path`. Two instances
+it its own `--metrics-http-port`, `--control-unix-path` and `--amqp-unix-path`. Two instances
 otherwise fight over the same socket and the second dies. Keep those socket paths short - a long path trips the 107-byte
 `sockaddr_un` limit.
 
@@ -456,14 +456,16 @@ elif case == "tiny_max_packet_size":
     s.close()
 
 elif case == "oversized_suback":
-    props = bytes([0x27]) + (12).to_bytes(4, "big")
+    # Above our 21-byte CONNACK, so the CONNACK goes out; 30 filters make a
+    # 35-byte SUBACK, which does not.
+    props = bytes([0x27]) + (25).to_bytes(4, "big")
     s, ack = fresh("raw-suback-mps", props=props)
     print("connack:", ack)
     filters = b""
-    for i in range(10):
+    for i in range(30):
         filters += s16(f"raw/filter/{i}".encode()) + bytes([0])
     s.sendall(pkt(8, 2, (7).to_bytes(2, "big") + varint(0) + filters))
-    print("suback for 10 filters under maximum-packet-size=12:", describe(read_packet(s)))
+    print("suback for 30 filters under maximum-packet-size=25:", describe(read_packet(s)))
     s.close()
 
 elif case == "packet_id_zero":
@@ -564,12 +566,12 @@ comes back. `mos` below is
 | Subscription Identifier | `... mosquitto_sub -V 5 -d -W 5 -t x -D subscribe subscription-identifier 1` | DISCONNECT 161 (`0xA1`) |
 | Enhanced auth | `... mosquitto_pub -V 5 -d -t x -m x -D connect authentication-method SCRAM-SHA-1` | CONNACK 140 (`0x8C`) |
 | No credentials | `... mosquitto_pub -V 5 -d -t x -m x` (drop `-u`/`-P`) | CONNACK 135 (`0x87`) |
-| Maximum Packet Size on delivery | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x -D connect maximum-packet-size 40`, then publish 200 bytes | no PUBLISH arrives, connection stays up |
+| Maximum Packet Size on delivery | `... mosquitto_sub -V 5 -d -W 8 -q 1 -i mps -t x -D connect maximum-packet-size 40`, then publish 200 bytes | no PUBLISH arrives, connection stays up. Keep `-i`: an assigned client id makes the CONNACK too big for 40 bytes, so since item I it is not sent and mosquitto reconnects forever |
 | Delivery QoS | `... mosquitto_sub -V 5 -d -W 8 -q 1 -t x`, then `mosquitto_pub -V 5 -q 0 -t x -m x` | the delivered PUBLISH is QoS **0**, not 1 [MQTT-3.8.4-8]. Repeat with `-V 311` |
 | Will QoS 2 | `interop.py` with `will_set(..., qos=2)` | CONNACK Success, now that QoS 2 is supported. Was Success at the 2026-08-19 run too, then `0x9B` until QoS 2 |
 | Session Expiry 0 | `... mosquitto_sub -V 5 -c -x 0 -i c1 -q 1 -t x`, publish while offline, reconnect | **nothing arrives**: expiry 0 ends the session with the connection [MQTT-3.1.2-11] |
 | Session Expiry non-zero | same with `-x 60` | the message arrives, and `mqtt.c1` is still there between connections |
-| Clean Start 1 + expiry | `... mosquitto_sub -V 5 -C 1 -x 60 -i c2 -q 1 -t x` | old session discarded, new one persists - the case the Paho suite used to fail |
+| Clean Start 1 + expiry | `... mosquitto_sub -V 5 -x 60 -i c2 -q 1 -t x` (Clean Start 1 is mosquitto's default without `-c`; `-C` is a message count) | old session discarded, new one persists - the case the Paho suite used to fail |
 
 ### Byte-exact cases
 
@@ -615,23 +617,22 @@ check, not a known gap.
 
 Do not read the raw pass count.
 
-| run | 2026-08-19 | 2026-10-02 |
-|---|---|---|
-| v5 | 6 / 18 / 3 timeout | **15** / 11 / 1 timeout |
-| v3.1.1 | 3 / 6 | **7** / 2 |
+| run | 2026-08-19 | 2026-10-02 | 2026-10-05 |
+|---|---|---|---|
+| v5 | 6 / 18 / 3 timeout | 15 / 11 / 1 timeout | **19** / 7 / 1 timeout |
+| v3.1.1 | 3 / 6 | 7 / 2 | **7** / 2 |
 
 Before QoS 2 the suite was also run from a copy with every QoS 2 use lowered to
 QoS 1, which scored 8 / 18 / 1 on v5 and 7 / 2 on v3.1.1 on 2026-08-19. The
-2026-10-02 run is the suite as published, against `9e3d3559` with QoS 2 from
-#2236. Every remaining v5 failure maps to something known:
+2026-10-02 run and later are the suite as published. On 2026-10-05, against
+`32fc6434`, `test_retained_message` and `test_subscribe_options` (item F),
+`test_publication_expiry` (item M) and `test_flow_control1` (item N) went from
+fail to pass. Every remaining v5 failure maps to something known:
 
 | test | why |
 |---|---|
-| `test_retained_message` | item F: a retained message lost its User Property. Fixed since, not yet re-run |
-| `test_subscribe_options` | item F: retained replays came back at the subscription QoS, not the publisher's [MQTT-3.8.4-8]. Fixed since, not yet re-run |
-| `test_publication_expiry` | item M: Message Expiry Interval was carried but never enforced. Fixed since, not yet re-run |
-| `test_will_delay` | item E |
-| `test_flow_control1`, `test_flow_control2` (timeout) | item N: the client's Receive Maximum was not honoured. Fixed since, not yet re-run |
+| `test_will_delay` | item E: the will fires after 0.1s where the test wants 4 |
+| `test_flow_control2` (timeout) | item Q, not N: the test sends 65536 QoS 2 PUBLISHes without PUBREL and waits for DISCONNECT `0x93` against *our* Receive Maximum, which we neither advertise nor enforce. The broker accepts them all and the client times out after 180s |
 | `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |
 | `test_subscribe_identifiers`, `test_shared_subscriptions` | correct rejections (`0xA1`, `0x9E`) the test client cannot cope with |
 | the three below | harness assumptions, fine to fail |

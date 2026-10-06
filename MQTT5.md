@@ -3,7 +3,7 @@
 Status doc for the MQTT 5.0 work in LavinMQ, spanning this repo and the
 `mqtt-protocol.cr` shard.
 
-Last reconciled against the code: **2026-10-02**.
+Last reconciled against the code: **2026-10-06**.
 
 ## Doc map
 
@@ -26,8 +26,8 @@ about 92% done**.
 
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
-| `mqtt-protocol.cr` | `feat/mqtt5` | 39 commits | none | complete v5 codec, reviewed twice, needs a release tag |
-| `lavinmq` | `feat/implement-mqtt5-support` | 10 commits, on `feat/mqtt-qos-2` | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, full compliance contract |
+| `mqtt-protocol.cr` | `feat/mqtt5` | 42 commits | none | complete v5 codec, reviewed twice, needs a release tag; LavinMQ pins `2b6713f` |
+| `lavinmq` | `feat/implement-mqtt5-support` | 20 commits, on `feat/mqtt-qos-2` `e8a8b5ed` (since force-pushed, so a rebase is pending) | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, Receive Maximum, Message Expiry, retained-message properties, full compliance contract |
 
 QoS 2 and delivery at the lower of the publish and subscription QoS come from
 `feat/mqtt-qos-2` (#2236), which merges first.
@@ -38,7 +38,8 @@ it controls, gets its subscription options honoured, gets its will published
 with its properties intact, and gets a spec-correct rejection for every feature
 we do not implement. Missing: the Will Delay Interval.
 
-Green on 2026-10-02: 2637 examples, 0 failures, lint and format clean.
+Green on 2026-10-05 at `32fc6434`: 2661 examples, 0 failures, lint and format clean.
+External run the same day: Paho v5 19 of 27, v3.1.1 7 of 9 (`MQTT5-INTEROP.md`).
 
 ---
 
@@ -58,7 +59,7 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 - [x] **M** Message Expiry Interval enforced [MQTT-3.3.2-5] and counted down
   [MQTT-3.3.2-6]. Paho `test_publication_expiry`.
 - [x] **N** the client's Receive Maximum honoured [MQTT-3.3.4-9]. Paho
-  `test_flow_control1`, `test_flow_control2`.
+  `test_flow_control1`.
 - [x] **I** Maximum Packet Size on every outbound packet, not just PUBLISH
   [MQTT-3.1.2-24]. Raw cases `tiny_max_packet_size`, `oversized_suback`.
 - [x] **K** no PUBREL after a PUBREC with a failure reason code [MQTT-4.3.3-4].
@@ -71,6 +72,12 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 - [ ] **H** v5 specs merged back into the integration files.
 - [ ] #2236 merged, and #2185 rebased onto `main` and retargeted.
 - [ ] Interop harness re-run, with every Paho failure on the list below.
+
+**To decide**
+
+- [ ] **Q** our own Receive Maximum: advertised as nothing, never enforced, so no
+  DISCONNECT `0x93`. The spec words it without a MUST or a statement id (§3.3.4).
+  Paho `test_flow_control2`, which times out. `MQTT5-TODO.md` item Q.
 
 **Must fix, but not in this PR**
 
@@ -208,11 +215,9 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 
 ## 4. Sequencing to ship
 
-1. Close the spec-violation merge blockers above. F and G can run in parallel,
-   different people.
-2. Re-run the interop harness once E, F and M land. Last run 2026-10-02:
-   Paho v5 15 of 27, v3.1.1 7 of 9, every failure accounted for in
-   `MQTT5-INTEROP.md`.
+1. Close the last spec-violation merge blocker, E. Decide Q.
+2. Re-run the interop harness once E lands. Last run 2026-10-05: Paho v5 19 of
+   27, v3.1.1 7 of 9, every failure accounted for in `MQTT5-INTEROP.md`.
 3. Tag the shard release (`1.0`), with the breaking changes from
    `MQTT5-DESIGN.md` in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
