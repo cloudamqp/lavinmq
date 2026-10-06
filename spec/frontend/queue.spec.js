@@ -154,5 +154,25 @@ test.describe('queue', _ => {
     test('move messages form is visible for basic-auth users', async ({ page }) => {
       await expect(page.locator('#moveMessages')).toBeVisible()
     })
+
+    test('move messages creates an in-process shovel', async ({ page }) => {
+      const shovelName = `Move ${queueName} to bar`
+      const path = `/api/parameters/shovel/${encodeURIComponent(queueVhost)}/${encodeURIComponent(shovelName)}`
+      const created = new Promise(resolve => {
+        page.route(url => url.pathname === path, async route => {
+          resolve(route.request().postDataJSON())
+          await route.fulfill({ status: 201 })
+        })
+      })
+      const form = page.locator('#moveMessages')
+      await form.locator('[name=shovel-destination]').fill('bar')
+      await form.getByRole('button', { name: 'Move messages' }).click()
+      const body = await created
+      // A URI without host is this broker: no credentials, no loopback connection
+      expect(body.value['src-uri']).toBe(`amqp:///${encodeURIComponent(queueVhost)}`)
+      expect(body.value['dest-uri']).toBe(`amqp:///${encodeURIComponent(queueVhost)}`)
+      expect(body.value['src-queue']).toBe(queueName)
+      expect(body.value['dest-queue']).toBe('bar')
+    })
   })
 })

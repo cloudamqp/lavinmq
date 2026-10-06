@@ -30,23 +30,25 @@ module LavinMQ
                   else                                return
                   end
         entries.each do |entry|
-          uri_str = entry["uri"]?.try(&.as_s?)
-          if component == "federation-upstream" && uri_str.nil?
+          uri = entry["uri"]?.try(&.as_s?)
+          if component == "federation-upstream" && uri.nil?
             raise ConfigError.new("Field 'uri' is required")
           end
-          next unless uri_str && user
-          uri = URI.parse(uri_str)
-          next unless Endpoint.local?(uri)
-          vhost = Endpoint.vhost_name(uri)
-          unless user.find_permission(vhost)
-            raise ConfigError.new("#{user.name} can't access vhost '#{vhost}'")
-          end
-          {entry["exchange"]?, entry["queue"]?}.each do |resource|
-            name = resource.try(&.as_s?) || next
-            next if name.empty?
-            unless user.can_read?(vhost, name) && user.can_config?(vhost, name)
-              raise ConfigError.new("#{user.name} can't access '#{name}' in vhost '#{vhost}'")
-            end
+          validate_access!(URI.parse(uri), entry, user) if uri && user
+        end
+      end
+
+      private def self.validate_access!(uri : URI, entry : JSON::Any, user : Auth::BaseUser)
+        return unless Endpoint.local?(uri)
+        vhost = Endpoint.vhost_name(uri)
+        unless user.find_permission(vhost)
+          raise ConfigError.new("#{user.name} can't access vhost '#{vhost}'")
+        end
+        {entry["exchange"]?, entry["queue"]?}.each do |resource|
+          name = resource.try(&.as_s?) || next
+          next if name.empty?
+          unless user.can_read?(vhost, name) && user.can_config?(vhost, name)
+            raise ConfigError.new("#{user.name} can't access '#{name}' in vhost '#{vhost}'")
           end
         end
       end

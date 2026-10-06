@@ -176,6 +176,7 @@ module LavinMQ
           headers["x-received-from"] = hops
           props.headers = headers
           upstream = @upstream_session
+          generation = upstream.generation
           tag = msg.tag
           case @upstream.ack_mode
           in AckMode::NoAck
@@ -195,13 +196,16 @@ module LavinMQ
             # A nack (no consumer ready, reject-publish overflow, or the
             # downstream closing) returns the message upstream.
             result = @downstream.publish(exchange, routing_key, props, msg.body, immediate,
-              ->(confirmed : Bool) { settle(upstream, tag, confirmed) })
+              ->(confirmed : Bool) { settle(upstream, generation, tag, confirmed) })
             return false if immediate && !result.routed?
           end
           true
         end
 
-        private def settle(upstream : Endpoint::Session, tag : UInt64, confirmed : Bool)
+        private def settle(upstream : Endpoint::Session, generation : UInt32, tag : UInt64, confirmed : Bool)
+          # The upstream session was closed since, returning the message, and
+          # maybe reopened: the tag would name another message now
+          return if upstream.generation != generation || upstream.closed?
           if confirmed
             upstream.ack(tag)
           else
@@ -224,6 +228,7 @@ module LavinMQ
         # Set by the consumer watcher when it ends a consume round because the
         # downstream queue has no consumers left
         @round_ended = false
+        CONFIRM_TIMEOUT = 5.seconds
 
         def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
@@ -338,6 +343,9 @@ module LavinMQ
           when @federated_q.consumers_empty.when_true.receive?
             @log.info { "Lost downstream consumers, closing upstream" }
             @round_ended = true
+            # Messages published here but not yet confirmed would go back
+            # upstream with the close, and be delivered twice
+            @downstream.wait_for_confirms(CONFIRM_TIMEOUT)
             @upstream_session.close
           when done.receive?
           end

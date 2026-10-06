@@ -36,6 +36,8 @@ module LavinMQ
       # since they are cumulative (see AMQP::Channel#enqueue_confirm_ack)
       @confirm_mailbox = ::Channel(UInt64).new(1)
       @closed_signal = ::Channel(Nil).new
+      # True while no publish is waiting for its confirm
+      @all_confirmed = BoolChannel.new(true)
 
       # `origin` is the vhost the shovel or federation link belongs to; the
       # session's vhost, `vhost_name`, is looked up from it when opened.
@@ -47,6 +49,7 @@ module LavinMQ
         vhost = @origin.sibling(@vhost_name)
         raise Error.new("vhost '#{@vhost_name}' not found") if vhost.nil? || vhost.closed?
         @vhost = vhost
+        next_generation
         @closed = false
         # Like a new AMQP channel, a reopened session tags deliveries from 1
         @next_tag = 0_u64
@@ -87,6 +90,7 @@ module LavinMQ
         unconfirmed = @confirm_lock.synchronize do
           list = @unconfirmed.to_a
           @unconfirmed.clear
+          @all_confirmed.set(true)
           list
         end
         unconfirmed.each { |(_, cb)| cb.call(false) }
@@ -287,6 +291,7 @@ module LavinMQ
         seq = @confirm_lock.synchronize do
           s = @confirm_seq += 1
           @unconfirmed.push({s, on_confirm})
+          @all_confirmed.set(false)
           s
         end
         result = begin
@@ -305,10 +310,23 @@ module LavinMQ
         result
       end
 
+      # Waits until every publish so far is confirmed (or nacked), at most
+      # `timeout`. Returns false on timeout.
+      def wait_for_confirms(timeout : Time::Span) : Bool
+        select
+        when @all_confirmed.when_true.receive?
+          true
+        when timeout(timeout)
+          false
+        end
+      end
+
       private def nack(seq)
         cb = @confirm_lock.synchronize do
           idx = @unconfirmed.index { |(s, _)| s == seq } || return
-          @unconfirmed.delete_at(idx)[1]
+          entry = @unconfirmed.delete_at(idx)
+          @all_confirmed.set(true) if @unconfirmed.empty?
+          entry[1]
         end
         cb.call(false)
       end
@@ -329,7 +347,9 @@ module LavinMQ
             cb = @confirm_lock.synchronize do
               first = @unconfirmed.first? || break
               break if first[0] > msgid
-              @unconfirmed.shift[1]
+              entry = @unconfirmed.shift
+              @all_confirmed.set(true) if @unconfirmed.empty?
+              entry[1]
             end
             break unless cb
             cb.call(true)

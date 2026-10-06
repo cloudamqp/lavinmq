@@ -4,13 +4,22 @@ Shovels move messages from a source to one or more destinations. They are useful
 
 ## How It Works
 
-Each shovel runs as an independent fiber owned by its vhost. When started, it opens an AMQP connection to the source URI and a connection (or HTTP client) to the destination URI:
+Each shovel runs as an independent fiber owned by its vhost. When started, it opens a session with the source URI and one with the destination URI (or an HTTP client), see [Endpoints](#endpoints):
 
 1. **Source setup.** If `src-queue` is set, the shovel consumes directly from that queue. If only `src-exchange` (and optionally `src-exchange-key`) is set, the shovel declares an anonymous, exclusive queue, binds it to that exchange, and consumes from the anonymous queue. The source channel uses `src-prefetch-count` for backpressure.
 2. **Pull loop.** Messages from the source consumer are pushed one by one to the destination's `push` method. For AMQP destinations this becomes `basic.publish` to `dest-exchange` with `dest-exchange-key` (or to the default exchange when `dest-queue` is set). For HTTP destinations, the message body is POSTed to `dest-uri`.
 3. **Acknowledgment.** The destination classifies each delivery into an [outcome](#delivery-outcomes), and the shovel acks, retries, dead-letters, or aborts the source message accordingly. The configured `ack-mode` controls *when* the outcome is reported (see [Acknowledgment Modes](#acknowledgment-modes)).
 4. **Lifecycle.** A state machine moves the shovel between `starting`, `running`, `paused`, `error`, `aborted`, `stopped`, and `terminated` (see [Shovel States](#shovel-states)). Errors trigger an exponential-backoff reconnect; pause is persisted to disk so a paused shovel stays paused across server restarts.
 5. **Self-deletion.** With `src-delete-after: queue-length`, the shovel deletes its own parameter (and stops itself) once it has moved as many messages as were in the source queue when it started (see [Queue-length runs](#queue-length-runs)).
+
+## Endpoints
+
+An AMQP `src-uri` or `dest-uri` names either this broker or another one:
+
+- **This broker, in-process.** A URI without host, `amqp://` (the `/` vhost) or `amqp:///vhost`, is this broker. The shovel works directly against the vhost: it is registered as a consumer of the source queue and publishes straight into the destination, without opening any AMQP connection and without logging in as any user. It works whatever ports the AMQP listeners use. Publishes to it are confirmed once they are durable (and replicated to in-sync followers), like a publisher confirm. Use `amqp:///other-vhost` to move messages between vhosts.
+- **Another broker, over AMQP.** Any URI with a host, `localhost` included, is reached with an AMQP connection using the credentials in the URI, e.g. `amqps://user:password@broker.example.com/vhost`.
+
+Because an in-process endpoint has no credentials of its own, the user creating the shovel must have the permissions the shovel needs there: `read` and `configure` on the source queue or exchange, `write` and `configure` on the destination exchange, and `configure` on the destination queue. A shovel parameter that names a vhost or resource the user can't access is refused. A remote broker checks the URI's credentials itself.
 
 ## Components
 
@@ -23,18 +32,19 @@ A shovel consists of:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `src-uri` | (required) | AMQP URI of the source broker |
+| `src-uri` | (required) | AMQP URI of the source, see [Endpoints](#endpoints). A list of URIs picks one at random on every start. |
 | `src-queue` | (none) | Queue to consume from |
 | `src-exchange` | (none) | Exchange to bind to (creates a temporary queue) |
 | `src-exchange-key` | (none) | Routing key for the exchange binding |
 | `src-prefetch-count` | `1000` | Prefetch count |
 | `src-delete-after` | `never` | Delete shovel after transfer: `never` or `queue-length` |
+| `src-consumer-args` | (none) | Consumer arguments, e.g. `{"x-stream-offset": "first"}` to shovel a stream from its start. String, integer and boolean values are passed on. |
 
 ## AMQP Destination
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `dest-uri` | (required) | AMQP URI of the destination broker |
+| `dest-uri` | (required) | AMQP URI of the destination, see [Endpoints](#endpoints) |
 | `dest-exchange` | (none) | Exchange to publish to |
 | `dest-exchange-key` | (none) | Routing key to use |
 | `dest-queue` | (none) | Queue to publish to (via default exchange) |
@@ -75,9 +85,9 @@ The chosen destination is treated exactly like a single one. Its [delivery outco
 
 ## Source Acknowledgments
 
-Source messages are acked in batches for throughput: the shovel sends one cumulative ack (`multiple: true`) once half the prefetch window has been settled, or after a timeout of 3 seconds, whichever comes first. A cumulative ack only ever covers tags whose delivery has actually been settled (confirmed, or rejected), and it names the highest *confirmed* tag in that range, never a rejected one: a reject has already settled its tag at the broker, and a cumulative ack for a tag the broker no longer holds is a channel error. If a destination confirms out of order — RabbitMQ may confirm message 3 before message 2 — the ack stops at the lowest unconfirmed tag and the higher ones wait until the gap closes. Rejects (requeue or dead-letter) are sent individually and at once.
+An in-process source acks each message as soon as it is settled. A source on another broker acks in batches for throughput: the shovel sends one cumulative ack (`multiple: true`) once half the prefetch window has been settled, or after a timeout of 3 seconds, whichever comes first. A cumulative ack only ever covers tags whose delivery has actually been settled (confirmed, or rejected), and it names the highest *confirmed* tag in that range, never a rejected one: a reject has already settled its tag at the broker, and a cumulative ack for a tag the broker no longer holds is a channel error. If a destination confirms out of order — RabbitMQ may confirm message 3 before message 2 — the ack stops at the lowest unconfirmed tag and the higher ones wait until the gap closes. Rejects (requeue or dead-letter) are sent individually and at once.
 
-Pause, terminate and abort flush the pending batch before closing the source connection. A message in flight at that moment is not acked; it stays on the source and is redelivered on the next run, so the shovel is at-least-once.
+Pause, terminate and abort flush the pending batch before closing the source. A message in flight at that moment is not acked; it stays on the source and is redelivered on the next run, so the shovel is at-least-once.
 
 ### Queue-length runs
 

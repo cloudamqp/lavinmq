@@ -4,7 +4,6 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
-import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
 import './tabs.js'
 
@@ -296,14 +295,10 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
 })
 
 const moveMessagesForm = document.querySelector('#moveMessages')
-if (Auth.getPassword() === null) {
-  moveMessagesForm.classList.add('hide')
-}
 moveMessagesForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const username = Auth.getUsername()
-  const password = Auth.getPassword()
-  const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
+  // A URI without host moves the messages in-process, within this broker
+  const uri = HTTP.url`amqp:///${vhost}`
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
   if (dest === '') {
     DOM.toast.error('Please select a destination queue')

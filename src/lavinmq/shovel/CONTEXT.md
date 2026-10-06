@@ -11,12 +11,23 @@ A configured, long-running message mover from one Source to one Destination,
 owned by a vhost and driven by a Runner.
 _Avoid_: pump, bridge, forwarder.
 
+**Endpoint**:
+A broker a Shovel (or federation link) consumes from or publishes to, through a
+**Session** (`src/lavinmq/endpoint/`). A URI without host (`amqp://`,
+`amqp:///vhost`) is this broker, a `LocalSession` working in-process against the
+vhost with no socket and no user; any URI with a host is a `RemoteSession` over
+amqp-client. Deliveries carry borrowed bodies, valid only during the consume
+callback.
+_Avoid_: connection (for the local kind), direct user.
+
 **Source**:
 Where a Shovel reads messages from and settles them (ack / reject). Today only
-AMQP queues (an exchange source is consumed through a temporary queue). The
+AMQP queues on an Endpoint (an exchange source is consumed through a temporary
+queue). The
 Source owns consume and settlement; it never decides *whether* a message
 succeeded. Acks are cumulative and batched behind a **settlement frontier**:
-the highest delivery tag below which everything is settled. Out-of-order
+the highest delivery tag below which everything is settled (batching only
+pays off on a remote Endpoint; in-process every ack is sent at once). Out-of-order
 confirms wait above it; a cumulative ack never covers an unsettled tag, and
 names the highest *acked* tag below the frontier, never a rejected one (the
 broker has already settled a rejected tag and refuses an ack for it).

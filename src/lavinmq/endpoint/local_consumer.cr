@@ -126,36 +126,33 @@ module LavinMQ
       private def wait_until_ready : Bool
         loop do
           return false if @closed
-          if !@no_ack && @prefetch_count > 0 && unacked >= @prefetch_count
-            select
-            when @has_capacity.when_true.receive?
-            when @cancelled.receive?
-            end
-            next
-          end
-          if (sac = @queue.single_active_consumer) && sac != self
-            select
-            when @queue.single_active_consumer_change.receive?
-            when @cancelled.receive?
-            end
-            next
-          end
-          if @queue.state.paused?
-            select
-            when @queue.paused.when_false.receive?
-            when @cancelled.receive?
-            end
-            next
-          end
-          unless queue_ready?
+          if at_capacity?
+            wait(@has_capacity.when_true)
+          elsif (sac = @queue.single_active_consumer) && sac != self
+            wait(@queue.single_active_consumer_change)
+          elsif @queue.state.paused?
+            wait(@queue.paused.when_false)
+          elsif !queue_ready?
             select
             when @wakeup.receive?
             when @queue.empty.when_false.receive?
             when @cancelled.receive?
             end
-            next
+          else
+            return true
           end
-          return true
+        end
+      end
+
+      private def at_capacity? : Bool
+        !@no_ack && @prefetch_count > 0 && unacked >= @prefetch_count
+      end
+
+      # Waits for `ch`, or until cancelled
+      private def wait(ch) : Nil
+        select
+        when ch.receive?
+        when @cancelled.receive?
         end
       end
 

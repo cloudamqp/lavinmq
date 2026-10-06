@@ -81,7 +81,7 @@ describe LavinMQ::Federation do
             hop = hops.first.as(AMQ::Protocol::Table)
             hop["uri"].should eq FederationSpecHelpers.uri(s, kind, "upstream")
             hop["exchange"].should eq "fx"
-            hop["redelivered"].should eq false
+            hop["redelivered"].should be_false
           end
         end
       end
@@ -100,7 +100,7 @@ describe LavinMQ::Federation do
           end
           down.bind_queue("fq", "fx", "late")
           should_eventually(eq ["early", "late"]) do
-            up.exchange("fx").bindings_details.select(&.destination.==(link_ex)).map(&.binding_key.routing_key).sort
+            up.exchange("fx").bindings_details.select(&.destination.==(link_ex)).map(&.binding_key.routing_key).sort!
           end
           FederationSpecHelpers.publish(up, "fx", "late", "m")
           should_eventually(eq 1) { down.queue("fq").message_count }
