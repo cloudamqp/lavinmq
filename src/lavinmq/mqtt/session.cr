@@ -1,3 +1,4 @@
+require "../filesystem"
 require "digest/sha1"
 require "./protocol"
 require "../mqtt"
@@ -66,9 +67,9 @@ module LavinMQ
           durable? ? @vhost.data_dir : File.join(@vhost.data_dir, "transient"),
           Digest::SHA1.hexdigest(@name)
         )
-        Dir.mkdir_p(data_dir) unless Dir.exists?(data_dir)
+        FileSystem.mkdir_p(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
-        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata)
+        @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         @metadata_file = File.join(data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)
@@ -225,12 +226,9 @@ module LavinMQ
       # Written to a temporary file and renamed into place, so a crash
       # mid-write leaves the previous file rather than a truncated one.
       private def write_metadata_file(username : String?) : Nil
-        tmpfile = "#{@metadata_file}.tmp"
-        File.open(tmpfile, "w") do |f|
+        FileSystem.replace(@metadata_file) do |f|
           {name: @name, client_id: @client_id, username: username}.to_json(f)
-          f.fsync
         end
-        File.rename tmpfile, @metadata_file
         @replicator.try &.replace_file(@metadata_file)
       end
 

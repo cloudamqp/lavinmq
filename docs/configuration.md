@@ -34,7 +34,8 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `control_unix_path` | `--control-unix-path` | `LAVINMQ_CONTROL_UNIX_PATH` | String | `/tmp/lavinmqctl.sock` | UNIX socket that `lavinmqctl` connects to. Use a unique path per instance to run multiple servers on one host. |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
-| `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
+| `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers, TLS 1.2 and below |
+| `tls_ciphersuites` | `--ciphersuites` | `LAVINMQ_TLS_CIPHERSUITES` | String | (empty) | Allowed TLS 1.3 ciphersuites |
 | `tls_prefer_server_ciphers` | `--tls-prefer-server-ciphers` | `LAVINMQ_TLS_PREFER_SERVER_CIPHERS` | Bool | `false` | Use the server's cipher order instead of the client's preference |
 | `tls_min_version` | `--tls-min-version` | `LAVINMQ_TLS_MIN_VERSION` | String | (empty) | Minimum TLS version. When empty, the TLS library default (1.2) is used. |
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
@@ -48,6 +49,7 @@ Not every setting takes effect on reload. The log level and TLS certificates are
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
+| `syncfs_threshold` | — | — | Int | `64` | Files a publish confirm depends on above which the whole filesystem is synced (syncfs) instead of each file individually |
 | `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
@@ -152,7 +154,8 @@ Per-hostname TLS configuration. Create a section for each hostname.
 | `tls_cert` | Certificate file (host is dropped with a warning if this is missing) |
 | `tls_key` | Private key file. If empty, the cert file is expected to contain both. |
 | `tls_min_version` | Minimum TLS version |
-| `tls_ciphers` | Allowed cipher list |
+| `tls_ciphers` | Allowed cipher list, TLS 1.2 and below |
+| `tls_ciphersuites` | Allowed TLS 1.3 ciphersuite list |
 | `tls_prefer_server_ciphers` | Use the server's cipher order instead of the client's preference |
 | `tls_verify_peer` | Require client certificate (mTLS) |
 | `tls_ca_cert` | CA bundle for verifying client certs (mTLS) |

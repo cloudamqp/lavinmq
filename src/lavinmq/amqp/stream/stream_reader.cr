@@ -26,6 +26,7 @@ module LavinMQ::AMQP
         else
           # try read from new segment
           s = store.next_segment_id(segment) || break
+          stream.unmap_if_unused(segment)
           position = 4u32
           segment = s
           next
@@ -33,6 +34,8 @@ module LavinMQ::AMQP
         yield env
         stream.@deliver_get_count.add(1, :relaxed)
       end
+    ensure
+      @stream.unmap_if_unused(segment) if segment
     end
   end
 end

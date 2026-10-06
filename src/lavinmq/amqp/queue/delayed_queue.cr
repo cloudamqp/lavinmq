@@ -12,7 +12,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     # Simplified expire loop: no consumers and no per-message TTL to consider,

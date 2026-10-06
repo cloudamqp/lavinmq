@@ -56,24 +56,26 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
-  it "persists the groups on the first change" do
+  it "saves the default group when it creates it" do
     with_data_dir do |data_dir|
       service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
       path = File.join(data_dir, "mqtt_permissions.json")
-      File.exists?(path).should be_false
+      JSON.parse(File.read(path)).should eq JSON.parse(service.to_json)
       service.put(group("g", ["c1"], [rule("a/#", read: true)]))
-      File.exists?(path).should be_true
       reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
       reloaded["g"]?.should_not be_nil
       reloaded[LavinMQ::MQTT::PermissionService::DEFAULT_GROUP]?.should_not be_nil
     end
+  end
+
+  it "saves an empty list when created without the default group" do
     with_data_dir do |data_dir|
-      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
-      path = File.join(data_dir, "mqtt_permissions.json")
-      service.delete("nonexistent")
-      File.exists?(path).should be_false
-      service.delete(LavinMQ::MQTT::PermissionService::DEFAULT_GROUP)
-      JSON.parse(File.read(path)).as_a.should be_empty
+      service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil, default_group: false)
+      service.size.should eq 0
+      service.can_write?(ctx("c1"), "a/b").should be_false
+      JSON.parse(File.read(File.join(data_dir, "mqtt_permissions.json"))).as_a.should be_empty
+      reloaded = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+      reloaded.size.should eq 0
     end
   end
 
@@ -133,16 +135,6 @@ describe LavinMQ::MQTT::PermissionService do
         permissions.size.should eq 10
         10.times { |i| permissions.can_read?(ctx("c1"), "a#{i}/b").should be_true }
       end
-    end
-  end
-
-  it "keeps the automatic default group in memory only" do
-    with_data_dir do |data_dir|
-      LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
-      File.exists?(File.join(data_dir, "mqtt_permissions.json")).should be_false
-      # The next start creates it again, so an unchanged vhost stays open.
-      again = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
-      again.can_write?(ctx("c1"), "a/b").should be_true
     end
   end
 

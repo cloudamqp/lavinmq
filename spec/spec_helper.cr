@@ -342,6 +342,12 @@ class NoOpReplicator
   def wait_for_followers : Nil
   end
 
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
+  end
+
   def close
   end
 
@@ -525,4 +531,18 @@ Spec.around_each do |example|
   ensure
     FileUtils.rm_rf data_dir
   end
+end
+
+# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
+# mapping of the file at `path`
+def vm_flags(path : String) : Array(String)
+  in_mapping = false
+  File.each_line("/proc/self/smaps") do |line|
+    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
+      in_mapping = line.ends_with?(" #{path}")
+    elsif in_mapping && line.starts_with?("VmFlags:")
+      return line.split[1..]
+    end
+  end
+  fail "#{path} isn't mapped"
 end

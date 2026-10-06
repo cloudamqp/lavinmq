@@ -39,6 +39,7 @@ module LavinMQ
         Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
       Dir.mkdir_p @config.data_dir
+      print_data_dir_read_ahead
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir)
       end
@@ -129,6 +130,41 @@ module LavinMQ
           Log.warn { "sysctl -w vm.max_map_count=1000000" }
         end
       {% end %}
+    end
+
+    READ_AHEAD_WARN_KB = 1024
+
+    # The first write fault in a new segment reads ahead up to read_ahead_kb
+    # of it synchronously, in the publish path, which with a large readahead
+    # and a full page cache stalls publishers at every segment rollover.
+    private def print_data_dir_read_ahead
+      {% if flag?(:linux) %}
+        device, read_ahead_kb = data_dir_read_ahead || return
+        Log.info { "Data directory read ahead: #{read_ahead_kb} KiB (#{device})" }
+        if read_ahead_kb > READ_AHEAD_WARN_KB
+          Log.warn { "The read ahead of the data directory's block device is large, it can cause latency spikes on segment rollover." }
+          Log.warn { "Consider lowering it, e.g. to the kernel default: echo 128 > /sys/block/#{device}/queue/read_ahead_kb" }
+        end
+      {% end %}
+    end
+
+    # Looks up the block device of the data dir in sysfs, returns its name and
+    # read ahead in KiB. Returns nil for file systems without one (tmpfs,
+    # overlayfs, NFS, btrfs subvolumes etc.).
+    private def data_dir_read_ahead : Tuple(String, Int32)?
+      {% if flag?(:linux) %}
+        return if LibC.stat(@config.data_dir.check_no_null_byte, out stat) != 0
+        dev = stat.st_dev.to_u64
+        major = ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff_u64)
+        minor = (dev & 0xff) | ((dev >> 12) & ~0xff_u64)
+        sys_dev = File.realpath("/sys/dev/block/#{major}:#{minor}")
+        # Partitions share the queue of their disk
+        sys_dev = File.dirname(sys_dev) if File.exists?(File.join(sys_dev, "partition"))
+        {File.basename(sys_dev), File.read(File.join(sys_dev, "queue", "read_ahead_kb")).strip.to_i}
+      {% end %}
+    rescue ex : File::Error | ArgumentError
+      Log.debug { "Could not read data directory read ahead: #{ex.message}" }
+      nil
     end
 
     private def load_definitions(amqp_server)
@@ -278,6 +314,9 @@ module LavinMQ
       ctx = OpenSSL::SSL::Context::Server.new
       configure_tls_context(ctx)
       ctx
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to initiate the OpenSSL context: #{e.message}" }
+      exit 1
     end
 
     private def warn_if_ktls_unavailable
@@ -301,6 +340,8 @@ module LavinMQ
         next if ctx.nil?
         configure_tls_context(ctx)
       end
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to reload the OpenSSL context, keeping previous configuration: #{e.message}" }
     end
 
     private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
@@ -323,6 +364,7 @@ module LavinMQ
       ctx.certificate_chain = @config.tls_cert_path
       ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      ctx.cipher_suites = @config.tls_ciphersuites unless @config.tls_ciphersuites.empty?
       if @config.tls_prefer_server_ciphers?
         ctx.add_options(OpenSSL::SSL::Options::CIPHER_SERVER_PREFERENCE)
       else

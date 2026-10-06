@@ -17,8 +17,14 @@ Unix domain sockets are also supported via `unix_path` in the `[mqtt]` section. 
 | QoS | Supported | Behavior |
 |-----|-----------|----------|
 | 0 (at most once) | Yes | Fire and forget. Messages are not persisted for the session. |
-| 1 (at least once) | Yes | Messages are acknowledged with PUBACK. |
+| 1 (at least once) | Yes | Incoming publishes are acknowledged with PUBACK after the affected durable data is synced, unless synchronization is disabled. |
 | 2 (exactly once) | Downgraded to QoS 1 | LavinMQ does not implement the full QoS 2 handshake. |
+
+For incoming QoS 1 publishes, PUBACKs are sent in publish order after the broker finishes handling the publish and syncing its affected durable message and retained-message files. In a cluster, the broker also waits for the in-sync followers to acknowledge the replicated writes after synchronization. This uses the same persistence mechanism as [publisher confirms](publisher-confirms.md#durability-and-synchronization).
+
+Waiting for disk synchronization makes QoS 1 throughput depend on disk latency and the number of publishes the client keeps in flight. QoS 0 does not wait for this synchronization. Setting `sync=false` in `[main]` (or using `--no-sync`) skips local disk synchronization; followers also skip synchronization if it is disabled in their own configuration. A PUBACK then provides no disk durability guarantee on those nodes.
+
+A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
 ## Sessions
 
@@ -109,8 +115,8 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 Topic permissions restrict which topics a user's MQTT clients can publish to and receive from. They are defined as permission groups on a vhost.
 
 - A client can only publish to or receive on topics granted by a matching rule
-- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic
-- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything. Deleting the `default` group is not reliably carried over by a definitions export and import, see [Definitions](#definitions)
+- Every vhost starts with a group named `default`. Its member is `*` and its single rule `#` grants read and write, so any authenticated client can publish and subscribe to any topic. A vhost created by a definitions import is the exception, see [Definitions](#definitions)
+- To lock a vhost down, delete the `default` group or narrow its rule. Groups added next to an intact `default` group grant nothing new, because the `default` group already grants everything
 - A vhost with no groups denies every topic
 - There is no administrator bypass
 - A user still needs a permission entry on the vhost to connect
@@ -205,20 +211,19 @@ Permission changes are saved to disk before becoming active. If saving fails, th
 
 ### Definitions
 
-Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. If this file does not exist, an import with groups for that vhost replaces the automatic `default` group. If the file exists, an import adds groups and replaces groups by name, and deletes none. Closing a vhost saves its current groups, including the `default` group if it is still present. Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
+Groups are stored per vhost in `mqtt_permissions.json` and are included in definitions export and import under the `mqtt_permissions` key. The file is written when the vhost is created, so it always holds the groups that are in effect, including the `default` group.
 
-Definitions generated from a data directory include only saved permission groups. If `mqtt_permissions.json` is missing, the generator includes no groups for that vhost.
+An import adds groups and replaces groups with the same name. It never deletes a group, like for users and policies, so importing definitions into an existing vhost keeps its `default` group. To lock that vhost down, delete or narrow its `default` group. `load_definitions` also skips groups whose name already exists on the vhost.
 
-Deleting the `default` group is not reliably carried over by an export and import:
+A vhost created by an import only gets the `default` group if the definitions have no `mqtt_permissions` key. With the key, which every export has, the vhost gets only the groups the definitions list for it, so a vhost exported without groups is imported locked down. Definitions from before topic permissions have no such key, and their vhosts stay open.
 
-- If the vhost has no other groups, the export has no entries for it, so the import leaves the target as it is
-- Otherwise, a target vhost that already has `mqtt_permissions.json` keeps its `default` group. Every vhost has that file after its first restart or change to its groups
+Definitions imports save and apply permission groups together per vhost; a failure on one vhost does not undo changes already saved for another.
 
-To make a lockdown survive, keep the `default` group and remove or narrow its rule instead. `load_definitions` never replaces existing groups, so there this only takes effect on a vhost without `mqtt_permissions.json`, such as one the definitions file creates.
+Definitions generated from a data directory include the groups in `mqtt_permissions.json`. If the file is missing, the generator includes the `default` group, which the server creates when it loads the vhost.
 
 ### Upgrading
 
-- The `default` group is created in memory when a vhost has no `mqtt_permissions.json`, so an upgraded server keeps every topic open until an operator locks a vhost down. `mqtt_permissions.json` is written at the first change over the HTTP API or from a definitions import, or when the vhost closes
+- A vhost without `mqtt_permissions.json` gets the `default` group, which is written to that file at once, so an upgraded server keeps every topic open until an operator locks a vhost down
 - The `permission_check_enabled` option under `[mqtt]` is unchanged. When it is set, a publish needs write permission on the `mqtt.default` exchange, and a subscribe needs read permission on that exchange and write permission on the `mqtt.<client_id>` session queue. A client that fails this check is disconnected. The topic check runs after it
 - A persistent session that existed before the upgrade has no stored username until its device reconnects once. Until then it is checked against `"*"` rules only
 

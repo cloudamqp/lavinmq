@@ -1,3 +1,4 @@
+require "../../filesystem"
 require "./durable_queue"
 
 module LavinMQ::AMQP
@@ -28,7 +29,7 @@ module LavinMQ::AMQP
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata, persister: @vhost.persister)
     end
 
     class PriorityMessageStore < MessageStore
@@ -45,6 +46,7 @@ module LavinMQ::AMQP
         @replicator : Clustering::Replicator?,
         @durable : Bool = true,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
+        @persister : Persister? = nil,
       )
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
@@ -56,12 +58,14 @@ module LavinMQ::AMQP
       end
 
       private def init_sub_stores(stores)
+        Dir.mkdir_p @msg_dir
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
-          Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
+          Dir.mkdir(sub_msg_dir) unless Dir.exists?(sub_msg_dir)
+          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}), persister: @persister)
           stores << store
         end
+        FileSystem.fsync_dir(@msg_dir) if @durable
       end
 
       private def migrate_from_single_store
@@ -70,7 +74,7 @@ module LavinMQ::AMQP
           raise "Message store #{@msg_dir} contains messages that should be migrated, " \
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
-        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
+        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
         msg_count = old_store.size
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32

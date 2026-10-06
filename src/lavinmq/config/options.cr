@@ -214,6 +214,11 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_TLS_CIPHERS")]
       property tls_ciphers = ""
 
+      @[CliOpt("", "--ciphersuites CIPHERSUITES", "List of TLS 1.3 ciphersuites to allow", section: "tls")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_TLS_CIPHERSUITES")]
+      property tls_ciphersuites = ""
+
       @[CliOpt("", "--tls-prefer-server-ciphers=BOOL", "Let the server's cipher order decide which cipher is used (default: false)", section: "tls")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_PREFER_SERVER_CIPHERS")]
@@ -294,10 +299,15 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property segment_size : Int32 = 8 * 1024**2 # bytes
 
-      @[CliOpt("", "--no-sync", "Disable sync/syncfs to the data dir, leaving durability to the OS (unsafe, but speeds up e.g. CI)", ->(_v : String) { false }, section: "options")]
+      @[CliOpt("", "--no-sync", "Disable fsync/msync/syncfs of the data dir, leaving durability to the OS (unsafe, but speeds up e.g. CI)", ->(_v : String) { false }, section: "options")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_SYNC")]
       property? sync : Bool = true
+
+      # Syncing each file costs a device flush, while syncfs also writes out
+      # every other dirty page on the filesystem (e.g. ack files)
+      @[IniOpt(section: "main")]
+      property syncfs_threshold : Int32 = 64 # files
 
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages

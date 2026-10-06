@@ -11,12 +11,14 @@ require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
 require "../bool_channel"
+require "../persister"
 
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
 
       getter id, name, client
       property? running = true
@@ -279,10 +281,14 @@ module LavinMQ
       private def publish_and_return(msg)
         validate_user_id(msg.properties.user_id)
         if @tx
+          # tx.commit syncs these, so the queues they're written to get page
+          # sized folios like for confirms (see MessageStore#random_access_for_sync)
+          msg.needs_sync = true
           @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
         end
 
+        msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
@@ -443,7 +449,7 @@ module LavinMQ
             @client.send_internal_queue_refused(frame, frame.queue)
             return
           end
-          if q.has_exclusive_consumer?
+          if q.in_exclusive_use?(frame.exclusive)
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end

@@ -5,6 +5,10 @@ module LavinMQ
   struct BytesMessage
     getter timestamp, exchange_name, routing_key, properties, bodysize, body
 
+    def needs_sync? : Bool
+      false
+    end
+
     MIN_BYTESIZE = 8 + 1 + 1 + 2 + 8 + 1
 
     def initialize(@timestamp : Int64, @exchange_name : String,
@@ -63,6 +67,9 @@ module LavinMQ
   struct Message
     property timestamp
     getter exchange_name, routing_key, properties, bodysize, body_io
+    # Set for publishes that are confirmed (AMQP confirm mode, MQTT QoS 1), so
+    # the segments they're written to are synced before the confirm
+    property? needs_sync = false
 
     def initialize(@timestamp : Int64, @exchange_name : String,
                    @routing_key : String, @properties : AMQ::Protocol::Properties,

@@ -102,13 +102,14 @@ jobs:
 
   spec_osx:
     name: Spec macOS
-    runs-on: macos-15-xlarge
+    runs-on: macos-15
     if: github.repository == 'cloudamqp/lavinmq'
     timeout-minutes: 10
     steps:
       - name: Install dependencies
         run: |
           brew update
+          brew unlink openssl@3 || true
           brew install crystal etcd
           echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
         env:
@@ -245,14 +246,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install playwright
-        run: npm install @playwright/test
-
-      - name: Install browsers
-        run: npx playwright install --with-deps
-
-      - name: Run tests
-        run: npx playwright test --config ./spec/frontend/playwright.config.js --reporter list
+      - name: Run frontend tests
+        run: make test-frontend PLAYWRIGHT_INSTALL_FLAGS=--with-deps
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -621,3 +616,47 @@ jobs:
             echo "::error::Found errors in LavinMQ log"
             exit 1
           fi
+
+  amqp-quickcheck:
+    name: amqp-quickcheck property tests
+    runs-on: ubuntu-24.04
+    needs: compile
+    env:
+      QC_VERSION: v0.2.2
+      QC_BIN: lavinmq-quickcheck-tests-x86_64-linux
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - name: Download lavinmq-quickcheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$QC_VERSION" -R 84codes/lavinmq-quickcheck -p "$QC_BIN*"
+          sha256sum -c "$QC_BIN.sha256"
+          chmod +x "$QC_BIN"
+
+      - name: Wait for LavinMQ
+        run: |
+          for _ in $(seq 60); do
+            curl -sf -u guest:guest http://localhost:15672/api/overview >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Run property tests
+        # Known flaky under parallel load; see AGENTS.md (Gotchas).
+        run: ./"$QC_BIN"
+

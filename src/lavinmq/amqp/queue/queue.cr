@@ -1,3 +1,4 @@
+require "../../filesystem"
 require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
@@ -120,6 +121,9 @@ module LavinMQ::AMQP
 
     # Idle fiber management
     @message_expire_fiber_active = Atomic(Bool).new(false)
+    @queue_expire_fiber_active = Atomic(Bool).new(false)
+    @policy_limits_fiber_active = Atomic(Bool).new(false)
+    @policy_limits_pending = Atomic(Bool).new(false)
 
     def message_expire_fiber_active?
       @message_expire_fiber_active.get(:relaxed)
@@ -132,8 +136,12 @@ module LavinMQ::AMQP
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        break unless @expires
-        @consumers_empty.when_true.receive
+        break if @closed || !@expires
+        select
+        when @consumers_empty.when_true.receive
+        when @queue_expiration_ttl_change.receive
+          next
+        end
         break unless ttl = @expires
         @log.debug { "Queue expires in #{ttl}ms" }
         select
@@ -264,14 +272,14 @@ module LavinMQ::AMQP
         !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+          FileSystem.durable_rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
         end
         if File.exists?(File.join(@data_dir, "paused"))
           @state = QueueState::Paused
           @paused.set(true)
         end
         handle_arguments
-        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+        ensure_queue_expire_fiber
         start_message_expire_loop if should_start_expire_fiber?
         true
       end
@@ -291,6 +299,57 @@ module LavinMQ::AMQP
       return if @message_expire_fiber_active.swap(true)
       @log.debug { "Starting message expire loop" }
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    private def ensure_queue_expire_fiber
+      return if @closed || !@expires
+      return if @queue_expire_fiber_active.swap(true)
+      spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      rescue ex
+        @log.error(ex) { "queue_expire_loop failed" }
+      ensure
+        @queue_expire_fiber_active.set(false, :release)
+        ensure_queue_expire_fiber
+      end
+    end
+
+    private def schedule_policy_limits
+      @policy_limits_pending.set(true, :release)
+      ensure_policy_limits_fiber
+    end
+
+    private def ensure_policy_limits_fiber
+      return if @closed || !@policy_limits_pending.get(:acquire)
+      return if @policy_limits_fiber_active.swap(true)
+      spawn apply_policy_limits, name: "Queue#apply_policy_limits #{@vhost.name}/#{@name}"
+    end
+
+    private def apply_policy_limits
+      @vhost.closed.when_false.receive?
+      while !@closed && @policy_limits_pending.swap(false)
+        @msg_store_lock.synchronize do
+          break if @closed
+          # Read the current limits after acquiring the lock. Policy churn while
+          # this pass yields requests another pass, without spawning more fibers.
+          # A failed operation must not skip the other limit check or discard
+          # another policy update that arrived during this pass.
+          begin
+            drop_overflow
+          rescue ex
+            @log.error(ex) { "drop_overflow failed" }
+          end
+          begin
+            drop_redelivered
+          rescue ex
+            @log.error(ex) { "drop_redelivered failed" }
+          end
+        end
+      end
+    rescue ::Channel::ClosedError
+    ensure
+      @policy_limits_fiber_active.set(false, :release)
+      ensure_policy_limits_fiber
     end
 
     # Ensure the expire fiber is running if there are messages that need expiring
@@ -330,7 +389,7 @@ module LavinMQ::AMQP
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.replicator : nil
-      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata, persister: @vhost.persister)
     end
 
     private def make_data_dir : String
@@ -345,6 +404,8 @@ module LavinMQ::AMQP
           FileUtils.rm_r data_dir
           Dir.mkdir_p data_dir
         end
+      elsif durable?
+        FileSystem.mkdir_p data_dir
       else
         Dir.mkdir_p data_dir
       end
@@ -371,6 +432,12 @@ module LavinMQ::AMQP
       @exclusive_consumer
     end
 
+    # A queue with an exclusive consumer refuses all other consumers, and an
+    # exclusive consumer is refused while the queue has any consumers
+    def in_exclusive_use?(new_consumer_exclusive : Bool) : Bool
+      @exclusive_consumer || (new_consumer_exclusive && !@consumers.empty?)
+    end
+
     private def apply_policy_argument(key : String, value : JSON::Any) : Bool # ameba:disable Metrics/CyclomaticComplexity
       @log.debug { "Applying policy #{key}: #{value}" }
       case key
@@ -378,20 +445,14 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_policy_limits
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_overflow
-          end
+          schedule_policy_limits
           return true
         end
       when "message-ttl"
@@ -405,7 +466,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          ensure_queue_expire_fiber
           @queue_expiration_ttl_change.try_send? nil
           @effective_args.delete("x-expires")
           return true
@@ -433,10 +494,7 @@ module LavinMQ::AMQP
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
           @effective_args.delete("x-delivery-limit")
-          spawn do
-            @vhost.closed.when_false.receive?
-            drop_redelivered
-          end
+          schedule_policy_limits
           return true
         end
       when "federation-upstream"
@@ -721,7 +779,7 @@ module LavinMQ::AMQP
         unacked_avg_bytes:            stats[:unacked_avg_bytes],
         operator_policy:              operator_policy.try &.name,
         policy:                       policy.try &.name,
-        exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
+        exclusive_consumer_tag:       @exclusive_consumer ? @consumers.find(&.exclusive?).try(&.tag) : nil,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
         state:                        @state,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),

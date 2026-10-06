@@ -106,9 +106,9 @@ module MqttSpecs
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos0 (i.e. our subscribe is correct)
           packet.qos.should eq(0u8)
 
@@ -121,9 +121,9 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos1 (i.e. our second subscribe is correct)
           packet.qos.should eq(1u8)
 
@@ -147,9 +147,9 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos1, i.e. the downgrade is real and not just
           # reported in the SubAck
           packet.qos.should eq(1u8)

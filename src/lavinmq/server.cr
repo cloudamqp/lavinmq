@@ -1,3 +1,4 @@
+require "./filesystem"
 require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
@@ -45,7 +46,7 @@ module LavinMQ
       @blocks_out = rusage.blocks_out.to_i64
 
       @data_dir = @config.data_dir
-      Dir.mkdir_p @data_dir
+      FileSystem.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)

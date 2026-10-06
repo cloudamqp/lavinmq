@@ -8,6 +8,8 @@ require "./protocol"
 require "../bool_channel"
 require "./consts"
 require "../stats"
+require "../persister"
+require "sync/exclusive"
 
 module LavinMQ
   module MQTT
@@ -28,6 +30,12 @@ module LavinMQ
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
+      include Persister::ConfirmTarget
+
+      # A QoS 1 publish waiting for its PUBACK, which is sent once the
+      # persister has made the publish durable. `seq` orders the publishes, so
+      # the persister's cumulative confirm releases every PUBACK up to it.
+      record PendingPubAck, seq : UInt64, packet_id : UInt16
 
       getter log, name, user, client_id, socket, connection_info
       getter? clean_session
@@ -35,6 +43,10 @@ module LavinMQ
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       @protocol : String
+      @publish_seq = 0u64
+      @pending_pubacks = Sync::Exclusive(Deque(PendingPubAck)).new(Deque(PendingPubAck).new, :unchecked)
+      # Created with the PUBACK writer fiber on the first QoS 1 publish
+      @puback_mailbox : ::Channel(UInt64)?
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "mqtt.client"
 
@@ -130,6 +142,7 @@ module LavinMQ
         when Auth::OAuthUser
           user.cleanup
         end
+        @puback_mailbox.try &.close
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
@@ -192,8 +205,9 @@ module LavinMQ
         # A topic denial acks and drops, it never closes the connection.
         unless @broker.permission_service.can_write?(@permission_context, packet.topic)
           Log.debug { "Publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{packet.topic}'" }
+          # Queued like the others, as PUBACKs must be sent in publish order
           if packet.qos > 0 && (packet_id = packet.packet_id)
-            send(Protocol::PubAck.new(packet_id))
+            enqueue_puback(packet_id)
           end
           return
         end
@@ -201,7 +215,46 @@ module LavinMQ
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
-          send(Protocol::PubAck.new(packet_id))
+          enqueue_puback(packet_id)
+        end
+      end
+
+      # QoS 1 publishes are acked like publish confirms, once durable. The
+      # PUBACK is sent by the writer fiber, so the read loop never waits for
+      # the disk.
+      private def enqueue_puback(packet_id : UInt16) : Nil
+        unless @puback_mailbox
+          mailbox = @puback_mailbox = ::Channel(UInt64).new(1)
+          spawn puback_writer(mailbox), name: "MQTT client #{@client_id} puback writer"
+        end
+        seq = @publish_seq &+= 1
+        @pending_pubacks.lock &.push(PendingPubAck.new(seq, packet_id))
+        vhost.enqueue_ack(self, seq)
+      end
+
+      # Non-blocking; if the 1-slot mailbox is full, the stale seq is dropped
+      # (confirms are cumulative).
+      def enqueue_confirm_ack(msgid : UInt64) : Nil
+        mailbox = @puback_mailbox || return
+        loop do
+          return if mailbox.try_send(msgid)
+          mailbox.try_receive?
+        end
+      rescue ::Channel::ClosedError
+      end
+
+      private def puback_writer(mailbox : ::Channel(UInt64))
+        while seq = mailbox.receive?
+          while pending = next_puback(seq)
+            send(Protocol::PubAck.new(pending.packet_id))
+          end
+        end
+      rescue ::IO::Error
+      end
+
+      private def next_puback(seq : UInt64) : PendingPubAck?
+        @pending_pubacks.lock do |pending|
+          pending.shift if pending.first?.try(&.seq.<= seq)
         end
       end
 
