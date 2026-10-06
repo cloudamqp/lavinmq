@@ -66,3 +66,31 @@ describe LavinMQ::DataDirLock do
     end
   end
 end
+
+describe LavinMQ::Launcher do
+  it "binds the metrics port of a standalone node only once it has the data dir lock" do
+    with_datadir do |data_dir|
+      # Another instance holding the shared data dir
+      holder = LavinMQ::DataDirLock.new(data_dir).tap &.acquire
+      metrics_port = TCPServer.open("127.0.0.1", 0, &.local_address.port)
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = config.http_port = config.mqtt_port = 0
+      config.amqps_port = config.https_port = config.mqtts_port = -1
+      config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+      config.metrics_http_bind = "127.0.0.1"
+      config.metrics_http_port = metrics_port
+      config.control_unix_path = File.join(data_dir, "control.sock")
+      launcher = LavinMQ::Launcher.new(config)
+      spawn(name: "launcher spec") { launcher.run }
+      sleep 200.milliseconds
+      # A standby has nothing to report and may share the host
+      TCPServer.open("127.0.0.1", metrics_port) { }
+      holder.release
+      wait_for { (HTTP::Client.get("http://127.0.0.1:#{metrics_port}/metrics").body rescue "").includes? "lavinmq_uptime" }
+    ensure
+      launcher.try &.stop
+    end
+  end
+end

@@ -72,6 +72,7 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @raft_controller)
       start_listeners(amqp_server, mqtt_server, http_server)
+      start_metrics_server unless @metrics_server || @config.metrics_http_port == -1
       @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
@@ -83,7 +84,15 @@ module LavinMQ
     end
 
     def run
-      start_metrics_server unless @config.metrics_http_port == -1
+      # A clustered node is monitored from startup, whatever its role. A
+      # standalone one binds once it has the data dir lock, a standby waiting
+      # for it has nothing to report and could share the host with the
+      # instance holding it.
+      begin
+        start_metrics_server if @config.clustering? && @config.metrics_http_port != -1
+      rescue ex : Socket::BindError
+        abort "Error: #{ex.message}"
+      end
       @runner.run do
         start
       end
@@ -205,9 +214,9 @@ module LavinMQ
       exit 1
     end
 
-    # One metrics server for the life of the process, bound before the node
-    # knows its role, so followers and nodes without a leader are monitored too.
-    # It reports the broker's metrics once this node serves, see #start.
+    # One metrics server for the rest of the process. A clustered node binds
+    # it before it knows its role, so followers and nodes without a leader are
+    # monitored too. It reports the broker's metrics once this node serves.
     private def start_metrics_server
       @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(raft: @raft_controller.try(&.node))
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
@@ -217,8 +226,6 @@ module LavinMQ
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen
       end
-    rescue ex : Socket::BindError
-      abort "Error: #{ex.message}"
     end
 
     private def start_listeners(amqp_server, mqtt_server, http_server)
