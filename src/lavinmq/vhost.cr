@@ -35,6 +35,9 @@ module LavinMQ
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
     rate_stats(STATS_KEYS)
 
+    # Ready and unacked messages in all queues and sessions
+    gauge_stats({"messages_ready", "messages_unacknowledged"})
+
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator, persister
     getter mqtt_permission_service : MQTT::PermissionService
     getter closed = BoolChannel.new(true)
@@ -612,17 +615,18 @@ module LavinMQ
       in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
       in EventType::ClientGet
         @get_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientGetNoAck
         @get_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliver
         @deliver_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliverNoAck
         @deliver_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       end
+    end
+
+    def update_message_count_logs(ready : UInt64, unacked : UInt64) : Nil
+      log_messages_ready(ready)
+      log_messages_unacknowledged(unacked)
     end
 
     def add_recv_bytes(bytes : UInt64) : Nil

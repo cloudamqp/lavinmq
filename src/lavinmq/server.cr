@@ -21,6 +21,7 @@ module LavinMQ
 
     getter vhosts, users, data_dir, parameters, authenticator
     include ParameterTarget
+    include Stats
 
     @closed = BoolChannel.new(false)
     @flow = true
@@ -153,63 +154,57 @@ module LavinMQ
     end
 
     def update_stats_rates
+      Stats.tick(@config.stats_log_size, @config.stats_interval) { update_vhost_rates }
+    end
+
+    private def update_vhost_rates
       @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates)
+        ready = unacked = 0_u64
+        vhost.each_queue do |q|
+          q.update_rates
+          ready += q.message_count
+          unacked += q.unacked_count
+        end
+        vhost.each_session do |s|
+          s.update_rates
+          ready += s.message_count
+          unacked += s.unacked_count
+        end
         vhost.each_exchange(&.update_rates)
-        vhost.each_session(&.update_rates)
         vhost.each_connection do |connection|
           connection.update_rates
           connection.each_channel(&.update_rates)
         end
         vhost.update_rates
+        vhost.update_message_count_logs(ready, unacked)
       end
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval / 1000.0
-      log_size = @config.stats_log_size
       rusage = System.resource_usage
+      counter_log = Stats.counter_log
 
       {% for m in METRICS %}
-        until @{{ m.id }}_log.size < log_size
-          @{{ m.id }}_log.shift
-        end
         {% if m.id.ends_with? "_time" %}
           {{ m.id }} = rusage.{{ m.id }}.total_milliseconds.to_i64
-          {{ m.id }}_rate = (({{ m.id }} - @{{ m.id }}) / (interval * 1000)).round(2)
         {% else %}
           {{ m.id }} = rusage.{{ m.id }}.to_i64
-          {{ m.id }}_rate = (({{ m.id }} - @{{ m.id }}) / interval).round(2)
         {% end %}
-        @{{ m.id }}_log.push {{ m.id }}_rate
+        @{{ m.id }}_log = counter_log.write(@{{ m.id }}_log, Stats.log_value({{ m.id }} - @{{ m.id }}))
         @{{ m.id }} = {{ m.id }}
       {% end %}
 
-      until @rss_log.size < log_size
-        @rss_log.shift
-      end
-
-      rss = statm_rss(statm) || ps_rss
-      @rss = rss
-      @rss_log.push @rss
+      @rss = statm_rss(statm) || ps_rss
+      log_rss(@rss)
 
       @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
       begin
         fs_stats = Filesystem.info(@data_dir)
-        until @disk_free_log.size < log_size
-          @disk_free_log.shift
-        end
-        disk_free = fs_stats.available.to_i64
-        @disk_free_log.push disk_free
-        @disk_free = disk_free
-
-        until @disk_total_log.size < log_size
-          @disk_total_log.shift
-        end
-        disk_total = fs_stats.total.to_i64
-        @disk_total_log.push disk_total
-        @disk_total = disk_total
+        @disk_free = fs_stats.available.to_i64
+        log_disk_free(@disk_free)
+        @disk_total = fs_stats.total.to_i64
+        log_disk_total(@disk_total)
       rescue File::NotFoundError
         # Ignore when server is closed and deleted already
       end
@@ -222,11 +217,13 @@ module LavinMQ
       end
       until closed?
         @stats_collection_duration_seconds_total = Time.measure do
-          @stats_rates_collection_duration_seconds = Time.measure do
-            update_stats_rates
-          end
-          @stats_system_collection_duration_seconds = Time.measure do
-            update_system_metrics(statm)
+          Stats.tick(@config.stats_log_size, @config.stats_interval) do
+            @stats_rates_collection_duration_seconds = Time.measure do
+              update_vhost_rates
+            end
+            @stats_system_collection_duration_seconds = Time.measure do
+              update_system_metrics(statm)
+            end
           end
         end
         @gc_stats = GC.prof_stats
@@ -286,15 +283,24 @@ module LavinMQ
 
     {% for m in METRICS %}
       getter {{ m.id }} : Int64
-      getter {{ m.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
+      @{{ m.id }}_log = StatsLog::Series.new
+
+      # Rate per second at each tick, oldest first: CPU seconds for the
+      # times, blocks for the IO
+      def {{ m.id }}_log : Array(Float64)
+        stats_log = Stats.counter_log
+        interval = Config.instance.stats_interval / 1000.0
+        {% if m.id.ends_with? "_time" %} interval *= 1000 {% end %}
+        stats_log.read(stats_log.ticks_since(@stats_log_start), @{{ m.id }}_log) do |increase|
+          (increase / interval).round(2)
+        end
+      end
     {% end %}
+    gauge_stats({"rss", "disk_total", "disk_free"})
     getter mem_limit = 0_i64
     getter rss = 0_i64
-    getter rss_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_total = 0_i64
-    getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter disk_free = 0_i64
-    getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter stats_collection_duration_seconds_total = Time::Span.new
     getter stats_rates_collection_duration_seconds = Time::Span.new
     getter stats_system_collection_duration_seconds = Time::Span.new

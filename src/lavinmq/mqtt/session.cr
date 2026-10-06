@@ -290,7 +290,6 @@ module LavinMQ
                 @redeliver_count.add(1, :relaxed)
               else
                 @deliver_no_ack_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
               end
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
@@ -317,7 +316,6 @@ module LavinMQ
                 @redeliver_count.add(1, :relaxed)
               else
                 @deliver_count.add(1, :relaxed)
-                @deliver_get_count.add(1, :relaxed)
               end
               @unacked[id] = sp
               @msg_store.forget_packet_id(sp)

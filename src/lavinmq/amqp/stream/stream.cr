@@ -184,7 +184,6 @@ module LavinMQ::AMQP
           @redeliver_count.add(1, :relaxed)
         else
           @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
         end
       end
     end

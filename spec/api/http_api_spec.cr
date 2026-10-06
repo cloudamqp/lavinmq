@@ -72,6 +72,43 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should include ready and unacked message history from all queues" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q1 = ch.queue("history_q1")
+          q2 = ch.queue("history_q2")
+          3.times { q1.publish_confirm "m" }
+          2.times { q2.publish_confirm "m" }
+          q2.get(no_ack: false)
+          s.update_stats_rates
+          totals = JSON.parse(http.get("/api/overview").body)["queue_totals"]
+          totals["messages_ready_log"].as_a.last.should eq 4
+          totals["messages_unacknowledged_log"].as_a.last.should eq 1
+          totals["messages_log"].as_a.last.should eq 5
+        end
+      end
+    end
+
+    it "should sum message and rate history over vhosts" do
+      with_http_server do |http, s|
+        s.vhosts.create("history_vhost")
+        s.users.add_permission("guest", "history_vhost", /.*/, /.*/, /.*/)
+        with_channel(s) do |ch|
+          q = ch.queue("history_q1")
+          3.times { q.publish_confirm "m" }
+        end
+        with_channel(s, vhost: "history_vhost") do |ch|
+          q = ch.queue("history_q2")
+          2.times { q.publish_confirm "m" }
+        end
+        s.update_stats_rates
+        body = JSON.parse(http.get("/api/overview").body)
+        body["queue_totals"]["messages_ready_log"].as_a.last.should eq 5
+        interval = LavinMQ::Config.instance.stats_interval / 1000.0
+        body["message_stats"]["publish_details"]["log"].as_a.last.as_f.should eq (5 / interval).round(1)
+      end
+    end
+
     it "should return sum of all published messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")

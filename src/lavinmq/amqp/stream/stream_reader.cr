@@ -32,7 +32,7 @@ module LavinMQ::AMQP
           next
         end
         yield env
-        stream.@deliver_get_count.add(1, :relaxed)
+        stream.@get_no_ack_count.add(1, :relaxed)
       end
     ensure
       @stream.unmap_if_unused(segment) if segment

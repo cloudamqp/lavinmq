@@ -479,9 +479,9 @@ module LavinMQ
           {{ sm.id }} = deleted_stats.{{ sm.id }}
         {% end %}
         vhosts.each do |vhost|
-          stats_details = vhost.stats_details
+          vhost_stats = vhost.current_stats_details
           {% for sm in SERVER_METRICS %}
-            {{ sm.id }} += stats_details[:{{ sm.id }}]
+            {{ sm.id }} += vhost_stats[:{{ sm.id }}]
           {% end %}
         end
         {% begin %}
