@@ -254,4 +254,52 @@ describe LavinMQ::HTTP::BindingsController do
       end
     end
   end
+
+  describe "the mqtt exchange" do
+    it "does not list subscriptions among the bindings" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.hidden", "a/b", 1u8)
+
+        mqtt_bindings(http.get("/api/bindings"), "mqtt.hidden").should be_empty
+        mqtt_bindings(http.get("/api/bindings/%2f"), "mqtt.hidden").should be_empty
+      end
+    end
+
+    it "is not found by the binding routes" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.sub", "a", 1u8)
+        s.vhosts["/"].declare_exchange("be1", "topic", false, false)
+        x = LavinMQ::MQTT::EXCHANGE
+        binding = %({"routing_key": "b", "arguments": {}})
+        {
+          "GET source"        => http.get("/api/exchanges/%2f/#{x}/bindings/source"),
+          "GET destination"   => http.get("/api/exchanges/%2f/#{x}/bindings/destination"),
+          "GET e/q"           => http.get("/api/bindings/%2f/e/#{x}/q/mqtt.sub"),
+          "POST e/q"          => http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub", body: binding),
+          "DELETE e/q"        => http.delete("/api/bindings/%2f/e/#{x}/q/mqtt.sub/a"),
+          "POST e/e source"   => http.post("/api/bindings/%2f/e/#{x}/e/be1", body: binding),
+          "DELETE e/e source" => http.delete("/api/bindings/%2f/e/#{x}/e/be1/b"),
+          "POST e/e dest"     => http.post("/api/bindings/%2f/e/be1/e/#{x}", body: binding),
+          "DELETE e/e dest"   => http.delete("/api/bindings/%2f/e/be1/e/#{x}/b"),
+        }.each do |route, response|
+          # The route is in the tuple so a failure says which one it was.
+          {route, response.status_code}.should eq({route, 404})
+        end
+        session = s.vhosts["/"].session("mqtt.sub")
+        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+      end
+    end
+  end
+end
+
+private def declare_mqtt_subscription(s, name, topic_filter, qos)
+  mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+  s.vhosts["/"].declare_queue(name, true, false, mqtt_args)
+  s.vhosts["/"].bind_queue(name, LavinMQ::MQTT::EXCHANGE, topic_filter,
+    LavinMQ::MQTT.qos_arguments(qos))
+end
+
+private def mqtt_bindings(response, destination)
+  response.status_code.should eq 200
+  JSON.parse(response.body).as_a.select { |b| b["destination"] == destination }
 end
