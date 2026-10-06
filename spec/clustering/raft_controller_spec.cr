@@ -156,6 +156,17 @@ ensure
   cluster.try &.close
 end
 
+# Serves *controller*'s metrics as the Launcher sets it up, yields a scrape
+private def with_metrics_of(controller : LavinMQ::Clustering::RaftController, &)
+  metrics = LavinMQ::HTTP::MetricsServer.new(raft: controller.node)
+  addr = metrics.bind_tcp("127.0.0.1", 0)
+  controller.metrics_server = metrics
+  spawn metrics.listen
+  yield -> { HTTP::Client.get("http://#{addr}/metrics").body rescue "" }
+ensure
+  metrics.try &.close
+end
+
 describe LavinMQ::Clustering::RaftController do
   it "reports follower proxy bind failures without the generic unhandled exception log" do
     blocker = TCPServer.new("127.0.0.1", 0)
@@ -350,41 +361,37 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "reports raft metrics without a leader and while following", tags: "slow" do
+    # Nodes without raft state can't elect a leader unless one may bootstrap.
+    # All nodes start at once, a node started later could find its port taken.
+    with_controllers(bootstrap: nil) do |cluster|
+      with_metrics_of(cluster.controllers[0]) do |scrape|
+        cluster.start_all
+        peer = cluster.controllers[1].id.to_s(36)
+        wait_for { scrape.call.includes? %(lavinmq_raft_peer_connected{peer="#{peer}"} 1) }
+        body = scrape.call
+        body.should contain "lavinmq_raft_has_leader 0"
+        body.should contain "lavinmq_raft_is_leader 0"
+        body.should_not contain "lavinmq_raft_leader_last_contact_seconds"
+        body.should_not contain "lavinmq_cluster_received_bytes_total"
+      end
+    end
     with_controllers(replication: true) do |cluster|
-      # As the Launcher sets it up
-      follower = cluster.controllers[1]
-      metrics = LavinMQ::HTTP::MetricsServer.new(raft: follower.node)
-      addr = metrics.bind_tcp("127.0.0.1", 0)
-      follower.metrics_server = metrics
-      spawn metrics.listen
-      scrape = -> {
-        HTTP::Client.get("http://#{addr}/metrics").body rescue ""
-      }
-      # Nodes 1 and 2 have no raft state and can't elect a leader on their own
-      cluster.start(follower)
-      cluster.start(cluster.controllers[2])
-      peer = cluster.controllers[2].id.to_s(36)
-      wait_for { scrape.call.includes? %(lavinmq_raft_peer_connected{peer="#{peer}"} 1) }
-      body = scrape.call
-      body.should contain "lavinmq_raft_has_leader 0"
-      body.should contain "lavinmq_raft_is_leader 0"
-      body.should_not contain "lavinmq_raft_leader_last_contact_seconds"
-      body.should_not contain "lavinmq_cluster_received_bytes_total"
-      # Along with the replication client's once there's a leader
-      cluster.start(cluster.controllers[0])
-      cluster.next_leader.should eq cluster.controllers[0]
-      wait_for { scrape.call.includes? "lavinmq_cluster_received_bytes_total" }
-      body = scrape.call
-      body.should contain "lavinmq_raft_has_leader 1"
-      body.should contain "lavinmq_raft_leader_changes_seen_total 1"
-      body.should contain "lavinmq_raft_leader_last_contact_seconds"
-      body.should contain "# TYPE lavinmq_raft_storage_save_duration_seconds histogram"
-      body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="0.001"\} \d+$/m
-      body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="\+Inf"\} [1-9]\d*$/m
-      body.should match /^lavinmq_raft_storage_save_duration_seconds_count [1-9]\d*$/m
-      body.should match /^lavinmq_raft_storage_save_duration_seconds_sum \d/m
-    ensure
-      metrics.try &.close
+      with_metrics_of(cluster.controllers[1]) do |scrape|
+        cluster.start_all
+        cluster.next_leader.should eq cluster.controllers[0]
+        # Along with the replication client's
+        wait_for { scrape.call.includes? "lavinmq_cluster_received_bytes_total" }
+        body = scrape.call
+        body.should contain "lavinmq_raft_has_leader 1"
+        body.should contain "lavinmq_raft_is_leader 0"
+        body.should contain "lavinmq_raft_leader_changes_seen_total 1"
+        body.should contain "lavinmq_raft_leader_last_contact_seconds"
+        body.should contain "# TYPE lavinmq_raft_storage_save_duration_seconds histogram"
+        body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="0.001"\} \d+$/m
+        body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="\+Inf"\} [1-9]\d*$/m
+        body.should match /^lavinmq_raft_storage_save_duration_seconds_count [1-9]\d*$/m
+        body.should match /^lavinmq_raft_storage_save_duration_seconds_sum \d/m
+      end
     end
   end
 
