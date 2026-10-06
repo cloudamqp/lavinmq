@@ -55,11 +55,11 @@ shovel-value:
   properties:
     src-uri:
       type: string
-      description: Source AMQP URI (where messages are consumed from).
+      description: Source AMQP URI (where messages are consumed from). A URI without host (`amqp:///vhost`) is this broker, in-process; a URI with a host is reached over AMQP with its credentials.
       example: amqp://guest:guest@localhost:5672/%2f
     dest-uri:
       type: string
-      description: Destination AMQP URI (where messages are published to).
+      description: Destination AMQP URI (where messages are published to). A URI without host (`amqp:///vhost`) is this broker, in-process; a URI with a host is reached over AMQP with its credentials.
       example: amqp://guest:guest@remote-host:5672/%2f
     src-queue:
       type: string
@@ -116,7 +116,7 @@ shovel-value:
     - src-uri
     - dest-uri
   example:
-    src-uri: amqp://guest:guest@localhost:5672/%2f
+    src-uri: amqp:///%2f
     dest-uri: amqp://guest:guest@remote-host:5672/%2f
     src-queue: source-queue
     dest-queue: dest-queue
@@ -131,7 +131,7 @@ federation-upstream-value:
   properties:
     uri:
       type: string
-      description: AMQP URI of the upstream broker.
+      description: AMQP URI of the upstream broker. A URI without host (`amqp:///vhost`) is a vhost of this broker, reached in-process.
       example: amqp://guest:guest@upstream-host:5672/%2f
     prefetch-count:
       type: integer
