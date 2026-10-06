@@ -189,7 +189,7 @@ describe LavinMQ::GlobalDefinitions do
           # Nothing has created an MQTT broker at this point, just like in
           # Launcher#start where definitions are loaded before MQTT::Server
           LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
-          exchange = s.vhosts["/"].mqtt_exchange
+          exchange = s.vhosts["/"].mqtt.exchange
           exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
         end
       ensure
@@ -938,8 +938,8 @@ describe LavinMQ::HTTP::Server do
         mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
         s.vhosts["/"].declare_queue("mqtt.durable", true, false, mqtt_args)
         s.vhosts["/"].declare_queue("mqtt.transient", false, true, mqtt_args)
-        s.vhosts["/"].session("mqtt.durable").durable?.should be_true
-        s.vhosts["/"].session("mqtt.transient").durable?.should be_false
+        s.vhosts["/"].mqtt.session("mqtt.durable").durable?.should be_true
+        s.vhosts["/"].mqtt.session("mqtt.transient").durable?.should be_false
         s.vhosts["/"].bind_queue("mqtt.durable", LavinMQ::MQTT::EXCHANGE, "a/b",
           LavinMQ::MQTT.qos_arguments(1u8))
         s.vhosts["/"].bind_queue("mqtt.transient", LavinMQ::MQTT::EXCHANGE, "c/#",
@@ -969,14 +969,14 @@ describe LavinMQ::HTTP::Server do
           LavinMQ::MQTT.qos_arguments(1u8))
         body = http.get("/api/definitions").body
         s.vhosts["/"].delete_queue("mqtt.roundtrip")
-        s.vhosts["/"].session?("mqtt.roundtrip").should be_nil
+        s.vhosts["/"].mqtt.session?("mqtt.roundtrip").should be_nil
 
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        session = s.vhosts["/"].session?("mqtt.roundtrip")
+        session = s.vhosts["/"].mqtt.session?("mqtt.roundtrip")
         session = session.should_not be_nil
         s.vhosts["/"].queue?("mqtt.roundtrip").should be_nil
-        subscriptions = s.vhosts["/"].session_subscriptions(session)
+        subscriptions = s.vhosts["/"].mqtt.subscriptions(session)
         subscriptions.map(&.routing_key).should eq ["a/b"]
         subscriptions.first.binding_key.qos.should eq 1u8
       end

@@ -157,7 +157,7 @@ describe LavinMQ::VHost do
         v.delete_queue("q")
       end
       restart_server(s)
-      session = s.vhosts["/"].session?("mqtt.persist")
+      session = s.vhosts["/"].mqtt.session?("mqtt.persist")
       session.should_not be_nil
       s.vhosts["/"].queue?("mqtt.persist").should be_nil
     end
@@ -175,7 +175,7 @@ describe LavinMQ::VHost do
         v.delete_queue("q")
       end
       restart_server(s)
-      bindings = s.vhosts["/"].mqtt_exchange.bindings_details
+      bindings = s.vhosts["/"].mqtt.exchange.bindings_details
       bindings.map(&.binding_key.routing_key).should eq ["a/b"]
       bindings.first.arguments.try &.[](LavinMQ::MQTT::QOS_HEADER).should eq 1u8
     end

@@ -285,8 +285,8 @@ describe LavinMQ::HTTP::BindingsController do
           # The route is in the tuple so a failure says which one it was.
           {route, response.status_code}.should eq({route, 404})
         end
-        session = s.vhosts["/"].session("mqtt.sub")
-        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+        session = s.vhosts["/"].mqtt.session("mqtt.sub")
+        s.vhosts["/"].mqtt.subscriptions(session).map(&.routing_key).should eq ["a"]
       end
     end
   end

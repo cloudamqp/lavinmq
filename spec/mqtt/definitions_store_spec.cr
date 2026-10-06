@@ -6,7 +6,7 @@ MQTT_QUEUE_ARGS = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
 # of type "mqtt" and bindings from the MQTT exchange.
 def declare_mqtt_session(vhost, name, clean_session = false)
   vhost.declare_queue(name, !clean_session, clean_session, MQTT_QUEUE_ARGS)
-  vhost.session(name)
+  vhost.mqtt.session(name)
 end
 
 def subscribe_mqtt_session(vhost, name, topic_filter, qos)
@@ -20,9 +20,9 @@ describe LavinMQ::MQTT::DefinitionsStore do
       v = s.vhosts["/"]
       session = declare_mqtt_session(v, "mqtt.sub")
       session.should be_a LavinMQ::MQTT::Session
-      v.session?("mqtt.sub").should be session
+      v.mqtt.session?("mqtt.sub").should be session
       v.queue?("mqtt.sub").should be_nil
-      v.sessions_size.should eq 1
+      v.mqtt.sessions_size.should eq 1
     end
   end
 
@@ -32,14 +32,14 @@ describe LavinMQ::MQTT::DefinitionsStore do
       declare_mqtt_session(v, "mqtt.sub")
       subscribe_mqtt_session(v, "mqtt.sub", "a/b", 1u8)
 
-      v.mqtt_exchange.binding_count.should eq 1
-      subscription = v.session_subscriptions(v.session("mqtt.sub")).first
+      v.mqtt.exchange.binding_count.should eq 1
+      subscription = v.mqtt.subscriptions(v.mqtt.session("mqtt.sub")).first
       subscription.routing_key.should eq "a/b"
       subscription.binding_key.qos.should eq 1u8
 
       v.unbind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", LavinMQ::MQTT::QOS1_ARGUMENTS)
-      v.mqtt_exchange.binding_count.should eq 0
-      v.session_subscriptions(v.session("mqtt.sub")).should be_empty
+      v.mqtt.exchange.binding_count.should eq 0
+      v.mqtt.subscriptions(v.mqtt.session("mqtt.sub")).should be_empty
     end
   end
 
@@ -51,8 +51,8 @@ describe LavinMQ::MQTT::DefinitionsStore do
       subscribe_mqtt_session(v, "mqtt.one", "a/b", 0u8)
       subscribe_mqtt_session(v, "mqtt.two", "c/d", 0u8)
 
-      v.session_subscriptions(v.session("mqtt.one")).map(&.routing_key).should eq ["a/b"]
-      v.session_subscriptions(v.session("mqtt.two")).map(&.routing_key).should eq ["c/d"]
+      v.mqtt.subscriptions(v.mqtt.session("mqtt.one")).map(&.routing_key).should eq ["a/b"]
+      v.mqtt.subscriptions(v.mqtt.session("mqtt.two")).map(&.routing_key).should eq ["c/d"]
     end
   end
 
@@ -65,12 +65,12 @@ describe LavinMQ::MQTT::DefinitionsStore do
       subscribe_mqtt_session(v, "mqtt.gone", "c/+", 0u8)
       subscribe_mqtt_session(v, "mqtt.gone", "d/#", 1u8)
       subscribe_mqtt_session(v, "mqtt.stays", "e/f", 0u8)
-      v.mqtt_exchange.binding_count.should eq 4
+      v.mqtt.exchange.binding_count.should eq 4
 
       v.delete_queue("mqtt.gone")
 
-      v.session?("mqtt.gone").should be_nil
-      v.mqtt_exchange.bindings_details.map(&.routing_key).should eq ["e/f"]
+      v.mqtt.session?("mqtt.gone").should be_nil
+      v.mqtt.exchange.bindings_details.map(&.routing_key).should eq ["e/f"]
     end
   end
 
@@ -81,7 +81,7 @@ describe LavinMQ::MQTT::DefinitionsStore do
       session.subscribe("a/b", 0u8)
       session.subscribe("a/b", 1u8)
 
-      subscriptions = v.session_subscriptions(session)
+      subscriptions = v.mqtt.subscriptions(session)
       subscriptions.size.should eq 1
       subscriptions.first.binding_key.qos.should eq 1u8
     end
@@ -94,7 +94,7 @@ describe LavinMQ::MQTT::DefinitionsStore do
       session.subscribe("a/b", 0u8).should be_true # new
       session.subscribe("a/b", 0u8).should be_true # already subscribed at this qos
       session.subscribe("a/b", 1u8).should be_true # qos replaced
-      v.session_subscriptions(session).size.should eq 1
+      v.mqtt.subscriptions(session).size.should eq 1
     end
   end
 
@@ -106,10 +106,10 @@ describe LavinMQ::MQTT::DefinitionsStore do
       v = s.vhosts["/"]
       session = declare_mqtt_session(v, "mqtt.gone")
       session.delete
-      v.session?("mqtt.gone").should be_nil
+      v.mqtt.session?("mqtt.gone").should be_nil
 
       session.subscribe("a/b", 0u8).should be_false
-      v.mqtt_exchange.binding_count.should eq 0
+      v.mqtt.exchange.binding_count.should eq 0
     end
   end
 
@@ -121,7 +121,7 @@ describe LavinMQ::MQTT::DefinitionsStore do
 
       tf = MQTT::Protocol::Subscribe::TopicFilter.new("a/b", 1u8)
       broker.grant(session, tf).should eq MQTT::Protocol::SubAck::ReturnCode::QoS1
-      v.session_subscriptions(session).map(&.routing_key).should eq ["a/b"]
+      v.mqtt.subscriptions(session).map(&.routing_key).should eq ["a/b"]
     end
   end
 
@@ -156,9 +156,9 @@ describe LavinMQ::MQTT::DefinitionsStore do
       restart_server(s)
 
       v = s.vhosts["/"]
-      v.session?("mqtt.durable").should_not be_nil
-      v.session?("mqtt.clean").should be_nil
-      subscriptions = v.session_subscriptions(v.session("mqtt.durable"))
+      v.mqtt.session?("mqtt.durable").should_not be_nil
+      v.mqtt.session?("mqtt.clean").should be_nil
+      subscriptions = v.mqtt.subscriptions(v.mqtt.session("mqtt.durable"))
       subscriptions.map(&.routing_key).sort!.should eq ["a/b", "c/#"]
       subscriptions.find! { |sub| sub.routing_key == "a/b" }.binding_key.qos.should eq 1u8
       subscriptions.find! { |sub| sub.routing_key == "c/#" }.binding_key.qos.should eq 0u8
