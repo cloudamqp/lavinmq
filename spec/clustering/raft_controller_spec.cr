@@ -349,6 +349,37 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
+  it "serves raft metrics without a leader and while following", tags: "slow" do
+    with_controllers(replication: true) do |cluster|
+      port = cluster.configs[1].metrics_http_port = free_port
+      scrape = -> {
+        HTTP::Client.get("http://127.0.0.1:#{port}/metrics").body rescue ""
+      }
+      # Nodes 1 and 2 have no raft state and can't elect a leader on their own
+      cluster.start(cluster.controllers[1])
+      cluster.start(cluster.controllers[2])
+      peer = cluster.controllers[2].id.to_s(36)
+      wait_for { scrape.call.includes? %(lavinmq_raft_peer_connected{peer="#{peer}"} 1) }
+      body = scrape.call
+      body.should contain "lavinmq_raft_has_leader 0"
+      body.should contain "lavinmq_raft_is_leader 0"
+      body.should_not contain "lavinmq_raft_leader_last_contact_seconds"
+      # The replication client takes over the port once there's a leader
+      cluster.start(cluster.controllers[0])
+      cluster.next_leader.should eq cluster.controllers[0]
+      wait_for { scrape.call.includes? "lavinmq_cluster_received_bytes_total" }
+      body = scrape.call
+      body.should contain "lavinmq_raft_has_leader 1"
+      body.should contain "lavinmq_raft_leader_changes_seen_total 1"
+      body.should contain "lavinmq_raft_leader_last_contact_seconds"
+      body.should contain "# TYPE lavinmq_raft_storage_save_duration_seconds histogram"
+      body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="0.001"\} \d+$/m
+      body.should match /^lavinmq_raft_storage_save_duration_seconds_bucket\{le="\+Inf"\} [1-9]\d*$/m
+      body.should match /^lavinmq_raft_storage_save_duration_seconds_count [1-9]\d*$/m
+      body.should match /^lavinmq_raft_storage_save_duration_seconds_sum \d/m
+    end
+  end
+
   it "doesn't exit with an error when losing leadership while shutting down", tags: "slow" do
     with_controllers do |cluster|
       cluster.start_all

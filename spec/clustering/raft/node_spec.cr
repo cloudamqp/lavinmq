@@ -156,6 +156,36 @@ describe Raft::Node do
     end
   end
 
+  it "reports metrics" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      m = leader.metrics.should_not be_nil
+      m.is_leader.should be_true
+      m.leader.should eq leader.status.not_nil!.id
+      m.term.should eq leader.status.not_nil!.term
+      m.leader_contact.should eq Time::Span.zero
+      m.leader_changes.should eq 1
+      m.isr_size.should eq 3
+      m.proposals_pending.should eq 0
+      m.peers.size.should eq 2
+      m.peers.values.should eq [true, true]
+      m.save_count.should be > 0
+      m.save_buckets.sum.should eq m.save_count
+      m.save_buckets.size.should eq Raft::Node::SAVE_BUCKETS.size + 1
+
+      follower = c.nodes.values.find! { |n| n != leader }
+      wait_for { follower.metrics.try &.isr_size }
+      fm = follower.metrics.should_not be_nil
+      fm.is_leader.should be_false
+      fm.leader.should eq m.leader
+      fm.leader_contact.not_nil!.should be < 1.second
+
+      c.stop(c.nodes.key_for(leader))
+      wait_for { follower.metrics.try { |x| x.leader_changes == 2 && x.peers.values.count(false) == 1 } }
+    end
+  end
+
   it "hands over leadership on transfer" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader

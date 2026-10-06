@@ -87,6 +87,29 @@ caught up. That phase is reported per follower by `GET /api/nodes`, where
 `uncompressed_bytes` and `compressed_bytes` cover every byte written to the
 follower, bulk transfer included.
 
+#### Raft
+
+Leader election state, on every node of a cluster that uses the Raft backend
+(`backend = raft`). A node without a leader serves these on the metrics port
+too, so a cluster that can't elect one can still be monitored.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `raft_has_leader` | gauge | 1 if this node knows of a leader |
+| `raft_is_leader` | gauge | 1 if this node is the leader |
+| `raft_leader_changes_seen_total` | counter | Leader changes this node has seen since it started |
+| `raft_term` | gauge | Current raft term |
+| `raft_leader_last_contact_seconds` | gauge | Time since this node last heard from the leader, 0 on the leader. Absent until it has heard from one |
+| `raft_proposals_pending` | gauge | ISR and membership changes the leader has proposed but not yet committed |
+| `raft_isr_size` | gauge | Nodes in the committed in-sync replica set |
+| `raft_peer_connected` | gauge | 1 if this node is connected to the cluster member `peer` (its clustering id) |
+| `raft_storage_save_duration_seconds` | histogram | Time to persist the raft state (term, vote and log) to disk, with an fsync |
+
+Alert on `raft_has_leader == 0`, and on a fast-growing
+`raft_leader_changes_seen_total`, which means unstable leadership, often slow
+disks (see `raft_storage_save_duration_seconds`) or a network that delays
+heartbeats past the election timeout.
+
 #### Garbage collection
 
 Crystal GC stats, prefixed with `<prefix>_gc_`.

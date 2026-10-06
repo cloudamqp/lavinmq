@@ -205,7 +205,7 @@ module LavinMQ
     end
 
     private def start_metrics_server(server)
-      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(server, raft: @raft_controller.try(&.node))
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
       spawn(name: "HTTP metrics listener") do
         metrics_server.listen

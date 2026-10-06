@@ -60,7 +60,9 @@ module LavinMQ
       # fsynced along with the file when the leader requests it
       @created_files = Set(String).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      # *raft* is the node's raft state, served along with the metrics
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true,
+                     @raft : Raft::Node? = nil)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -89,7 +91,7 @@ module LavinMQ
       end
 
       private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self)
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self, raft: @raft)
         metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
         spawn(name: "HTTP metrics listener") do
           metrics_server.listen
