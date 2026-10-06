@@ -26,8 +26,10 @@ AMQP queues on an Endpoint (an exchange source is consumed through a temporary
 queue). The
 Source owns consume and settlement; it never decides *whether* a message
 succeeded. Acks are cumulative and batched behind a **settlement frontier**:
-the highest delivery tag below which everything is settled (batching only
-pays off on a remote Endpoint; in-process every ack is sent at once). Out-of-order
+the highest delivery tag below which everything is settled. A batch is
+flushed when it reaches half the prefetch, as soon as nothing is in flight, or
+at most the batch timeout after its first ack (batching only pays off on a
+remote Endpoint; in-process every ack is sent at once). Out-of-order
 confirms wait above it; a cumulative ack never covers an unsettled tag, and
 names the highest *acked* tag below the frontier, never a rejected one (the
 broker has already settled a rejected tag and refuses an ack for it).
