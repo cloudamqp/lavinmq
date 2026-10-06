@@ -227,7 +227,7 @@ module MqttSpecs
           io.should be_drained
 
           session = server.vhosts["/"].session("mqtt.subscriber")
-          wait_for { session.@unacked.empty? }
+          wait_for { session.@inflight.empty? }
 
           disconnect(io)
         end
@@ -250,7 +250,7 @@ module MqttSpecs
           wait_for { session.ack_count == 1 }
           session.message_count.should eq 0
           session.unacked_count.should eq 0
-          session.@unacked.size.should eq 1
+          session.@inflight.size.should eq 1
 
           pubcomp(io, id)
           disconnect(io)
@@ -331,7 +331,7 @@ module MqttSpecs
           io.should be_drained
 
           session = server.vhosts["/"].session("mqtt.subscriber")
-          wait_for { session.@unacked.empty? }
+          wait_for { session.@inflight.empty? }
 
           disconnect(io)
         end
@@ -470,8 +470,8 @@ module MqttSpecs
 
         # Still booked against the window, but holding no message: the message
         # was deleted at PUBREC and only the id is owed.
-        session.@unacked.size.should eq 1
-        session.@unacked.values.first.sp.should be_nil
+        session.@inflight.size.should eq 1
+        session.@inflight.values.first.sp.should be_nil
         session.unacked_count.should eq 0
         session.message_count.should eq 0
       end
@@ -550,10 +550,10 @@ module MqttSpecs
         wait_for { session.client.nil? }
 
         # Point the requeued second message at the id the PUBREL still owes, the
-        # way `next_id` could once its counter wraps. Reissuing it would put one
+        # way `next_packet_id` could once its counter wraps. Reissuing it would put one
         # id on both a PUBREL and a PUBLISH.
-        sp = session.@msg_store.@packet_ids.keys.first
-        session.@msg_store.@packet_ids[sp] = owed
+        sp = session.@msg_store.@original_packet_ids.keys.first
+        session.@msg_store.@original_packet_ids[sp] = owed
 
         with_client_io(server) do |io|
           connect(io, client_id: "resumer", clean_session: false)
