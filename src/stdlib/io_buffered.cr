@@ -128,6 +128,14 @@ module IO::Buffered
     self
   end
 
+  private def out_buffer
+    @out_buffer ||= if pool = @buffer_pool
+                      pool.acquire
+                    else
+                      GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
+                    end
+  end
+
   private def release_in_buffer : Nil
     if (pool = @buffer_pool) && (in_buf = @in_buffer)
       @in_buffer = Pointer(UInt8).null

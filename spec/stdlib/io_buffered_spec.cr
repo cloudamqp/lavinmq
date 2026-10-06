@@ -88,6 +88,12 @@ describe IO::Buffered do
       buf = Bytes.new(10)
       reader.read_fully(buf)
       buf.should eq Bytes.new(10, 1_u8)
+      writer.write Bytes.new(10, 2_u8)
+      writer.flush
+      reader.read_fully(buf)
+      buf.should eq Bytes.new(10, 2_u8)
+      pool.stats[:allocated].should eq 1
+      pool.stats[:reused].should eq 1
     ensure
       reader.try &.close
       writer.try &.close
