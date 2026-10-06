@@ -166,6 +166,13 @@ module IO::Buffered
     @in_buffer_rem = Slice.new(in_buffer, size)
   end
 
+  # fill_socket_buffer bypasses Socket#unbuffered_read and relies on stdlib
+  # internals (Socket's @fd_lock, the event loop's wait_readable). Re-verify
+  # them, and bump the version here, when upgrading Crystal.
+  {% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.22.0") < 0 %}
+    {% warning "IO::Buffered#fill_socket_buffer is only tested with Crystal 1.21, not #{Crystal::VERSION.id}" %}
+  {% end %}
+
   # Non-blocking read into a pooled buffer. If no data is available the buffer
   # is returned to the pool while waiting for the socket to become readable.
   private def fill_socket_buffer(socket : Socket, pool : IO::BufferPool) : Nil
