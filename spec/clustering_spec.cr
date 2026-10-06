@@ -89,6 +89,31 @@ class SelfLeaderController < LavinMQ::Clustering::Controller
   def mark_elected_for_spec
     @elected_leader.set(true)
   end
+
+  def stop_following_for_spec
+    stop_following
+  end
+end
+
+# Another node leads, and the clustering secret is only handed out once the
+# spec says so, like a follower waiting for it while this node is elected
+class SecretWaitEtcd < LavinMQ::Etcd
+  getter asked = Channel(Nil).new(1)
+  getter release = Channel(Nil).new(1)
+
+  def initialize
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    yield "tcp://127.0.0.1:1"
+  end
+
+  def get(_key) : String?
+    @asked.send nil
+    @release.receive
+    "secret"
+  end
 end
 
 class ProxyBindEtcd < LavinMQ::Etcd
@@ -130,6 +155,41 @@ describe LavinMQ::Clustering::Controller do
     end
   ensure
     blocker.try &.close
+  end
+
+  it "doesn't start following once elected while waiting for the clustering secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = config.http_port = config.mqtt_port = 0
+      config.metrics_http_port = -1
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5686"
+      etcd = SecretWaitEtcd.new
+      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+      controller = SelfLeaderController.new(config, etcd, coordinator)
+      done = Channel(Exception?).new(1)
+      spawn(name: "secret wait follower monitor spec") do
+        controller.follow_leader_public
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      etcd.asked.receive
+      # Elected meanwhile: the launcher takes the data dir lock
+      controller.stop_following_for_spec
+      launcher_lock = LavinMQ::DataDirLock.new(data_dir).tap &.acquire
+      etcd.release.send nil
+      select
+      when ex = done.receive
+        # A replication client would have found the lock taken and exited
+        ex.should be_nil
+      when timeout(2.seconds)
+        fail "follower monitor didn't return"
+      end
+    ensure
+      launcher_lock.try &.release
+    end
   end
 end
 

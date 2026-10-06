@@ -8,6 +8,10 @@ class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  # Serializes creating a replication client with promotion: the client and
+  # the launcher each take the data dir lock, which fails when it's held
+  @follow_lock = Mutex.new
+  @promoted = false
 
   def self.new(config : Config)
     etcd = Etcd.new(config.clustering_etcd_endpoints)
@@ -34,7 +38,7 @@ class LavinMQ::Clustering::Controller
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.try &.close
+    stop_following
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -59,6 +63,15 @@ class LavinMQ::Clustering::Controller
     @stopped = true
     @repli_client.try &.close
     @lease.try &.release
+  end
+
+  # Before the launcher takes the data dir lock: no replication client may
+  # hold it, or be created to take it, from here on
+  private def stop_following : Nil
+    @follow_lock.synchronize do
+      @promoted = true
+      @repli_client.try &.close
+    end
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
@@ -110,8 +123,12 @@ class LavinMQ::Clustering::Controller
           break
         end
       end
-      @repli_client = r = Clustering::Client.new(@config, @id, secret)
-      spawn r.follow(uri), name: "Clustering client #{uri}"
+      @follow_lock.synchronize do
+        # Elected while waiting for the secret, the launcher takes the lock
+        return if @promoted
+        @repli_client = r = Clustering::Client.new(@config, @id, secret)
+        spawn r.follow(uri), name: "Clustering client #{uri}"
+      end
       SystemD.notify_ready
     end
   rescue ex : Error

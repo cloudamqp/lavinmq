@@ -49,16 +49,17 @@ describe LavinMQ::Launcher do
       config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
       config.control_unix_path = File.join(data_dir, "control.sock")
       launcher = LavinMQ::Launcher.new(config)
-      done = Channel(Nil).new
+      done = Channel(Exception?).new(1)
       spawn do
-        expect_raises(SpecExit, /Exiting with code 1/) do
-          launcher.start_for_spec
-        end
-      ensure
-        done.close
+        launcher.start_for_spec
+        done.send nil
+      rescue ex
+        done.send ex
       end
       select
-      when done.receive?
+      when ex = done.receive
+        ex.should be_a SpecExit
+        ex.as(SpecExit).code.should eq 1
       when timeout(2.seconds)
         fail "waited for the lock"
       end
