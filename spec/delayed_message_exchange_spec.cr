@@ -56,7 +56,6 @@ describe "Delayed Message Exchange" do
         end
         restart_server(s)
         s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
-        sleep 1.second
         wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
       end
     end
@@ -174,29 +173,26 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-        # Publish three message with delay 9000ms, 6000ms, 3000ms
+        queue = s.vhosts["/"].queue(q_name)
+        # Publish three message with delay 3000ms, 2000ms, 1000ms
         3.downto(1) do |i|
-          delay = i * 3000
+          delay = i * 1000
           hdrs = AMQP::Client::Arguments.new({"x-delay" => delay})
           x.publish_confirm delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           Fiber.yield
         end
-        # by sleeping 5 seconds the message with delay 3000ms should be published
-        sleep 5.seconds
-        # publish another message, with a delay low enough to make the message
-        # being published before at least the one with 9000ms
-        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1500})
-        x.publish_confirm "1500", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        Fiber.yield
-        # by sleeping another 2 seconds we've slept for 7s in total, meaning that
-        # the message published with 6000ms should be published. Also, the new message
-        # with 1500ms should be published
-        sleep 2.seconds
-        queue = s.vhosts["/"].queue(q_name)
-        queue.message_count.should eq 3
-        sleep 3.seconds # total 10, the 9000ms message should have been published
-        queue.message_count.should eq 4
-        expected = %w[3000 6000 1500 9000]
+        # by sleeping 1.5 seconds the message with delay 1000ms should be published
+        sleep 1.5.seconds
+        queue.message_count.should eq 1
+        # publish another message, with a delay that makes it due after the
+        # 2000ms message but before the 3000ms message
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 700})
+        x.publish_confirm "700", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        # the 2000ms message and the new 700ms message are published by ~2.2s,
+        # well before the 3000ms message is due
+        wait_for { queue.message_count == 3 }
+        wait_for { queue.message_count == 4 }
+        expected = %w[1000 2000 700 3000]
         expected.each do |expected_delay|
           queue.basic_get(no_ack: true) do |env|
             String.new(env.message.body).should eq expected_delay

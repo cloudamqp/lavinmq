@@ -52,6 +52,21 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "batches expire loop wakeups without waking before the deadline" do
+    RoughTime.paused do
+      now = RoughTime.unix_ms
+      LavinMQ::AMQP::Queue.time_to_expiration_wakeup(now).should eq Time::Span.zero
+      LavinMQ::AMQP::Queue.time_to_expiration_wakeup(now - 5).should eq Time::Span.zero
+      g = LavinMQ::AMQP::Queue::EXPIRE_WAKEUP_GRANULARITY_MS
+      base = (now // g + 1) * g # a granularity boundary in the future
+      (1..g).each do |offset|
+        expire_at = base + offset
+        wait = LavinMQ::AMQP::Queue.time_to_expiration_wakeup(expire_at)
+        (now + wait.total_milliseconds.to_i64).should eq base + g
+      end
+    end
+  end
+
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
