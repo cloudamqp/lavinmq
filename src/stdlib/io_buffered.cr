@@ -169,23 +169,27 @@ module IO::Buffered
   # Non-blocking read into a pooled buffer. If no data is available the buffer
   # is returned to the pool while waiting for the socket to become readable.
   private def fill_socket_buffer(socket : Socket, pool : IO::BufferPool) : Nil
-    loop do
-      in_buffer = (@in_buffer ||= pool.acquire)
-      ret = LibC.recv(socket.fd, in_buffer, @buffer_size, LibC::MSG_DONTWAIT)
-      if ret >= 0
-        @in_buffer_rem = Slice.new(in_buffer, ret.to_i)
-        return
-      end
-      case Errno.value
-      when Errno::EAGAIN # same as EWOULDBLOCK on Linux and macOS
-        @in_buffer = Pointer(UInt8).null
-        pool.release(in_buffer)
-        Crystal::EventLoop.current.wait_readable(socket)
-        check_open
-      when Errno::EINTR
-        next
-      else
-        raise IO::Error.from_errno("read", target: self)
+    # like Socket#unbuffered_read, hold the fd's read lock so a concurrent
+    # close can't close (and the OS reuse) the fd while we're reading from it
+    socket.@fd_lock.read do
+      loop do
+        in_buffer = (@in_buffer ||= pool.acquire)
+        ret = LibC.recv(socket.fd, in_buffer, @buffer_size, LibC::MSG_DONTWAIT)
+        if ret >= 0
+          @in_buffer_rem = Slice.new(in_buffer, ret.to_i)
+          return
+        end
+        case Errno.value
+        when Errno::EAGAIN # same as EWOULDBLOCK on Linux and macOS
+          @in_buffer = Pointer(UInt8).null
+          pool.release(in_buffer)
+          Crystal::EventLoop.current.wait_readable(socket)
+          check_open
+        when Errno::EINTR
+          next
+        else
+          raise IO::Error.from_errno("read", target: self)
+        end
       end
     end
   end

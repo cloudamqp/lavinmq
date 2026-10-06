@@ -20,8 +20,13 @@ describe IO::Buffered do
       reader.buffer_pool = pool
       reader.read_buffering = true
       data = Bytes.new(10_000, &.to_u8!)
-      writer.write data
-      writer.flush # but keep it open, no more data or edges will arrive
+      wrote = Channel(Nil).new(1)
+      # can block, macOS has a small UNIX socket send buffer
+      spawn do
+        writer.write data
+        writer.flush # but keep it open, no more data or edges will arrive
+        wrote.send nil
+      end
       done = Channel(Bytes).new
       spawn do
         buf = Bytes.new(data.size)
@@ -32,6 +37,7 @@ describe IO::Buffered do
       select
       when buf = done.receive
         buf.should eq data
+        wrote.receive
       when timeout(2.seconds)
         fail "read timed out"
       end
@@ -54,6 +60,30 @@ describe IO::Buffered do
       read.receive.should eq 7_u8
     ensure
       reader.try &.close
+      writer.try &.close
+    end
+
+    it "can be closed while a fiber waits for data" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      done = Channel(Exception?).new
+      spawn do
+        reader.read_byte
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      Fiber.yield
+      reader.close
+      select
+      when ex = done.receive
+        ex.should be_a IO::Error
+      when timeout(2.seconds)
+        fail "close didn't wake up the reader"
+      end
+    ensure
       writer.try &.close
     end
 
