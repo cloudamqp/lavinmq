@@ -27,7 +27,7 @@ about 92% done**.
 | | branch | ahead of main | PR | state |
 |---|---|---|---|---|
 | `mqtt-protocol.cr` | `feat/mqtt5` | 42 commits | none | complete v5 codec, reviewed twice, needs a release tag; LavinMQ pins `2b6713f` |
-| `lavinmq` | `feat/implement-mqtt5-support` | 20 commits, on `feat/mqtt-qos-2` `e8a8b5ed` (since force-pushed, so a rebase is pending) | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, Receive Maximum, Message Expiry, retained-message properties, full compliance contract |
+| `lavinmq` | `feat/implement-mqtt5-support` | 16 commits, on `feat/mqtt-qos-2` `562ce8ca` | #2185 (draft) | foundation, PUBLISH, SUBSCRIBE/UNSUBSCRIBE, PUBACK/DISCONNECT, session expiry, subscription options, will properties, Will Delay Interval, Receive Maximum, Message Expiry, retained-message properties, full compliance contract |
 
 QoS 2 and delivery at the lower of the publish and subscription QoS come from
 `feat/mqtt-qos-2` (#2236), which merges first.
@@ -35,10 +35,10 @@ QoS 2 and delivery at the lower of the publish and subscription QoS come from
 A v5 client can today connect, subscribe, publish and receive with properties
 intact, gets an accurate reason code on every ack, gets a session whose lifetime
 it controls, gets its subscription options honoured, gets its will published
-with its properties intact, and gets a spec-correct rejection for every feature
-we do not implement. Missing: the Will Delay Interval.
+with its properties intact and after its Will Delay Interval, and gets a
+spec-correct rejection for every feature we do not implement.
 
-Green on 2026-10-05 at `32fc6434`: 2661 examples, 0 failures, lint and format clean.
+Green on 2026-10-06 with item E: 2700 examples, 0 failures, lint and format clean.
 External run the same day: Paho v5 19 of 27, v3.1.1 7 of 9 (`MQTT5-INTEROP.md`).
 
 ---
@@ -52,7 +52,7 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 
 **Spec violations**
 
-- [ ] **E** Will Delay Interval [MQTT-3.1.2-8]. Paho `test_will_delay`.
+- [x] **E** Will Delay Interval [MQTT-3.1.2-8]. Paho `test_will_delay`.
 - [x] **F** retained messages keep their v5 properties [MQTT-3.3.2-17] and are
   replayed at the lower of the publisher's and the subscription's QoS
   [MQTT-3.8.4-8]. Paho `test_retained_message`, `test_subscribe_options`.
@@ -129,8 +129,9 @@ Topic aliases, shared subscriptions, subscription identifiers, enhanced auth.
 All advertised as unavailable per the table above.
 
 Two things could **not** be deferred that way, because MQTT has no capability
-flag for them: the per-filter subscription options (done) and the Will Delay
-Interval (item E). Shipping without those is a real gap, not a legal deferral.
+flag for them: the per-filter subscription options and the Will Delay Interval
+(item E), both done. Shipping without those would have been a real gap, not a
+legal deferral.
 
 ---
 

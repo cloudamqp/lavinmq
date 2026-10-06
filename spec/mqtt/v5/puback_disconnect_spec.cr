@@ -19,6 +19,30 @@ module MqttSpecs
     MQTT::Protocol::Will.new(topic: topic, payload: payload.to_slice, qos: 0u8, retain: false)
   end
 
+  private def self.delayed_will(delay : UInt32, retain = false)
+    props = MQTT::Protocol::WillProperties.new
+    props.will_delay_interval = delay
+    MQTT::Protocol::Will.new(topic: "will/t", payload: "dead".to_slice,
+      qos: 0u8, retain: retain, properties: props)
+  end
+
+  private def self.expiry(interval : UInt32)
+    props = MQTT::Protocol::ConnectProperties.new
+    props.session_expiry_interval = interval
+    props
+  end
+
+  # The spec sockets time out reads after 300ms, so a wait longer than that
+  # polls until the deadline.
+  private def self.publish_within(io, within : Time::Span) : MQTT::Protocol::Publish?
+    deadline = Time.instant + within
+    while Time.instant < deadline
+      if pkt = read_packet(io)
+        return pkt.should be_a(MQTT::Protocol::Publish)
+      end
+    end
+  end
+
   describe "MQTT 5.0 PUBACK" do
     it "answers NoMatchingSubscribers when nothing is subscribed (§3.4.2.1)" do
       with_server do |server|
@@ -282,6 +306,251 @@ module MqttSpecs
           pkt.as(MQTT::Protocol::Disconnect).reason_code
             .should eq(MQTT::Protocol::Disconnect::ReasonCode::ProtocolError)
         end
+      end
+    end
+  end
+
+  describe "MQTT 5.0 Will Delay Interval" do
+    it "publishes the will once the delay has elapsed [MQTT-3.1.2-8]" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(2u32),
+              properties: expiry(60u32))
+          end # closed without DISCONNECT
+
+          publish_within(watcher, 1.second).should be_nil
+          pub = publish_within(watcher, 2.seconds).should_not be_nil
+          pub.topic.should eq "will/t"
+        end
+      end
+    end
+
+    it "delays the will on DISCONNECT 0x04" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5 = v5_connect(socket, client_id: "dying", will: delayed_will(2u32),
+              properties: expiry(60u32))
+            send_disconnect(v5, MQTT::Protocol::Disconnect::ReasonCode::DisconnectWithWillMessage)
+          end
+
+          publish_within(watcher, 1.second).should be_nil
+          publish_within(watcher, 2.seconds).should_not be_nil
+        end
+      end
+    end
+
+    it "does not publish the will when the client reconnects within the delay [MQTT-3.1.3-9]" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(1u32),
+              properties: expiry(60u32))
+          end
+
+          # Disconnected again, normally, before the old deadline: a will
+          # that was never cancelled would fire now, from the offline wait.
+          with_client_socket(server) do |socket|
+            v5 = v5_connect(socket, client_id: "dying", clean_session: false,
+              properties: expiry(60u32))
+            disconnect(v5)
+          end
+          publish_within(watcher, 2.seconds).should be_nil
+        end
+      end
+    end
+
+    it "does not publish the will on a takeover with Clean Start 0 (§3.1.4)" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |old_socket|
+            v5_connect(old_socket, client_id: "dying", will: delayed_will(1u32),
+              properties: expiry(60u32))
+            with_client_socket(server) do |new_socket|
+              v5 = v5_connect(new_socket, client_id: "dying", clean_session: false,
+                properties: expiry(60u32))
+              disconnect(v5)
+            end
+          end
+          publish_within(watcher, 2.seconds).should be_nil
+        end
+      end
+    end
+
+    it "retains a delayed will published with the retain flag" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(1u32, retain: true),
+              properties: expiry(60u32))
+          end
+          # `Broker#publish` stores the retained copy before routing it.
+          publish_within(watcher, 3.seconds).should_not be_nil
+        end
+
+        with_client_io(server) do |late|
+          connect(late, client_id: "late")
+          subscribe(late, topic_filters: mk_topic_filters({"will/t", 0}))
+          pub = publish_within(late, 1.second).should_not be_nil
+          pub.retain?.should be_true
+        end
+      end
+    end
+
+    it "keeps counting the session expiry while a delayed will fires [MQTT-3.1.2-8]" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          v5_connect(socket, client_id: "dying", will: delayed_will(1u32),
+            properties: expiry(2u32))
+        end
+        closed_at = Time.instant
+        wait_for { server.vhosts["/"].session?("mqtt.dying").nil? }
+        # Restarting the clock when the will fires would end it at ~3s.
+        (Time.instant - closed_at).should be < 2.8.seconds
+      end
+    end
+
+    it "publishes the will when the session expires first [MQTT-3.1.2-8]" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(10u32),
+              properties: expiry(1u32))
+          end
+
+          publish_within(watcher, 3.seconds).should_not be_nil
+          server.vhosts["/"].session?("mqtt.dying").should be_nil
+        end
+      end
+    end
+
+    it "publishes the will at close when the session ends with the connection" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(10u32),
+              properties: expiry(0u32))
+          end
+
+          publish_within(watcher, 1.second).should_not be_nil
+        end
+      end
+    end
+
+    it "publishes the will on a takeover with Clean Start 1 (§3.1.4)" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |old_socket|
+            v5_connect(old_socket, client_id: "dying", will: delayed_will(10u32),
+              properties: expiry(60u32))
+            with_client_socket(server) do |new_socket|
+              v5_connect(new_socket, client_id: "dying", clean_session: true,
+                properties: expiry(60u32))
+              publish_within(watcher, 1.second).should_not be_nil
+            end
+          end
+        end
+      end
+    end
+
+    it "publishes the will when the session is deleted" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(10u32),
+              properties: expiry(60u32))
+          end
+          vhost = server.vhosts["/"]
+          wait_for { vhost.session?("mqtt.dying").try(&.pending_will) }
+          vhost.delete_queue("mqtt.dying")
+
+          publish_within(watcher, 1.second).should_not be_nil
+        end
+      end
+    end
+
+    it "arms the will before a second close returns [MQTT-3.1.3-9]" do
+      # A takeover cancels the will right after `close`, so every close has to
+      # wait for the read fiber, not only the first one.
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          v5_connect(socket, client_id: "dying", will: delayed_will(10u32),
+            properties: expiry(60u32))
+          broker = server.mqtt_server.brokers["/"]?.should_not be_nil
+          client = wait_for { broker.@clients["dying"]? }
+          session = wait_for { server.vhosts["/"].session?("mqtt.dying").try { |s| s if s.client } }
+          # Spawned before the first close wakes the read fiber, so it runs
+          # first and sees the client already closed.
+          armed = Channel(Bool).new(1)
+          spawn do
+            client.close("second")
+            armed.send(!session.pending_will.nil?)
+          end
+          client.close("first")
+          armed.receive.should be_true
+        end
+      end
+    end
+
+    it "publishes the will at once when its session was deleted while connected" do
+      with_server do |server|
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+
+          with_client_socket(server) do |socket|
+            v5_connect(socket, client_id: "dying", will: delayed_will(10u32),
+              properties: expiry(60u32))
+            vhost = server.vhosts["/"]
+            wait_for { vhost.session?("mqtt.dying").try(&.client) }
+            vhost.delete_queue("mqtt.dying")
+            publish_within(watcher, 1.second).should_not be_nil
+          end
+        end
+      end
+    end
+
+    it "keeps the expiry clock of the disconnect when a resume narrows the interval" do
+      # What `add_client_locked` does on resume, before `Client#run` attaches:
+      # the will timer firing afterwards must not re-read the interval.
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          v5_connect(socket, client_id: "dying", will: delayed_will(2u32),
+            properties: expiry(60u32))
+        end
+        vhost = server.vhosts["/"]
+        session = wait_for { vhost.session?("mqtt.dying").try { |s| s if s.pending_will } }
+        session.session_expiry_interval = 1u32
+        session.pending_will = nil
+        sleep 3.seconds
+        vhost.session?("mqtt.dying").should_not be_nil
       end
     end
   end

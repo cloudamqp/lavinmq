@@ -631,7 +631,7 @@ fail to pass. Every remaining v5 failure maps to something known:
 
 | test | why |
 |---|---|
-| `test_will_delay` | item E: the will fires after 0.1s where the test wants 4 |
+| `test_will_delay` | item E: the will fired after 0.1s where the test wants 4. E is done since; expected to pass, not yet re-run |
 | `test_flow_control2` (timeout) | item Q, not N: the test sends 65536 QoS 2 PUBLISHes without PUBREL and waits for DISCONNECT `0x93` against *our* Receive Maximum, which we neither advertise nor enforce. The broker accepts them all and the client times out after 180s |
 | `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |
 | `test_subscribe_identifiers`, `test_shared_subscriptions` | correct rejections (`0xA1`, `0x9E`) the test client cannot cope with |
