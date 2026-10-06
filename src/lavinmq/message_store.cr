@@ -82,7 +82,7 @@ module LavinMQ
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
           raise Error.new(seg, cause: ex)
         end
@@ -104,7 +104,7 @@ module LavinMQ
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
         raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -116,6 +116,22 @@ module LavinMQ
       end
     end
 
+    # Shifts the next message, under `lock`, and yields it outside the lock with
+    # its segment kept mapped until the block returns, even if the segment is
+    # deleted or the store closed meanwhile. For deliveries, which can be
+    # suspended in a socket write. Returns false if there was no message.
+    def shift_with_lease?(lock : Mutex, consumer = nil, & : Envelope -> _) : Bool
+      env = lock.synchronize { shift?(consumer).try &.lease } || return false
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
+    # The envelope points into the segment, so it's only valid while the lock
+    # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
       if sp = @requeued.shift?
@@ -125,7 +141,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           # sp has already been removed from @requeued; drop its accounting too
           # so @size/@bytesize don't leak when the segment is gone or the
@@ -158,7 +174,7 @@ module LavinMQ
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
@@ -175,6 +191,18 @@ module LavinMQ
       segment = @segments[sp.segment]
       begin
         BytesMessage.from_bytes(segment.to_slice + sp.position)
+      rescue ex
+        raise Error.new(segment, cause: ex)
+      end
+    end
+
+    # Like `#[]`, as an envelope, with the segment position made from the message
+    def envelope(sp : SegmentPosition, redelivered = false) : Envelope
+      raise ClosedError.new if @closed
+      segment = @segments[sp.segment]
+      begin
+        msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+        Envelope.new(SegmentPosition.make(sp.segment, sp.position, msg), msg, redelivered: redelivered, segment: segment)
       rescue ex
         raise Error.new(segment, cause: ex)
       end
@@ -300,6 +328,7 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
+      # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
     end
 
@@ -311,6 +340,9 @@ module LavinMQ
       return if @closed
       @closed = true
       @empty.close
+      # A delivery may still be reading from a segment, e.g. a basic.get that
+      # isn't waited for like consumers are, MFile#close only unmaps it once
+      # the delivery releases it (see Envelope#lease)
       if replicator = @replicator
         @segments.each_value do |segment|
           replicator.register_file segment.path

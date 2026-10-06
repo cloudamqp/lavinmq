@@ -1,4 +1,5 @@
 require "amq-protocol"
+require "./mfile"
 
 module LavinMQ
   # Messages read from message store (mmap filed) and being delivered to consumers
@@ -111,8 +112,21 @@ module LavinMQ
   struct Envelope
     getter segment_position, message, redelivered
 
-    def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
-                   @redelivered = false)
+    # `segment` is the segment the message, body and headers both, is read from
+    def initialize(@segment_position : SegmentPosition, @message : BytesMessage, *,
+                   @segment : MFile, @redelivered = false)
+    end
+
+    # Keeps the segment mapped until #release, even if it's deleted or its
+    # store closed meanwhile. Use MessageStore#shift_with_lease? rather than
+    # calling these directly.
+    protected def lease : self
+      @segment.lease
+      self
+    end
+
+    protected def release : Nil
+      @segment.release_lease
     end
   end
 end

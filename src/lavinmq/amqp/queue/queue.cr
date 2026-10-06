@@ -932,32 +932,35 @@ module LavinMQ::AMQP
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-        env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-        if has_expired?(env.message) # guarantee to not deliver expired messages
-          expire_msg(env, :expired)
-          next
-        end
-        if @delivery_limit && !no_ack
-          env = with_delivery_count_header(env) || next
-        end
-        sp = env.segment_position
-        if no_ack
-          begin
-            yield env # deliver the message
-          rescue ex   # requeue failed delivery
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-            raise ex
+        # The message can be acked or purged, and its segment deleted, while
+        # the delivery is suspended in a socket write
+        @msg_store.shift_with_lease?(@msg_store_lock) do |env|
+          if has_expired?(env.message) # guarantee to not deliver expired messages
+            expire_msg(env, :expired)
+            next
           end
-          delete_message(sp)
-        else
-          @unacked_count.add(1, :relaxed)
-          @unacked_bytesize.add(sp.bytesize, :relaxed)
-          yield env # deliver the message
-          # requeuing of failed delivery is up to the consumer
-        end
-        # Signal expire loop to recalculate wait time for next message
-        @message_ttl_change.try_send? nil
-        return true
+          if @delivery_limit && !no_ack
+            env = with_delivery_count_header(env) || next
+          end
+          sp = env.segment_position
+          if no_ack
+            begin
+              yield env # deliver the message
+            rescue ex   # requeue failed delivery
+              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              raise ex
+            end
+            delete_message(sp)
+          else
+            @unacked_count.add(1, :relaxed)
+            @unacked_bytesize.add(sp.bytesize, :relaxed)
+            yield env # deliver the message
+            # requeuing of failed delivery is up to the consumer
+          end
+          # Signal expire loop to recalculate wait time for next message
+          @message_ttl_change.try_send? nil
+          return true
+        end || break
       end
       false
     rescue ex : MessageStore::Error
@@ -1023,13 +1026,11 @@ module LavinMQ::AMQP
       if requeue
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         if has_expired?(msg, requeue: true) # guarantee to not deliver expired messages
-          env = Envelope.new(sp, msg, false)
-          expire_msg(env, :expired)
+          expire_msg(sp, :expired)
         else
           if delivery_limit = @delivery_limit
             if @deliveries.fetch(sp, 0) > delivery_limit
-              env = Envelope.new(sp, msg, false)
-              return expire_msg(env, :delivery_limit)
+              return expire_msg(sp, :delivery_limit)
             end
           end
           was_empty = false
@@ -1175,9 +1176,7 @@ module LavinMQ::AMQP
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
-      msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
-      Envelope.new(msg_sp, msg, redelivered: true)
+      @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true) }
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
