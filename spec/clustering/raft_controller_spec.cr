@@ -57,6 +57,8 @@ private class ControllerCluster
   # With *replication*, a leader also serves its data to followers, as the
   # Launcher does, so followers sync and the ISR follows.
   getter servers = Hash(LavinMQ::Clustering::RaftController, LavinMQ::Clustering::Server).new
+  # Replication listeners of the nodes that haven't led yet, by config index
+  @replication_listeners = Hash(Int32, TCPServer).new
 
   def initialize(size : Int32, bootstrap : Int32? = 0, @replication = false, @election_timeout = 300)
     ports = Array.new(size) { free_port }
@@ -86,7 +88,12 @@ private class ControllerCluster
     config.clustering_secret = @password
     config.clustering_election_timeout = @election_timeout
     config.clustering_heartbeat_interval = @election_timeout // 6
-    config.clustering_port = free_port
+    # Bound now and kept until the node leads: a port picked and bound only
+    # after the election could be taken by then, e.g. as the source port of
+    # one of the nodes' raft connections
+    replication_listener = TCPServer.new("127.0.0.1", 0)
+    @replication_listeners[@configs.size - 1] = replication_listener
+    config.clustering_port = replication_listener.local_address.port
     config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
     config.metrics_http_port = -1
     # Followers proxy client ports to the leader, let each pick its own
@@ -118,6 +125,10 @@ private class ControllerCluster
       end
     rescue ex : SpecExit
       @exits.send({controller, ex.code})
+    rescue ex
+      # Would otherwise only show as no leader being elected
+      STDERR.puts "controller spec #{controller.id} failed: #{ex.inspect_with_backtrace}"
+      raise ex
     end
   end
 
@@ -125,7 +136,8 @@ private class ControllerCluster
     config = @configs[@controllers.index!(controller)]
     server = LavinMQ::Clustering::Server.new(config, controller.coordinator, controller.id)
     @servers[controller] = server
-    tcp = TCPServer.new(config.clustering_bind.not_nil!, config.clustering_port)
+    tcp = @replication_listeners.delete(@configs.index!(config)) ||
+          TCPServer.new(config.clustering_bind.not_nil!, config.clustering_port) # a restarted leader
     spawn(name: "replication spec #{controller.id}") { server.listen(tcp) }
   end
 
@@ -143,6 +155,7 @@ private class ControllerCluster
   end
 
   def close
+    @replication_listeners.each_value &.close
     @servers.each_value &.close
     @controllers.each &.stop
     @dirs.each { |d| FileUtils.rm_rf d }
