@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have access to that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - `LavinMQ-Stats-Interval` header on every HTTP API response, giving the configured stats interval in milliseconds so clients can place the timestamp-less history logs on a time axis [#2447](https://github.com/cloudamqp/lavinmq/pull/2447)
 - `x-mqtt-topic` exchange type: queues and exchanges bound to it with MQTT topic filters receive MQTT publishes, with the MQTT topic as routing key. The exchange is always internal, and malformed filters are refused at bind time [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Shovels and federation links reach this broker in-process instead of over an AMQP connection to localhost: a URI without host (`amqp://`, `amqp:///vhost`) works directly against the vhost, so it no longer depends on the AMQP listener's port and opens no connection. The hidden `__direct` user is gone; the control socket uses a passwordless internal identity that can't log in, and `__direct` and `__internal` are reserved names. Federation with `ack-mode: on-confirm` now acks upstream only once the downstream publish is durable. The management UI's "Move messages" works for OAuth users too [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - The management UI charts are redrawn on uPlot instead of Chart.js. The legend is a table under the plot that shows the latest value, or the value under the cursor while hovering, with the sample time in the card heading. Hovering one chart moves the cursor on every chart on the page. Click a legend row to isolate a series, shift, cmd or ctrl-click to toggle one. Charts rebuild from the server history log on every refresh, so a slower or paused refresh leaves no gaps. The nodes page gets a Disk usage chart with capacity lines [#2448](https://github.com/cloudamqp/lavinmq/pull/2448)
 - Definitions exports include internal exchanges with user-given names (`x-mqtt-topic`, and the `x-federation-upstream` exchanges created on an upstream broker), since their bindings were already exported. Only `mqtt.default` is left out [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Dead-lettered messages, and rejected messages moved to the retry queue, are routed straight from their message store segment instead of being copied out of it first [#2345](https://github.com/cloudamqp/lavinmq/pull/2345)
