@@ -812,6 +812,24 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "returns a JSON error when the stream closes during the read" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          File.open(mfile.path, "r+") do |f|
+            f.seek(4)
+            f.write(Bytes.new(mfile.size - 4, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"offset": "first"}))
+          response.status_code.should eq 403
+          JSON.parse(response.body)["error"].should eq "forbidden"
+        end
+      end
+    end
   end
 
   describe "PUT /api/queues/vhost/name/restart" do

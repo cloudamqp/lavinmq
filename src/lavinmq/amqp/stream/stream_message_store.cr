@@ -207,31 +207,6 @@ module LavinMQ::AMQP
       offset_at(@segments.first_key, 4u32).first
     end
 
-    # Like #read, but yields the message outside `lock`, see #shift_with_lease?
-    def read_with_lease?(lock : Mutex, segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
-      env = lock.synchronize { read(segment, position).try &.lease } || return false
-      begin
-        yield env
-      ensure
-        env.release
-      end
-      true
-    end
-
-    def read(segment : UInt32, position : UInt32) : Envelope?
-      return if @closed
-      rfile = @segments[segment]? || return # dropped by retention
-      return if position == rfile.size
-      begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + position)
-        sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex
-        puts "read segment=#{segment} position=#{position}"
-        raise Error.new(rfile, cause: ex)
-      end
-    end
-
     # The next message for `cursor`, requeued messages first. Steps one message
     # at a time, nil if it didn't match the cursor's filter.
     def shift?(cursor : StreamCursor) : Envelope?
@@ -279,13 +254,6 @@ module LavinMQ::AMQP
 
     def next_segment_id(segment) : UInt32?
       @segments.each_key.find { |sid| sid > segment }
-    end
-
-    # The segment after `segment` and the offset of its first message
-    def next_segment_offset(segment) : Tuple(UInt32, Int64)?
-      if seg = next_segment_id(segment)
-        {seg, @segment_first_offset[seg]}
-      end
     end
 
     private def next_segment(cursor) : MFile?

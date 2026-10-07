@@ -1,7 +1,6 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
 require "./stream_message_store"
-require "./stream_reader"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
@@ -103,10 +102,6 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
-    def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
-      @msg_store_lock.synchronize { stream_msg_store.find_offset(offset) }
-    end
-
     def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil) : StreamCursor
       @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter) }
     end
@@ -184,17 +179,18 @@ module LavinMQ::AMQP
       false
     end
 
-    def reader(offset : StreamOffset::Any)
-      StreamReader.new(self, offset)
-    end
-
-    # Yields a message for StreamReader, see StreamMessageStore#read_with_lease?
-    protected def read_with_lease?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
-      stream_msg_store.read_with_lease?(@msg_store_lock, segment, position) { |env| yield env }
-    end
-
-    protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?
-      @msg_store_lock.synchronize { stream_msg_store.next_segment_offset(segment) }
+    # Yields messages from `start` until the end of the stream
+    def each_from(start : StreamOffset::Any, & : Envelope -> _) : Nil
+      cursor = self.cursor(start)
+      while stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) { |env| yield env }
+        @deliver_get_count.add(1, :relaxed)
+      end
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ClosedError.new(cause: ex)
+    ensure
+      @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
@@ -343,10 +339,6 @@ module LavinMQ::AMQP
       if stream_consumer = consumer.as?(AMQP::StreamConsumer)
         @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
-    end
-
-    protected def unmap_if_unused(segment : UInt32) : Nil
-      @msg_store_lock.synchronize { stream_msg_store.unmap_if_unused(segment) }
     end
   end
 end

@@ -1502,9 +1502,10 @@ describe LavinMQ::AMQP::Stream do
 
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         store.@size.should eq 2
-        env = store.read(seg_id, torn_pos)
-        env.should_not be_nil
-        String.new(env.not_nil!.message.body).should eq body
+        env = store.shift?(store.cursor(LavinMQ::AMQP::StreamOffset::Absolute.new(2))).should_not be_nil
+        env.segment_position.segment.should eq seg_id
+        env.segment_position.position.should eq torn_pos
+        String.new(env.message.body).should eq body
         store.close
       end
     end
@@ -1672,8 +1673,14 @@ describe LavinMQ::AMQP::Stream do
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)
 
-            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
-            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            sp1, sp2 = stream.@msg_store_lock.synchronize do
+              cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+              sps = Array.new(2) { store.shift?(cursor).not_nil!.segment_position }
+              cursor.close
+              sps
+            end
+            sp1.segment.should eq first_seg
+            sp2.segment.should eq first_seg
             consumer.cursor.requeue(sp1)
             consumer.cursor.requeue(sp2)
 
