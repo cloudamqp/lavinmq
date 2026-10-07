@@ -192,6 +192,7 @@ module LavinMQ
     private def accept_unix(client)
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
+        set_write_timeout(client)
         set_buffer_size(client)
         if conn_info = ProxyProtocol.parse(client)
           # PROXY protocol over unix socket
@@ -267,6 +268,13 @@ module LavinMQ
       socket.tcp_nodelay = true if @config.tcp_nodelay?
       @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
       @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
+      set_write_timeout(socket)
+    end
+
+    # Writes, and closing the connection, wait for the client's write lock,
+    # so a client that stops reading mustn't block a write forever
+    private def set_write_timeout(socket)
+      socket.write_timeout = @config.tcp_send_timeout.seconds
     end
 
     private def set_buffer_size(socket)
