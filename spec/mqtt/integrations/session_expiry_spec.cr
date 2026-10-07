@@ -4,7 +4,7 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  private def self.v5_connect(socket, expiry : UInt32?, **args)
+  private def self.v5_connect_expiry(socket, expiry : UInt32?, **args)
     io = MQTT::Protocol::IO.v5(socket)
     props = MQTT::Protocol::ConnectProperties.new
     props.session_expiry_interval = expiry if expiry
@@ -16,7 +16,7 @@ module MqttSpecs
     it "ends the session with the connection when the interval is 0 (§3.1.2.11.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -30,7 +30,7 @@ module MqttSpecs
         wait_for { server.vhosts["/"].session?("mqtt.sub").nil? }
 
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "sub")
           read_packet(io).should be_nil
         end
       end
@@ -40,7 +40,7 @@ module MqttSpecs
       # Absent means 0, so Clean Start = 0 alone is not enough to persist.
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, nil, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, nil, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -54,7 +54,7 @@ module MqttSpecs
       # the old clean-session bit this got a transient session.
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: true, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: true, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -78,7 +78,7 @@ module MqttSpecs
     it "delivers messages published while a non-zero-interval session was offline" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -90,7 +90,7 @@ module MqttSpecs
         end
 
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           pub = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::Publish)
           pub.payload.should eq "stored".to_slice
           puback(io, pub.packet_id)
@@ -101,13 +101,13 @@ module MqttSpecs
     it "adopts the interval named by a reconnecting client" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
 
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 60u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 60u32, clean_session: false, client_id: "sub")
           server.vhosts["/"].session("mqtt.sub").session_expiry_interval.should eq 60u32
           disconnect(io)
         end
@@ -117,7 +117,7 @@ module MqttSpecs
     it "deletes the session once the interval elapses", tags: "slow" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 1u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -130,13 +130,13 @@ module MqttSpecs
     it "cancels the expiry when the client reconnects", tags: "slow" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 1u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
 
         with_client_socket(server) do |socket|
-          v5_connect(socket, 1u32, clean_session: false, client_id: "sub")
+          v5_connect_expiry(socket, 1u32, clean_session: false, client_id: "sub")
           # Past the interval, but attached the whole time, so the timer the
           # previous disconnect started must have been cancelled.
           sleep 1.5.seconds
@@ -150,7 +150,7 @@ module MqttSpecs
       # does not, so a restored session gets its full interval again from boot.
       with_server(clean_dir: false) do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -169,13 +169,13 @@ module MqttSpecs
       # and the original declare replays.
       with_server(clean_dir: false) do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
 
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "sub")
           disconnect(io)
         end
 
@@ -190,7 +190,7 @@ module MqttSpecs
     it "adopts a new interval from DISCONNECT (§3.14.2.2.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
 
           # Narrowing to 0 on the way out ends the session with this connection,
@@ -210,7 +210,7 @@ module MqttSpecs
       # Absent on DISCONNECT means "keep the CONNECT value", not 0.
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
@@ -223,7 +223,7 @@ module MqttSpecs
     it "answers 0x82 to a non-zero DISCONNECT interval after a zero CONNECT (§3.14.2.2.2)" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "sub")
 
           props = MQTT::Protocol::DisconnectProperties.new
           props.session_expiry_interval = 60u32
@@ -249,7 +249,7 @@ module MqttSpecs
           subscribe(watcher, topic_filters: [subtopic("will/t", 0u8)], packet_id: 9u16)
 
           with_client_socket(server) do |socket|
-            io = v5_connect(socket, 0u32, clean_session: false, client_id: "willer",
+            io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "willer",
               will: MQTT::Protocol::Will.new(topic: "will/t", payload: "dead".to_slice,
                 qos: 0u8, retain: false))
             props = MQTT::Protocol::DisconnectProperties.new
@@ -271,13 +271,13 @@ module MqttSpecs
       # and the clock follow the narrowed interval.
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 3600u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 3600u32, clean_session: false, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 1u16)
           disconnect(io)
         end
 
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 0u32, clean_session: false, client_id: "sub")
+          io = v5_connect_expiry(socket, 0u32, clean_session: false, client_id: "sub")
           # Round-trip a SUBSCRIBE so the server is known to be past add_client,
           # which is where the narrowed interval is adopted.
           subscribe(io, topic_filters: [subtopic("a/b", 1)], packet_id: 2u16)
@@ -320,7 +320,7 @@ module MqttSpecs
     it "does not expire a session a reconnecting client has claimed (rule 1 in broker.cr)" do
       with_server do |server|
         with_client_socket(server) do |socket|
-          io = v5_connect(socket, 1u32, clean_session: false, client_id: "claimed")
+          io = v5_connect_expiry(socket, 1u32, clean_session: false, client_id: "claimed")
           disconnect(io)
         end
         vhost = server.vhosts["/"]

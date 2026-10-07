@@ -70,7 +70,7 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 **Shipping steps**
 
 - [ ] **G** shard release tagged and `shard.yml` pinned to it.
-- [ ] **H** v5 specs merged back into the integration files.
+- [x] **H** v5 specs merged back into the integration files, by feature.
 - [ ] #2236 merged, and #2185 rebased onto `main` and retargeted.
 - [ ] Interop harness re-run, with every Paho failure on the list below.
 
@@ -224,7 +224,7 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 3. Tag the shard release (`1.0`), with the breaking changes from
    `MQTT5-DESIGN.md` in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
-5. Merge the v5 specs back into the integration files (item H).
+5. Merge the v5 specs back into the integration files (item H). Done.
 6. Once #2236 merges, rebase #2185 onto `main` and retarget it.
 
 The per-feature commit granularity is deliberate: each rejection in the

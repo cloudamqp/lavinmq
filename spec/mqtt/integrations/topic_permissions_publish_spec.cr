@@ -132,4 +132,39 @@ module MqttSpecs
       end
     end
   end
+
+  # Unlike the vhost-level refusal above, a topic rule denial never closes the
+  # connection, so QoS 0 is dropped silently rather than answered with DISCONNECT.
+  describe "MQTT 5.0 topic permission denial" do
+    it "answers PUBACK NotAuthorized and keeps the connection open" do
+      with_server do |server|
+        server.vhosts["/"].mqtt_permission_service.delete("default")
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket)
+          publish(io, false, topic: "denied/t", qos: 1u8, packet_id: 1u16)
+          io.flush
+          ack = MQTT::Protocol::Packet.from_io(io).as(MQTT::Protocol::PubAck)
+          ack.packet_id.should eq 1u16
+          ack.reason_code.should eq MQTT::Protocol::PubAck::ReasonCode::NotAuthorized
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+        end
+      end
+    end
+
+    it "drops a QoS 0 publish without a DISCONNECT" do
+      with_server do |server|
+        server.vhosts["/"].mqtt_permission_service.delete("default")
+
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket)
+          publish(io, false, topic: "denied/t", qos: 0u8)
+          # Read exactly one packet: a DISCONNECT would arrive before the PINGRESP.
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+        end
+      end
+    end
+  end
 end

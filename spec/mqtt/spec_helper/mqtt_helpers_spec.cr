@@ -81,6 +81,13 @@ module MqttHelpers
     MQTT::Protocol::Packet.from_io(io) if expect_response
   end
 
+  # A v5 IO over `socket`, connected with the same arguments as `connect`.
+  def v5_connect(socket, **args)
+    io = MQTT::Protocol::IO.v5(socket)
+    connect(io, **{version: MQTT::Protocol::Version::V5}.merge(args))
+    io
+  end
+
   def disconnect(io)
     MQTT::Protocol::Disconnect.new.to_io(io)
   end

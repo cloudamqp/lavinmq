@@ -4,12 +4,6 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
 
-  private def self.v5_connect(socket, **args)
-    io = MQTT::Protocol::IO.v5(socket)
-    connect(io, **{version: MQTT::Protocol::Version::V5}.merge(args))
-    io
-  end
-
   describe "MQTT 5.0 subscription options" do
     describe "No Local [MQTT-3.8.3-3]" do
       it "does not deliver a message back to the client that published it" do
