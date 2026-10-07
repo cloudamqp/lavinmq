@@ -1201,3 +1201,6 @@ module LavinMQ::AMQP
     class ClosedError < Error; end
   end
 end
+
+# Queue#exclusive_owner references AMQP::Client, whose requires subclass Queue
+require "../client"
