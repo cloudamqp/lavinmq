@@ -273,11 +273,9 @@ module LavinMQ
             offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
-            reader = q.reader(offset)
             JSON.build(context.response.output) do |j|
               j.array do
-                reader.each do |env|
-                  break if count.zero?
+                q.each_from(offset, count) do |env|
                   vhost.event_tick(EventType::ClientGetNoAck)
                   vhost.add_send_bytes(env.message.bodysize.to_u64)
                   payload_encoding = "string"
@@ -301,6 +299,15 @@ module LavinMQ
             end
           rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
+          rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError
+            # Once flushed the response can't become an error, so let the
+            # connection drop with the JSON array unterminated
+            raise e if context.response.wrote_headers?
+            # Discard the buffered partial array but keep the default headers
+            headers = context.response.headers.dup
+            context.response.reset
+            context.response.headers.merge!(headers)
+            forbidden(context, "Stream closed during read")
           end
         end
       end

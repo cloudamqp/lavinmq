@@ -957,12 +957,12 @@ describe LavinMQ::AMQP::Stream do
         1500.times { stream.publish(LavinMQ::Message.new("", queue_name, data)) }
         store.@segments.size.should be > 2
         offsets = Hash(LavinMQ::SegmentPosition, Int64).new
-        store.@segments.each_key do |seg|
-          pos = 4u32
-          while env = store.read(seg, pos)
+        stream.@msg_store_lock.synchronize do
+          cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+          while env = store.shift?(cursor)
             offsets[env.segment_position] = offsets.size.to_i64 + 1
-            pos += env.segment_position.bytesize
           end
+          cursor.close
         end
         offsets.size.should eq 1500
 
@@ -971,17 +971,19 @@ describe LavinMQ::AMQP::Stream do
         q.subscribe(no_ack: false) { }
         wait_for { stream.@consumers.size == 1 }
         consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+        # The cursor pins its segment from its first read
+        stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }.should_not be_nil
         {offsets.keys, offsets.keys.shuffle!}.each do |sps|
-          sps.each { |sp| stream.push_requeued(consumer, sp) }
+          sps.each { |sp| stream.requeue(consumer.cursor, sp) }
           sps.each do |sp|
-            env = stream.@msg_store_lock.synchronize { store.shift?(consumer) }.should_not be_nil
+            env = stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }.should_not be_nil
             env.segment_position.should eq sp
             headers = env.message.properties.headers.should_not be_nil
             headers["x-stream-offset"].should eq offsets[sp]
           end
         end
         # Only the segments that are read or written keep their index
-        store.@offset_index.keys.to_set.should eq Set{consumer.segment, store.@segments.last_key}
+        store.@offset_index.keys.to_set.should eq Set{consumer.cursor.segment, store.@segments.last_key}
       end
     end
   end
@@ -1649,7 +1651,11 @@ describe LavinMQ::AMQP::Stream do
 
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         store.@size.should eq 2
-        env = store.read(seg_id, torn_pos).should_not be_nil
+        offset = LavinMQ::AMQP::StreamOffset::Absolute.new(2)
+        cursor = store.cursor(offset)
+        env = store.shift?(cursor).should_not be_nil
+        env.segment_position.segment.should eq seg_id
+        env.segment_position.position.should eq torn_pos
         String.new(env.message.body).should eq body
         store.close
       end
@@ -1872,15 +1878,17 @@ describe LavinMQ::AMQP::Stream do
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)
 
-            sp1 = store.read(first_seg, 4u32).not_nil!.segment_position
-            sp2 = store.read(first_seg, 4u32 + sp1.bytesize).not_nil!.segment_position
+            sp1, sp2 = stream.@msg_store_lock.synchronize do
+              cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+              sps = Array.new(2) { store.shift?(cursor).not_nil!.segment_position }
+              cursor.close
+              sps
+            end
+            sp1.segment.should eq first_seg
+            sp2.segment.should eq first_seg
             consumer.cursor.requeue(sp1)
             consumer.cursor.requeue(sp2)
 
-            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            mapped_rss_kb(first.path).should be > 0
-            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            mapped_rss_kb(first.path).should eq 0
             stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }
             StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
             stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }
