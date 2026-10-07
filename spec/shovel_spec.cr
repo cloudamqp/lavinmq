@@ -585,8 +585,11 @@ describe LavinMQ::Shovel do
           spawn shovel.run
           should_eventually(eq 2) { vhost.queue("rp_q2").message_count }
           should_eventually(be > 0) { shovel.details_tuple[:retried] }
-          shovel.terminate
           q1 = vhost.queue("rp_q1")
+          # The two accepted are acked once their confirms arrive (on fsync,
+          # slow on macOS); terminating before that would requeue them too.
+          should_eventually(eq 3) { q1.message_count + q1.unacked_count }
+          shovel.terminate
           should_eventually(eq 3) { q1.message_count }
           q1.unacked_count.should eq 0
         end
