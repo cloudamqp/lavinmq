@@ -39,6 +39,11 @@ end
 LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
 init_config
 
+# Run the specs on several threads when CRYSTAL_WORKERS is set, to catch races
+if ENV.has_key?("CRYSTAL_WORKERS")
+  Fiber::ExecutionContext.default.resize(Fiber::ExecutionContext.default_workers_count)
+end
+
 # Allow creating custom config objects for specs
 module LavinMQ
   class Config
