@@ -802,6 +802,30 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "runs once when resumed before its paused restore has been scheduled" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("rr_q1", true, false)
+        config = {
+          "src-uri"    => "amqp://",
+          "src-queue"  => "rr_q1",
+          "dest-uri"   => "amqp://",
+          "dest-queue" => "rr_q2",
+        }
+        shovel = ShovelSpecHelpers.create(vhost, "rr", config)
+        wait_for { shovel.running? }
+        shovel.pause
+        # As on boot: the shovel is created paused, and resumed at once
+        shovel = vhost.shovels.create("rr", JSON.parse(config.to_json))
+        shovel.paused?.should be_true
+        shovel.resume
+        should_eventually(be_true) { shovel.running? }
+        sleep 100.milliseconds
+        shovel.running?.should be_true
+        vhost.queue("rr_q1").consumer_count.should eq 1
+      end
+    end
+
     it "retries with backoff while the destination vhost is missing" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
