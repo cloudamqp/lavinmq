@@ -76,7 +76,8 @@ behaviour changes for existing users.
   HTTP API, or with its vhost, has ended, so a will still waiting out its delay
   is published at once [MQTT-3.1.2-8].
 - **`#` and `+` match `$`-prefixed topics** [MQTT-4.7.2-1], on v3.1.1 too. Fixed
-  separately, because it changes what existing subscribers receive (item O).
+  separately in #2366, because it changes what existing subscribers receive
+  (item O). Drop this line once #2366 is merged and this branch is rebased.
 - **A client whose Maximum Packet Size is smaller than our CONNACK cannot
   connect.** The CONNACK with the capability set is about 21 bytes, and
   [MQTT-3.1.2-24] forbids sending it, so the connection is closed without one.

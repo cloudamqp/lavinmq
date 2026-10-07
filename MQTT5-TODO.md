@@ -167,13 +167,6 @@ Options considered: count QoS 1 publishes awaiting their PUBACK (which waits
 for the persister) plus QoS 2 ids awaiting PUBREL, and DISCONNECT `0x93` past
 the limit; also advertise a lower limit.
 
-## O. Wildcards match `$`-prefixed topics
-
-**Must fix, not in this PR.** [MQTT-4.7.2-1]: a filter starting with `#` or `+`
-must not match a topic starting with `$`. LavinMQ matches them, on v3.1.1 as
-well, and Paho's `test_dollar_topics` fails on both versions. Fixing it changes
-what existing `#` subscribers receive, so it gets its own PR and CHANGELOG entry.
-
 ## Resolved
 
 Kept as one line each so nobody re-opens them; the reasoning is in git and in
@@ -194,6 +187,9 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
 - **L** (the shard's **N3**) packet id 0 is a Protocol Error, raised by the shard's
   decoder for every packet that carries an id.
 - **K** a PUBREC with a failure reason code ends the delivery without a PUBREL.
+- **O** wildcards no longer match `$`-prefixed topics [MQTT-4.7.2-1], live or
+  retained, on both versions. Fixed against `main` in #2366 (closes #2313), so
+  this branch gets it on the rebase.
 - **Review round 1** (full branch, 2026-08-19), seven findings: six fixed
   (poison message and its `@unacked_*` corruption, hot-path allocation,
   `protocol_name` exhaustiveness, v3 property restore, Will QoS 2). The seventh

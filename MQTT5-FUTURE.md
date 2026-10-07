@@ -47,7 +47,7 @@ deadlocking when `read_loop` never started, are fixed in #2236.
   authentication. Each advertised as unavailable and rejected today, each a
   standalone feature afterwards.
 - `$`-prefixed topics matching wildcard filters: a MUST NOT [MQTT-4.7.2-1], so
-  it moved to item O in `MQTT5-TODO.md`.
+  it moved to item O in `MQTT5-TODO.md`, and is fixed in #2366.
 
 ---
 
