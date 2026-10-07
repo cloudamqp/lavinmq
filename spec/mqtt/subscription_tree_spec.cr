@@ -253,6 +253,39 @@ describe LavinMQ::MQTT::SubscriptionTree do
     matched.should eq ["wildcard"]
   end
 
+  # [MQTT-4.7.2-1]
+  it "doesn't match topics starting with $ against first level wildcards" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    tree.subscribe("#", "hash", 0u8)
+    tree.subscribe("+/x", "plus", 0u8)
+    tree.subscribe("+/#", "plus-hash", 0u8)
+    tree.subscribe("$SYS/#", "sys-hash", 0u8)
+    tree.subscribe("$SYS/x", "sys-exact", 0u8)
+    tree.subscribe("a/+", "a-plus", 0u8)
+
+    matched = [] of String
+    tree.each_entry("$SYS/x") { |session, _qos| matched << session }
+    matched.sort.should eq ["sys-exact", "sys-hash"]
+
+    matched.clear
+    tree.each_entry("a/x") { |session, _qos| matched << session }
+    matched.sort.should eq ["a-plus", "hash", "plus", "plus-hash"]
+
+    # Only the first character of the topic name counts
+    matched.clear
+    tree.each_entry("a/$x") { |session, _qos| matched << session }
+    matched.sort.should eq ["a-plus", "hash", "plus-hash"]
+  end
+
+  # [MQTT-4.7.2-1]
+  it "#any? doesn't match topics starting with $ against first level wildcards" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    tree.subscribe("#", "hash", 0u8)
+    tree.subscribe("+/x", "plus", 0u8)
+    tree.any?("$SYS/x").should be_false
+    tree.any?("a/x").should be_true
+  end
+
   it "can iterate all entries" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [

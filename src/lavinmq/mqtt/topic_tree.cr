@@ -69,20 +69,21 @@ module LavinMQ
       end
 
       def each(filter : String, &blk : (String, TEntity) -> _)
-        each(StringTokenIterator.new(filter, '/'), &blk)
+        each(StringTokenIterator.new(filter, '/'), first_level: true, &blk)
       end
 
-      def each(filter : StringTokenIterator, &blk : (String, TEntity) -> _)
+      def each(filter : StringTokenIterator, first_level = false, &blk : (String, TEntity) -> _)
         current = filter.next
         if current == "#"
-          each &blk
+          each_wildcard_leaf(first_level) { |leaf| yield leaf.first, leaf.last }
+          each_wildcard_sublevel(first_level, &.each(&blk))
           return
         end
         if current == "+"
           if filter.next?
-            @sublevels.values.each(&.each(filter, &blk))
+            each_wildcard_sublevel(first_level) { |sublevel| sublevel.each(filter, &blk) }
           else
-            @leafs.values.each &blk
+            each_wildcard_leaf(first_level) { |leaf| yield leaf.first, leaf.last }
           end
           return
         end
@@ -94,6 +95,20 @@ module LavinMQ
           if leaf = @leafs.fetch(current, nil)
             yield leaf.first, leaf.last
           end
+        end
+      end
+
+      # A first level wildcard doesn't match a topic starting with '$'
+      # [MQTT-4.7.2-1], deeper levels match it as usual.
+      private def each_wildcard_leaf(first_level : Bool, &)
+        @leafs.each do |level, leaf|
+          yield leaf unless first_level && level.starts_with?('$')
+        end
+      end
+
+      private def each_wildcard_sublevel(first_level : Bool, &)
+        @sublevels.each do |level, sublevel|
+          yield sublevel unless first_level && level.starts_with?('$')
         end
       end
 

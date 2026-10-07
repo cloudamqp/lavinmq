@@ -94,13 +94,15 @@ module LavinMQ
         if subs = @non_wildcards[filter]?
           return !subs.empty?
         end
-        any?(BytesTokenIterator.new(filter.to_slice))
+        any?(BytesTokenIterator.new(filter.to_slice), wildcards: !filter.starts_with?('$'))
       end
 
-      protected def any?(filter : BytesTokenIterator)
+      protected def any?(filter : BytesTokenIterator, wildcards = true)
         return !@leafs.empty? unless current = filter.next
-        return true if !@wildcard_rest.empty?
-        return true if @plus.try &.any?(filter)
+        if wildcards
+          return true if !@wildcard_rest.empty?
+          return true if @plus.try &.any?(filter)
+        end
         return true if @sublevels[current]?.try &.any?(filter)
         false
       end
@@ -131,20 +133,24 @@ module LavinMQ
         end
         # Nothing to walk when there are no wildcard subscriptions.
         return if @wildcard_rest.empty? && @plus.nil? && @sublevels.empty?
-        each_entry(BytesTokenIterator.new(topic.to_slice), &block)
+        # A topic starting with '$' isn't matched by a first level wildcard
+        # [MQTT-4.7.2-1], deeper levels match it as usual.
+        each_entry(BytesTokenIterator.new(topic.to_slice), wildcards: !topic.starts_with?('$'), &block)
       end
 
-      protected def each_entry(topic : BytesTokenIterator, &block : (T, UInt8, String) -> _)
+      protected def each_entry(topic : BytesTokenIterator, wildcards = true, &block : (T, UInt8, String) -> _)
         unless current = topic.next
           if f = @leaf_filter
             @leafs.each { |s, q| yield s, q, f }
           end
           return
         end
-        if f = @wildcard_rest_filter
-          @wildcard_rest.each { |s, q| yield s, q, f }
+        if wildcards
+          if f = @wildcard_rest_filter
+            @wildcard_rest.each { |s, q| yield s, q, f }
+          end
+          @plus.try &.each_entry topic, &block
         end
-        @plus.try &.each_entry topic, &block
         if sublevel = @sublevels[current]?
           sublevel.each_entry topic, &block
         end

@@ -103,6 +103,26 @@ module MqttSpecs
       ensure
         store.try &.close
       end
+
+      # [MQTT-4.7.2-1]
+      it "doesn't match topics starting with $ against first level wildcards" do
+        index = IndexTree.new
+        %w[$SYS/x a/x $b a/$x].each { |topic| index.insert(topic, topic) }
+
+        matched = ->(filter : String) do
+          topics = [] of String
+          index.each(filter) { |topic, _| topics << topic }
+          topics.sort
+        end
+
+        matched.call("#").should eq ["a/$x", "a/x"]
+        matched.call("+").should be_empty
+        matched.call("+/x").should eq ["a/x"]
+        matched.call("+/#").should eq ["a/$x", "a/x"]
+        matched.call("$SYS/#").should eq ["$SYS/x"]
+        matched.call("$SYS/+").should eq ["$SYS/x"]
+        matched.call("$b").should eq ["$b"]
+      end
     end
 
     describe "restore_index" do
