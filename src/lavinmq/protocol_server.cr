@@ -210,6 +210,7 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
+        set_tls_tcp_read_buffer(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, client.local_address, remote_addr)
@@ -275,6 +276,16 @@ module LavinMQ
     # so a client that stops reading mustn't block a write forever
     private def set_write_timeout(socket)
       socket.write_timeout = @config.tcp_send_timeout.seconds
+    end
+
+    # The TCP socket under a TLS socket buffers OpenSSL's reads (a record
+    # header, then its body). Pooled, so idle TLS connections don't hold it.
+    # Writes aren't buffered (sync), OpenSSL writes whole records.
+    private def set_tls_tcp_read_buffer(socket)
+      if @config.socket_buffer_size.positive?
+        socket.buffer_pool = IO::BufferPool.for(@config.socket_buffer_size)
+        socket.read_buffering = true
+      end
     end
 
     private def set_buffer_size(socket)
