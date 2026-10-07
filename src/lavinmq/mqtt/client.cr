@@ -371,7 +371,7 @@ module LavinMQ
       # flushed: after a failed write it may already have been partly sent,
       # and the connection is being abandoned anyway.
       private def close_socket
-        socket = @io
+        socket = @io.io # Protocol::IO forwards methods, which responds_to? doesn't see
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end
