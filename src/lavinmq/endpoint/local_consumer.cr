@@ -1,4 +1,5 @@
 require "../client/channel/consumer"
+require "../amqp/queue"
 require "../bool_channel"
 require "../config"
 require "./session"

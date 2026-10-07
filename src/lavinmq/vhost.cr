@@ -26,6 +26,8 @@ require "./amqp/channel"
 require "./persister"
 
 module LavinMQ
+  class VHostStore; end # vhost_store.cr requires this file
+
   class VHost
     include SortableJSON
     include Stats
