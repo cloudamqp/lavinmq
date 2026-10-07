@@ -369,7 +369,8 @@ module LavinMQ
       # write. A write blocked on a client that stopped reading is aborted by
       # the socket's write timeout. Buffered data is dropped instead of
       # flushed: after a failed write it may already have been partly sent,
-      # and the connection is being abandoned anyway.
+      # and the connection is being abandoned anyway. A client that keeps
+      # reading, however slowly, can delay the close by up to one message.
       private def close_socket
         socket = @io.io # Protocol::IO forwards methods, which responds_to? doesn't see
         if socket.responds_to?(:"write_timeout=")
