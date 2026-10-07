@@ -190,6 +190,48 @@ module MqttSpecs
       end
     end
 
+    it "refuses binding with a malformed MQTT topic filter over AMQP" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        {"a/#/b", "#/a", "a/+b", "a/b#", "a/##", ""}.each do |filter|
+          with_channel(server) do |ch|
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED.*not a valid MQTT topic filter/) do
+              ch.queue_bind("q1", "xmqtt", filter)
+            end
+          end
+        end
+        vhost.exchange("xmqtt").binding_count.should eq 0
+        vhost.mqtt_subscription_tree.empty?.should be_true
+      end
+    end
+
+    it "refuses binding with a malformed MQTT topic filter over the HTTP API" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        response = http.post("/api/bindings/%2f/e/xmqtt/q/q1", body: %({"routing_key": "a/#/b"}))
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "not a valid MQTT topic filter"
+        vhost.exchange("xmqtt").binding_count.should eq 0
+      end
+    end
+
+    it "accepts well-formed wildcard filter" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_exchange("xmqtt", "x-mqtt-topic", true, false)
+        vhost.declare_queue("q1", true, false)
+        filters = {"#", "+", "+/#", "a/+/+", "a/+/c/#", "a/b/c"}
+        with_channel(server) do |ch|
+          filters.each { |filter| ch.queue_bind("q1", "xmqtt", filter) }
+        end
+        vhost.exchange("xmqtt").binding_count.should eq filters.size
+      end
+    end
+
     # Pins the decision to not guard Exchange.Bind on internal exchanges:
     # a guard breaks federation, which binds internal exchanges as destinations.
     it "allows exchange.bind with the exchange as source and as destination" do

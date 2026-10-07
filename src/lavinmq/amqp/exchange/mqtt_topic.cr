@@ -1,5 +1,6 @@
 require "./exchange"
 require "../../mqtt/subscriber"
+require "../../mqtt/topic_filter"
 
 module LavinMQ
   module AMQP
@@ -47,6 +48,9 @@ module LavinMQ
       end
 
       def bind(destination : AMQP::Destination, routing_key, arguments = nil) : Bool
+        unless MQTT::TopicFilter.valid_filter?(routing_key)
+          raise LavinMQ::Error::PreconditionFailed.new("'#{routing_key}' is not a valid MQTT topic filter")
+        end
         binding_key = BindingKey.new(routing_key, arguments)
         destinations = @bindings[routing_key]
         first_for_filter = destinations.empty?
