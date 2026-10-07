@@ -1747,7 +1747,7 @@ describe LavinMQ::AMQP::Stream do
             store = stream.stream_msg_store
             first = store.@segments.first_value
             vm_flags(first.path).should contain "rr"
-            stream.@msg_store_lock.synchronize { store.find_offset(1i64) }
+            stream.@msg_store_lock.synchronize { store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(1)) }
             vm_flags(first.path).should_not contain "rr"
             vm_flags(first.path).should_not contain "sr"
           end
@@ -1801,6 +1801,169 @@ describe LavinMQ::AMQP::Stream do
           q.unsubscribe(tag1)
           wait_for { store.@segment_readers == {seg => 1u32} }
         end
+      end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::StreamOffset do
+  describe ".from_amqp" do
+    it "parses first, last and next" do
+      LavinMQ::AMQP::StreamOffset.from_amqp("first").should eq LavinMQ::AMQP::StreamOffset::First.new
+      LavinMQ::AMQP::StreamOffset.from_amqp("last").should eq LavinMQ::AMQP::StreamOffset::Last.new
+      LavinMQ::AMQP::StreamOffset.from_amqp("next").should eq LavinMQ::AMQP::StreamOffset::Next.new
+    end
+
+    it "parses non-negative integers of any width as absolute offsets" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(0).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(0)
+      LavinMQ::AMQP::StreamOffset.from_amqp(5u8).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(5)
+      LavinMQ::AMQP::StreamOffset.from_amqp(7i64).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(7)
+    end
+
+    it "parses negative integers as a count from the end" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(-2).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+    end
+
+    it "saturates Int64::MIN" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(Int64::MIN).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(Int64::MAX)
+    end
+
+    it "parses timestamps" do
+      t = Time.unix(1_700_000_000)
+      LavinMQ::AMQP::StreamOffset.from_amqp(t).should eq LavinMQ::AMQP::StreamOffset::Timestamp.new(t)
+    end
+
+    it "returns nil when no offset is given" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(nil).should be_nil
+    end
+
+    it "rejects other values" do
+      ["foo", 1.5, true].each do |value|
+        expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-offset must be/) do
+          LavinMQ::AMQP::StreamOffset.from_amqp(value)
+        end
+      end
+    end
+  end
+
+  describe ".parse" do
+    it "parses first, last, next and non-negative integers" do
+      LavinMQ::AMQP::StreamOffset.parse("first").should eq LavinMQ::AMQP::StreamOffset::First.new
+      LavinMQ::AMQP::StreamOffset.parse("last").should eq LavinMQ::AMQP::StreamOffset::Last.new
+      LavinMQ::AMQP::StreamOffset.parse("next").should eq LavinMQ::AMQP::StreamOffset::Next.new
+      LavinMQ::AMQP::StreamOffset.parse("12").should eq LavinMQ::AMQP::StreamOffset::Absolute.new(12)
+    end
+
+    it "parses negative integers as a count from the end, like x-stream-offset" do
+      LavinMQ::AMQP::StreamOffset.parse("-2").should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+      LavinMQ::AMQP::StreamOffset.parse(-2i64).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+      LavinMQ::AMQP::StreamOffset.parse(Int64::MIN).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(Int64::MAX)
+    end
+
+    it "parses integers" do
+      LavinMQ::AMQP::StreamOffset.parse(12i64).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(12)
+    end
+
+    it "defaults to first" do
+      LavinMQ::AMQP::StreamOffset.parse(nil).should eq LavinMQ::AMQP::StreamOffset::First.new
+    end
+
+    it "rejects anything else" do
+      ["foo", "1.5", "", "-", "99999999999999999999", 1.5, true, [1]].each do |value|
+        expect_raises(LavinMQ::AMQP::StreamOffset::Error, "invalid offset #{value}") do
+          LavinMQ::AMQP::StreamOffset.parse(value)
+        end
+      end
+    end
+  end
+end
+
+describe "LavinMQ::AMQP::StreamMessageStore#find_offset" do
+  t0 = Time.unix(1_700_000_000)
+
+  # Pushes `count` messages, the i:th (0-based) with timestamp t0 + i seconds
+  push = ->(store : LavinMQ::AMQP::StreamMessageStore, count : Int32, bodysize : Int32) do
+    count.times do |i|
+      ts = (t0 + i.seconds).to_unix_ms
+      store.push LavinMQ::Message.new(ts, "e", "k", AMQ::Protocol::Properties.new,
+        bodysize.to_u64, IO::Memory.new("a" * bodysize))
+    end
+  end
+
+  it "resolves offsets within one segment" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      push.call(store, 5, 10)
+      store.last_offset.should eq 5
+      find = ->(o : LavinMQ::AMQP::StreamOffset::Any) { store.find_offset(o)[0] }
+      find.call(LavinMQ::AMQP::StreamOffset::First.new).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Last.new).should eq 1 # first message of the last segment
+      find.call(LavinMQ::AMQP::StreamOffset::Next.new).should eq 6
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(0)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(3)).should eq 3
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(5)).should eq 5
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(100)).should eq 6
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(1)).should eq 5
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(2)).should eq 4
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(100)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 - 1.second)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 2.seconds)).should eq 3
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 2500.milliseconds)).should eq 4
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 1.minute)).should eq 6
+      store.close
+    end
+  end
+
+  it "returns the segment and position of the offset" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      push.call(store, 2, 10)
+      first_seg = store.@segments.first_key
+      store.find_offset(LavinMQ::AMQP::StreamOffset::First.new).should eq({1i64, first_seg, 4u32})
+      _, seg, pos = store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(2))
+      seg.should eq first_seg
+      pos.should be > 4u32
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Next.new).should eq({3i64, first_seg, store.@segments.last_value.size.to_u32})
+      store.close
+    end
+  end
+
+  it "resolves offsets across segments" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      push.call(store, 3, LavinMQ::Config.instance.segment_size // 2)
+      store.@segments.size.should be >= 2
+      last_seg = store.@segments.last_key
+      last_first_offset = store.@segment_first_offset[last_seg]
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Last.new).should eq({last_first_offset, last_seg, 4u32})
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(3))[0].should eq 3
+      store.find_offset(LavinMQ::AMQP::StreamOffset::FromEnd.new(1))[0].should eq 3
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 1.second))[0].should eq 2
+      store.close
+    end
+  end
+
+  it "resolves offsets below a segment dropped by retention to the first retained" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      push.call(store, 3, LavinMQ::Config.instance.segment_size // 2)
+      store.max_length = 1
+      store.drop_overflow
+      first_retained = store.@segment_first_offset[store.@segments.first_key]
+      first_retained.should be > 1
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(1))[0].should eq first_retained
+      store.find_offset(LavinMQ::AMQP::StreamOffset::First.new)[0].should eq first_retained
+      store.find_offset(LavinMQ::AMQP::StreamOffset::FromEnd.new(100))[0].should eq first_retained
+      store.close
+    end
+  end
+
+  it "raises ClosedError when the store is closed" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      store.close
+      expect_raises(LavinMQ::MessageStore::ClosedError) do
+        store.find_offset(LavinMQ::AMQP::StreamOffset::First.new)
       end
     end
   end

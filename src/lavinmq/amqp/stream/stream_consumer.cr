@@ -4,6 +4,7 @@ require "../../rough_time"
 require "./filters/kv"
 require "./filters/x_stream_filter"
 require "./filters/gis"
+require "./stream_offset"
 
 module LavinMQ
   module AMQP
@@ -23,8 +24,7 @@ module LavinMQ
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
-        offset = frame.arguments["x-stream-offset"]?
-        @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
+        @offset, @segment, @pos = stream_queue.find_offset(start_offset(frame))
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -58,18 +58,26 @@ module LavinMQ
       end
 
       private def validate_stream_offset(frame)
-        case frame.arguments["x-stream-offset"]?
-        when Nil
+        if StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?).nil?
           @track_offset = true unless @tag.starts_with?("amq.ctag-")
-        when Int, Time, "first", "next", "last"
+        else
           case frame.arguments["x-stream-automatic-offset-tracking"]?
           when Bool
             @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]?.as(Bool)
           when String
             @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
           end
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
         end
+      end
+
+      # The stored offset wins when tracking offsets or when no offset is given
+      private def start_offset(frame) : StreamOffset::Any
+        start = StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?)
+        if @track_offset || start.nil?
+          stored = stream_queue.stored_offset(@tag)
+          return StreamOffset::Absolute.new(stored) if stored
+        end
+        start || StreamOffset::Absolute.new(0)
       end
 
       private def validate_filter_match_type(frame)

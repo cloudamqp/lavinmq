@@ -103,10 +103,13 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
-    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
-      @msg_store_lock.synchronize do
-        stream_msg_store.find_offset(offset, tag, track_offset)
-      end
+    def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
+      @msg_store_lock.synchronize { stream_msg_store.find_offset(offset) }
+    end
+
+    # The offset stored for `consumer_tag` by automatic offset tracking
+    def stored_offset(consumer_tag : String) : Int64?
+      @msg_store_lock.synchronize { stream_msg_store.last_offset_by_consumer_tag(consumer_tag) }
     end
 
     private def message_expire_loop
@@ -173,7 +176,7 @@ module LavinMQ::AMQP
       false
     end
 
-    def reader(offset)
+    def reader(offset : StreamOffset::Any)
       StreamReader.new(self, offset)
     end
 

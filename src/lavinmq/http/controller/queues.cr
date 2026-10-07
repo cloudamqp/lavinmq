@@ -253,8 +253,7 @@ module LavinMQ
             body = parse_body(context)
             count = body["count"]?.try(&.as_i) || 1
             count = 0 if count < 0
-            offset = body["offset"]?.try(&.as_s) || "first"
-            offset = offset.to_i64 if /^\d+$/.match(offset)
+            offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
             reader = q.reader(offset)
@@ -281,7 +280,7 @@ module LavinMQ
                 end
               end
             end
-          rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
+          rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
           end
         end

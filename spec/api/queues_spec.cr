@@ -768,6 +768,52 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
 
+  describe "POST /api/queues/vhost/name/stream" do
+    it "reads from the given offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          body = %({"count": 2, "offset": "3"})
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+          response.status_code.should eq 200
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          msgs.map(&.["properties"]["headers"]["x-stream-offset"].as_i).should eq [3, 4]
+        end
+      end
+    end
+
+    it "reads from a numeric offset, negative counting from the end" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          [%({"count": 2, "offset": 3}), %({"count": 2, "offset": -3}), %({"count": 2, "offset": "-3"})].each do |body|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 200
+            msgs = JSON.parse(response.body).as_a
+            msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          end
+        end
+      end
+    end
+
+    it "refuses an invalid offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          [%("foo"), "1.5", "true", "[1]"].each do |offset|
+            body = %({"offset": #{offset}})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
+            response.body.should contain "invalid offset"
+          end
+        end
+      end
+    end
+  end
+
   describe "PUT /api/queues/vhost/name/restart" do
     it "should restart a queue" do
       with_http_server do |http, s|
