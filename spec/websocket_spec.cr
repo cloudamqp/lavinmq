@@ -42,6 +42,23 @@ describe "Websocket support" do
     end
   end
 
+  it "shuts down the underlying connection of wss connections" do
+    with_amqp_server do |s|
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      addr = s.http_server.bind_tls("127.0.0.1", 0, ctx)
+      spawn(name: "https listen") { s.http_server.listen }
+      Fiber.yield
+      conn = AMQP::Client.new("wss://#{addr}?verify=none").connect
+      wait_for { s.vhosts["/"].connections.any?(LavinMQ::AMQP::Client) }
+      client = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
+      client.@socket.as(LavinMQ::WebSocketIO).shutdown_read_write
+      wait_for { client.closed? }
+      wait_for { conn.closed? }
+    end
+  end
+
   it "tracks AMQP websocket connections on the vhost" do
     with_http_server do |http, s|
       c = AMQP::Client.new("ws://#{http.addr}")

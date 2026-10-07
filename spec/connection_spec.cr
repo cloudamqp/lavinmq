@@ -415,5 +415,35 @@ describe LavinMQ::Server do
         end
       end
     end
+
+    it "can force close a connection while a large message is delivered to a slow reader" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      with_amqp_server do |s|
+        with_stuck_consumer(s, "tcp_send_timeout_slow_reader", body_size: 32 * 1024 * 1024, count: 2) do |client, io|
+          # reads too slowly for the delivery to finish, but fast enough for
+          # the write not to time out
+          spawn do
+            buf = Bytes.new(1024)
+            loop do
+              break if io.read(buf).zero?
+              sleep 10.milliseconds
+            end
+          rescue IO::Error
+          end
+          sleep 0.5.seconds # the delivery is in progress, holding the write lock
+          closed = Channel(Nil).new
+          spawn do
+            client.force_close
+            closed.send nil
+          end
+          select
+          when closed.receive
+          when timeout(5.seconds)
+            fail "force_close didn't complete"
+          end
+          client.closed?.should be_true
+        end
+      end
+    end
   end
 end

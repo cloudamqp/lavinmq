@@ -4,6 +4,7 @@ require "../client"
 require "../error"
 require "../rough_time"
 require "../../stdlib/io_buffered_discard"
+require "../../stdlib/socket_shutdown"
 require "./session"
 require "./protocol"
 require "../bool_channel"
@@ -365,22 +366,24 @@ module LavinMQ
         close_socket
       end
 
-      # Under the write lock, so that closing never runs concurrently with a
-      # write. A write blocked on a client that stopped reading is aborted by
-      # the socket's write timeout. Buffered data is dropped instead of
-      # flushed: after a failed write it may already have been partly sent,
-      # and the connection is being abandoned anyway. A client that keeps
-      # reading, however slowly, can delay the close by up to one message.
+      # The connection is first shut down, which makes an ongoing write,
+      # e.g. of a large message to a slowly reading client, fail right away
+      # instead of holding the write lock. The socket is then closed under
+      # the write lock, so that closing never runs concurrently with a write.
+      # Buffered data is dropped instead of flushed: after a failed write it
+      # may already have been partly sent, and the connection is being
+      # abandoned anyway.
       private def close_socket
         socket = @io.io # Protocol::IO forwards methods, which responds_to? doesn't see
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end
+        socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
         @lock.synchronize do
           socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
           socket.close
         end
-      rescue ::IO::Error
+      rescue ::IO::Error | OpenSSL::SSL::Error
       end
     end
   end

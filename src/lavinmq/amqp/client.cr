@@ -14,6 +14,7 @@ require "../observable"
 require "./queue/event"
 require "../auth/permission_cache"
 require "../../stdlib/io_buffered_discard"
+require "../../stdlib/socket_shutdown"
 
 module LavinMQ
   module AMQP
@@ -553,16 +554,18 @@ module LavinMQ
         end
       end
 
-      # Under the write lock, so that closing never runs concurrently with a
-      # write. A write blocked on a client that stopped reading is aborted by
-      # the socket's write timeout. Buffered data is dropped instead of
-      # flushed: after a failed write it may already have been partly sent,
-      # and the connection is being abandoned anyway. A client that keeps
-      # reading, however slowly, can delay the close by up to one message.
+      # The connection is first shut down, which makes an ongoing write,
+      # e.g. of a large message to a slowly reading client, fail right away
+      # instead of holding the write lock. The socket is then closed under
+      # the write lock, so that closing never runs concurrently with a write.
+      # Buffered data is dropped instead of flushed: after a failed write it
+      # may already have been partly sent, and the connection is being
+      # abandoned anyway.
       private def close_socket
         @running = false
+        socket = @socket
+        socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
         @write_lock.synchronize do
-          socket = @socket
           socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
           socket.close
         end
