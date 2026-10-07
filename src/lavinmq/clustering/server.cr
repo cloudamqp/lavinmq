@@ -358,9 +358,11 @@ module LavinMQ
           # leaves it until it has synced again. It may be back with lost or
           # stale data under the same clustering id (a disk restored from a
           # snapshot), and could otherwise be elected during its full sync and
-          # have the other nodes sync from it.
+          # have the other nodes sync from it. Only this follower is removed:
+          # other listed members that haven't reconnected yet, as after a full
+          # cluster restart, stay electable until a write proves them stale.
           begin
-            update_isr
+            remove_from_isr(follower.id)
           rescue ex
             @followers.delete(follower)
             @dirty_isr = true
@@ -435,6 +437,13 @@ module LavinMQ
             end
           end
         end
+      end
+
+      private def remove_from_isr(id : Int32) : Nil
+        isr = @coordinator.isr || return
+        return unless isr.delete(id)
+        Log.info { "In-sync replicas: #{isr.to_a}" }
+        @coordinator.update_isr(isr)
       end
 
       private def update_isr

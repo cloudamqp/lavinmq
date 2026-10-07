@@ -7,6 +7,9 @@ module LavinMQ::Clustering
     # Replace the ISR set wholesale with the given node ids.
     abstract def update_isr(synced_node_ids : Set(Int32)) : Nil
 
+    # The ISR last written, or nil if none has been recorded yet.
+    abstract def isr : Set(Int32)?
+
     # Read the cluster's shared replication secret, generating one if missing.
     abstract def password : String
   end
