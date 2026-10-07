@@ -1,0 +1,221 @@
+Brings paho.mqtt.testing's client_test5.py (upstream 9d7bb80, 2024-01-18, no
+newer commits) in line with the maintained port of the same tests in
+paho.mqtt.python, tests/test_mqttv5.py (b48baee, 2026-09-21). Only the
+changes that fix a race or add a check are taken; see MQTT5-INTEROP.md,
+"The Paho suite patch". Apply after the setup's credential and -p edits:
+
+  git -C paho.mqtt.testing apply "$LMQ/MQTT5-INTEROP-paho.patch"
+
+diff --git a/interoperability/client_test5.py b/interoperability/client_test5.py
+index 0d838cf..5237457 100644
+--- a/interoperability/client_test5.py
++++ b/interoperability/client_test5.py
+@@ -127,15 +127,20 @@ class Test(unittest.TestCase):
+       aclient.connect(host=host, port=port)
+       aclient.disconnect()
+ 
++      callback.clear()
+       rc = aclient.connect(host=host, port=port)
+       self.assertEqual(rc.reasonCode.getName(), "Success")
+       aclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2)])
++      self.waitfor(callback.subscribeds, 1, 3)
++      # LavinMQ patch, from paho.mqtt.python: the granted QoS and the payloads.
++      self.assertEqual(callback.subscribeds[0][1][0].getName(), "Granted QoS 2", callback.subscribeds)
+       aclient.publish(topics[0], b"qos 0")
+       aclient.publish(topics[0], b"qos 1", 1)
+       aclient.publish(topics[0], b"qos 2", 2)
+       time.sleep(2)
+       aclient.disconnect()
+       self.assertEqual(len(callback.messages), 3)
++      self.assertEqual(set(m[1] for m in callback.messages), {b"qos 0", b"qos 1", b"qos 2"})
+ 
+       with self.assertRaises(Exception):
+         aclient.connect(host=host, port=port)
+@@ -165,6 +170,8 @@ class Test(unittest.TestCase):
+       time.sleep(1)
+       aclient.disconnect()
+ 
++      # LavinMQ patch, from paho.mqtt.python: the granted QoS.
++      self.assertEqual(callback.subscribeds[0][1][0].getName(), "Granted QoS 2", callback.subscribeds)
+       self.assertEqual(len(callback.messages), 3)
+       userprops = callback.messages[0][5].UserProperty
+       self.assertTrue(userprops in [[("a", "2"), ("c", "3")],[("c", "3"), ("a", "2")]], userprops)
+@@ -203,29 +210,21 @@ class Test(unittest.TestCase):
+ 
+     # 0 length clientid
+     def test_zero_length_clientid(self):
+-      logging.info("Zero length clientid test starting")
+-      succeeded = True
+-      try:
+-        client0 = mqtt_client.Client("")
+-        fails = False
+-        try:
+-          client0.connect(host=host, port=port, cleanstart=False) # should not be rejected
+-        except:
+-          fails = True
+-        assert fails == False
++      # LavinMQ patch, from paho.mqtt.python: the original swallowed every
++      # failure in a bare except, so it could not fail. Also checks that a
++      # supplied client id is not answered with an Assigned Client Identifier.
++      client0 = mqtt_client.Client("")
++      for cleanstart in (False, True):
++        connack = client0.connect(host=host, port=port, cleanstart=cleanstart)
+         client0.disconnect()
+-        fails = False
+-        try:
+-          client0.connect(host=host, port=port, cleanstart=True) # should work
+-        except:
+-          fails = True
+-        assert fails == False
+-        client0.disconnect()
+-      except:
+-        traceback.print_exc()
+-        succeeded = False
+-      logging.info("Zero length clientid test %s", "succeeded" if succeeded else "failed")
+-      return succeeded
++        self.assertEqual(connack.reasonCode.getName(), "Success", (cleanstart, connack))
++        self.assertTrue(getattr(connack.properties, "AssignedClientIdentifier", "") != "",
++                        (cleanstart, connack.properties))
++      client1 = mqtt_client.Client("zero length clientid - supplied".encode("utf-8"))
++      connack = client1.connect(host=host, port=port, cleanstart=True)
++      client1.disconnect()
++      self.assertEqual(connack.reasonCode.getName(), "Success", connack)
++      self.assertFalse(hasattr(connack.properties, "AssignedClientIdentifier"), connack.properties)
+ 
+     def test_offline_message_queueing(self):
+       # message queueing for offline clients
+@@ -376,9 +375,14 @@ class Test(unittest.TestCase):
+       bclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2)])
+       bclient.subscribe([topics[1]], [MQTTV5.SubscribeOptions(2)])
+       bclient.subscribe([topics[2]], [MQTTV5.SubscribeOptions(2)])
++      # LavinMQ patch, from paho.mqtt.python: nothing waited for the SUBACKs or
++      # the UNSUBACK, so the publishes below could race them.
++      self.waitfor(callback2.subscribeds, 3, 3)
+       time.sleep(1) # wait for any retained messages, hopefully
+       # Unsubscribe from one topic
+       bclient.unsubscribe([topics[0]])
++      self.waitfor(callback2.unsubscribeds, 1, 3)
++      self.assertEqual(len(callback2.unsubscribeds), 1, callback2.unsubscribeds)
+       callback2.clear() # if there were any retained messsages
+ 
+       aclient.connect(host=host, port=port, cleanstart=True)
+@@ -390,6 +394,7 @@ class Test(unittest.TestCase):
+       bclient.disconnect()
+       aclient.disconnect()
+       self.assertEqual(len(callback2.messages), 2, callback2.messages)
++      self.assertEqual(set(m[1] for m in callback2.messages), {b"topic 1", b"topic 2"}, callback2.messages)
+ 
+     def test_session_expiry(self):
+       # no session expiry property == never expire
+@@ -463,8 +468,8 @@ class Test(unittest.TestCase):
+       aclient.publish(topics[0], b"", 0, retained=False, properties=publish_properties)
+       aclient.publish(topics[0], b"", 1, retained=False, properties=publish_properties)
+       aclient.publish(topics[0], b"", 2, retained=False, properties=publish_properties)
+-      while len(callback.messages) < 3:
+-        time.sleep(.1)
++      # LavinMQ patch, from paho.mqtt.python: was an unbounded busy-wait.
++      self.waitfor(callback.messages, 3, 5)
+       aclient.disconnect()
+       self.assertEqual(len(callback.messages), 3, callback.messages)
+       userprops = callback.messages[0][5].UserProperty
+@@ -486,8 +491,8 @@ class Test(unittest.TestCase):
+       aclient.publish(topics[0], b"", 0, retained=False, properties=publish_properties)
+       aclient.publish(topics[0], b"", 1, retained=False, properties=publish_properties)
+       aclient.publish(topics[0], b"", 2, retained=False, properties=publish_properties)
+-      while len(callback.messages) < 3:
+-        time.sleep(.1)
++      # LavinMQ patch, from paho.mqtt.python: was an unbounded busy-wait.
++      self.waitfor(callback.messages, 3, 5)
+       aclient.disconnect()
+ 
+       self.assertEqual(len(callback.messages), 3, callback.messages)
+@@ -551,7 +556,9 @@ class Test(unittest.TestCase):
+       aclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2, noLocal=True)])
+       self.waitfor(callback.subscribeds, 1, 3)
+       bclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2, noLocal=True)])
+-      self.waitfor(callback.subscribeds, 1, 3)
++      # LavinMQ patch, from paho.mqtt.python: waited on aclient's SUBACK, which
++      # had already arrived, so the publish could beat bclient's subscription.
++      self.waitfor(callback2.subscribeds, 1, 3)
+       aclient.publish(topics[0], b"noLocal test", 1, retained=False)
+ 
+       self.waitfor(callback2.messages, 1, 3)
+@@ -596,6 +603,26 @@ class Test(unittest.TestCase):
+       aclient.subscribe([wildtopics[5]], [MQTTV5.SubscribeOptions(2, retainHandling=1)])
+       time.sleep(1)
+       self.assertEqual(len(callback.messages), 0)
++
++      # LavinMQ patch, from paho.mqtt.python: an UNSUBSCRIBE carrying User
++      # Properties removes the subscription, so Retain Handling 1 treats the
++      # next SUBSCRIBE as new and sends the retained messages again.
++      unsub_properties = MQTTV5.Properties(MQTTV5.PacketTypes.UNSUBSCRIBE)
++      unsub_properties.UserProperty = ("a", "2")
++      unsub_properties.UserProperty = ("c", "3")
++      aclient.unsubscribe([wildtopics[5]], properties=unsub_properties)
++      self.waitfor(callback.unsubscribeds, 1, 3)
++      self.assertEqual(len(callback.unsubscribeds), 1, callback.unsubscribeds)
++      callback.clear()
++      aclient.subscribe([wildtopics[5]], [MQTTV5.SubscribeOptions(2, retainHandling=1)])
++      time.sleep(1)
++      self.assertEqual(len(callback.messages), 3, callback.messages)
++      qoss = [callback.messages[i][2] for i in range(3)]
++      self.assertTrue(1 in qoss and 2 in qoss and 0 in qoss, qoss)
++      callback.clear()
++      aclient.subscribe([wildtopics[5]], [MQTTV5.SubscribeOptions(2, retainHandling=1)])
++      time.sleep(1)
++      self.assertEqual(len(callback.messages), 0, callback.messages)
+       aclient.disconnect()
+ 
+       callback.clear()
+@@ -647,10 +674,13 @@ class Test(unittest.TestCase):
+       sub_properties = MQTTV5.Properties(MQTTV5.PacketTypes.SUBSCRIBE)
+       sub_properties.SubscriptionIdentifier = 2
+       bclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2)], properties=sub_properties)
++      # LavinMQ patch, from paho.mqtt.python: wait for bclient's SUBACKs.
++      self.waitfor(callback2.subscribeds, 1, 3)
+ 
+       sub_properties.clear()
+       sub_properties.SubscriptionIdentifier = 3
+       bclient.subscribe([topics[0]+"/#"], [MQTTV5.SubscribeOptions(2)], properties=sub_properties)
++      self.waitfor(callback2.subscribeds, 2, 3)
+ 
+       bclient.publish(topics[0], b"sub identifier test", 1, retained=False)
+ 
+@@ -679,7 +709,8 @@ class Test(unittest.TestCase):
+       self.waitfor(callback.subscribeds, 1, 3)
+ 
+       bclient.subscribe([topics[0]], [MQTTV5.SubscribeOptions(2, noLocal=True)])
+-      self.waitfor(callback.subscribeds, 1, 3)
++      # LavinMQ patch, from paho.mqtt.python: same race as test_subscribe_options.
++      self.waitfor(callback2.subscribeds, 1, 3)
+ 
+       publish_properties = MQTTV5.Properties(MQTTV5.PacketTypes.PUBLISH)
+       publish_properties.ResponseTopic = topics[0]
+@@ -804,7 +835,8 @@ class Test(unittest.TestCase):
+       self.assertEqual(callback.messagedicts[1]["topicname"], "")
+ 
+       self.assertEqual(callback.messagedicts[2]["properties"].TopicAlias, topicalias)
+-      self.assertEqual(callback.messagedicts[1]["topicname"], "")
++      # LavinMQ patch, from paho.mqtt.python: re-checked message 2, never message 3.
++      self.assertEqual(callback.messagedicts[2]["topicname"], "")
+ 
+       callback.clear()
+ 
+diff --git a/interoperability/mqtt/clients/V5/main.py b/interoperability/mqtt/clients/V5/main.py
+index 2fe567c..5081e58 100755
+--- a/interoperability/mqtt/clients/V5/main.py
++++ b/interoperability/mqtt/clients/V5/main.py
+@@ -172,10 +172,12 @@ class Client:
+     return subscribe.packetIdentifier
+ 
+ 
+-  def unsubscribe(self, topics):
++  def unsubscribe(self, topics, properties=None):
+     unsubscribe = MQTTV5.Unsubscribes()
+     unsubscribe.packetIdentifier = self.__nextMsgid()
+     unsubscribe.topicFilters = topics
++    if properties:
++      unsubscribe.properties = properties
+     sendtosocket(self.sock, unsubscribe.pack())
+     return unsubscribe.packetIdentifier
+ 

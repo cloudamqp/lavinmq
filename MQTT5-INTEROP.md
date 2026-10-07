@@ -5,10 +5,9 @@ external run found; this file is *how to run it again*. Nothing here is wired in
 or CI on purpose: it needs a built binary, a network clone and a Docker pull, and
 it is a release-gate check, not a per-commit one.
 
-Last run 2026-10-05, on `32fc6434` (items F, I, K, L, M, N and the
-`84codes/mqtt-protocol.cr#19` shard included); the score and what each failure
-maps to are under *Interpreting the score*. Re-run it once E lands:
-`test_will_delay` is its grading function.
+Last run 2026-10-06, on `9c8dc6a0` (item E included), with the Paho suite
+patched as described under *The Paho suite patch*; the score and what each
+failure maps to are under *Interpreting the score*.
 
 ## What it exercises that our own specs cannot
 
@@ -18,7 +17,7 @@ it. These tools bring their own codecs:
 
 | tool | what it is good for |
 |---|---|
-| Eclipse Paho interoperability suite | 27 v5 + 9 v3.1.1 broker conformance tests, written against the spec by the people who wrote the reference client |
+| Eclipse Paho interoperability suite | 27 v5 + 9 v3.1.1 broker conformance tests, written against the spec by the people who wrote the reference client. Patched to match the maintained copy of the same tests in `paho.mqtt.python` |
 | paho-mqtt (Python) | property round-trips, capability inspection, wills |
 | mqtt.js (Node) | a third independent codec |
 | mosquitto clients | `-D` sets any v5 property by hand, so one command per row of the compliance table in `MQTT5.md`; prints the DISCONNECT reason code it receives |
@@ -65,12 +64,47 @@ s = s.replace(old, old + '''
 open(p, "w").write(s)
 EOF
 
+# Bring the v5 tests in line with paho.mqtt.python's maintained port of them
+git -C paho.mqtt.testing apply "$LMQ/MQTT5-INTEROP-paho.patch"
+
 # 3. the real client libraries
 python3 -m venv venv && ./venv/bin/pip -q install 'paho-mqtt>=2,<3'
 mkdir -p node && ( cd node && npm init -y >/dev/null && npm install --silent mqtt )
 docker pull -q eclipse-mosquitto
 export NODE_PATH="$W/node/node_modules"
 ```
+
+## The Paho suite patch
+
+`paho.mqtt.testing` has had no commit since 2024-01-18 (`9d7bb80`). The same
+tests live on, maintained, in `paho.mqtt.python` as `tests/test_mqttv5.py`,
+ported onto the paho-mqtt client. `MQTT5-INTEROP-paho.patch` only updates
+`client_test5.py` to match that newer file (`b48baee`, 2026-09-21) where it
+fixes a race or adds a check. It changes no expectation of the broker.
+
+| test | what the newer file does that the patch takes |
+|---|---|
+| `test_subscribe_options` | waits for the second client's own SUBACK before publishing; adds an UNSUBSCRIBE carrying User Properties, after which Retain Handling 1 must send the retained messages again |
+| `test_request_response` | the same SUBACK wait |
+| `test_unsubscribe` | waits for the SUBACKs and the UNSUBACK; checks the payloads |
+| `test_subscribe_identifiers` | waits for the second client's SUBACKs |
+| `test_zero_length_clientid` | real assertions (the original sat in a bare `except` and could not fail), plus: a supplied client id gets no Assigned Client Identifier |
+| `test_user_properties`, `test_payload_format` | a bounded wait instead of an unbounded busy-wait |
+| `test_server_topic_alias` | checks the third message, not the second twice |
+| `test_basic`, `test_retained_message` | the granted QoS in the SUBACK; the payloads |
+
+The vendored client's `unsubscribe` gains a `properties` argument for the
+UNSUBSCRIBE above. The race fix matters: unpatched, `test_subscribe_options`
+failed 5 of 20 runs before item E and 6 of 20 after it, and broker trace logs
+showed the publish reaching the broker before the second SUBSCRIBE in exactly
+the failing runs. Patched, 10 of 10 passed, and so did `test_request_response`.
+
+Not taken, because the newer file is weaker there: it drops two of
+`test_will_delay`'s three cases (both with a session expiry shorter than the
+delay), asserts "no further messages" with no grace period in about a dozen
+places, has a `test_unsubscribe` count that cannot fail, and reconnects in
+`test_session_expiry` before the broker has processed the DISCONNECT. It also
+needs its own in-process test broker, so it is not run as a suite here.
 
 ## The scripts
 
@@ -617,21 +651,23 @@ check, not a known gap.
 
 Do not read the raw pass count.
 
-| run | 2026-08-19 | 2026-10-02 | 2026-10-05 |
-|---|---|---|---|
-| v5 | 6 / 18 / 3 timeout | 15 / 11 / 1 timeout | **19** / 7 / 1 timeout |
-| v3.1.1 | 3 / 6 | 7 / 2 | **7** / 2 |
+| run | 2026-08-19 | 2026-10-02 | 2026-10-05 | 2026-10-06 | 2026-10-06, patched |
+|---|---|---|---|---|---|
+| v5 | 6 / 18 / 3 timeout | 15 / 11 / 1 timeout | 19 / 7 / 1 timeout | 19 / 7 / 1 timeout | **20** / 6 / 1 timeout |
+| v3.1.1 | 3 / 6 | 7 / 2 | 7 / 2 | 7 / 2 | **7** / 2 |
 
 Before QoS 2 the suite was also run from a copy with every QoS 2 use lowered to
 QoS 1, which scored 8 / 18 / 1 on v5 and 7 / 2 on v3.1.1 on 2026-08-19. The
 2026-10-02 run and later are the suite as published. On 2026-10-05, against
 `32fc6434`, `test_retained_message` and `test_subscribe_options` (item F),
 `test_publication_expiry` (item M) and `test_flow_control1` (item N) went from
-fail to pass. Every remaining v5 failure maps to something known:
+fail to pass. On 2026-10-06, against `9c8dc6a0`, `test_will_delay` (item E)
+passed, and `test_subscribe_options` failed on a race in the test itself, so
+the published suite held at 19. With the patch it passes: 20. The v3.1.1 suite
+is not patched. Every remaining v5 failure maps to something known:
 
 | test | why |
 |---|---|
-| `test_will_delay` | item E: the will fired after 0.1s where the test wants 4. E is done since; expected to pass, not yet re-run |
 | `test_flow_control2` (timeout) | item Q, not N: the test sends 65536 QoS 2 PUBLISHes without PUBREL and waits for DISCONNECT `0x93` against *our* Receive Maximum, which we neither advertise nor enforce. The broker accepts them all and the client times out after 180s |
 | `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |
 | `test_subscribe_identifiers`, `test_shared_subscriptions` | correct rejections (`0xA1`, `0x9E`) the test client cannot cope with |

@@ -39,7 +39,8 @@ with its properties intact and after its Will Delay Interval, and gets a
 spec-correct rejection for every feature we do not implement.
 
 Green on 2026-10-06 with item E: 2700 examples, 0 failures, lint and format clean.
-External run the same day: Paho v5 19 of 27, v3.1.1 7 of 9 (`MQTT5-INTEROP.md`).
+External run the same day: Paho v5 20 of 27 with the suite patched to match
+`paho.mqtt.python` (19 as published), v3.1.1 7 of 9 (`MQTT5-INTEROP.md`).
 
 ---
 
@@ -216,9 +217,10 @@ Facts only; the reasoning is in `MQTT5-DESIGN.md`. All of it is committed on
 
 ## 4. Sequencing to ship
 
-1. Close the last spec-violation merge blocker, E. Decide Q.
-2. Re-run the interop harness once E lands. Last run 2026-10-05: Paho v5 19 of
-   27, v3.1.1 7 of 9, every failure accounted for in `MQTT5-INTEROP.md`.
+1. Decide Q. E, the last spec-violation merge blocker, is done.
+2. Interop re-run after E: 2026-10-06, Paho v5 20 of 27 (patched suite), v3.1.1
+   7 of 9, every failure accounted for in `MQTT5-INTEROP.md`. Run it once more
+   on the final rebased branch.
 3. Tag the shard release (`1.0`), with the breaking changes from
    `MQTT5-DESIGN.md` in the changelog.
 4. Repoint `shard.yml` from `branch: feat/mqtt5` to the tag, update `shard.lock`.
