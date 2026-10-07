@@ -305,5 +305,35 @@ module MqttSpecs
         session.durable?.should be_true
       end
     end
+
+    it "does not expire a 0-interval session before its client attaches" do
+      # `Broker#remove_client` ends it with its connection. Expiring it from its
+      # own fiber deleted it whenever the connection yielded before attaching.
+      with_server do |server|
+        broker = server.mqtt_server.brokers["/"]?.should_not be_nil
+        session = broker.@sessions.declare("fresh", 0u32)
+        sleep 100.milliseconds
+        session.deleted?.should be_false
+      end
+    end
+
+    it "does not expire a session a reconnecting client has claimed (rule 1 in broker.cr)" do
+      with_server do |server|
+        with_client_socket(server) do |socket|
+          io = v5_connect(socket, 1u32, clean_session: false, client_id: "claimed")
+          disconnect(io)
+        end
+        vhost = server.vhosts["/"]
+        session = wait_for { vhost.session?("mqtt.claimed").try { |s| s if s.client.nil? } }
+        # What `add_client_locked` does for a resumed session, before CONNACK.
+        session.resume
+        sleep 1.5.seconds
+        session.deleted?.should be_false
+        # The claiming connection went away without attaching: a new offline
+        # window starts, and the session expires at its end.
+        session.client = nil
+        wait_for(timeout: 3.seconds) { session.deleted? }
+      end
+    end
   end
 end

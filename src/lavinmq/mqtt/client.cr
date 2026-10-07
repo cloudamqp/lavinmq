@@ -673,11 +673,10 @@ module LavinMQ
         will = @will || return
         packet = will_packet(will) || return
         delay = will.properties.will_delay_interval
-        # A deleted session has ended, so its will is due now [MQTT-3.1.2-8].
-        if delay.zero? || @session.deleted?
+        if delay.zero?
           @broker.publish(packet, @session.name)
         else
-          @session.pending_will = PendingWill.new(packet, @broker, Time.instant + delay.seconds)
+          @session.arm_will(PendingWill.new(packet, @broker, Time.instant + delay.seconds))
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }

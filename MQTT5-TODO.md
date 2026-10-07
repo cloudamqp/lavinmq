@@ -48,14 +48,14 @@ straight to `@vhost.mqtt_exchange` would silently lose its retain flag.
 - **`Client#publish_will` splits in two.** `will_packet : Protocol::Publish?`
   runs today's permission checks and builds the packet with
   `will_properties`. `publish_will` publishes it at once when the delay is 0,
-  and otherwise sets `@session.pending_will`. The seven call sites in
+  and otherwise hands it to `Session#arm_will`. The seven call sites in
   `read_loop`'s rescues stay as they are. Permissions are therefore checked at
   close, not when the will fires: a write permission revoked during the delay
   does not stop it.
 - **Delay 0 keeps today's path** (every v3 client, most v5 ones): published
   synchronously by the dying read fiber, so existing ordering is unaffected.
-- **Cancel in `Broker#add_client_locked`**, where a resumed session survives,
-  not in `Session#client=`. The spec's trigger is a connection *opened*, and
+- **Cancel in `Broker#add_client_locked`** (`Session#resume`), not in
+  `Session#client=`. The spec's trigger is a connection *opened*, and
   attach happens only in `Client#run`, after CONNACK: a deadline passing in
   that window would publish a will the spec forbids. The client-id lock and
   `prev_client.close` joining the old read fiber guarantee a takeover's will
@@ -75,8 +75,8 @@ straight to `@vhost.mqtt_exchange` would silently lose its retain flag.
   delete, a vhost delete) ends `deliver_loop`, which publishes after the loop
   if `@deleted`. `expire` runs on that fiber and needs nothing extra. This
   keeps the publish out of `Session#delete`, which can run under the
-  definitions lock. A will arming on a session already deleted (its read
-  fiber ran after `deliver_loop` exited) is published at once instead.
+  definitions lock. `arm_will` on a session already deleted (its read fiber
+  ran after `deliver_loop` exited) publishes at once instead.
 
 Covered without special cases: Session Expiry 0 with a delay publishes at
 close; a delay longer than the expiry publishes at expiry; DISCONNECT `0x04`
@@ -203,6 +203,14 @@ Kept as one line each so nobody re-opens them; the reasoning is in git and in
   by a resuming client was deleted in memory with its files removed while neither
   `apply Queue::Delete` nor `compact!` recorded it, and the original declare
   replayed into a ghost session on the next boot.
+- **Review round 3** (full branch, 2026-10-07), two findings, both session
+  expiry races predating E, fixed with specs that failed first. A 0-interval
+  session expired from its own fiber, so a connection that yielded before
+  attaching (a slow CONNACK write) lost its fresh session; it now waits for
+  `Broker#remove_client`. And `expire` ran outside the client-id lock, so a
+  timer that fired as a reconnect arrived deleted the session after CONNACK
+  said it was present; `Session#resume` now claims it until the connection
+  attaches or goes away.
 - **J** external interop findings (2026-08-19): J1 delivery QoS, J2 unexpected
   packets, J3 session expiry. All three lived on lines predating the branch, so
   none was a regression.

@@ -100,9 +100,12 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
-      # Set by the closing connection, published by this session's fiber
-      # (§3.1.3.2.2). Cleared by `Broker#add_client_locked` on resume.
-      property pending_will : PendingWill? = nil
+      # Set by `arm_will`, published by this session's fiber (§3.1.3.2.2).
+      getter pending_will : PendingWill? = nil
+      # A connection for this client id is registered but not attached yet
+      # (`Broker#add_client_locked`, then `Client#run`). Expiry waits for it:
+      # a session is only deleted under the client-id lock (rule 1 in broker.cr).
+      @resuming = BoolChannel.new(false)
       # The expiry clock of the current offline window, fixed when it starts:
       # neither a will firing mid-wait nor a resuming connection narrowing the
       # interval before it attaches may move it.
@@ -227,6 +230,7 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
+        @resuming.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -380,11 +384,11 @@ module LavinMQ
       # window in which the session has no connection (§3.1.2.11.2). Measured
       # from `@offline_since`, so re-entering the wait does not restart it.
       private def wait_for_client : Nil
+        return wait_for_claim if @resuming.value
         ttl = @offline_ttl
-        # Unreachable in practice - Broker#remove_client deletes a 0-interval
-        # session - but expiring is the right answer if it is ever reached.
-        return expire if ttl.zero?
-        expires_at = @offline_since + ttl.seconds unless ttl == UInt32::MAX
+        # 0 needs no timer: `Broker#remove_client` ends that session with its
+        # connection, under the client-id lock.
+        expires_at = @offline_since + ttl.seconds unless ttl.zero? || ttl == UInt32::MAX
         deadline = expires_at
         # A tie goes to expiry, which publishes the will on its way out.
         if (will_at = @pending_will.try &.deadline) && (deadline.nil? || will_at < deadline)
@@ -405,14 +409,46 @@ module LavinMQ
       # message store, so deliver_loop's `break if closed?` exits on the next
       # pass; the re-entrant q.delete from @vhost.delete_queue is a no-op via
       # @deleted.
+      # Parks until the claiming connection attaches or goes away.
+      private def wait_for_claim : Nil
+        select
+        when @has_client.when_true.receive?
+        when @resuming.when_false.receive?
+        end
+      end
+
       private def expire : Nil
+        # The timer can fire just before a reconnect claims the session, and
+        # this fiber only runs after that connection's CONNACK.
+        return if @resuming.value || @client
         @log.info { "Session expired after #{@session_expiry_interval}s offline" }
         delete
+      end
+
+      # The closing connection's delayed will. A deleted session has ended, so
+      # the will is due now [MQTT-3.1.2-8]: this fiber may already have exited.
+      def arm_will(will : PendingWill) : Nil
+        if @deleted
+          publish_will(will)
+        else
+          @pending_will = will
+        end
+      end
+
+      # A connection opened for this session: it cancels the will
+      # [MQTT-3.1.3-9] and holds off expiry until it attaches or goes away.
+      def resume : Nil
+        @pending_will = nil
+        @resuming.set(true)
       end
 
       private def publish_pending_will : Nil
         will = @pending_will || return
         @pending_will = nil
+        publish_will(will)
+      end
+
+      private def publish_will(will : PendingWill) : Nil
         will.broker.publish(will.packet, @name)
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
@@ -461,9 +497,9 @@ module LavinMQ
 
         # Assigned before the writes below, which yield: `Session#publish`
         # drops a QoS 0 message while it is nil.
-        # A detach starts the offline window, with the interval of this moment:
-        # a DISCONNECT has already applied its own.
-        if client.nil? && @client
+        # A detach, or a claim that ends without attaching, starts the offline
+        # window with the interval of this moment: a DISCONNECT has applied its own.
+        if client.nil? && (@client || @resuming.value)
           @offline_since = Time.instant
           @offline_ttl = @session_expiry_interval
         end
@@ -478,6 +514,7 @@ module LavinMQ
           @log.info { "resending #{awaiting_pubcomp.size} PUBREL" }
           awaiting_pubcomp.each { |id| client.queue_ack(Client::PendingAck::PacketType::PubRel, id) }
         end
+        @resuming.set(false)
         @has_client.set(!client.nil?)
         if client && (username = client.user.name) != @permission_context.username
           @permission_context = PermissionService::Context.new(username, @client_id)
