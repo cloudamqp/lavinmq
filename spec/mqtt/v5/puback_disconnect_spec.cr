@@ -538,8 +538,8 @@ module MqttSpecs
     end
 
     it "keeps the expiry clock of the disconnect when a resume narrows the interval" do
-      # What `add_client_locked` does on resume, before `Client#run` attaches:
-      # the will timer firing afterwards must not re-read the interval.
+      # A resume narrows the interval before `Client#run` attaches: the will
+      # timer firing afterwards must not re-read it.
       with_server do |server|
         with_client_socket(server) do |socket|
           v5_connect(socket, client_id: "dying", will: delayed_will(2u32),
@@ -548,7 +548,6 @@ module MqttSpecs
         vhost = server.vhosts["/"]
         session = wait_for { vhost.session?("mqtt.dying").try { |s| s if s.pending_will } }
         session.session_expiry_interval = 1u32
-        session.pending_will = nil
         sleep 3.seconds
         vhost.session?("mqtt.dying").should_not be_nil
       end

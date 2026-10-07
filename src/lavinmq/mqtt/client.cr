@@ -708,9 +708,9 @@ module LavinMQ
         will = @will || return
         packet = will_packet(will) || return
         delay = will.properties.will_delay_interval
-        # A deleted session has ended, and a 0-interval one ends with this
-        # connection, so the will is due now [MQTT-3.1.2-8]
-        if delay.zero? || @session.deleted? || @session.auto_delete?
+        # A 0-interval session ends with this connection, so the will is due
+        # now [MQTT-3.1.2-8]
+        if delay.zero? || @session.auto_delete?
           @broker.publish(packet, @session.name, @publish_context)
         else
           # The will has to outlive this connection on the session, so the
@@ -721,7 +721,7 @@ module LavinMQ
             @log.warn { "Publishing the will now, its session cannot become a queue: #{ex.message}" }
             return @broker.publish(packet, @session.name, @publish_context)
           end
-          @session.pending_will = PendingWill.new(packet, @broker, Time.instant + delay.seconds)
+          @session.arm_will(PendingWill.new(packet, @broker, Time.instant + delay.seconds))
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
