@@ -1,6 +1,7 @@
 require "http/server/handler"
 require "http/web_socket"
 require "../../connection_info"
+require "../../config"
 
 module LavinMQ
   class WebSocketHandler
@@ -50,6 +51,11 @@ module LavinMQ
       protocol = pick_sub_protocol(context)
 
       response.upgrade do |io|
+        # Writes, and closing the connection, wait for the client's write
+        # lock, so a client that stops reading mustn't block a write forever
+        if io.responds_to?(:write_timeout=)
+          io.write_timeout = LavinMQ::Config.instance.tcp_send_timeout.seconds
+        end
         ws_session = ::HTTP::WebSocket.new(io, sync_close: false)
         @proc.call(ws_session, context, protocol)
         ws_session.run
