@@ -4,7 +4,6 @@ require "./exchange"
 require "./protocol"
 require "./session"
 require "./sessions"
-require "./packet_id_log"
 require "./retain_store"
 require "../vhost"
 

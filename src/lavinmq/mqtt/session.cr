@@ -12,6 +12,7 @@ require "../vhost"
 require "./consts"
 require "./permission_service"
 require "./session_message_store"
+require "./packet_id_log"
 
 module LavinMQ
   module MQTT
@@ -85,6 +86,14 @@ module LavinMQ
       # Holding the id is the whole of the guarantee: a re-sent PUBLISH carrying
       # one is answered again and not routed twice [MQTT-4.3.3-2].
       @awaiting_pubrel = Set(UInt16).new
+      # Durable sessions only: a clean session's state ends with its
+      # connection [MQTT-3.1.2-6].
+      @packet_id_log : PacketIdLog?
+      # Routed inbound ids whose PUBLISH_RECEIVED record waits for a drain, by
+      # routing generation: a barrier left by an older connection must not
+      # record an id the client released and reused since.
+      @unrecorded_publish_received = Hash(UInt16, UInt32).new
+      @routing_generation = 0u32
 
       protected def initialize(@vhost : VHost,
                                @name : String,
@@ -104,6 +113,8 @@ module LavinMQ
         FileSystem.mkdir_p(data_dir)
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+        @packet_id_log = durable? ? PacketIdLog.new(File.join(data_dir, "packet_ids.log"), @replicator, @vhost.persister) : nil
+        @packet_id_log.try { |log| @awaiting_pubrel.concat(log.awaiting_pubrel) }
         @metadata_file = File.join(data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)
@@ -144,7 +155,20 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.close
         end
+        record_publish_received_on_close unless @deleted
+        @packet_id_log.try &.close
         true
+      end
+
+      # At shutdown the persister closes before the sessions, so the drain
+      # these wait for may never come. Write order is enough for a restart
+      # and a failover; only power loss can still drop one.
+      private def record_publish_received_on_close : Nil
+        log = @packet_id_log || return
+        @unrecorded_publish_received.each_key { |id| log.publish_received(id) }
+        @unrecorded_publish_received.clear
+      rescue ex : PacketIdLog::Error
+        @log.error(exception: ex) { "Failed to record held QoS 2 packet ids" }
       end
 
       def delete : Bool
@@ -162,6 +186,7 @@ module LavinMQ
         @msg_store_lock.synchronize do
           @msg_store.delete
         end
+        @packet_id_log.try &.delete
         @replicator.try &.delete_file(@metadata_file)
         @vhost.delete_queue(@name)
         true
@@ -577,9 +602,42 @@ module LavinMQ
         true
       end
 
+      # After routing `packet_id`: the generation its PUBREC's barrier records
+      # against, nil when the PUBREC need not wait (a clean session). Tracked
+      # until written, so a close can write it if the confirm never comes.
+      def publish_routed(packet_id : UInt16) : UInt32?
+        return unless durable?
+        generation = @routing_generation &+= 1
+        @unrecorded_publish_received[packet_id] = generation
+        generation
+      end
+
+      # Called by the ack writer once the routed message is durable, so the id
+      # is never durable without the message it dedupes. Skipped if a PUBREL
+      # already released it (a client that did not wait for our PUBREC), or
+      # if the id was routed again since: that routing has its own barrier.
+      def record_publish_received(packet_id : UInt16, generation : UInt32) : Nil
+        return unless @unrecorded_publish_received[packet_id]? == generation
+        @unrecorded_publish_received.delete(packet_id)
+        log_packet_id &.publish_received(packet_id)
+      end
+
       # Releases `packet_id` on PUBREL. False if we were not holding it.
       def pubrel_received(packet_id : UInt16) : Bool
-        @awaiting_pubrel.delete(packet_id)
+        @unrecorded_publish_received.delete(packet_id)
+        held = @awaiting_pubrel.delete(packet_id)
+        log_packet_id &.pubrel_received(packet_id) if held
+        held
+      end
+
+      # The log raises once closed, and a client's ack writer or read fiber can
+      # still be running when the session closes under it.
+      private def log_packet_id(& : PacketIdLog ->) : Nil
+        return if closed?
+        log = @packet_id_log || return
+        yield log
+      rescue ex : PacketIdLog::Error
+        raise ex unless closed?
       end
 
       # The client may hold a QoS 2 id until our PUBREL [MQTT-4.3.3-2], so a
