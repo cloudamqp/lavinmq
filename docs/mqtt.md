@@ -36,13 +36,17 @@ When a client publishes at QoS 2, LavinMQ records the packet ID, routes the mess
 
 When LavinMQ delivers at QoS 2, the packet ID stays outstanding across both round trips. The message itself is released at PUBREC, since the subscriber owns it from that point and it must never be sent again; the ID alone is held until PUBCOMP. `max_inflight_messages` therefore bounds outstanding *packet IDs* rather than outstanding messages, and a QoS 2 subscriber reaches that bound at a lower message rate than a QoS 1 one.
 
-The QoS 2 state on both sides is held in memory. It is not persisted and not replicated, so it survives neither a broker restart nor a failover to another node. Persisting it is planned; see [Limitations](#limitations) for what the gap costs today.
+For durable sessions (`clean_session=false`) the packet IDs of inbound QoS 2 publishes awaiting PUBREL are persisted in a per-session `packet_ids.log`, created the first time the session uses QoS 2, and replicated to followers, so a PUBLISH that the publisher re-sends after a broker restart or a failover is answered without being routed again. Clean sessions keep this state in memory only. The persistence has a cost: an inbound PUBREC waits for two persister syncs (the routed message, then the packet ID record) and PUBCOMP waits for the release record. QoS 0 and QoS 1 are unaffected. With `sync = false` the waits still go through the persister and the in-sync followers but skip the fsync.
+
+Outbound QoS 2 state, a delivery awaiting PUBREC or PUBCOMP, is held in memory only and survives neither a broker restart nor a failover. Persisting it is planned; see [Limitations](#limitations).
+
+A publisher may hold at most `max_awaiting_pubrel` QoS 2 packet IDs between PUBLISH and PUBREL. Going over it closes the connection.
 
 ### Acknowledging with the wrong packet type
 
 A QoS 2 delivery is settled by PUBREC [MQTT-4.3.3-1] and a QoS 1 delivery by PUBACK. Acknowledging one with the other, or sending PUBCOMP before PUBREC, is a protocol violation, so the connection is closed [MQTT-4.8.0-1] and the client's Will is published, which [MQTT-3.1.2-8] requires for any close that does not follow a DISCONNECT. A client that cannot complete the QoS 2 handshake should subscribe at QoS 1 rather than QoS 2.
 
-A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated differently: it is logged and ignored. Neither the outbound in-flight window nor the set of unreleased inbound IDs survives a broker restart, and [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
+A PUBREC, PUBCOMP or PUBREL for a packet ID the session never issued is treated differently: it is logged and ignored. The outbound in-flight window does not survive a broker restart, and neither do the inbound IDs of a clean session or of a session that no longer exists, for example one that was deleted. [MQTT-4.4.0-1] has a resuming client re-send its PUBLISH and PUBREL packets, so such a client legitimately arrives with IDs the broker has no record of. That is a limitation of the broker rather than an error by the client. PUBACK is not covered by this: nothing in the protocol re-sends one, so an unknown ID there closes the connection like any other protocol violation.
 
 ## Sessions
 
@@ -68,7 +72,7 @@ When a client connects with `clean_session=false`:
 - QoS 2 deliveries that reached PUBREC but not PUBCOMP have no message left to resend, so their PUBREL is re-sent instead, under the original packet ID [MQTT-4.4.0-1]
 - The session queue is durable
 
-The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs, and an unfinished QoS 2 exchange is forgotten entirely. If a `max-length` policy or a purge discards a message the session still owes, a QoS 1 packet ID is forgotten along with it, while a QoS 2 one stays held and its PUBREL is sent, since the client may hold that ID until then; the messages that remain keep theirs.
+The reuse of packet IDs on redelivery is remembered in-process only, so after a broker restart the session's outstanding messages are redelivered under fresh packet IDs, and an unfinished outbound QoS 2 exchange is forgotten entirely. If a `max-length` policy or a purge discards a message the session still owes, a QoS 1 packet ID is forgotten along with it, while a QoS 2 one stays held and its PUBREL is sent, since the client may hold that ID until then; the messages that remain keep theirs.
 
 ### Session Takeover
 
@@ -131,6 +135,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 | `tls_port` | `[mqtt]` | `8883` | MQTT over TLS port |
 | `unix_path` | `[mqtt]` | (empty) | Unix socket path |
 | `max_inflight_messages` | `[mqtt]` | `65535` | Max outstanding packet IDs per session, must be at least `1`. A QoS 2 delivery holds its ID until PUBCOMP |
+| `max_awaiting_pubrel` | `[mqtt]` | `1024` | Max QoS 2 packet IDs a publisher may hold between PUBLISH and PUBREL, must be at least `1`. Going over it closes the connection, as MQTT 3.1.1 has no way to reject a single publish |
 | `max_packet_size` | `[mqtt]` | `268435455` | Max MQTT packet size in bytes |
 | `default_vhost` | `[mqtt]` | `/` | Default vhost for MQTT connections |
 | `client_id_validation` | `[mqtt]` | `none` | Validate client_id against the username: `none` or `username` |
@@ -271,7 +276,7 @@ Note that connecting with a client_id already in use takes over that session, so
 ## Limitations
 
 - Only MQTT 3.1.0 and 3.1.1 are supported. MQTT 5 features (session expiry interval, shared subscriptions, topic aliases, message expiry, user properties, response topics) are not available.
-- QoS 2 state is held in memory, and is neither written to disk nor replicated to followers, so it is lost on a broker restart and on a failover. Persisting it is planned as follow-up work. Outbound state, a delivery awaiting PUBREC or PUBCOMP, survives a reconnect but not a broker restart; a delivery already past PUBREC is gone with it, and since MQTT 3.1.1 §4.4 has a client re-send only PUBLISH and PUBREL, never PUBREC, that subscriber's packet ID stays outstanding for the life of the session. Inbound state, the packet IDs of QoS 2 publishes awaiting PUBREL, survives a reconnect with `clean_session=false`. Whenever that state is gone, a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
+- Outbound QoS 2 state is held in memory, and is neither written to disk nor replicated to followers, so it is lost on a broker restart and on a failover. Persisting it is planned as follow-up work. A delivery awaiting PUBREC or PUBCOMP survives a reconnect but not a broker restart; a delivery already past PUBREC is gone with it, and since MQTT 3.1.1 §4.4 has a client re-send only PUBLISH and PUBREL, never PUBREC, that subscriber's packet ID stays outstanding for the life of the session. Inbound state, the packet IDs of QoS 2 publishes awaiting PUBREL, is persisted and replicated for a durable session and held in memory for a clean one. Whenever that state is gone, a re-sent PUBLISH is routed a second time and that message degrades to at-least-once. A re-sent PUBREL is always answered with PUBCOMP and completes normally.
 - A subscriber that answers PUBREC and never PUBCOMP holds its packet ID indefinitely. Enough of them fill the session's in-flight window and delivery to that session stops until the client completes the exchanges or the session is deleted. Nothing times these out, and MQTT 3.1.1 mandates no timeout.
 - Retained messages are delivered at the subscription's QoS, ignoring the QoS they were published with, because the retain store keeps only the topic and the payload. A message retained from a QoS 0 publish runs a full handshake when replayed to a QoS 2 subscriber.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
