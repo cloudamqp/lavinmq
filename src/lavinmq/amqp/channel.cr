@@ -463,7 +463,7 @@ module LavinMQ
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
-        Fiber.yield # Notify :add_consumer observers
+        Fiber.yield # Let federation consumer monitors react
       end
 
       def basic_get(frame)

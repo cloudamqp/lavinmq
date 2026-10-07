@@ -131,7 +131,7 @@ module LavinMQ
         rk = TopicBindingKey.new(routing_key.split("."))
         return false unless @bindings[rk].add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        @federation_links.each &.bind(data)
         true
       end
 
@@ -144,7 +144,7 @@ module LavinMQ
         @bindings.delete(rk) if bds.empty?
 
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        @federation_links.each &.unbind(data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true

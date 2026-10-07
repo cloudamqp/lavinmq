@@ -1,17 +1,14 @@
 require "./broker"
-require "../observable"
 require "../vhost_store"
 
 module LavinMQ
   module MQTT
     class Brokers
-      include Observer(VHostStore::Event)
-
       def initialize(@vhosts : VHostStore)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
         @closed = Atomic(Bool).new(false)
         populate
-        @vhosts.register_observer(self)
+        @vhosts.mqtt_brokers = self
       end
 
       private def populate
@@ -28,23 +25,24 @@ module LavinMQ
         @brokers[vhost]
       end
 
-      def on(event : VHostStore::Event, data : Object?)
+      def create(vhost : VHost) : Nil
         return if @closed.get(:acquire)
-        return if data.nil?
-        vhost = data.to_s
-        case event
-        in VHostStore::Event::Added
-          @brokers[vhost] = Broker.new(@vhosts[vhost])
-        in VHostStore::Event::Deleted
-          @brokers.delete(vhost)
-        in VHostStore::Event::Closed
-          @brokers.delete(vhost).try &.close
-        end
+        @brokers[vhost.name] = Broker.new(vhost)
+      end
+
+      def delete(vhost : String) : Nil
+        return if @closed.get(:acquire)
+        @brokers.delete(vhost)
+      end
+
+      def close(vhost : String) : Nil
+        return if @closed.get(:acquire)
+        @brokers.delete(vhost).try &.close
       end
 
       def close
         return if @closed.swap(true)
-        @vhosts.unregister_observer(self)
+        @vhosts.mqtt_brokers = nil if @vhosts.mqtt_brokers == self
         close_brokers
       end
 

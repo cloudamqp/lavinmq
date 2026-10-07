@@ -576,6 +576,24 @@ describe LavinMQ::Federation::Upstream do
   end
 
   describe "QueueLink" do
+    {false, true}.each do |delete|
+      it "stops its links when the queue is #{delete ? "deleted" : "closed"}" do
+        with_amqp_server do |s|
+          upstream, _, downstream_vhost =
+            UpstreamSpecHelpers.setup_federation(s, "qf queue teardown", queue: "upstream_q")
+          downstream_vhost.declare_queue("downstream_q", true, false)
+          queue = downstream_vhost.queue("downstream_q")
+          link = upstream.link(queue)
+          wait_for { link.state.running? }
+
+          delete ? queue.delete : queue.close
+          wait_for { link.state.terminated? }
+          queue.federation_links.empty?.should be_true
+          upstream.links.empty?.should be_true
+        end
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
@@ -691,7 +709,7 @@ describe LavinMQ::Federation::Upstream do
 
     it "should reflect bindings made while link is starting" do
       with_amqp_server do |s|
-        upstream, upstream_vhost, downstream_vhost =
+        upstream, upstream_vhost, _ =
           UpstreamSpecHelpers.setup_federation(s, "ef test bindings during start", "upstream_ex")
         with_channel(s, vhost: "downstream") do |downstream_ch|
           downstream_ch.exchange("downstream_ex", "topic")
@@ -703,13 +721,9 @@ describe LavinMQ::Federation::Upstream do
 
           UpstreamSpecHelpers.start_link(upstream)
           link = wait_for { upstream.links.first? }
-          downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
-          # The link starts observing the downstream exchange while it is
-          # still replaying the bindings above to the upstream exchange.
-          wait_for { downstream_ex.@__lavinmq_exchangeevent_observers.includes?(link) }
-          # Binds observed during startup must also be reflected upstream.
-          # (Regression: they were dropped if observed before the link had
-          # an upstream channel.)
+          # Live updates are enabled before replaying the existing bindings.
+          wait_for { link.as(LavinMQ::Federation::Upstream::ExchangeLink).@consumer_ex }
+          # Bindings made during startup must also be reflected upstream.
           during = 10
           during.times { |i| downstream_q.bind("downstream_ex", "during.link.#{i}") }
 
@@ -720,7 +734,24 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    it "does not leave a dead observer when deleted during link startup" do
+    it "stops its link when the exchange is deleted during startup" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef exchange delete during start", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |ch|
+          ch.exchange("downstream_ex", "topic", durable: true)
+          exchange = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+          link = upstream.link(exchange)
+          ch.exchange_delete(exchange.name)
+          wait_for { link.state.terminated? }
+
+          exchange.federation_links.empty?.should be_true
+          upstream.links.empty?.should be_true
+        end
+      end
+    end
+
+    it "does not leave a dead link when deleted during link startup" do
       with_amqp_server do |s|
         upstream, _, downstream_vhost =
           UpstreamSpecHelpers.setup_federation(s, "ef delete during start", "upstream_ex")
@@ -728,14 +759,12 @@ describe LavinMQ::Federation::Upstream do
         downstream_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
 
         link = upstream.link(downstream_ex)
-        # Delete while the link is parked on the upstream connect, before it
-        # has registered itself as an observer of the downstream exchange. The
-        # link's unregister_observer is a no-op at this point, so without the
-        # post-register re-check the link would resume, register, and leak.
+        # Delete while the link is parked on the upstream connect. Resuming
+        # setup must not reattach the link or transition it back to Running.
         upstream.delete
         wait_for { link.state.terminated? }
 
-        downstream_ex.@__lavinmq_exchangeevent_observers.includes?(link).should be_false
+        downstream_ex.federation_links.includes?(link).should be_false
       end
     end
 

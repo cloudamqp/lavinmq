@@ -10,8 +10,6 @@ require "./connection_reply_code"
 require "./reply_text"
 require "../rough_time"
 require "../connection_info"
-require "../observable"
-require "./queue/event"
 require "../auth/permission_cache"
 
 module LavinMQ
@@ -19,10 +17,9 @@ module LavinMQ
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
-      include Observer(QueueEvent)
 
-      def on(event : QueueEvent, data : Object?)
-        @exclusive_queues.delete(data) if event.deleted? && data.is_a?(Queue)
+      def remove_exclusive_queue(queue : Queue) : Nil
+        @exclusive_queues.delete(queue)
       end
 
       getter vhost, log, name
@@ -542,8 +539,8 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 512 == 0
         end
         @channels.clear
-        # Iterate a snapshot because Queue#close fires QueueEvent::Deleted,
-        # whose observer mutates @exclusive_queues.
+        # Iterate a snapshot because closing a queue removes it from
+        # @exclusive_queues.
         @exclusive_queues.dup.each(&.close)
         @exclusive_queues.clear
         case user = @user
@@ -830,7 +827,7 @@ module LavinMQ
         if frame.exclusive
           q = @vhost.queue(frame.queue_name)
           @exclusive_queues << q
-          q.register_observer(self)
+          q.exclusive_owner = self
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)

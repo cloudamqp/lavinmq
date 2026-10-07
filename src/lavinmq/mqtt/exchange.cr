@@ -62,19 +62,11 @@ module LavinMQ
         qos = MQTT.qos(arguments)
         @tree.subscribe(routing_key, destination, qos)
 
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
         @tree.unsubscribe(routing_key, destination)
-
-        binding_key = SubscriptionKey.new(routing_key, qos)
-        data = SubscriptionDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
 
         delete if @auto_delete && @tree.empty?
         true

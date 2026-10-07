@@ -3,13 +3,11 @@ require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
-require "../../observable"
 require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
 require "./state"
-require "./event"
 require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
@@ -22,7 +20,6 @@ require "../../queue_stats"
 module LavinMQ::AMQP
   class Queue
     include PolicyTarget
-    include Observable(QueueEvent)
     include SortableJSON
     include QueueStats
 
@@ -53,6 +50,9 @@ module LavinMQ::AMQP
       validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
     end
+
+    property exclusive_owner : Client?
+    getter federation_links = Set(Federation::Upstream::QueueLink).new
 
     @message_ttl : Int64?
     @max_length : Int64?
@@ -626,7 +626,7 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(QueueEvent::Closed)
+      @federation_links.dup.each &.stop_link
       @log.debug { "Closed" }
       true
     end
@@ -647,7 +647,8 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted, self)
+      @exclusive_owner.try &.remove_exclusive_queue(self)
+      @exclusive_owner = nil
       true
     end
 
@@ -1076,7 +1077,6 @@ module LavinMQ::AMQP
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -1097,7 +1097,6 @@ module LavinMQ::AMQP
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?

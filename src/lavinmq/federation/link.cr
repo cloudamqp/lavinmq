@@ -1,9 +1,6 @@
 require "amqp-client"
-require "../observable"
 require "../logger"
 require "../sortable_json"
-require "../amqp/queue/event"
-require "../amqp/exchange/event"
 
 module LavinMQ
   module Federation
@@ -195,7 +192,6 @@ module LavinMQ
       end
 
       class QueueLink < Link
-        include Observer(QueueEvent)
         EXCHANGE = ""
 
         @consumer_available = Channel(Nil).new
@@ -203,6 +199,7 @@ module LavinMQ
         def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
+          @federated_q.federation_links.add(self)
 
           spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
         end
@@ -262,7 +259,7 @@ module LavinMQ
         end
 
         def stop
-          @federated_q.unregister_observer(self)
+          @federated_q.federation_links.delete(self)
           super
           @consumer_available.close
         end
@@ -274,17 +271,11 @@ module LavinMQ
           end
         end
 
-        def on(event : QueueEvent, data)
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?, .closed?
-            @upstream.stop_link(@federated_q)
-          in .consumer_added?, .consumer_removed?
-            nil
-          end
+        def stop_link
+          return if stop_link?
+          @upstream.stop_link(@federated_q)
         rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+          @log.error { "Could not stop queue link: #{e.inspect_with_backtrace}" }
         end
 
         private def setup_queue(upstream_client)
@@ -338,13 +329,13 @@ module LavinMQ
       end
 
       class ExchangeLink < Link
-        include Observer(ExchangeEvent)
         @consumer_ex : ::AMQP::Client::Exchange?
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_ex.name})
+          @federated_ex.federation_links.add(self)
         end
 
         def name : String
@@ -358,50 +349,46 @@ module LavinMQ
           x_received_from.size < @upstream.max_hops
         end
 
-        def on(event : ExchangeEvent, data)
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?
-            @upstream.stop_link(@federated_ex)
-          in .bind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.bind(@upstream_exchange, b.routing_key, args: args)
-              end
-            end
-          in .unbind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
+        def stop_link
+          return if stop_link?
+          @upstream.stop_link(@federated_ex)
+        rescue e
+          @log.error { "Could not stop exchange link: #{e.inspect_with_backtrace}" }
+        end
+
+        def bind(binding : AMQP::BindingDetails)
+          return if stop_link?
+          updated, args = update_bound_from?(binding.arguments)
+          if updated
+            with_consumer_ex do |ex|
+              ex.bind(@upstream_exchange, binding.routing_key, args: args)
             end
           end
         rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+          @log.error { "Could not bind #{binding}: #{e.inspect_with_backtrace}" }
         end
 
-        private def data_as_binding_details(data) : AMQP::BindingDetails
-          b = data.as?(AMQP::BindingDetails)
-          raise ArgumentError.new("Expected data to be of type AMQP::BindingDetails") unless b
-          b
+        def unbind(binding : AMQP::BindingDetails)
+          return if stop_link?
+          updated, args = update_bound_from?(binding.arguments)
+          if updated
+            with_consumer_ex do |ex|
+              ex.unbind(@upstream_exchange, binding.routing_key, args: args)
+            end
+          end
+        rescue e
+          @log.error { "Could not unbind #{binding}: #{e.inspect_with_backtrace}" }
         end
 
         private def with_consumer_ex(&)
           if ex = @consumer_ex
             yield ex
-          else
-            @log.warn { "No upstream connection for exchange event" }
           end
         end
 
         def stop
           super
-          @federated_ex.unregister_observer(self)
+          @federated_ex.federation_links.delete(self)
         end
 
         def delete
@@ -453,18 +440,9 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
-          # @consumer_ex must be set before the observer is registered:
-          # bind/unbind events are dropped while it's nil, and a binding made
-          # in that window would never be propagated to the upstream exchange.
-          # Bindings made before registration are covered by the snapshot
-          # below (exchanges store bindings before notifying observers).
-          @consumer_ex = consumer_ex
-          @federated_ex.register_observer(self)
-          # A concurrent delete can set the link Terminating while we were
-          # parked on the upstream connect above; its unregister_observer ran
-          # before we registered, so re-check and unregister to avoid leaking
-          # a dead link in the exchange's observer set.
-          @federated_ex.unregister_observer(self) if stop_link?
+          # Enable live binding updates before replaying the snapshot. Bindings
+          # made while connecting are already stored on the downstream exchange.
+          @consumer_ex = consumer_ex unless stop_link?
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
             if updated
@@ -478,9 +456,7 @@ module LavinMQ
         private def start_link
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
-            # setup may have observed a concurrent delete and unregistered;
-            # don't go Running (which would defeat the run_loop terminate
-            # check and trigger a reconnect of a deleted link).
+            # A concurrent delete during setup must not restart the link.
             return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?

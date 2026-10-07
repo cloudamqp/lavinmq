@@ -2,7 +2,6 @@ require "./filesystem"
 require "json"
 require "./vhost"
 require "./auth/base_user"
-require "./observable"
 
 module LavinMQ
   class DeletedVHostStats
@@ -22,13 +21,8 @@ module LavinMQ
   end
 
   class VHostStore
-    enum Event
-      Added
-      Deleted
-      Closed
-    end
     include Enumerable({String, VHost})
-    include Observable(Event)
+    property mqtt_brokers : MQTT::Brokers?
 
     Log = LavinMQ::Log.for "vhost_store"
 
@@ -91,7 +85,7 @@ module LavinMQ
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/, save: save)
       @vhosts[name] = vhost
       save! if save
-      notify_observers(Event::Added, name)
+      @mqtt_brokers.try &.create(vhost)
       vhost
     end
 
@@ -101,7 +95,7 @@ module LavinMQ
         @deleted_stats.add(vhost)
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        notify_observers(Event::Deleted, name)
+        @mqtt_brokers.try &.delete(name)
         Log.info { "Deleted vhost #{name}" }
         save!
         vhost
@@ -127,7 +121,7 @@ module LavinMQ
         @vhosts.each_value do |vhost|
           wg.spawn do
             vhost.close
-            notify_observers(Event::Closed, vhost.name)
+            @mqtt_brokers.try &.close(vhost.name)
           end
         end
       end

@@ -4,12 +4,10 @@ require "../binding_details"
 require "../destination"
 require "../../error"
 require "../../exchange"
-require "../../observable"
 require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
-require "./event"
 
 module LavinMQ
   module AMQP
@@ -17,7 +15,7 @@ module LavinMQ
       include PolicyTarget
       include Stats
       include SortableJSON
-      include Observable(ExchangeEvent)
+      getter federation_links = Set(Federation::Upstream::ExchangeLink).new
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
@@ -154,7 +152,7 @@ module LavinMQ
         @deleted = true
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
-        notify_observers(ExchangeEvent::Deleted)
+        @federation_links.dup.each &.stop_link
       end
 
       # This outer macro will add a finished macro hook to all inherited classes
