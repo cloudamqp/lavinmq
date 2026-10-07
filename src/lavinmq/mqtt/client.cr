@@ -375,9 +375,6 @@ module LavinMQ
       # abandoned anyway.
       private def close_socket
         socket = @io.io # Protocol::IO forwards methods, which responds_to? doesn't see
-        if socket.responds_to?(:"write_timeout=")
-          socket.write_timeout = 1.seconds
-        end
         socket.shutdown_read_write if socket.responds_to?(:shutdown_read_write)
         @lock.synchronize do
           socket.discard_write_buffer if socket.responds_to?(:discard_write_buffer)
