@@ -243,3 +243,55 @@ module PublishHelper
     q
   end
 end
+
+private def consumer_filter(args = NamedTuple.new)
+  LavinMQ::AMQP::ConsumerFilter.from_arguments(AMQ::Protocol::Table.new(args))
+end
+
+describe LavinMQ::AMQP::ConsumerFilter do
+  foo = LavinMQ::AMQP::Table.new({"x-stream-filter-value": "foo"})
+  foo_bar = LavinMQ::AMQP::Table.new({"x-stream-filter-value": "foo,bar"})
+  bar = LavinMQ::AMQP::Table.new({"x-stream-filter-value": "bar"})
+  unfiltered = LavinMQ::AMQP::Table.new({"other": "x"})
+
+  it "matches everything without filters" do
+    filter = consumer_filter
+    filter.match?(foo).should be_true
+    filter.match?(unfiltered).should be_true
+    filter.match?(nil).should be_true
+  end
+
+  it "requires all filters to match by default" do
+    filter = consumer_filter({"x-stream-filter": "foo,bar"})
+    filter.match?(foo_bar).should be_true
+    filter.match?(foo).should be_false
+    filter.match?(nil).should be_false
+  end
+
+  it "requires any filter to match with x-filter-match-type any" do
+    filter = consumer_filter({"x-stream-filter": "foo,bar", "x-filter-match-type": "ANY"})
+    filter.match?(foo).should be_true
+    filter.match?(bar).should be_true
+    filter.match?(unfiltered).should be_false
+  end
+
+  it "matches messages without a filter value with x-stream-match-unfiltered" do
+    filter = consumer_filter({"x-stream-filter": "foo", "x-stream-match-unfiltered": true})
+    filter.match?(foo).should be_true
+    filter.match?(bar).should be_false
+    filter.match?(unfiltered).should be_true
+    filter.match?(nil).should be_true
+  end
+
+  it "rejects invalid arguments" do
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-filter-match-type/) do
+      consumer_filter({"x-filter-match-type": "some"})
+    end
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-match-unfiltered/) do
+      consumer_filter({"x-stream-match-unfiltered": "yes"})
+    end
+    expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-filter/) do
+      consumer_filter({"x-stream-filter": 1})
+    end
+  end
+end
