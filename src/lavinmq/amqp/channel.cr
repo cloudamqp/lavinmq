@@ -712,13 +712,26 @@ module LavinMQ
             end
           end
         end
-        redeliver.each do |unack|
-          consumer = unack.consumer.not_nil!
-          if consumer.closed?
+        handed_over = 0
+        begin
+          redeliver.each do |unack|
+            consumer = unack.consumer.not_nil!
+            if consumer.closed?
+              handed_over += 1
+              unack.queue.reject(unack.sp, requeue: true)
+            else
+              env = unack.queue.read(unack.sp)
+              # deliver puts it back in @unacked before writing to the socket
+              handed_over += 1
+              consumer.deliver(env.message, env.segment_position, true, recover: true)
+            end
+          end
+        ensure
+          # Requeue what is no longer in @unacked if a delivery raised
+          (handed_over...redeliver.size).each do |i|
+            unack = redeliver[i]
+            unack.consumer.try &.reject(unack.sp, requeue: true)
             unack.queue.reject(unack.sp, requeue: true)
-          else
-            env = unack.queue.read(unack.sp)
-            consumer.deliver(env.message, env.segment_position, true, recover: true)
           end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)

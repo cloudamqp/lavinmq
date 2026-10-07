@@ -52,21 +52,27 @@ describe "LavinMQ::AMQP::Channel delivery tags" do
         queue = s.vhosts["/"].queue("tag-order")
         sp = LavinMQ::SegmentPosition.new(1u32, 4u32, 1u32)
 
-        ctx = Fiber::ExecutionContext::Parallel.new("tag-order", 4)
-        wg = WaitGroup.new
-        4.times do
-          wg.add(1)
-          ctx.spawn do
-            25_000.times { server_ch.spec_next_delivery_tag(queue, sp, consumer) }
-          ensure
-            wg.done
+        begin
+          ctx = Fiber::ExecutionContext::Parallel.new("tag-order", 4)
+          wg = WaitGroup.new
+          4.times do
+            wg.add(1)
+            ctx.spawn do
+              25_000.times { server_ch.spec_next_delivery_tag(queue, sp, consumer) }
+            ensure
+              wg.done
+            end
           end
-        end
-        wg.wait
+          wg.wait
 
-        tags = server_ch.@unacked.map(&.tag)
-        tags.size.should eq 100_000
-        tags.each_cons_pair.count { |a, b| a > b }.should eq 0
+          tags = server_ch.@unacked.map(&.tag)
+          tags.size.should eq 100_000
+          tags.each_cons_pair.count { |a, b| a > b }.should eq 0
+        ensure
+          # The unacks point to messages that don't exist, so don't let the
+          # channel requeue them when it closes
+          server_ch.@unack_lock.synchronize { server_ch.@unacked.clear }
+        end
       end
     end
   end
