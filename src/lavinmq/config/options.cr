@@ -324,10 +324,6 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property tcp_send_buffer_size : Int32? = nil
 
-      # A client that doesn't read for this long is disconnected
-      @[IniOpt(section: "main")]
-      property tcp_send_timeout : Int32 = 15 # seconds
-
       @[IniOpt(section: "amqp")]
       property max_message_size = 128 * 1024**2
 

@@ -552,14 +552,9 @@ module LavinMQ
         end
       end
 
-      # Under the write lock, so that closing (which flushes buffered data)
-      # never runs concurrently with a write. A write blocked on a client that
-      # stopped reading is aborted by the socket's write timeout.
       private def close_socket
         @running = false
-        @write_lock.synchronize do
-          @socket.close
-        end
+        @socket.close
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
