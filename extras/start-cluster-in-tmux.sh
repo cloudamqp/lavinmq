@@ -11,10 +11,11 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
 fi
 
 NODES=${1:-3}
+SEEDS=$(seq -s, -f "127.%g" 1 "$NODES")
 
 node_cmd() {
   local n=$1
-  echo "bin/lavinmq --data-dir=/tmp/amqp$n --control-unix-path=/tmp/lavinmqctl$n.sock --bind=127.$n --metrics-http-bind=127.$n --clustering --clustering-bind=127.$n --clustering-password=s3cr3t --clustering-seeds=127.1,127.2,127.3 --clustering-bootstrap"
+  echo "bin/lavinmq --data-dir=/tmp/amqp$n --control-unix-path=/tmp/lavinmqctl$n.sock --bind=127.$n --metrics-http-bind=127.$n --clustering --clustering-bind=127.$n --clustering-password=s3cr3t --clustering-seeds=$SEEDS --clustering-bootstrap"
 }
 
 # Create new window with first node
