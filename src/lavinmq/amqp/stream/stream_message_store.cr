@@ -1,7 +1,7 @@
 require "./stream"
-require "./stream_consumer"
 require "./consumer_offsets"
 require "./stream_offset"
+require "./stream_cursor"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
@@ -51,6 +51,7 @@ module LavinMQ::AMQP
     # Resolves `offset` to the {offset, segment, position} to start reading at
     def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
+      return last_offset_seg_pos if @size.zero?
       case offset
       in StreamOffset::First     then offset_at(@segments.first_key, 4u32)
       in StreamOffset::Last      then offset_at(@segments.last_key, 4u32)
@@ -62,10 +63,16 @@ module LavinMQ::AMQP
       end
     end
 
-    def acquire_segment(consumer : StreamConsumer) : Nil
-      return if consumer.segment_acquired?
-      consumer.segment_acquired = true
-      seg = consumer.segment
+    # A cursor at `start`, see StreamCursor
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil) : StreamCursor
+      offset, segment, pos = find_offset(start)
+      StreamCursor.new(self, offset, segment, pos, filter)
+    end
+
+    private def pin(cursor : StreamCursor) : Nil
+      return if cursor.pinned?
+      cursor.pinned = true
+      seg = cursor.segment
       @segment_readers[seg] = (@segment_readers[seg]? || 0u32) + 1
     end
 
@@ -78,10 +85,10 @@ module LavinMQ::AMQP
       mfile.advise(MFile::Advice::Normal) unless mfile == @wfile
     end
 
-    def release_segment(consumer : StreamConsumer) : Nil
-      return unless consumer.segment_acquired?
-      consumer.segment_acquired = false
-      release_segment(consumer.segment)
+    def unpin(cursor : StreamCursor) : Nil
+      return unless cursor.pinned?
+      cursor.pinned = false
+      release_segment(cursor.segment)
     end
 
     private def release_segment(seg : UInt32) : Nil
@@ -225,39 +232,42 @@ module LavinMQ::AMQP
       end
     end
 
-    def shift?(consumer : AMQP::StreamConsumer) : Envelope?
+    # The next message for `cursor`, requeued messages first. Steps one message
+    # at a time, nil if it didn't match the cursor's filter.
+    def shift?(cursor : StreamCursor) : Envelope?
       raise ClosedError.new if @closed
+      return if cursor.closed?
 
-      if env = shift_requeued(consumer)
+      if env = shift_requeued(cursor)
         return env
       end
 
-      return if consumer.offset > @last_offset
-      rfile = @segments[consumer.segment]? || next_segment(consumer) || return
-      if consumer.pos == rfile.size # EOF
+      return if cursor.offset > @last_offset
+      pin(cursor)
+      rfile = @segments[cursor.segment]? || next_segment(cursor) || return
+      if cursor.pos == rfile.size # EOF
         return if rfile == @wfile
-        rfile = next_segment(consumer) || return
+        rfile = next_segment(cursor) || return
       end
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-        sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
-        msg.properties.headers = add_offset_header(msg.properties.headers, consumer.offset)
-        consumer.pos += sp.bytesize
-        consumer.offset += 1
-        return unless consumer.filter_match?(msg.properties.headers)
+        msg = BytesMessage.from_bytes(rfile.to_slice + cursor.pos)
+        sp = SegmentPosition.new(cursor.segment, cursor.pos, msg.bytesize.to_u32)
+        msg.properties.headers = add_offset_header(msg.properties.headers, cursor.offset)
+        cursor.advance(sp.bytesize)
+        return unless cursor.match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
         raise Error.new(rfile, cause: ex)
       end
     end
 
-    private def shift_requeued(consumer) : Envelope?
-      while sp = consumer.requeued.shift?
+    private def shift_requeued(cursor) : Envelope?
+      while sp = cursor.requeued.shift?
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
-            unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
+            unmap_if_unused(sp.segment) if cursor.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
@@ -278,14 +288,12 @@ module LavinMQ::AMQP
       end
     end
 
-    private def next_segment(consumer) : MFile?
-      if seg_id = next_segment_id(consumer.segment)
-        fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
-        release_segment(consumer)
-        consumer.segment = seg_id
-        consumer.pos = 4u32
-        consumer.segment_since = RoughTime.instant
-        acquire_segment(consumer)
+    private def next_segment(cursor) : MFile?
+      if seg_id = next_segment_id(cursor.segment)
+        fast = @segments[cursor.segment]?.try { |prev| read_fast?(prev, cursor.segment_since) }
+        unpin(cursor)
+        cursor.enter(seg_id)
+        pin(cursor)
         @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
       end
     end
