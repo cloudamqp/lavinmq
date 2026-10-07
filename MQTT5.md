@@ -83,9 +83,10 @@ the Paho tests named are the external check for each (`MQTT5-INTEROP.md`).
 
 **Must fix, but not in this PR**
 
-- [ ] **O** wildcards match `$`-prefixed topics [MQTT-4.7.2-1]. Pre-existing on
-  v3.1.1 too, so fixing it changes behaviour for existing users: its own PR and
-  CHANGELOG entry. Paho `test_dollar_topics`, on both versions.
+- [x] **O** wildcards match `$`-prefixed topics [MQTT-4.7.2-1]. Pre-existing on
+  v3.1.1 too, so fixing it changes behaviour for existing users: fixed against
+  `main` in #2366, with its own CHANGELOG entry. This branch gets it on the
+  rebase. Paho `test_dollar_topics`, on both versions.
 
 **Fine to fail.** Spec-legal, and expected to keep failing in the Paho suite:
 `test_server_keep_alive` (sending Server Keep Alive is optional),

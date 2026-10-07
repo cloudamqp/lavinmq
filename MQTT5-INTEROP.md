@@ -669,12 +669,12 @@ is not patched. Every remaining v5 failure maps to something known:
 | test | why |
 |---|---|
 | `test_flow_control2` (timeout) | item Q, not N: the test sends 65536 QoS 2 PUBLISHes without PUBREL and waits for DISCONNECT `0x93` against *our* Receive Maximum, which we neither advertise nor enforce. The broker accepts them all and the client times out after 180s |
-| `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; its own PR |
+| `test_dollar_topics` | item O: `#` matches `$`-prefixed topics [MQTT-4.7.2-1]; fixed in #2366, not on this branch until the rebase |
 | `test_subscribe_identifiers`, `test_shared_subscriptions` | correct rejections (`0xA1`, `0x9E`) the test client cannot cope with |
 | the three below | harness assumptions, fine to fail |
 
 The two v3.1.1 failures are `test_subscribe_failure`, a harness assumption, and
-`test_dollar_topics`, item O. The assumptions:
+`test_dollar_topics`, item O (fixed in #2366). The assumptions:
 
 - `test_subscribe_failure` wants an ACL denying `test/nosubscribe`;
   `mqtt.permission_check_enabled` is false by default, so we grant it.
