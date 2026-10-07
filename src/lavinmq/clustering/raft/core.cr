@@ -242,6 +242,10 @@ module LavinMQ::Clustering::Raft
       @peers
     end
 
+    def connected?(id : Int32) : Bool
+      @live.has_key?(id)
+    end
+
     # Removed nodes that are still being told so
     def departing : Array(Int32)
       @departing.keys

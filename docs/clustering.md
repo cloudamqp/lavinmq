@@ -123,6 +123,8 @@ A node that has lost its election state (`.raft_state`) but kept its clustering 
 
 `lavinmqctl cluster_status` (or `GET /api/cluster`, followers proxy it to the leader) shows the leader, the ISR and how far each member has caught up. When there's no leader, `lavinmqctl cluster_status` run on a node without `--uri` answers over that node's control socket with its own view: its role and term, the leader it last knew of, and the committed ISR and membership it has.
 
+Every node exposes its raft state as Prometheus metrics, also while there's no leader, see [Raft metrics](monitoring.md#raft).
+
 #### Recovering when no ISR member can come back
 
 Only an ISR member can become leader, so if all of them are lost for good, no leader is elected. To recover from the remaining nodes, accepting that messages only the lost nodes had confirmed are gone:

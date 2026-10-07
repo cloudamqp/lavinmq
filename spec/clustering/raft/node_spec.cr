@@ -94,6 +94,10 @@ end
 # the election timeout, with a stale message queued ahead of the acks.
 private class StallingTransport < Raft::Transport
   property stall : Time::Span? = nil
+  # When false, followers answer appends without taking any entries
+  property? ack = true
+  # When true, followers don't answer appends at all, but still vote
+  property? drop_appends = false
   @node : Raft::Node? = nil
 
   def initialize(@node_ids : Hash(String, Int32))
@@ -111,6 +115,14 @@ private class StallingTransport < Raft::Transport
     when Raft::RequestVote
       node.deliver Raft::VoteResponse.new(id, msg.term, true, pre_vote: msg.pre_vote)
     when Raft::AppendEntries
+      return if drop_appends?
+      unless ack?
+        # From another fiber: the leader resends right away and would fill
+        # its event queue from its own fiber
+        nack = Raft::AppendResponse.new(id, msg.term, true, msg.prev_index)
+        spawn { sleep 5.milliseconds; node.deliver nack }
+        return
+      end
       ack = Raft::AppendResponse.new(id, msg.term, true, msg.prev_index + msg.entries.size)
       if (stall = @stall) && !msg.entries.empty?
         @stall = nil
@@ -156,12 +168,109 @@ describe Raft::Node do
     end
   end
 
+  it "reports metrics" do
+    with_raft_cluster do |c|
+      leader = c.wait_for_leader
+      leader.propose_isr(Set{1, 2, 3}).should be_true
+      # With a 100 ms election timeout a loaded machine can move leadership
+      # on its own, so wait for a settled view rather than read it once
+      m = nil
+      wait_for do
+        leader = c.wait_for_leader
+        s = leader.status
+        x = leader.metrics
+        m = x if s && x && x.is_leader && x.leader == s.id && x.term == s.term && x.isr_size == 3 &&
+                 x.proposals_pending == 0 && x.peers.size == 2 && x.peers.values.all?
+      end
+      m = m.not_nil!
+      m.leader_contact.should eq Time::Span.zero
+      m.leader_changes.should be >= 1
+      m.save_count.should be > 0
+      m.save_buckets.sum.should eq m.save_count
+      m.save_buckets.size.should eq Raft::Node::SAVE_BUCKETS.size + 1
+
+      follower = c.nodes.values.find! { |n| n != leader }
+      fm = nil
+      wait_for { fm = follower.metrics.try { |x| x if !x.is_leader && x.leader == m.leader && x.isr_size } }
+      fm = fm.not_nil!
+      fm.leader_contact.not_nil!.should be < 1.second
+
+      c.stop(c.nodes.key_for(leader))
+      wait_for do
+        follower.metrics.try do |x|
+          x.leader_changes > fm.leader_changes && x.leader != m.leader && x.peers.values.count(false) == 1
+        end
+      end
+    end
+  end
+
+  it "counts the entries a leader appended itself among pending proposals" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    transport = StallingTransport.new({"b" => 2, "c" => 3})
+    transport.ack = false
+    node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+    transport.node = node
+    node.run(transport)
+    # Its seeded membership, which no caller proposed, can't commit
+    wait_for { node.metrics.try &.is_leader }
+    node.metrics.not_nil!.proposals_pending.should be > 0
+  ensure
+    node.try &.close
+    FileUtils.rm_rf dir if dir
+  end
+
+  it "counts the same node elected again in a later term as a leader change" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    transport = StallingTransport.new({"b" => 2, "c" => 3})
+    node = Raft::Node.new(1, "a", ["a", "b", "c"], "tcp://a", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds, 5.milliseconds, bootstrap: true)
+    transport.node = node
+    node.run(transport)
+    wait_for { node.serving.value }
+    first = node.metrics.not_nil!
+    first.leader_changes.should eq 1
+    # No followers answering: it steps down on losing its quorum, and the
+    # votes they still grant elect it again
+    transport.drop_appends = true
+    wait_for { node.metrics.try { |m| m.is_leader && m.term > first.term && m.leader_changes > 1 } }
+  ensure
+    node.try &.close
+    FileUtils.rm_rf dir if dir
+  end
+
+  it "gives up on metrics when the event loop doesn't take requests" do
+    dir = File.tempname("raft-node-spec")
+    Dir.mkdir_p dir
+    # Not run, like an event loop stuck in an fsync while events queue up
+    node = Raft::Node.new(1, "127.0.0.1:1", ["127.0.0.1:1"], "tcp://127.0.0.1:1", Raft::Storage.new(dir),
+      100.milliseconds, 20.milliseconds)
+    Raft::Node::EVENT_QUEUE_SIZE.times { node.deliver Raft::Disconnected.new(2, "127.0.0.1:2") }
+    result = Channel(Raft::Metrics?).new(1)
+    spawn { result.send node.metrics }
+    select
+    when m = result.receive
+      m.should be_nil
+    when timeout(3.seconds)
+      fail "metrics hung"
+    end
+  ensure
+    FileUtils.rm_rf dir if dir
+  end
+
   it "hands over leadership on transfer" do
     with_raft_cluster do |c|
       leader = c.wait_for_leader
       leader.propose_isr(Set{1, 2, 3}).should be_true
       wait_for { c.nodes.values.all? { |n| n.committed_isr == Set{1, 2, 3} } }
-      leader.transfer_leadership.should eq Raft::TransferResult::Sent
+      # With a 100 ms election timeout a loaded machine can move leadership
+      # on its own, so transfer from whoever leads by then
+      wait_for do
+        leader = c.wait_for_leader
+        leader.transfer_leadership.sent?
+      end
       wait_for(1.second) { !leader.leader? }
       c.wait_for_leader(except: leader)
     end

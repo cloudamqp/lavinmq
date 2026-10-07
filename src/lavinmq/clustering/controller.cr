@@ -1,6 +1,7 @@
 require "systemd"
 require "./client"
 require "./coordinator"
+require "../http/metrics_server"
 
 # Elects the leader and makes the other nodes follow it. The leader election
 # and ISR storage are done by an etcd cluster (EtcdController) or by the nodes
@@ -18,6 +19,8 @@ abstract class LavinMQ::Clustering::Controller
   getter id : Int32
 
   @repli_client : Client? = nil
+  # Reports the replication client's metrics while following, see Launcher
+  property metrics_server : HTTP::MetricsServer? = nil
   @stopped = false
   @stopping = false
 
@@ -72,6 +75,10 @@ abstract class LavinMQ::Clustering::Controller
   end
 
   private abstract def follow_leader_changes
+
+  private def report_metrics_of(client : Client?) : Nil
+    @metrics_server.try &.clustering_client = client
+  end
 
   private def execute_shell_command(command : String, event : String)
     return if command.empty?

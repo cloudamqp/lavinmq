@@ -63,6 +63,14 @@ module LavinMQ::Clustering::Raft
     end
   end
 
+  # Counters and gauges for Prometheus, see Node#metrics. `peers` maps every
+  # other member to whether it's connected, `leader_contact` is zero on the
+  # leader and nil on a node that hasn't heard from one. `save_buckets` are
+  # per bucket of Node::SAVE_BUCKETS (not cumulative), plus one for slower saves.
+  record Metrics, leader : Int32?, is_leader : Bool, term : Int64, leader_changes : UInt64,
+    leader_contact : Time::Span?, proposals_pending : Int64, peers : Hash(Int32, Bool),
+    isr_size : Int32?, save_buckets : Array(UInt64), save_count : UInt64, save_sum : Float64
+
   # Runs a Core in a single fiber: every message, request and tick goes
   # through @events, so the Core needs no locking. State is persisted before
   # any message produced alongside it leaves the node. The fiber runs in
@@ -76,9 +84,10 @@ module LavinMQ::Clustering::Raft
       reply : Channel(MembershipError?)
     private record Transfer, target : Int32?, reply : Channel(TransferResult)
     private record GetStatus, reply : Channel(Status)
+    private record GetMetrics, reply : Channel(Metrics)
     private record Pending, index : Int64, term : Int64, reply : Channel(Bool)
     private record PendingChange, index : Int64, term : Int64, reply : Channel(MembershipError?)
-    private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | GetStatus
+    private alias Event = TransportEvent | Propose | ChangeMembership | Transfer | GetStatus | GetMetrics
 
     # True while this node is the leader and has committed an entry in its
     # term, i.e. it knows the latest committed ISR.
@@ -87,6 +96,8 @@ module LavinMQ::Clustering::Raft
     getter leader_changed = Channel(Nil).new(1)
 
     EVENT_QUEUE_SIZE = 256
+    # Upper bounds, in seconds, of the storage save (fsync) histogram
+    SAVE_BUCKETS = {0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024, 2.048, 4.096, 8.192}
 
     @events = Channel(Event).new(EVENT_QUEUE_SIZE)
     @pending = Array(Pending).new
@@ -105,6 +116,14 @@ module LavinMQ::Clustering::Raft
     @logged_seeds = false
     @election_timeout : Time::Span
     @logged_trust_moved = false
+    # Metrics, only touched by the event loop
+    # The leader and term last counted as a leader change: the same node
+    # elected again in a later term is a change too
+    @last_leader : Tuple(Int32, Int64)? = nil
+    @leader_changes = 0_u64
+    @save_buckets = Array(UInt64).new(SAVE_BUCKETS.size + 1, 0_u64)
+    @save_count = 0_u64
+    @save_sum = 0.0
 
     def initialize(@id : Int32, @address : String, seeds : Enumerable(String), uri : String,
                    @storage : Storage, election_timeout : Time::Span, heartbeat_interval : Time::Span,
@@ -228,6 +247,29 @@ module LavinMQ::Clustering::Raft
       nil
     end
 
+    # Built in the event loop, like #status. Nil when the node has stopped or
+    # doesn't answer within a second, e.g. stuck in an fsync. The second
+    # includes queueing the request, the queue fills up while it's stuck.
+    def metrics : Metrics?
+      deadline = Time.instant + 1.second
+      reply = Channel(Metrics).new(1)
+      select
+      when @events.send(GetMetrics.new(reply))
+      when timeout(deadline - Time.instant)
+        return
+      end
+      select
+      when m = reply.receive
+        m
+      when @stopped.receive?
+        nil
+      when timeout(deadline - Time.instant)
+        nil
+      end
+    rescue Channel::ClosedError
+      nil
+    end
+
     private def await(reply : Channel(T), default : T) : T forall T
       select
       when result = reply.receive
@@ -313,6 +355,8 @@ module LavinMQ::Clustering::Raft
         event.reply.send @core.transfer_leadership(event.target)
       in GetStatus
         event.reply.send build_status
+      in GetMetrics
+        event.reply.send build_metrics
       end
     end
 
@@ -332,10 +376,34 @@ module LavinMQ::Clustering::Raft
         @core.last_index, caught_up, responsive, @core.committed_isr, @core.leader_heard_ago(Time.instant))
     end
 
+    private def build_metrics : Metrics
+      peers = Hash(Int32, Bool).new
+      @core.peers.each { |p| peers[p] = @core.connected?(p) }
+      contact = @core.role.leader? ? Time::Span.zero : @core.leader_heard_ago(Time.instant)
+      Metrics.new(@core.leader, @core.role.leader?, @core.term, @leader_changes, contact,
+        proposals_pending, peers, @core.committed_isr.try(&.size),
+        @save_buckets.dup, @save_count, @save_sum)
+    end
+
+    # Entries the leader has appended but not committed, whether proposed by
+    # a caller or by the Core itself (membership seeding, relocation)
+    private def proposals_pending : Int64
+      @core.role.leader? ? @core.last_index - @core.commit_index : 0_i64
+    end
+
+    private def observe_save(seconds : Float64) : Nil
+      bucket = SAVE_BUCKETS.index { |le| seconds <= le } || SAVE_BUCKETS.size
+      @save_buckets[bucket] += 1
+      @save_count += 1
+      @save_sum += seconds
+    end
+
     private def flush : Nil
       if @core.dirty?
         begin
+          started = Time.instant
           @storage.save(@core.hard_state)
+          observe_save((Time.instant - started).total_seconds)
         rescue ex
           Log.fatal(exception: ex) { "Could not persist raft state to #{@storage.path}" }
           exit 1
@@ -392,6 +460,10 @@ module LavinMQ::Clustering::Raft
     end
 
     private def publish_state : Nil
+      if (leader_id = @core.leader) && {leader_id, @core.term} != @last_leader
+        @last_leader = {leader_id, @core.term}
+        @leader_changes += 1
+      end
       uri = @core.leader_uri
       isr = @core.committed_isr
       leader = @core.role.leader?

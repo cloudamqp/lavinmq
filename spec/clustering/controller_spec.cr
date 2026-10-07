@@ -73,4 +73,45 @@ describe LavinMQ::Clustering::Controller do
       end
     end
   end
+
+  it "follows a leader while the launcher holds the data dir lock", tags: "slow" do
+    with_datadir do |leader_dir|
+      with_datadir do |follower_dir|
+        configs = {leader_dir, follower_dir}.map do |dir|
+          config = clustering_config(dir)
+          config.clustering_backend = LavinMQ::ClusteringBackend::Raft
+          config.clustering_election_timeout = 300
+          config.clustering_heartbeat_interval = 50
+          config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+          config.amqp_port = config.http_port = config.mqtt_port = 0
+          config.amqps_port = config.https_port = config.mqtts_port = -1
+          config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+          config.control_unix_path = File.join(dir, "control.sock")
+          config.metrics_http_bind = "127.0.0.1"
+          config.metrics_http_port = free_port
+          config.data_dir_lock = true
+          config
+        end
+        seeds = configs.join(',', &.clustering_raft_advertised_address)
+        configs.each &.clustering_seeds = seeds
+        configs[0].clustering_bootstrap = true
+        launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
+        launchers.each do |l|
+          spawn(name: "raft launcher spec") do
+            l.run
+          rescue SpecExit
+          end
+        end
+        # The replication client would wait forever for the lock its own
+        # launcher holds, and never report
+        metrics = "http://127.0.0.1:#{configs[1].metrics_http_port}/metrics"
+        wait_for(10.seconds) do
+          body = HTTP::Client.get(metrics).body rescue ""
+          body.includes?("lavinmq_cluster_received_bytes_total") && body.includes?("lavinmq_raft_has_leader 1")
+        end
+      ensure
+        launchers.try &.reverse_each &.stop
+      end
+    end
+  end
 end

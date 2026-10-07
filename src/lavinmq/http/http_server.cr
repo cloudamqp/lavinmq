@@ -45,7 +45,7 @@ module LavinMQ
           AuthHandler.new(@server.authenticator, @server.users.direct_user, @internal_unix_socket_path),
           ApiErrorHandler.new,
           RequireUserHandler.new,
-          PrometheusController.new(@server, require_authentication: true),
+          PrometheusController.new(@server, require_authentication: true, raft: cluster.try(&.node)),
           ApiDefaultsHandler.new,
           MainController.new(@server, @amqp_server, @mqtt_server),
           DefinitionsController.new(@server),

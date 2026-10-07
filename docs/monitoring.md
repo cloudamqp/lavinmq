@@ -9,6 +9,10 @@ LavinMQ exposes metrics in Prometheus format on a dedicated HTTP endpoint at `ht
 | `metrics_http_bind` | `[main]` | `127.0.0.1` | Bind address for the metrics endpoint |
 | `metrics_http_port` | `[main]` | `15692` | Port for the metrics endpoint |
 
+The endpoint is served as soon as the node holds the data directory lock,
+whatever its role: a follower and a node without a leader report runtime and
+clustering metrics, and the leader adds the broker's once it serves clients.
+
 Metrics are prefixed with `lavinmq_`. Both `/metrics` and `/metrics/detailed` accept a `prefix` query parameter (defaults to `lavinmq`) and a `vhost` parameter (repeatable) to filter by vhost.
 
 ### `/metrics`
@@ -86,6 +90,29 @@ A joining follower first copies files in bulk and starts streaming once it is
 caught up. That phase is reported per follower by `GET /api/nodes`, where
 `uncompressed_bytes` and `compressed_bytes` cover every byte written to the
 follower, bulk transfer included.
+
+#### Raft
+
+Leader election state, on every node of a cluster that uses the Raft backend
+(`backend = raft`), also while there's no leader, so a cluster that can't elect
+one can still be monitored.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `raft_has_leader` | gauge | 1 if this node knows of a leader |
+| `raft_is_leader` | gauge | 1 if this node is the leader |
+| `raft_leader_changes_seen_total` | counter | Leader changes this node has seen since it started, including the same node elected again in a later term |
+| `raft_term` | gauge | Current raft term |
+| `raft_leader_last_contact_seconds` | gauge | Time since this node last heard from the leader, 0 on the leader. Absent until it has heard from one |
+| `raft_proposals_pending` | gauge | Log entries (ISR and membership changes) the leader has appended but not yet committed, 0 on other nodes |
+| `raft_isr_size` | gauge | Nodes in the committed in-sync replica set |
+| `raft_peer_connected` | gauge | 1 if this node is connected to the cluster member `peer` (its clustering id) |
+| `raft_storage_save_duration_seconds` | histogram | Time to persist the raft state (term, vote and log) to disk, with an fsync |
+
+Alert on `raft_has_leader == 0`, and on a fast-growing
+`raft_leader_changes_seen_total`, which means unstable leadership, often slow
+disks (see `raft_storage_save_duration_seconds`) or a network that delays
+heartbeats past the election timeout.
 
 #### Garbage collection
 

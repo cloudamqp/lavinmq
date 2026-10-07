@@ -223,6 +223,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
       return if repli_client.follows? uri
       repli_client.close
       @repli_client = nil
+      report_metrics_of nil
     end
     if uri.nil?
       Log.warn { "No leader available" }
@@ -234,6 +235,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
     end
     Log.info { "Leader: #{uri}" }
     @repli_client = r = Clustering::Client.new(@config, @id, @coordinator.password)
+    report_metrics_of r
     r.member_check = -> { @node.self_member? }
     r.serve_control_socket = false
     spawn r.follow(uri), name: "Clustering client #{uri}"

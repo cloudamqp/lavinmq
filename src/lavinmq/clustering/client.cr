@@ -85,15 +85,6 @@ module LavinMQ
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
-        start_metrics_server unless @config.metrics_http_port == -1
-      end
-
-      private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(clustering_client: self)
-        metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-        spawn(name: "HTTP metrics listener") do
-          metrics_server.listen
-        end
       end
 
       # Tells whether this node is part of the cluster, to explain why the
@@ -781,7 +772,6 @@ module LavinMQ
         finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @metrics_server.try &.close
       end
 
       class Error < Exception; end
