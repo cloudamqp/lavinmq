@@ -793,6 +793,7 @@ module LavinMQ
                 handed_over += 1
                 consumer.deliver(env.message, env.segment_position, true, recover: true)
               end
+              true
             end
           end
         ensure
@@ -803,6 +804,15 @@ module LavinMQ
             unack.queue.requeue(unack.sp)
           end
           notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
+        end
+        redeliver.each do |unack|
+          consumer = unack.consumer.not_nil!
+          if consumer.closed?
+            unack.queue.reject(unack.sp, requeue: true)
+          else
+            env = unack.queue.read(unack.sp)
+            consumer.deliver(env.message, env.segment_position, true, recover: true)
+          end
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -876,6 +886,9 @@ module LavinMQ
           basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
           @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         end
+        add = consumer ? 0u32 : 1u32
+        basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+        @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         tag
       end
 
