@@ -228,7 +228,8 @@ module LavinMQ
         # Set by the consumer watcher when it ends a consume round because the
         # downstream queue has no consumers left
         @round_ended = false
-        CONFIRM_TIMEOUT = 5.seconds
+        CONFIRM_TIMEOUT  = 5.seconds
+        CAPACITY_RECHECK = 100.milliseconds
 
         def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
@@ -353,13 +354,28 @@ module LavinMQ
 
         # Waits until a downstream consumer can take a message. Returns false if
         # there are no consumers left or the link stopped.
+        #
+        # Waits on what blocks each consumer, never on a signal that's already
+        # ready: a consumer can have prefetch room yet not accept (flow off, or
+        # the channel's global prefetch full), and receiving its ready
+        # has_capacity again and again would spin without yielding. A blocker
+        # that nothing signals is re-checked after a timeout instead.
         private def wait_for_capacity : Bool
           until @federated_q.immediate_delivery?
             return false if stopping? || !has_consumers?
-            channels = @federated_q.consumers.map(&.has_capacity.when_true.as(::Channel(Nil)))
-            channels << @stop_signal
-            channels << @federated_q.consumers_empty.when_true
-            ::Channel.receive_first(channels)
+            actions = Array(::Channel::SelectAction(Nil)).new
+            recheck = false
+            @federated_q.consumers.each do |consumer|
+              if signal = consumer.accepts_signal
+                actions << signal.receive_select_action
+              else
+                recheck = true
+              end
+            end
+            actions << @stop_signal.receive_select_action
+            actions << @federated_q.consumers_empty.when_true.receive_select_action
+            actions << timeout_select_action(CAPACITY_RECHECK) if recheck
+            ::Channel.select(actions)
           end
           true
         rescue ::Channel::ClosedError

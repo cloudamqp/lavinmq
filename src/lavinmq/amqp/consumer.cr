@@ -225,6 +225,17 @@ module LavinMQ
         true
       end
 
+      # The signal for the first condition of #accepts? that fails. None
+      # tracks the channel's basic.get messages, which #accepts? counts
+      # against the global prefetch but the channel's has_capacity doesn't.
+      def accepts_signal : ::Channel(Nil)?
+        return @flow_change.when_true unless @flow
+        if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
+          return @has_capacity.when_true
+        end
+        @channel.has_capacity.when_true unless @channel.has_capacity?
+      end
+
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
           unacked = @unacked.add(1, :relaxed)

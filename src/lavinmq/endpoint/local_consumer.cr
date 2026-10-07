@@ -46,6 +46,10 @@ module LavinMQ
         @no_ack || @prefetch_count.zero? || unacked < @prefetch_count
       end
 
+      def accepts_signal : ::Channel(Nil)?
+        @has_capacity.when_true unless @closed
+      end
+
       # Called by the queue when messages become available
       def ensure_deliver_loop
         @wakeup.try_send?(nil) unless @closed

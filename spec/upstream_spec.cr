@@ -334,6 +334,37 @@ describe LavinMQ::Federation do
       end
     end
 
+    it "waits without spinning for a downstream consumer whose flow is off" do
+      with_amqp_server do |s|
+        up, down = FederationSpecHelpers.setup(s, "in-process")
+        up.declare_queue("fq", true, false)
+        down.declare_queue("fq", true, false)
+        FederationSpecHelpers.publish(up, "", "fq", "m")
+        FederationSpecHelpers.federate(down, "^fq$", "queues")
+        FederationSpecHelpers.running_link(down)
+        received = Channel(String).new(1)
+        with_channel(s, vhost: "downstream") do |ch|
+          # The consumer has prefetch room but doesn't accept: the link must
+          # wait for the flow, not for the (already true) prefetch capacity
+          ch.flow(false)
+          ch.queue("fq", passive: true).subscribe(no_ack: true) { |msg| received.send msg.body_io.to_s }
+          sleep 200.milliseconds # the link has the message, and nowhere to deliver it
+          before = Process.times
+          sleep 500.milliseconds
+          after = Process.times
+          cpu = (after.utime + after.stime) - (before.utime + before.stime)
+          cpu.should be < 0.25 # a spinning link burns a whole core
+          ch.flow(true)
+          select
+          when body = received.receive
+            body.should eq "m"
+          when timeout(5.seconds)
+            fail "message not delivered after flow was resumed"
+          end
+        end
+      end
+    end
+
     it "retries until the upstream vhost exists" do
       with_amqp_server do |s|
         down = s.vhosts.create("downstream")
