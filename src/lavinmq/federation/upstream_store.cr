@@ -20,8 +20,11 @@ module LavinMQ
 
       # An upstream in this broker (a URI without host) is reached in-process,
       # with no user of its own, so the user configuring it must have access
-      # to it: to the vhost, and read and configure permission on the
-      # configured upstream exchange and queue. A remote upstream is
+      # to it. Which resources a link uses there isn't known here: without an
+      # `exchange` or `queue` the downstream resource's name is used, as
+      # chosen by policy later, and an exchange link declares a queue and
+      # exchange of its own. So the user needs unrestricted read and
+      # configure permission on the upstream vhost. A remote upstream is
       # authorized by its broker, with the URI's credentials.
       def self.validate_config!(component : String, config : JSON::Any, user : Auth::BaseUser?)
         entries = case component
@@ -54,16 +57,14 @@ module LavinMQ
       private def self.validate_access!(uri : URI, entry : JSON::Any, user : Auth::BaseUser)
         return unless Endpoint.local?(uri)
         vhost = Endpoint.vhost_name(uri)
-        unless user.find_permission(vhost)
-          raise ConfigError.new("#{user.name} can't access vhost '#{vhost}'")
+        perm = user.find_permission(vhost)
+        unless perm && unrestricted?(perm[:read]) && unrestricted?(perm[:config])
+          raise ConfigError.new("#{user.name} needs read and configure permission on everything in vhost '#{vhost}'")
         end
-        {entry["exchange"]?, entry["queue"]?}.each do |resource|
-          name = resource.try(&.as_s?) || next
-          next if name.empty?
-          unless user.can_read?(vhost, name) && user.can_config?(vhost, name)
-            raise ConfigError.new("#{user.name} can't access '#{name}' in vhost '#{vhost}'")
-          end
-        end
+      end
+
+      private def self.unrestricted?(pattern : Regex) : Bool
+        pattern.source.in?(".*", "^.*$", "^.*", ".*$")
       end
 
       def each(&)

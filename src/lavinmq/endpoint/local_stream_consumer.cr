@@ -104,22 +104,18 @@ module LavinMQ
       end
 
       # Streams wake their consumers through notify_new_message rather than
-      # the queue's empty channel
+      # the queue's empty channel. Only waiting for messages watches it: the
+      # flag is cleared by queue_ready?, so it can be set while at capacity or
+      # paused, and receiving it there would spin without yielding.
       private def wait_until_ready : Bool
         loop do
           return false if closed?
           if unacked >= prefetch_count
-            select
-            when has_capacity.when_true.receive?
-            when @new_message_available.when_true.receive?
-            end
+            wait(has_capacity.when_true)
             next
           end
           if @stream.state.paused?
-            select
-            when @stream.paused.when_false.receive?
-            when @new_message_available.when_true.receive?
-            end
+            wait(@stream.paused.when_false)
             next
           end
           unless queue_ready?

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have access to that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
+- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have unrestricted read and configure permissions on that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - `LavinMQ-Stats-Interval` header on every HTTP API response, giving the configured stats interval in milliseconds so clients can place the timestamp-less history logs on a time axis [#2447](https://github.com/cloudamqp/lavinmq/pull/2447)
 - `x-mqtt-topic` exchange type: queues and exchanges bound to it with MQTT topic filters receive MQTT publishes, with the MQTT topic as routing key. The exchange is always internal, and malformed filters are refused at bind time [#2346](https://github.com/cloudamqp/lavinmq/pull/2346)
 - Automatic retries with backoff: queues declared with `x-delayed-retry-min` (plus optional `x-delayed-retry-multiplier` and `x-delayed-retry-max`) delay messages rejected with `requeue=true` in an internal retry queue and redeliver them after a growing delay, until `x-delivery-limit` (default 20) dead-letters them [#1815](https://github.com/cloudamqp/lavinmq/issues/1815)
