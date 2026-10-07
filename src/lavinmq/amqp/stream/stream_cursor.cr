@@ -48,9 +48,11 @@ module LavinMQ::AMQP
       @offset += 1
     end
 
-    # Moves to the start of `segment`, used by the store
-    def enter(segment : UInt32) : Nil
+    # Moves to the start of `segment`, whose first message has `offset`, used
+    # by the store
+    def enter(segment : UInt32, offset : Int64) : Nil
       @segment = segment
+      @offset = offset
       @pos = 4u32
       @segment_since = RoughTime.instant
     end
