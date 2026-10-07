@@ -383,6 +383,40 @@ describe LavinMQ::Endpoint do
       end
     end
 
+    it "waits without spinning at its prefetch limit on a stream's tail" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("ls_stream_cap", true, false, AMQ::Protocol::Table.new({"x-queue-type" => "stream"}))
+        session = ShovelSpecHelpers.session(s, "in-process")
+        session.open
+        session.prefetch = 1_u16
+        tags = Channel(UInt64).new(10)
+        args = AMQ::Protocol::Table.new({"x-stream-offset" => "next"})
+        spawn do
+          session.consume("ls_stream_cap", "spec", false, false, args) { |d| tags.send d.tag }
+        rescue LavinMQ::Endpoint::ClosedError
+        end
+        wait_for { vhost.queue("ls_stream_cap").consumer_count == 1 }
+        # Published at the tail: delivered, and the new-message flag stays set
+        # while the unacked delivery fills the prefetch
+        ShovelSpecHelpers.publish(vhost, "ls_stream_cap", "m0")
+        first = tags.receive
+        ShovelSpecHelpers.publish(vhost, "ls_stream_cap", "m1")
+        sleep 50.milliseconds
+        before = Process.times
+        sleep 500.milliseconds
+        after = Process.times
+        ((after.utime + after.stime) - (before.utime + before.stime)).should be < 0.25
+        session.ack(first)
+        select
+        when tags.receive
+        when timeout(5.seconds)
+          fail "no delivery after the prefetch was freed"
+        end
+        session.close
+      end
+    end
+
     it "refuses no-ack consumers on a stream" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

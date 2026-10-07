@@ -453,6 +453,16 @@ describe LavinMQ::Federation do
           LavinMQ::Federation::UpstreamStore.validate_config!("federation-upstream-set",
             JSON.parse([{"upstream" => "a", "uri" => "amqp:///secret"}].to_json), user)
         end
+        # Without exchange or queue the link federates whatever a policy
+        # picks, by name: restricted read or configure isn't enough
+        s.users.add_permission("limited", "secret", /.*/, /^public$/, /.*/)
+        expect_raises(LavinMQ::Federation::ConfigError) do
+          LavinMQ::Federation::UpstreamStore.validate_config!("federation-upstream",
+            JSON.parse({"uri" => "amqp:///secret"}.to_json), user)
+        end
+        expect_raises(LavinMQ::Federation::ConfigError) { validate.call("amqp:///secret") }
+        s.users.add_permission("limited", "secret", /.*/, /.*/, /.*/)
+        validate.call("amqp:///secret")
       end
     end
 

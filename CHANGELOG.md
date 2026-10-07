@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have access to that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
+- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have unrestricted read and configure permissions on that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
 - A startup warning when the data directory's block device has a read ahead above 1 MiB, as a large read ahead stalls publishers at segment rollover [#2337](https://github.com/cloudamqp/lavinmq/pull/2337)
 - `syncfs_threshold` config option in `[main]` (default `64`): a sync batch that touches more files than this falls back to one `syncfs` of the data dir [#2296](https://github.com/cloudamqp/lavinmq/pull/2296)
 - `tls_ciphersuites` config option to select the allowed TLS 1.3 ciphersuites, which `tls_ciphers` does not cover [#2243](https://github.com/cloudamqp/lavinmq/pull/2243)

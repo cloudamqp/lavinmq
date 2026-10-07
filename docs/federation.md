@@ -4,7 +4,7 @@ Federation links brokers together, allowing messages to flow between them. It is
 
 ## Upstreams in this broker
 
-An upstream URI without host, `amqp://` (the `/` vhost) or `amqp:///vhost`, is a vhost of this broker. The link then runs in-process: it consumes and declares directly in that vhost, without an AMQP connection and without logging in as any user. This federates between vhosts of the same broker. Since the link has no credentials of its own, the user creating the upstream (or an upstream set entry with such a `uri`) must have permissions in that vhost, including `read` and `configure` on the upstream `exchange` and `queue` if they are set. Any URI with a host, `localhost` included, connects over AMQP with the URI's credentials.
+An upstream URI without host, `amqp://` (the `/` vhost) or `amqp:///vhost`, is a vhost of this broker. The link then runs in-process: it consumes and declares directly in that vhost, without an AMQP connection and without logging in as any user. This federates between vhosts of the same broker. Since the link has no credentials of its own, the user creating the upstream (or an upstream set entry with such a `uri`) must have unrestricted `read` and `configure` permissions in that vhost (`.*`): the link reads and declares resources there whose names aren't known when the upstream is created, the downstream resource's name when `exchange` or `queue` isn't set, and its own internal queue and exchange. Any URI with a host, `localhost` included, connects over AMQP with the URI's credentials.
 
 On the downstream side, messages are always published in-process.
 
