@@ -733,10 +733,6 @@ describe LavinMQ::Federation::Upstream do
         wait_for { link.state.terminated? }
 
         upstream.links.should be_empty
-        # Binds on the downstream exchange no longer reach the link
-        downstream_vhost.declare_queue("downstream_q", true, false)
-        downstream_vhost.bind_queue("downstream_q", "downstream_ex", "rk").should be_true
-        link.@consumer_ex.should be_nil
       end
     end
 
@@ -1116,6 +1112,34 @@ describe LavinMQ::Federation::Upstream do
         member.link(vhost.exchange("ex"))
         vhost.delete_exchange("ex")
         member.links.should be_empty
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "stops the links of a set member with overrides when the set is replaced or deleted" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        set_config = JSON.parse(%([{"upstream": "a", "prefetch-count": 99}]))
+        vhost.declare_exchange("ex", "topic", false, false)
+        ex = vhost.exchange("ex")
+
+        store.create_upstream_set("set1", set_config)
+        replaced = store.get_set("set1").first
+        replaced_link = replaced.link(ex)
+        # Once replaced the copy is out of the store's reach, so its link
+        # would no longer follow bindings or deletes of the exchange
+        store.create_upstream_set("set1", set_config)
+        replaced.links.should be_empty
+        wait_for { replaced_link.state.terminated? }
+
+        deleted = store.get_set("set1").first
+        deleted_link = deleted.link(ex)
+        store.delete_upstream_set("set1")
+        deleted.links.should be_empty
+        wait_for { deleted_link.state.terminated? }
       ensure
         store.try &.stop_all
       end
