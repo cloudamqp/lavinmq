@@ -2,26 +2,21 @@ require "../consumer"
 require "../../segment_position"
 require "../../rough_time"
 require "./filters/consumer_filter"
+require "./stream_cursor"
 require "./stream_offset"
 
 module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
       include SortableJSON
-      property offset : Int64
-      property segment : UInt32
-      property pos : UInt32
-      property? segment_acquired = false
-      property segment_since = RoughTime.instant # when it moved into its segment
-      getter requeued = Deque(SegmentPosition).new
-      @filter : ConsumerFilter
+      getter cursor : StreamCursor
       @track_offset = false
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
-        @filter = ConsumerFilter.from_arguments(frame.arguments)
-        @offset, @segment, @pos = stream_queue.find_offset(start_offset(frame))
+        filter = ConsumerFilter.from_arguments(frame.arguments)
+        @cursor = stream_queue.cursor(start_offset(frame), filter)
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -103,7 +98,7 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @offset > stream_queue.last_offset && @requeued.empty?
+        if @cursor.caught_up? # unlocked, a stale answer only delays or repeats a wait
           @log.debug { "Waiting for queue not to be empty" }
           flush
           select
@@ -126,12 +121,12 @@ module LavinMQ
       end
 
       def waiting_for_messages?
-        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
+        (@cursor.offset + @prefetch_count) >= stream_queue.last_offset && accepts?
       end
 
       def ack(sp)
         begin
-          stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+          stream_queue.store_consumer_offset(@tag, @cursor.offset) if @track_offset
         rescue MessageStore::ClosedError
           # The queue was closed/deleted while this ack was in flight. Storing the
           # offset is now a no-op; don't let it tear down the connection read_loop.
@@ -142,8 +137,8 @@ module LavinMQ
       def reject(sp, requeue : Bool)
         super
         if requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          stream_queue.requeue(@cursor, sp)
+          @new_message_available.set(true)
         end
       end
 
@@ -151,10 +146,6 @@ module LavinMQ
         return if closed?
         @new_message_available.close
         super
-      end
-
-      def filter_match?(msg_headers) : Bool
-        @filter.match?(msg_headers)
       end
     end
   end

@@ -107,6 +107,14 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { stream_msg_store.find_offset(offset) }
     end
 
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil) : StreamCursor
+      @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter) }
+    end
+
+    def requeue(cursor : StreamCursor, sp : SegmentPosition) : Nil
+      @msg_store_lock.synchronize { cursor.requeue(sp) }
+    end
+
     # The offset stored for `consumer_tag` by automatic offset tracking
     def stored_offset(consumer_tag : String) : Int64?
       @msg_store_lock.synchronize { stream_msg_store.last_offset_by_consumer_tag(consumer_tag) }
@@ -214,7 +222,7 @@ module LavinMQ::AMQP
       raise ClosedError.new if @closed
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
-      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer) do |env|
+      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer.cursor) do |env|
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
@@ -330,17 +338,10 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer)
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-        @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
-      end
-      super
-    end
-
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
       if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-        @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
+        @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
     end
 
