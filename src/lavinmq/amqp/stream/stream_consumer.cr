@@ -1,9 +1,7 @@
 require "../consumer"
 require "../../segment_position"
 require "../../rough_time"
-require "./filters/kv"
-require "./filters/x_stream_filter"
-require "./filters/gis"
+require "./filters/consumer_filter"
 require "./stream_offset"
 
 module LavinMQ
@@ -16,14 +14,13 @@ module LavinMQ
       property? segment_acquired = false
       property segment_since = RoughTime.instant # when it moved into its segment
       getter requeued = Deque(SegmentPosition).new
-      @filters = Array(StreamFilter).new
-      @filter_match_all = true
-      @match_unfiltered = false
+      @filter : ConsumerFilter
       @track_offset = false
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
+        @filter = ConsumerFilter.from_arguments(frame.arguments)
         @offset, @segment, @pos = stream_queue.find_offset(start_offset(frame))
         super
         @new_message_available = BoolChannel.new(false)
@@ -46,15 +43,6 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
         validate_stream_offset(frame)
-        @filters = StreamFilter.from_arguments(frame.arguments)
-        validate_filter_match_type(frame)
-        case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
-        when Bool
-          @match_unfiltered = match_unfiltered
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
-        end
       end
 
       private def validate_stream_offset(frame)
@@ -78,22 +66,6 @@ module LavinMQ
           return StreamOffset::Absolute.new(stored) if stored
         end
         start || StreamOffset::Absolute.new(0)
-      end
-
-      private def validate_filter_match_type(frame)
-        case filter_match_type = frame.arguments["x-filter-match-type"]?
-        when String
-          if filter_match_type.downcase == "all"
-            @filter_match_all = true
-          elsif filter_match_type.downcase == "any"
-            @filter_match_all = false
-          else
-            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
-          end
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
-        end
       end
 
       private def deliver_loop
@@ -182,18 +154,7 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        return true if @filters.empty? # No consumer filters, always match
-        if @match_unfiltered
-          return true unless msg_headers.try &.has_key?("x-stream-filter-value")
-        end
-        return false unless headers = msg_headers
-
-        case @filter_match_all
-        when false
-          @filters.any?(&.match?(headers))
-        else
-          @filters.all?(&.match?(headers))
-        end
+        @filter.match?(msg_headers)
       end
     end
   end
