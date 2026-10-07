@@ -256,10 +256,9 @@ module LavinMQ
             offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
             truncate = body["truncate"]?.try(&.as_i)
-            reader = q.reader(offset)
             JSON.build(context.response) do |j|
               j.array do
-                reader.each do |env|
+                q.each_from(offset) do |env|
                   break if count.zero?
                   payload_encoding = "string"
                   j.object do
