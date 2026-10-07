@@ -9,9 +9,17 @@ class Fiber
     c
   end
 
-  # Approximate stack usage, for debugging. Only accurate for suspended fibers,
-  # as the saved stack pointer is updated on context switch.
-  def stack_used : UInt64
-    @stack.bottom.address - @context.stack_top.address
+  # Approximate stack usage, for debugging. The saved stack pointer is only
+  # updated on context switches, so for the current fiber the actual stack
+  # pointer is used, and nil is returned for fibers running on other threads.
+  def stack_used : UInt64?
+    if same?(Fiber.current)
+      sp = uninitialized UInt8
+      @stack.bottom.address - pointerof(sp).address
+    elsif running?
+      nil
+    else
+      @stack.bottom.address - @context.stack_top.address
+    end
   end
 end
