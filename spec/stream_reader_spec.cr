@@ -16,7 +16,7 @@ describe LavinMQ::AMQP::StreamReader do
         end
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader 5
+        stream = iq.reader LavinMQ::AMQP::StreamOffset::Absolute.new(5)
 
         count = 0
         stream.each do |env|
@@ -41,7 +41,7 @@ describe LavinMQ::AMQP::StreamReader do
         end
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader "first"
+        stream = iq.reader LavinMQ::AMQP::StreamOffset::First.new
 
         count = 0
         stream.each do |env|
@@ -68,7 +68,7 @@ describe LavinMQ::AMQP::StreamReader do
         ch.wait_for_confirms
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader 0
+        stream = iq.reader LavinMQ::AMQP::StreamOffset::Absolute.new(0)
 
         count = 0
         seg = 0
@@ -97,7 +97,7 @@ describe LavinMQ::AMQP::StreamReader do
         first_seg = store.@segments.first_key
         offsets = [] of Int64
         dropped = false
-        iq.reader("first").each do |env|
+        iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) do |env|
           headers = env.message.properties.headers.should_not be_nil
           offsets << headers["x-stream-offset"].as(Int64)
           unless dropped
