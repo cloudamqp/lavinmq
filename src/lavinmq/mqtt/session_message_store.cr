@@ -35,8 +35,27 @@ module LavinMQ
       # handler must tell them apart. Returns whether the id is now released.
       property on_original_packet_id_dropped : Proc(SegmentPosition, UInt16, Bool)? = nil
 
-      # Called for a released id once its delete is written
+      # Called for a released id once its delete is written and marked dirty
       property on_original_packet_id_released : Proc(UInt16, Nil)? = nil
+
+      # Whether `sp` is still a message in this store. Positions are never
+      # reused, so a missing one is a deleted one. Only exact at load: a
+      # delete after that is not reflected in `@deleted`.
+      def includes?(sp : SegmentPosition) : Bool
+        @segments.has_key?(sp.segment) && !deleted?(sp.segment, sp.position)
+      end
+
+      # Makes the delete of `sp` part of the next persister drain. When the
+      # delete emptied the segment, its files were unlinked instead, which
+      # only the directory's sync makes durable.
+      def mark_delete_dirty(sp : SegmentPosition) : Nil
+        persister = @persister || return
+        if afile = @acks[sp.segment]?
+          persister.mark_dirty(afile)
+        else
+          persister.mark_dirty(@msg_dir)
+        end
+      end
 
       def delete(sp) : Nil
         released = nil
@@ -47,6 +66,7 @@ module LavinMQ
         end
         super
         if id = released
+          mark_delete_dirty(sp)
           @on_original_packet_id_released.try &.call(id)
         end
       end

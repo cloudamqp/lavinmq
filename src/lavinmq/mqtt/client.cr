@@ -103,7 +103,7 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
       end
 
-      # Attaching can yield on a PUBREL resend, so it comes after `@started`,
+      # Attaching can yield on the store lock, so it comes after `@started`,
       # which makes a takeover's `close` wait for this fiber to finish.
       def run : Nil
         @started = true
