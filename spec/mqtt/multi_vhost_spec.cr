@@ -11,6 +11,21 @@ module MqttSpecs
         end
       end
 
+      it "should create a broker when vhost is created" do
+        with_server do |server|
+          server.vhosts.create("new")
+          server.mqtt_server.broker("new").vhost.should be server.vhosts["new"]
+        end
+      end
+
+      it "should close the broker when vhost is deleted" do
+        with_server do |server|
+          broker = server.vhosts.create("new").mqtt_broker
+          server.vhosts.delete("new")
+          broker.@retain_store.@index_file.closed?.should be_true
+        end
+      end
+
       describe "authentication" do
         it "should deny mqtt access to default vhost for user lacking vhost permissions" do
           with_server do |server|

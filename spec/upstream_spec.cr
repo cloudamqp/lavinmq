@@ -26,6 +26,34 @@ module UpstreamSpecHelpers
     {upstream, upstream_vhost, downstream_vhost}
   end
 
+  # A TCP proxy to the AMQP server that holds accepted connections until the
+  # gate is closed, to park a link in its upstream connect
+  def self.with_gated_proxy(s, &)
+    target = URI.parse(s.amqp_server.url)
+    proxy = TCPServer.new("127.0.0.1", 0)
+    accepted = Channel(Nil).new(1)
+    gate = Channel(Nil).new
+    spawn(name: "gated proxy") do
+      while client = proxy.accept?
+        select
+        when accepted.send nil
+        else
+        end
+        gate.receive?
+        server = TCPSocket.new(target.hostname.not_nil!, target.port.not_nil!)
+        spawn { IO.copy(client, server) rescue nil; server.close rescue nil }
+        spawn { IO.copy(server, client) rescue nil; client.close rescue nil }
+      end
+    end
+    url = target.dup
+    url.host = "127.0.0.1"
+    url.port = proxy.local_address.port
+    yield url, accepted, gate
+  ensure
+    gate.try &.close
+    proxy.try &.close
+  end
+
   def self.start_link(upstream, pattern = "downstream_ex", applies_to = "exchanges")
     definitions = {"federation-upstream" => JSON::Any.new(upstream.name)} of String => JSON::Any
     upstream.vhost.add_policy("FE", pattern, applies_to, definitions, 12_i8)
@@ -168,6 +196,102 @@ describe LavinMQ::Federation::Upstream do
         end
       ensure
         upstream.try &.close
+      end
+    end
+
+    it "stops the link when the federated queue is deleted" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf delete queue", nil, "upstream_q")
+        downstream_vhost.declare_queue("downstream_q", true, false)
+        q = downstream_vhost.queue("downstream_q")
+        link = upstream.link(q)
+
+        q.delete
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    it "stops the link when the federated queue is closed" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf close queue", nil, "upstream_q")
+        downstream_vhost.declare_queue("downstream_q", true, false)
+        q = downstream_vhost.queue("downstream_q")
+        link = upstream.link(q)
+
+        q.close
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    it "stops the link before the closing queue is deleted" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf stop early", nil, "upstream_q")
+        # Transient, so closing deletes it and frees the name for a redeclare
+        downstream_vhost.declare_queue("downstream_q", false, false)
+        q = downstream_vhost.queue("downstream_q")
+        upstream.link(q)
+
+        closed = Channel(Nil).new
+        q.@msg_store_lock.synchronize do
+          spawn { q.close; closed.close }
+          # close is now parked on the lock, before it deletes the queue
+          wait_for { q.closed? }
+          upstream.links.should be_empty
+        end
+        closed.receive?
+        downstream_vhost.queue?("downstream_q").should be_nil
+      end
+    end
+
+    it "keeps the link of a queue redeclared under the same name" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "qf redeclare", nil, "upstream_q")
+        downstream_vhost.declare_queue("downstream_q", false, false)
+        old_q = downstream_vhost.queue("downstream_q")
+        old_q.delete
+        downstream_vhost.declare_queue("downstream_q", false, false)
+        new_q = downstream_vhost.queue("downstream_q")
+        link = upstream.link(new_q)
+
+        # A late cleanup for the old queue must not take the new queue's link
+        upstream.stop_link(old_q)
+
+        upstream.links.should eq [link]
+      ensure
+        upstream.try &.close
+      end
+    end
+
+    it "does not set up a queue link stopped while connecting" do
+      with_amqp_server do |s|
+        UpstreamSpecHelpers.cleanup_vhosts(s)
+        upstream_vhost = s.vhosts.create("upstream")
+        downstream_vhost = s.vhosts.create("downstream")
+        UpstreamSpecHelpers.with_gated_proxy(s) do |url, accepted, gate|
+          upstream = LavinMQ::Federation::Upstream.new(downstream_vhost,
+            "qf stop while connecting", "#{url}/upstream", nil, "upstream_q")
+          downstream_vhost.upstreams.add(upstream)
+          downstream_vhost.declare_queue("downstream_q", true, false)
+          q = downstream_vhost.queue("downstream_q")
+          link = upstream.link(q)
+          accepted.receive # the link is parked in its upstream connect
+
+          q.delete
+          upstream.links.should be_empty
+          gate.close # let the connect complete
+
+          wait_for { link.state.terminated? }
+          # The stopped link must not have declared anything upstream
+          upstream_vhost.queue?("upstream_q").should be_nil
+        end
       end
     end
 
@@ -690,6 +814,64 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "should reflect bindings made after the link reconnects" do
+      with_amqp_server do |s|
+        upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation(s, "ef test bindings reconnect", "upstream_ex")
+        with_channel(s, vhost: "downstream") do |downstream_ch|
+          downstream_ch.exchange("downstream_ex", "topic")
+          UpstreamSpecHelpers.start_link(upstream)
+          link = wait_for { upstream.links.first?.try { |l| l if l.state.running? } }
+
+          upstream_vhost.each_connection do |conn|
+            conn.close if conn.client_name.starts_with?("Federation link")
+          end
+          wait_for { !link.state.running? }
+          wait_for { link.state.running? }
+
+          upstream_ex = upstream_vhost.exchange("upstream_ex").as(LavinMQ::AMQP::Exchange)
+          downstream_q = downstream_ch.queue("")
+          downstream_q.bind("downstream_ex", "after.reconnect")
+          wait_for { upstream_ex.bindings_details.size == 1 }
+          downstream_q.unbind("downstream_ex", "after.reconnect")
+          wait_for { upstream_ex.bindings_details.empty? }
+        end
+      end
+    end
+
+    it "stops the link when the federated exchange is deleted" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef delete exchange", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        link = upstream.link(downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange))
+
+        downstream_vhost.delete_exchange("downstream_ex")
+
+        upstream.links.should be_empty
+        wait_for { link.state.terminated? }
+      end
+    end
+
+    it "keeps the link of an exchange redeclared under the same name" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost =
+          UpstreamSpecHelpers.setup_federation(s, "ef redeclare", "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        old_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        downstream_vhost.delete_exchange("downstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+        new_ex = downstream_vhost.exchange("downstream_ex").as(LavinMQ::AMQP::Exchange)
+        link = upstream.link(new_ex)
+
+        # A late cleanup for the old exchange must not take the new one's link
+        upstream.stop_link(old_ex)
+
+        upstream.links.should eq [link]
+      ensure
+        upstream.try &.close
+      end
+    end
+
     it "should reflect bindings made while link is starting" do
       with_amqp_server do |s|
         upstream, upstream_vhost, _ =
@@ -1112,6 +1294,27 @@ describe LavinMQ::Federation::Upstream do
         member.link(vhost.exchange("ex"))
         vhost.delete_exchange("ex")
         member.links.should be_empty
+      ensure
+        store.try &.stop_all
+      end
+    end
+
+    it "stops links of set entries with overrides when the queue is deleted" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        store = vhost.upstreams.not_nil!
+        store.create_upstream("a", JSON.parse(%({"uri": "#{s.amqp_server.url}"})))
+        store.create_upstream_set("set1",
+          JSON.parse(%([{"upstream": "a", "prefetch-count": 99}])))
+        member = store.get_set("set1").first
+        vhost.declare_queue("q", true, false)
+        q = vhost.queue("q")
+        link = member.link(q)
+
+        q.delete
+
+        member.links.should be_empty
+        wait_for { link.state.terminated? }
       ensure
         store.try &.stop_all
       end

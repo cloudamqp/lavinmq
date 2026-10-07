@@ -173,6 +173,9 @@ module LavinMQ
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
+            # The link may have been stopped while connecting, when there was
+            # no connection for stop to close. Don't set it up then.
+            next if stop_link?
             upstream_connection.on_close do
               next if stop_link?
               state(State::Stopped)
@@ -193,6 +196,7 @@ module LavinMQ
 
       class QueueLink < Link
         EXCHANGE = ""
+        getter federated_q
 
         @consumer_available = Channel(Nil).new
 
@@ -302,6 +306,8 @@ module LavinMQ
           setup_connection do |upstream_connection|
             upstream_channel, q = setup_queue(upstream_connection)
             @upstream_channel = upstream_channel
+            # A stop during setup must not be undone by going Running
+            return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
@@ -321,6 +327,7 @@ module LavinMQ
 
       class ExchangeLink < Link
         @consumer_ex : ::AMQP::Client::Exchange?
+        getter federated_ex
 
         def initialize(@upstream : Upstream, @federated_ex : AMQP::Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -444,9 +451,7 @@ module LavinMQ
         private def start_link
           setup_connection do |upstream_connection|
             upstream_channel, upstream_q = setup(upstream_connection)
-            # setup may have observed a concurrent delete and unregistered;
-            # don't go Running (which would defeat the run_loop terminate
-            # check and trigger a reconnect of a deleted link).
+            # A stop during setup must not be undone by going Running
             return if stop_link?
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
