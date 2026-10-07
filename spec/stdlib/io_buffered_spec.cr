@@ -10,6 +10,53 @@ describe IO::BufferPool do
     pool.stats[:allocated].should eq 1
     pool.stats[:reused].should eq 1
   end
+
+  it "reuses the most recently released buffer first" do
+    pool = IO::BufferPool.new(1024)
+    a = pool.acquire
+    b = pool.acquire
+    pool.release(a)
+    pool.release(b)
+    pool.acquire.should eq b
+  end
+
+  it "keeps at most MAX_PER_THREAD buffers per thread" do
+    pool = IO::BufferPool.new(1024)
+    extra = 5
+    buffers = Array.new(IO::BufferPool::MAX_PER_THREAD + extra) { pool.acquire }
+    buffers.each { |b| pool.release(b) }
+    stats = pool.stats
+    stats[:available].should eq IO::BufferPool::MAX_PER_THREAD
+    stats[:released].should eq IO::BufferPool::MAX_PER_THREAD
+    stats[:dropped].should eq extra
+  end
+
+  it "caches buffers per thread" do
+    pool = IO::BufferPool.new(1024)
+    buf = pool.acquire
+    Fiber::ExecutionContext::Isolated.new("release on another thread") do
+      pool.release(buf)
+    end.wait
+    # released into the other thread's cache, not this one's
+    pool.acquire.should_not eq buf
+    stats = pool.stats
+    stats[:threads].should eq 2
+    stats[:available].should eq 1
+    stats[:allocated].should eq 2
+  end
+
+  it "retires pools for other buffer sizes" do
+    old_pool = IO::BufferPool.for(1111)
+    old_buf = old_pool.acquire
+    new_pool = IO::BufferPool.for(2222)
+    old_pool.release(old_buf)
+    old_pool.stats[:available].should eq 0
+    old_pool.stats[:dropped].should eq 1
+    new_buf = new_pool.acquire
+    new_pool.release(new_buf)
+    new_pool.stats[:available].should eq 1
+    IO::BufferPool.for(1111).should be old_pool
+  end
 end
 
 describe IO::Buffered do
@@ -99,7 +146,7 @@ describe IO::Buffered do
       reader.@in_buffer.null?.should be_false
       reader.read_fully(buf)
       reader.@in_buffer.null?.should be_true
-      pool.available.should eq 1
+      pool.stats[:available].should eq 1
     ensure
       reader.try &.close
       writer.try &.close
@@ -140,6 +187,52 @@ describe IO::Buffered do
       reader.try &.close
     end
 
+    it "releases the read buffer at end of stream" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write Bytes.new(10, 1_u8)
+      writer.close
+      buf = Bytes.new(16) # small reads go via the read buffer
+      reader.read(buf).should eq 10
+      reader.read(buf).should eq 0
+      reader.@in_buffer.null?.should be_true
+      pool.stats[:available].should eq 1
+    ensure
+      reader.try &.close
+    end
+
+    it "doesn't hold an emptied read buffer while reading directly into a large slice" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write_byte 1_u8
+      reader.read_byte.should eq 1_u8 # empties, but keeps, the read buffer
+      read = Channel(Int32).new
+      # at least half the buffer size is read directly into the slice
+      spawn { read.send reader.read(Bytes.new(600)) }
+      Fiber.yield
+      reader.@in_buffer.null?.should be_true
+      writer.write Bytes.new(600)
+      read.receive.should eq 600
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
+    it "doesn't change IOs without a buffer pool" do
+      reader, writer = IO.pipe
+      writer.puts "hello"
+      writer.flush
+      reader.gets.should eq "hello"
+      reader.buffer_pool.should be_nil
+    ensure
+      reader.try &.close
+      writer.try &.close
+    end
+
     it "releases the write buffer after flush" do
       pool = IO::BufferPool.new(1024)
       reader, writer = UNIXSocket.pair
@@ -149,7 +242,7 @@ describe IO::Buffered do
       writer.@out_buffer.null?.should be_false
       writer.flush
       writer.@out_buffer.null?.should be_true
-      pool.available.should eq 1
+      pool.stats[:available].should eq 1
       buf = Bytes.new(10)
       reader.read_fully(buf)
       buf.should eq Bytes.new(10, 1_u8)

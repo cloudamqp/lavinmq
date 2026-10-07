@@ -1,62 +1,133 @@
 require "./socket_read_nonblock"
 
-# A thread-safe pool of reusable byte buffers for IO::Buffered.
+# A pool of reusable byte buffers for IO::Buffered.
 #
 # Most connections are idle most of the time. By returning read/write buffers
-# to a shared pool when they're not in use, memory can be reused across
-# connections instead of each connection holding two buffers forever.
+# to a pool when they're not in use, memory can be reused across connections
+# instead of each connection holding two buffers forever.
+#
+# Each thread has its own cache of buffers (a LIFO stack, so the most recently
+# used buffer is reused first), so acquiring and releasing takes no locks.
+# A buffer may be released on another thread than it was acquired on, it then
+# goes into that thread's cache. Each cache keeps at most `MAX_PER_THREAD`
+# buffers, more are left to the GC.
 class IO::BufferPool
+  MAX_PER_THREAD = 64
+
+  # :nodoc:
+  class Cache
+    getter buffers = Array(Pointer(UInt8)).new(MAX_PER_THREAD)
+    property allocated = 0_i64
+    property reused = 0_i64
+    property released = 0_i64
+    property dropped = 0_i64
+  end
+
   getter buffer_size : Int32
-  @buffers = Deque(Pointer(UInt8)).new
-  @lock = Mutex.new(:unchecked)
-  @allocated = Atomic(Int64).new(0)
-  @reused = Atomic(Int64).new(0)
-  @released = Atomic(Int64).new(0)
+  getter id : Int32
+  # Set when another buffer size is in use (after a config reload), buffers
+  # are then left to the GC instead of cached
+  @retired = Atomic(Bool).new(false)
+  # All threads' caches for this pool, for stats
+  @caches = Array(Cache).new
+  @caches_lock = Mutex.new(:unchecked)
 
-  def initialize(@buffer_size : Int32, @max_pooled : Int32 = 10_000)
+  # Per thread caches, indexed by pool id. Thread locals aren't scanned by
+  # the GC, so the arrays are also kept in @@all_thread_caches.
+  @[ThreadLocal]
+  @@thread_caches : Array(Cache?)?
+  @@all_thread_caches = Array(Array(Cache?)).new
+  @@all_thread_caches_lock = Mutex.new(:unchecked)
+
+  @@next_id = Atomic(Int32).new(0)
+
+  def initialize(@buffer_size : Int32)
+    @id = @@next_id.add(1, :relaxed)
   end
 
-  # Acquire a buffer from the pool, or allocate a new one if the pool is empty
+  # Acquire a buffer from the current thread's cache, or allocate a new one
   def acquire : Pointer(UInt8)
-    if buffer = @lock.synchronize { @buffers.shift? }
-      @reused.add(1, :relaxed)
-      buffer
-    else
-      @allocated.add(1, :relaxed)
-      GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
+    cache = thread_cache
+    if @retired.get(:relaxed)
+      cache.buffers.clear
+    elsif buffer = cache.buffers.pop?
+      cache.reused += 1
+      return buffer
     end
+    cache.allocated += 1
+    GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
   end
 
-  # Return a buffer to the pool. If the pool is full the buffer is left for the GC.
+  # Return a buffer to the current thread's cache. If the cache is full, or
+  # the pool is retired, the buffer is left for the GC.
   def release(buffer : Pointer(UInt8)) : Nil
     return if buffer.null?
-    @released.add(1, :relaxed)
-    @lock.synchronize do
-      @buffers.push(buffer) if @buffers.size < @max_pooled
+    cache = thread_cache
+    if @retired.get(:relaxed)
+      cache.buffers.clear
+      cache.dropped += 1
+    elsif cache.buffers.size < MAX_PER_THREAD
+      cache.buffers.push(buffer)
+      cache.released += 1
+    else
+      cache.dropped += 1
     end
   end
 
-  def available : Int32
-    @lock.synchronize { @buffers.size }
+  # Doesn't yield (which could move the fiber to another thread) unless the
+  # current thread has no cache for this pool yet
+  private def thread_cache : Cache
+    if (caches = @@thread_caches) && (cache = caches[@id]?)
+      return cache
+    end
+    new_thread_cache
+  end
+
+  private def new_thread_cache : Cache
+    cache = Cache.new
+    @caches_lock.synchronize { @caches << cache }
+    # the fiber may have moved to another thread while waiting for a lock,
+    # so the thread local is read after taking them
+    caches = @@thread_caches || register_thread_caches
+    while caches.size <= @id
+      caches << nil
+    end
+    caches[@id] ||= cache
+  end
+
+  private def register_thread_caches : Array(Cache?)
+    caches = Array(Cache?).new
+    @@all_thread_caches_lock.synchronize { @@all_thread_caches << caches }
+    @@thread_caches ||= caches
+  end
+
+  protected def retired=(value : Bool)
+    @retired.set(value, :relaxed)
   end
 
   def stats
+    caches = @caches_lock.synchronize { @caches.dup }
     {
       buffer_size: @buffer_size,
-      available:   available,
-      allocated:   @allocated.get(:relaxed),
-      reused:      @reused.get(:relaxed),
-      released:    @released.get(:relaxed),
+      threads:     caches.size,
+      available:   caches.sum(&.buffers.size),
+      allocated:   caches.sum(&.allocated),
+      reused:      caches.sum(&.reused),
+      released:    caches.sum(&.released),
+      dropped:     caches.sum(&.dropped),
     }
   end
 
   @@pools = Hash(Int32, IO::BufferPool).new
   @@pools_lock = Mutex.new(:unchecked)
 
-  # Returns the shared pool for the given buffer size
+  # Returns the pool for the given buffer size. Pools for other sizes are
+  # retired, their buffers left to the GC as they're released.
   def self.for(buffer_size : Int32) : IO::BufferPool
     @@pools_lock.synchronize do
-      @@pools[buffer_size] ||= IO::BufferPool.new(buffer_size)
+      pool = @@pools[buffer_size] ||= IO::BufferPool.new(buffer_size)
+      @@pools.each { |size, p| p.retired = size != buffer_size }
+      pool
     end
   end
 
@@ -73,6 +144,13 @@ end
 #   only acquire a buffer once data is available, so idle sockets waiting
 #   for data hold no read buffer at all.
 module IO::Buffered
+  # These overrides copy parts of the stdlib's IO::Buffered, re-verify them,
+  # and bump the version here, when upgrading Crystal. IOs without a buffer
+  # pool use the stdlib's implementation (previous_def).
+  {% unless compare_versions(Crystal::VERSION, "1.21.0") >= 0 && compare_versions(Crystal::VERSION, "1.22.0") < 0 %}
+    {% warning "IO::Buffered buffer pool overrides are only tested with Crystal 1.21, not #{Crystal::VERSION.id}" %}
+  {% end %}
+
   @buffer_pool : IO::BufferPool? = nil
 
   getter buffer_pool
@@ -85,34 +163,17 @@ module IO::Buffered
   end
 
   def read(slice : Bytes) : Int32
-    check_open
-
-    count = slice.size
-    return 0 if count == 0
-
-    if @in_buffer_rem.empty?
-      # If we are asked to read more than half the buffer's size,
-      # read directly into the slice, as it's not worth the extra
-      # memory copy.
-      if !read_buffering? || count >= @buffer_size // 2
-        return unbuffered_read(slice[0, count]).to_i
-      else
-        fill_buffer
-        return 0 if @in_buffer_rem.empty?
-      end
-    end
-
-    to_read = Math.min(count, @in_buffer_rem.size)
-    slice.copy_from(@in_buffer_rem.to_unsafe, to_read)
-    @in_buffer_rem += to_read
+    return previous_def unless @buffer_pool
+    # A buffer emptied by read_byte, peek or skip is returned before a read
+    # that may wait for data
     release_in_buffer if @in_buffer_rem.empty?
-    to_read
+    count = previous_def
+    release_in_buffer if @in_buffer_rem.empty?
+    count
   end
 
   def flush : self
-    unbuffered_write(Slice.new(out_buffer, @out_count)) if @out_count > 0
-    unbuffered_flush
-    @out_count = 0
+    previous_def
     if (pool = @buffer_pool) && (out_buf = @out_buffer)
       @out_buffer = Pointer(UInt8).null
       pool.release(out_buf)
@@ -120,22 +181,18 @@ module IO::Buffered
     self
   end
 
-  # Close can race with a fiber that is blocked writing from (or reading into)
-  # a pooled buffer, e.g. a force closed connection. Detach from the pool so
-  # those buffers are left to the GC instead of being handed to another IO.
+  # Detach from the pool, buffers still held are left to the GC
   def close : Nil
     @buffer_pool = nil
-    flush if @out_count > 0
-  ensure
-    unbuffered_close
+    previous_def
   end
 
   private def out_buffer
-    @out_buffer ||= if pool = @buffer_pool
-                      pool.acquire
-                    else
-                      GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*)
-                    end
+    if pool = @buffer_pool
+      @out_buffer ||= pool.acquire
+    else
+      previous_def
+    end
   end
 
   private def release_in_buffer : Nil
@@ -147,13 +204,13 @@ module IO::Buffered
   end
 
   private def fill_buffer
-    pool = @buffer_pool
+    return previous_def unless pool = @buffer_pool
     {% if flag?(:unix) %}
-      if pool && (socket = self.as?(Socket))
+      if socket = self.as?(Socket)
         return fill_socket_buffer(socket, pool)
       end
     {% end %}
-    in_buffer = (@in_buffer ||= pool ? pool.acquire : GC.malloc_atomic(@buffer_size.to_u32).as(UInt8*))
+    in_buffer = (@in_buffer ||= pool.acquire)
     size = unbuffered_read(Slice.new(in_buffer, @buffer_size)).to_i
     @in_buffer_rem = Slice.new(in_buffer, size)
   end
@@ -165,6 +222,7 @@ module IO::Buffered
       in_buffer = (@in_buffer ||= pool.acquire)
       if size = socket.read_nonblock(Slice.new(in_buffer, @buffer_size))
         @in_buffer_rem = Slice.new(in_buffer, size)
+        release_in_buffer if size.zero?
         return
       end
       @in_buffer = Pointer(UInt8).null

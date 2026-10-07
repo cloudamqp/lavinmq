@@ -47,7 +47,7 @@ class Socket
   def wait_readable : Nil
     check_open
     # a reference keeps a concurrent close from releasing the fd while waiting
-    @fd_lock.reference { Crystal::EventLoop.current.wait_readable(self) }
+    @fd_lock.reference { event_loop.wait_readable(self) }
     check_open
   end
 end
