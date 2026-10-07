@@ -15,8 +15,10 @@ module LavinMQ
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
+        start = StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?)
+        @track_offset = track_offset?(frame, start)
         filter = ConsumerFilter.from_arguments(frame.arguments)
-        @cursor = stream_queue.cursor(start_offset(frame), filter)
+        @cursor = stream_queue.cursor(resolve_start(start), filter)
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -37,25 +39,19 @@ module LavinMQ
         if frame.arguments.has_key? "x-priority"
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
-        validate_stream_offset(frame)
       end
 
-      private def validate_stream_offset(frame)
-        if StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?).nil?
-          @track_offset = true unless @tag.starts_with?("amq.ctag-")
-        else
-          case frame.arguments["x-stream-automatic-offset-tracking"]?
-          when Bool
-            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]?.as(Bool)
-          when String
-            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
-          end
+      private def track_offset?(frame, start : StreamOffset::Any?) : Bool
+        return !@tag.starts_with?("amq.ctag-") if start.nil?
+        case tracking = frame.arguments["x-stream-automatic-offset-tracking"]?
+        when Bool   then tracking
+        when String then tracking == "true"
+        else             false
         end
       end
 
       # The stored offset wins when tracking offsets or when no offset is given
-      private def start_offset(frame) : StreamOffset::Any
-        start = StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?)
+      private def resolve_start(start : StreamOffset::Any?) : StreamOffset::Any
         if @track_offset || start.nil?
           stored = stream_queue.stored_offset(@tag)
           return StreamOffset::Absolute.new(stored) if stored
