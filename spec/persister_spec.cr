@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "./mqtt/spec_helper/persister_drain_gate_spec"
 
 private def queue_dir(s : LavinMQ::Server, queue_name : String) : String
   File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(queue_name))
@@ -9,7 +10,29 @@ private def last_sync(s : LavinMQ::Server) : LavinMQ::Persister::SyncRecord
   s.persister.last_sync.not_nil!
 end
 
+private class RecordingTarget
+  include LavinMQ::Persister::ConfirmTarget
+
+  getter confirmed = Channel(UInt64).new(8)
+
+  def enqueue_confirm_ack(msgid : UInt64) : Nil
+    @confirmed.send msgid
+  end
+end
+
 describe LavinMQ::Persister do
+  it "confirms the highest id queued for a target in a batch" do
+    with_amqp_server do |s|
+      target = RecordingTarget.new
+      MqttSpecs.with_drain_held do |gate|
+        s.persister.enqueue_ack(target, 2u64).should be_true
+        s.persister.enqueue_ack(target, 1u64).should be_true
+        MqttSpecs.release_drain(gate)
+        target.confirmed.receive.should eq 2u64
+      end
+    end
+  end
+
   it "syncs the segments of confirmed publishes, not of other publishes" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

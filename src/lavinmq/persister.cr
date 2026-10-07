@@ -19,7 +19,9 @@ module LavinMQ
   class Persister
     Log = LavinMQ::Log.for "persister"
 
-    # Receives publish confirms once the confirmed data is durable
+    # Receives publish confirms once the confirmed data is durable. Ids are
+    # cumulative per target and only grow: confirming id N confirms every id
+    # up to N, and `enqueue_ack` keeps the highest id queued in a batch.
     module ConfirmTarget
       abstract def enqueue_confirm_ack(msgid : UInt64) : Nil
     end
@@ -69,10 +71,15 @@ module LavinMQ
     # Basic.Ack frames out of delivery-tag order (see #2078). The loop skips the
     # actual sync while sync is disabled (see drain), so no-sync only pays a
     # single hop to the loop, not a disk flush.
-    def enqueue_ack(target : ConfirmTarget, id : UInt64)
-      @pending.lock { |batch| batch.acks[target] = id }
+    # Returns false when the loop has stopped, so nothing will confirm the id.
+    def enqueue_ack(target : ConfirmTarget, id : UInt64) : Bool
+      @pending.lock do |batch|
+        batch.acks[target] = Math.max(id, batch.acks[target]? || 0u64)
+      end
       @publish_confirm_requested.try_send true
+      true
     rescue ::Channel::ClosedError
+      false
     end
 
     # Register a file whose written data a later confirm depends on. Must be
