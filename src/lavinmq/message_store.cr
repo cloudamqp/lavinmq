@@ -8,6 +8,7 @@ require "file_utils"
 require "./clustering/server"
 require "./persister"
 require "./bool_channel"
+require "./rough_time"
 require "./message_store/requeued_store"
 
 module LavinMQ
