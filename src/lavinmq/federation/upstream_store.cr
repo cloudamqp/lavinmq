@@ -30,11 +30,24 @@ module LavinMQ
                   else                                return
                   end
         entries.each do |entry|
-          uri = entry["uri"]?.try(&.as_s?)
-          if component == "federation-upstream" && uri.nil?
+          uris = parse_uris(entry["uri"]?)
+          if component == "federation-upstream" && uris.empty?
             raise ConfigError.new("Field 'uri' is required")
           end
-          validate_access!(URI.parse(uri), entry, user) if uri && user
+          uris.each { |uri| validate_access!(URI.parse(uri), entry, user) } if user
+        end
+      end
+
+      # A URI or, as RabbitMQ accepts, a list of them. Only the first is
+      # used, an upstream connects to one broker.
+      def self.parse_uris(value : JSON::Any?) : Array(String)
+        return Array(String).new if value.nil?
+        if uri = value.as_s?
+          [uri]
+        elsif list = value.as_a?
+          list.map { |v| v.as_s? || raise ConfigError.new("Field 'uri' must be a string or a list of strings") }
+        else
+          raise ConfigError.new("Field 'uri' must be a string or a list of strings")
         end
       end
 
@@ -61,7 +74,7 @@ module LavinMQ
 
       def create_upstream(name, config)
         do_delete_upstream(name)
-        uri = config["uri"].to_s
+        uri = self.class.parse_uris(config["uri"]?).first? || raise ConfigError.new("Field 'uri' is required")
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
         ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || DEFAULT_ACK_MODE
@@ -116,7 +129,7 @@ module LavinMQ
           upstream = @upstreams[cfg["upstream"].as_s]
           if cfg.as_h.keys.size > 1
             upstream = upstream.dup
-            cfg["uri"]?.try { |p| upstream.uri = URI.parse(p.as_s) }
+            self.class.parse_uris(cfg["uri"]?).first?.try { |p| upstream.uri = URI.parse(p) }
             cfg["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
             cfg["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
             AckMode.from_config?(cfg["ack-mode"]?.try(&.as_s)).try { |p| upstream.ack_mode = p }

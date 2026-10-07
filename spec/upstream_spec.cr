@@ -425,6 +425,18 @@ describe LavinMQ::Federation do
       end
     end
 
+    it "accepts a list of URIs, like RabbitMQ, and uses the first" do
+      with_http_server do |http, s|
+        body = {"value" => {"uri" => ["amqp://server-name/%2f", "amqp://other/%2f"]}}.to_json
+        response = http.put("/api/parameters/federation-upstream/%2f/up", body: body)
+        response.status_code.should eq 201
+        s.vhosts["/"].upstreams.find!(&.name.== "up").uri.host.should eq "server-name"
+        body = {"value" => {"uri" => [1]}}.to_json
+        response = http.put("/api/parameters/federation-upstream/%2f/up2", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
     it "refuses an in-process upstream the user can't access over the HTTP API" do
       with_http_server do |http, s|
         s.vhosts.create("secret")
