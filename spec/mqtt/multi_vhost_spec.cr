@@ -63,6 +63,37 @@ module MqttSpecs
             end
           end
         end
+
+        it "should deny mqtt access to a deleted vhost" do
+          with_server do |server|
+            server.vhosts.create("new")
+            server.users.create("foo", "bar")
+            server.users.add_permission "foo", "new", /.*/, /.*/, /.*/
+            server.vhosts.delete("new")
+            # Permissions are dropped with the vhost, re-grant them so the
+            # missing vhost is what refuses the connection
+            server.users.add_permission "foo", "new", /.*/, /.*/, /.*/
+            with_client_io(server) do |io|
+              resp = connect io, username: "new:foo", password: "bar".to_slice
+              resp = resp.should be_a(MQTT::Protocol::Connack)
+              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
+            end
+          end
+        end
+
+        it "should deny mqtt access to a closed vhost" do
+          with_server do |server|
+            server.vhosts.create("new")
+            server.users.create("foo", "bar")
+            server.users.add_permission "foo", "new", /.*/, /.*/, /.*/
+            server.vhosts["new"].close
+            with_client_io(server) do |io|
+              resp = connect io, username: "new:foo", password: "bar".to_slice
+              resp = resp.should be_a(MQTT::Protocol::Connack)
+              resp.return_code.should eq MQTT::Protocol::Connack::ReturnCode::NotAuthorized
+            end
+          end
+        end
       end
     end
   end

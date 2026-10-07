@@ -49,6 +49,14 @@ module LavinMQ
         @q_links.delete(federated_q.name).try(&.delete)
       end
 
+      def exchange_bound(federated_exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        @ex_links[federated_exchange.name]?.try &.bound(binding)
+      end
+
+      def exchange_unbound(federated_exchange : AMQP::Exchange, binding : AMQP::BindingDetails)
+        @ex_links[federated_exchange.name]?.try &.unbound(binding)
+      end
+
       def links : Array(Link)
         @q_links.values + @ex_links.values
       end
